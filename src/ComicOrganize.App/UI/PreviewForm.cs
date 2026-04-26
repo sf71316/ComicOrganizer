@@ -40,6 +40,7 @@ public partial class PreviewForm : Window
         // 1. 建立主 Collapse 元件
         var collapse = new AntdUI.Collapse
         {
+            Unique= true,
             Dock = DockStyle.Top,
             AutoSize = true,
             Name = "collapseMain",
@@ -68,7 +69,7 @@ public partial class PreviewForm : Window
             var collapseItem = new AntdUI.CollapseItem
             {
                 Text = $"{group.DisplayTitle} {group.DestinationPath}",
-                Expand = true,
+                //Expand = true,
                 Height = 200,
                 AutoScroll = true,
             };

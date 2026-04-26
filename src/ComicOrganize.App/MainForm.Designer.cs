@@ -51,6 +51,8 @@ partial class MainForm
         txtTarget = new AntdUI.Input();
         txtSource = new AntdUI.Input();
         folderBrowserDialog = new FolderBrowserDialog();
+        label1 = new AntdUI.Label();
+        label2 = new AntdUI.Label();
         tabs.SuspendLayout();
         tabPage2.SuspendLayout();
         tabPage3.SuspendLayout();
@@ -70,9 +72,9 @@ partial class MainForm
         // 
         // tabs
         // 
+        tabs.Controls.Add(tabPage3);
         tabs.Controls.Add(tabPage2);
         tabs.Controls.Add(tabPage1);
-        tabs.Controls.Add(tabPage3);
         tabs.Dock = DockStyle.Fill;
         tabs.Font = new Font("Microsoft JhengHei UI", 12F);
         tabs.Location = new Point(0, 48);
@@ -80,7 +82,7 @@ partial class MainForm
         tabs.Pages.Add(tabPage1);
         tabs.Pages.Add(tabPage2);
         tabs.Pages.Add(tabPage3);
-        tabs.SelectedIndex = 1;
+        tabs.SelectedIndex = 2;
         tabs.Size = new Size(1000, 752);
         tabs.Style = styleCard1;
         tabs.TabIndex = 0;
@@ -92,7 +94,7 @@ partial class MainForm
         tabPage2.Controls.Add(btnExecute);
         tabPage2.Controls.Add(tableArchive);
         tabPage2.Controls.Add(btnScan);
-        tabPage2.Location = new Point(0, 46);
+        tabPage2.Location = new Point(-2000, -1412);
         tabPage2.Name = "tabPage2";
         tabPage2.Size = new Size(1000, 706);
         tabPage2.TabIndex = 1;
@@ -147,29 +149,31 @@ partial class MainForm
         // 
         // tabPage3
         // 
+        tabPage3.Controls.Add(label2);
+        tabPage3.Controls.Add(label1);
         tabPage3.Controls.Add(cbDebug);
         tabPage3.Controls.Add(btnSaveConfig);
         tabPage3.Controls.Add(btnBrowseTarget);
         tabPage3.Controls.Add(btnBrowseSource);
         tabPage3.Controls.Add(txtTarget);
         tabPage3.Controls.Add(txtSource);
-        tabPage3.Location = new Point(-2000, -1406);
+        tabPage3.Location = new Point(0, 46);
         tabPage3.Name = "tabPage3";
-        tabPage3.Size = new Size(1000, 703);
+        tabPage3.Size = new Size(1000, 706);
         tabPage3.TabIndex = 2;
         tabPage3.Text = "系統設定";
         // 
         // cbDebug
         // 
-        cbDebug.Location = new Point(20, 160);
+        cbDebug.Location = new Point(39, 241);
         cbDebug.Name = "cbDebug";
-        cbDebug.Size = new Size(200, 30);
+        cbDebug.Size = new Size(335, 30);
         cbDebug.TabIndex = 0;
         cbDebug.Text = "偵錯模式 (不移動檔案)";
         // 
         // btnSaveConfig
         // 
-        btnSaveConfig.Location = new Point(20, 210);
+        btnSaveConfig.Location = new Point(39, 311);
         btnSaveConfig.Name = "btnSaveConfig";
         btnSaveConfig.Size = new Size(150, 45);
         btnSaveConfig.TabIndex = 1;
@@ -178,7 +182,7 @@ partial class MainForm
         // 
         // btnBrowseTarget
         // 
-        btnBrowseTarget.Location = new Point(630, 100);
+        btnBrowseTarget.Location = new Point(649, 167);
         btnBrowseTarget.Name = "btnBrowseTarget";
         btnBrowseTarget.Size = new Size(80, 45);
         btnBrowseTarget.TabIndex = 2;
@@ -186,7 +190,7 @@ partial class MainForm
         // 
         // btnBrowseSource
         // 
-        btnBrowseSource.Location = new Point(630, 40);
+        btnBrowseSource.Location = new Point(649, 57);
         btnBrowseSource.Name = "btnBrowseSource";
         btnBrowseSource.Size = new Size(80, 45);
         btnBrowseSource.TabIndex = 3;
@@ -194,7 +198,7 @@ partial class MainForm
         // 
         // txtTarget
         // 
-        txtTarget.Location = new Point(20, 100);
+        txtTarget.Location = new Point(39, 167);
         txtTarget.Name = "txtTarget";
         txtTarget.PlaceholderText = "漫畫庫總根目錄 (Root)";
         txtTarget.Size = new Size(600, 45);
@@ -202,11 +206,27 @@ partial class MainForm
         // 
         // txtSource
         // 
-        txtSource.Location = new Point(20, 40);
+        txtSource.Location = new Point(39, 57);
         txtSource.Name = "txtSource";
         txtSource.PlaceholderText = "來源目錄 (待整理檔案路徑)";
         txtSource.Size = new Size(600, 45);
         txtSource.TabIndex = 5;
+        // 
+        // label1
+        // 
+        label1.Location = new Point(39, 17);
+        label1.Name = "label1";
+        label1.Size = new Size(112, 34);
+        label1.TabIndex = 6;
+        label1.Text = "來源目錄";
+        // 
+        // label2
+        // 
+        label2.Location = new Point(39, 127);
+        label2.Name = "label2";
+        label2.Size = new Size(112, 34);
+        label2.TabIndex = 7;
+        label2.Text = "歸檔目錄";
         // 
         // MainForm
         // 
@@ -221,4 +241,7 @@ partial class MainForm
         tabPage3.ResumeLayout(false);
         ResumeLayout(false);
     }
+
+    private AntdUI.Label label1;
+    private AntdUI.Label label2;
 }
