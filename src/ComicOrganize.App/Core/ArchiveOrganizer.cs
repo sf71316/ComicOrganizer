@@ -8,7 +8,6 @@ public class ArchiveOrganizer
 {
     private readonly MappingIntelligence _intelligence;
     private readonly AppConfig _config;
-    private readonly double _autoMatchThreshold = 85.0; 
 
     public ArchiveOrganizer(MappingIntelligence intelligence, AppConfig config)
     {

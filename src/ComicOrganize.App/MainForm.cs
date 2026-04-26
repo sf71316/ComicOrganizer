@@ -29,6 +29,57 @@ public partial class MainForm : Window
         btnSaveConfig.Click += (s, e) => SaveConfig();
         btnScan.Click += async (s, e) => await ScanAsync();
         btnExecute.Click += async (s, e) => await ExecuteAsync();
+
+        // 雙擊修改目標路徑邏輯
+        tableArchive.CellDoubleClick += (s, e) => {
+            var record = e.Record; 
+            if (record is ArchiveItem currentItem)
+            {
+                if (folderBrowserDialog.ShowDialog() == DialogResult.OK)
+                {
+                    string newPath = folderBrowserDialog.SelectedPath;
+                    string newFolderName = Path.GetFileName(newPath);
+
+                    // 取得目前 DataSource 中所有被「勾選」的項目，視為批次修改對象
+                    var data = tableArchive.DataSource as BindingList<ArchiveItem>;
+                    var checkedItems = data?.Where(x => x.Checked).ToList();
+                    
+                    if (checkedItems != null && checkedItems.Count > 1 && checkedItems.Contains(currentItem))
+                    {
+                        var diagResult = MessageBox.Show(
+                            $"是否將已勾選的 {checkedItems.Count} 個項目全部修改為此目標？",
+                            "批次修改確認",
+                            MessageBoxButtons.YesNo);
+
+                        if (diagResult == DialogResult.Yes)
+                        {
+                            foreach (var item in checkedItems)
+                            {
+                                UpdateItemTarget(item, newFolderName, newPath);
+                            }
+                        }
+                        else
+                        {
+                            UpdateItemTarget(currentItem, newFolderName, newPath);
+                        }
+                    }
+                    else
+                    {
+                        UpdateItemTarget(currentItem, newFolderName, newPath);
+                    }
+                    
+                    tableArchive.Invalidate();
+                }
+            }
+        };
+    }
+
+    private void UpdateItemTarget(ArchiveItem item, string folderName, string fullPath)
+    {
+        item.TargetFolder = folderName;
+        item.DestinationPath = fullPath;
+        item.Status = "手動修正";
+        item.Checked = true;
     }
 
     protected override void OnMouseDown(MouseEventArgs e)
@@ -43,16 +94,15 @@ public partial class MainForm : Window
         txtTarget.Text = _config.RootDirectory;
         cbDebug.Checked = _config.DebugMode;
 
-        // 設定 Table 欄位
+        // 設定 Table 欄位：關鍵欄位自動彈性分配，短欄位固定寬度
         tableArchive.Columns = new ColumnCollection {
             new ColumnCheck("Checked"),
-            new Column("Source", "來源名稱") { Width = "40%" },
-            new Column("TargetFolder", "匹配目標") { Width = "20%" },
-            new Column("Confidence", "信心度") { Width = "10%" },
-            new Column("Status", "狀態") { Width = "20%" }
+            new Column("Source", "來源名稱") { SortOrder = true },
+            new Column("TargetFolder", "匹配目標") { Width = "150", SortOrder = true },
+            new Column("DestinationPath", "目的路徑"),
+            new Column("Confidence", "信心度") { Width = "80", SortOrder = true },
+            new Column("Status", "狀態") { Width = "100" }
         };
-        
-        Config.Font = new Font("Microsoft JhengHei UI", 12F);
     }
 
     private void BrowseFolder(AntdUI.Input input)
@@ -90,18 +140,23 @@ public partial class MainForm : Window
                                          .Where(n => n != null).Cast<string>().ToList();
             var sourceItems = Directory.GetFileSystemEntries(_config.UnorganizedDirectory);
 
-            var list = new BindingList<ArchiveItem>();
+            var list = new List<ArchiveItem>();
 
-            await Task.Run(() => {
+            await Task.Run(() =>
+            {
                 foreach (var itemPath in sourceItems)
                 {
                     string name = Path.GetFileName(itemPath);
                     var result = _organizer.FindBestMatch(name, targetFolders);
-                    
-                    list.Add(new ArchiveItem {
+                    string targetFolder = result?.FolderName ?? "未匹配";
+                    string destPath = string.IsNullOrEmpty(result?.FolderName) ? "" : Path.Combine(_config.RootDirectory, result.FolderName);
+
+                    list.Add(new ArchiveItem
+                    {
                         Source = name,
                         FullPath = itemPath,
-                        TargetFolder = result?.FolderName ?? "未匹配",
+                        TargetFolder = targetFolder,
+                        DestinationPath = destPath,
                         Confidence = result?.Confidence.ToString("F1") ?? "0",
                         Status = result != null && result.IsLearned ? "知識庫" : "模糊比對",
                         Checked = result != null && result.Confidence >= 85
@@ -109,8 +164,20 @@ public partial class MainForm : Window
                 }
             });
 
-            tableArchive.DataSource = list;
+            var sortedList = new BindingList<ArchiveItem>(
+                list.OrderByDescending(x =>
+                {
+                    double.TryParse(x.Confidence, out double val);
+                    return val;
+                }).ToList()
+            );
+
+            tableArchive.DataSource = sortedList;
             lblStatus.Text = $"掃描完成，共 {list.Count} 個項目";
+            if (sortedList.Count > 0)
+            {
+                btnExecute.Enabled = true;
+            }
         }
         catch (Exception ex)
         {
@@ -135,7 +202,8 @@ public partial class MainForm : Window
 
         btnExecute.Loading = true;
 
-        await Task.Run(() => {
+        await Task.Run(() =>
+        {
             foreach (var item in checkedItems)
             {
                 string targetPath = Path.Combine(_config.RootDirectory, item.TargetFolder, item.Source);
@@ -173,17 +241,37 @@ public partial class MainForm : Window
 
 public class ArchiveItem : INotifyPropertyChanged
 {
-    public bool Checked { get; set; }
+    private bool _checked;
+    public bool Checked 
+    { 
+        get => _checked; 
+        set { _checked = value; OnPropertyChanged(nameof(Checked)); } 
+    }
+
     public string Source { get; set; } = "";
     public string FullPath { get; set; } = "";
-    public string TargetFolder { get; set; } = "";
-    public string Confidence { get; set; } = "";
-    
-    private string _status = "";
-    public string Status 
+
+    private string _targetFolder = "";
+    public string TargetFolder 
     { 
-        get => _status; 
-        set { _status = value; OnPropertyChanged(nameof(Status)); } 
+        get => _targetFolder; 
+        set { _targetFolder = value; OnPropertyChanged(nameof(TargetFolder)); } 
+    }
+
+    private string _destinationPath = "";
+    public string DestinationPath 
+    { 
+        get => _destinationPath; 
+        set { _destinationPath = value; OnPropertyChanged(nameof(DestinationPath)); } 
+    }
+
+    public string Confidence { get; set; } = "";
+
+    private string _status = "";
+    public string Status
+    {
+        get => _status;
+        set { _status = value; OnPropertyChanged(nameof(Status)); }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

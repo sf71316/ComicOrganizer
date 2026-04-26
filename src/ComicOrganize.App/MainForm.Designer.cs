@@ -34,7 +34,7 @@ partial class MainForm
 
     private void InitializeComponent()
     {
-        AntdUI.Tabs.StyleLine styleLine1 = new AntdUI.Tabs.StyleLine();
+        AntdUI.Tabs.StyleCard styleCard1 = new AntdUI.Tabs.StyleCard();
         windowBar = new AntdUI.PageHeader();
         tabs = new AntdUI.Tabs();
         tabPage2 = new AntdUI.TabPage();
@@ -82,8 +82,9 @@ partial class MainForm
         tabs.Pages.Add(tabPage3);
         tabs.SelectedIndex = 1;
         tabs.Size = new Size(1000, 752);
-        tabs.Style = styleLine1;
+        tabs.Style = styleCard1;
         tabs.TabIndex = 0;
+        tabs.Type = AntdUI.TabType.Card;
         // 
         // tabPage2
         // 
@@ -91,9 +92,9 @@ partial class MainForm
         tabPage2.Controls.Add(btnExecute);
         tabPage2.Controls.Add(tableArchive);
         tabPage2.Controls.Add(btnScan);
-        tabPage2.Location = new Point(0, 49);
+        tabPage2.Location = new Point(0, 46);
         tabPage2.Name = "tabPage2";
-        tabPage2.Size = new Size(1000, 703);
+        tabPage2.Size = new Size(1000, 706);
         tabPage2.TabIndex = 1;
         tabPage2.Text = "自動歸檔";
         // 
@@ -107,6 +108,7 @@ partial class MainForm
         // 
         // btnExecute
         // 
+        btnExecute.Enabled = false;
         btnExecute.Location = new Point(239, 20);
         btnExecute.Name = "btnExecute";
         btnExecute.Size = new Size(150, 45);
@@ -117,11 +119,13 @@ partial class MainForm
         // tableArchive
         // 
         tableArchive.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+        tableArchive.AutoSizeColumnsMode = AntdUI.ColumnsMode.Fill;
         tableArchive.EmptyText = "no data";
-        tableArchive.Gap = 12;
+        tableArchive.Gap = 4;
+        tableArchive.Gaps = new Size(4, 4);
         tableArchive.Location = new Point(20, 85);
         tableArchive.Name = "tableArchive";
-        tableArchive.Size = new Size(955, 585);
+        tableArchive.Size = new Size(955, 588);
         tableArchive.TabIndex = 2;
         // 
         // btnScan
