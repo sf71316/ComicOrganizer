@@ -4,7 +4,6 @@ partial class PreviewForm
 {
     private System.ComponentModel.IContainer components = null;
     private AntdUI.PageHeader windowBar;
-    private System.Windows.Forms.Panel container; // 使用原生 Panel 作為根容器，提高相容性
     private AntdUI.Panel footer;
     private AntdUI.Button btnExecute;
     private AntdUI.Button btnCancel;
@@ -23,13 +22,17 @@ partial class PreviewForm
     private void InitializeComponent()
     {
         windowBar = new AntdUI.PageHeader();
-        container = new Panel();
         footer = new AntdUI.Panel();
         lblProgress = new AntdUI.Label();
         progress = new AntdUI.Progress();
         btnCancel = new AntdUI.Button();
         btnExecute = new AntdUI.Button();
+        splitter1 = new AntdUI.Splitter();
+        collapseMain = new AntdUI.Collapse();
         footer.SuspendLayout();
+        ((System.ComponentModel.ISupportInitialize)splitter1).BeginInit();
+        splitter1.Panel2.SuspendLayout();
+        splitter1.SuspendLayout();
         SuspendLayout();
         // 
         // windowBar
@@ -43,17 +46,6 @@ partial class PreviewForm
         windowBar.Size = new Size(1048, 50);
         windowBar.TabIndex = 2;
         windowBar.Text = "預覽歸檔計畫";
-        // 
-        // container
-        // 
-        container.AutoScroll = true;
-        container.BackColor = Color.White;
-        container.Dock = DockStyle.Fill;
-        container.Location = new Point(0, 50);
-        container.Name = "container";
-        container.Padding = new Padding(10);
-        container.Size = new Size(1048, 850);
-        container.TabIndex = 0;
         // 
         // footer
         // 
@@ -105,16 +97,49 @@ partial class PreviewForm
         btnExecute.Text = "執行歸檔";
         btnExecute.Type = AntdUI.TTypeMini.Success;
         // 
+        // splitter1
+        // 
+        splitter1.Dock = DockStyle.Fill;
+        splitter1.Location = new Point(0, 50);
+        splitter1.Name = "splitter1";
+        splitter1.Orientation = Orientation.Horizontal;
+        // 
+        // splitter1.Panel2
+        // 
+        splitter1.Panel2.Controls.Add(collapseMain);
+        splitter1.Size = new Size(1048, 850);
+        splitter1.SplitterDistance = 81;
+        splitter1.TabIndex = 3;
+        // 
+        // collapseMain
+        // 
+        collapseMain.ContentPadding = new Size(5, 5);
+        collapseMain.Dock = DockStyle.Fill;
+        collapseMain.FontExpand = new Font("Microsoft JhengHei UI", 12F, FontStyle.Bold, GraphicsUnit.Point, 136);
+        collapseMain.HeaderBg = Color.FromArgb(194, 193, 192);
+        collapseMain.Location = new Point(0, 0);
+        collapseMain.Name = "collapseMain";
+        collapseMain.Size = new Size(1048, 765);
+        collapseMain.TabIndex = 0;
+        collapseMain.Text = "collapse1";
+        collapseMain.Unique = true;
+        // 
         // PreviewForm
         // 
         ClientSize = new Size(1048, 1000);
-        Controls.Add(container);
+        Controls.Add(splitter1);
         Controls.Add(footer);
         Controls.Add(windowBar);
         Name = "PreviewForm";
         StartPosition = FormStartPosition.CenterParent;
         Text = "預覽歸檔計畫";
         footer.ResumeLayout(false);
+        splitter1.Panel2.ResumeLayout(false);
+        ((System.ComponentModel.ISupportInitialize)splitter1).EndInit();
+        splitter1.ResumeLayout(false);
         ResumeLayout(false);
     }
+
+    private AntdUI.Splitter splitter1;
+    private AntdUI.Collapse collapseMain;
 }

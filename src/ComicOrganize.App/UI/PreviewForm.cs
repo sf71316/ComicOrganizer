@@ -25,7 +25,7 @@ public partial class PreviewForm : Window
                        }).ToList();
 
         // 確保父容器支援捲軸
-        container.AutoScroll = true;
+        //container.AutoScroll = true;
 
         this.Load += (s, e) => InitializeOfficialCollapseUI();
 
@@ -35,25 +35,26 @@ public partial class PreviewForm : Window
 
     private void InitializeOfficialCollapseUI()
     {
-        container.Controls.Clear();
+        //container.Controls.Clear();
 
         // 1. 建立主 Collapse 元件
-        var collapse = new AntdUI.Collapse
-        {
-            Unique= true,
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            Name = "collapseMain",
-            ContentPadding = new Size(5, 5),
-            HeaderBg = Color.FromArgb(194, 193, 192)
-        };
+        //var collapse = new AntdUI.Collapse
+        //{
+        //    Unique= true,
+        //    Dock = DockStyle.Top,
+        //    AutoSize = true,
+        //    Name = "collapseMain",
+        //    ContentPadding = new Size(5, 5),
+        //    HeaderBg = Color.FromArgb(194, 193, 192),
+        //    FontExpand = new Font("Microsoft JhengHei UI", 12F, FontStyle.Bold)
+        //};
 
         // 確保初始寬度大於 0，否則佈局引擎不會工作
-        collapse.Width = container.Width > 0 ? container.Width - 20 : 800;
-        collapse.Height = 100; // 給予初始高度
+        collapseMain.Width = this.splitter1.Panel2.Width > 0 ? this.splitter1.Panel2.Width - 20 : 800;
+        collapseMain.Height = 100; // 給予初始高度
 
         // 處理群組開關事件
-        collapse.ButtonClick += (s, e) =>
+        collapseMain.ButtonClick += (s, e) =>
         {
             var grp = _groups.FirstOrDefault(g => g.DestinationPath == e.Value.Name);
             if (grp != null)
@@ -68,10 +69,11 @@ public partial class PreviewForm : Window
             // 2. 建立 CollapseItem
             var collapseItem = new AntdUI.CollapseItem
             {
-                Text = $"{group.DisplayTitle} {group.DestinationPath}",
+                Text = $"{group.DisplayTitle} ",
                 //Expand = true,
                 Height = 200,
                 AutoScroll = true,
+
             };
 
             // 3. 加入 Switch 按鈕
@@ -97,7 +99,7 @@ public partial class PreviewForm : Window
 
             table.Columns = new ColumnCollection {
                 new Column("Source", "來源名稱") { Width = "90%" },
-                new Column("Action", "操作") 
+                new Column("Action", "操作")
             };
 
             table.CellButtonClick += (s, e) =>
@@ -108,15 +110,15 @@ public partial class PreviewForm : Window
                     collapseItem.Text = group.DisplayTitle;
                     if (group.Items.Count == 0) collapseItem.Visible = false;
                     UpdateExecuteButtonState();
-                    collapse.LoadLayout();
+                    collapseMain.LoadLayout();
                 }
             };
 
             collapseItem.Controls.Add(table);
-            collapse.Items.Add(collapseItem);
+            collapseMain.Items.Add(collapseItem);
         }
+        UpdateExecuteButtonState();
 
-        container.Controls.Add(collapse);
     }
 
     private void UpdateExecuteButtonState()

@@ -179,7 +179,8 @@ public partial class MainForm : Window
                         Confidence = result?.Confidence.ToString("F1") ?? "0",
                         Status = result != null && result.IsLearned ? "知識庫" : "模糊比對",
                         Checked = result != null && result.Confidence >= 85,
-                        Action = new AntdUI.CellLink[] { new AntdUI.CellButton("Delete", "刪除", AntdUI.TTypeMini.Error) { Ghost = true, BorderWidth = 1 } }
+                        Action = new AntdUI.CellLink[] { new AntdUI.CellButton("Delete", "刪除", AntdUI.TTypeMini.Error)
+                        { Ghost = true, IconSvg="DeleteOutlined",IconHoverSvg="DeleteFilled" } }
                     });
                 }
             });
