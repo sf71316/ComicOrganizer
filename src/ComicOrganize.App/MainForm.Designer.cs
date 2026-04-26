@@ -111,9 +111,9 @@ partial class MainForm
         btnExecute.Enabled = false;
         btnExecute.Location = new Point(239, 20);
         btnExecute.Name = "btnExecute";
-        btnExecute.Size = new Size(150, 45);
+        btnExecute.Size = new Size(172, 45);
         btnExecute.TabIndex = 1;
-        btnExecute.Text = "執行歸檔";
+        btnExecute.Text = "預覽歸檔計畫";
         btnExecute.Type = AntdUI.TTypeMini.Success;
         // 
         // tableArchive
@@ -139,9 +139,9 @@ partial class MainForm
         // 
         // tabPage1
         // 
-        tabPage1.Location = new Point(-2000, -1406);
+        tabPage1.Location = new Point(-2000, -1412);
         tabPage1.Name = "tabPage1";
-        tabPage1.Size = new Size(1000, 703);
+        tabPage1.Size = new Size(1000, 706);
         tabPage1.TabIndex = 0;
         tabPage1.Text = "封面管理";
         // 

@@ -1,6 +1,7 @@
 using AntdUI;
 using ComicOrganize.App.Core;
 using ComicOrganize.App.Models;
+using ComicOrganize.App.UI;
 using System.ComponentModel;
 
 namespace ComicOrganize.App;
@@ -28,11 +29,31 @@ public partial class MainForm : Window
         btnBrowseTarget.Click += (s, e) => BrowseFolder(txtTarget);
         btnSaveConfig.Click += (s, e) => SaveConfig();
         btnScan.Click += async (s, e) => await ScanAsync();
-        btnExecute.Click += async (s, e) => await ExecuteAsync();
+
+        // 點擊「預覽歸檔計畫」
+        btnExecute.Click += (s, e) =>
+        {
+            var data = tableArchive.DataSource as BindingList<ArchiveItem>;
+            var checkedItems = data?.Where(x => x.Checked).ToList();
+
+            if (checkedItems == null || !checkedItems.Any())
+            {
+                AntdUI.Message.warn(this, "請先勾選要處理的項目");
+                return;
+            }
+
+            using (var preview = new PreviewForm(checkedItems, _config.RootDirectory, _intelligence, _organizer))
+            {
+                preview.ShowDialog(this);
+                // 執行完後重新掃描以刷新狀態
+                _ = ScanAsync();
+            }
+        };
 
         // 雙擊修改目標路徑邏輯
-        tableArchive.CellDoubleClick += (s, e) => {
-            var record = e.Record; 
+        tableArchive.CellDoubleClick += (s, e) =>
+        {
+            var record = e.Record;
             if (record is ArchiveItem currentItem)
             {
                 if (folderBrowserDialog.ShowDialog() == DialogResult.OK)
@@ -40,10 +61,9 @@ public partial class MainForm : Window
                     string newPath = folderBrowserDialog.SelectedPath;
                     string newFolderName = Path.GetFileName(newPath);
 
-                    // 取得目前 DataSource 中所有被「勾選」的項目，視為批次修改對象
                     var data = tableArchive.DataSource as BindingList<ArchiveItem>;
                     var checkedItems = data?.Where(x => x.Checked).ToList();
-                    
+
                     if (checkedItems != null && checkedItems.Count > 1 && checkedItems.Contains(currentItem))
                     {
                         var diagResult = MessageBox.Show(
@@ -67,7 +87,7 @@ public partial class MainForm : Window
                     {
                         UpdateItemTarget(currentItem, newFolderName, newPath);
                     }
-                    
+
                     tableArchive.Invalidate();
                 }
             }
@@ -94,7 +114,6 @@ public partial class MainForm : Window
         txtTarget.Text = _config.RootDirectory;
         cbDebug.Checked = _config.DebugMode;
 
-        // 設定 Table 欄位：關鍵欄位自動彈性分配，短欄位固定寬度
         tableArchive.Columns = new ColumnCollection {
             new ColumnCheck("Checked"),
             new Column("Source", "來源名稱") { SortOrder = true },
@@ -159,7 +178,8 @@ public partial class MainForm : Window
                         DestinationPath = destPath,
                         Confidence = result?.Confidence.ToString("F1") ?? "0",
                         Status = result != null && result.IsLearned ? "知識庫" : "模糊比對",
-                        Checked = result != null && result.Confidence >= 85
+                        Checked = result != null && result.Confidence >= 85,
+                        Action = new AntdUI.CellLink[] { new AntdUI.CellButton("Delete", "刪除", AntdUI.TTypeMini.Error) { Ghost = true, BorderWidth = 1 } }
                     });
                 }
             });
@@ -188,81 +208,32 @@ public partial class MainForm : Window
             btnScan.Loading = false;
         }
     }
-
-    private async Task ExecuteAsync()
-    {
-        var data = tableArchive.DataSource as BindingList<ArchiveItem>;
-        var checkedItems = data?.Where(x => x.Checked).ToList();
-
-        if (checkedItems == null || !checkedItems.Any())
-        {
-            AntdUI.Message.warn(this, "請先勾選項目");
-            return;
-        }
-
-        btnExecute.Loading = true;
-
-        await Task.Run(() =>
-        {
-            foreach (var item in checkedItems)
-            {
-                string targetPath = Path.Combine(_config.RootDirectory, item.TargetFolder, item.Source);
-                try
-                {
-                    string destDir = Path.GetDirectoryName(targetPath)!;
-                    if (!Directory.Exists(destDir)) Directory.CreateDirectory(destDir);
-
-                    if (Directory.Exists(item.FullPath)) Directory.Move(item.FullPath, targetPath);
-                    else File.Move(item.FullPath, targetPath);
-
-                    var kws = _organizer.ExtractAllKeywords(item.Source);
-                    foreach (var kw in kws)
-                    {
-                        if (_organizer.IsKeywordValidForTarget(kw, item.TargetFolder))
-                        {
-                            _intelligence.Learn(kw, item.TargetFolder);
-                        }
-                    }
-
-                    this.Invoke(() => item.Status = "成功");
-                }
-                catch (Exception ex)
-                {
-                    this.Invoke(() => item.Status = "失敗: " + ex.Message);
-                }
-            }
-        });
-
-        tableArchive.Invalidate();
-        btnExecute.Loading = false;
-        AntdUI.Message.success(this, "歸檔處理完畢");
-    }
 }
 
 public class ArchiveItem : INotifyPropertyChanged
 {
     private bool _checked;
-    public bool Checked 
-    { 
-        get => _checked; 
-        set { _checked = value; OnPropertyChanged(nameof(Checked)); } 
+    public bool Checked
+    {
+        get => _checked;
+        set { _checked = value; OnPropertyChanged(nameof(Checked)); }
     }
 
     public string Source { get; set; } = "";
     public string FullPath { get; set; } = "";
 
     private string _targetFolder = "";
-    public string TargetFolder 
-    { 
-        get => _targetFolder; 
-        set { _targetFolder = value; OnPropertyChanged(nameof(TargetFolder)); } 
+    public string TargetFolder
+    {
+        get => _targetFolder;
+        set { _targetFolder = value; OnPropertyChanged(nameof(TargetFolder)); }
     }
 
     private string _destinationPath = "";
-    public string DestinationPath 
-    { 
-        get => _destinationPath; 
-        set { _destinationPath = value; OnPropertyChanged(nameof(DestinationPath)); } 
+    public string DestinationPath
+    {
+        get => _destinationPath;
+        set { _destinationPath = value; OnPropertyChanged(nameof(DestinationPath)); }
     }
 
     public string Confidence { get; set; } = "";
@@ -273,6 +244,8 @@ public class ArchiveItem : INotifyPropertyChanged
         get => _status;
         set { _status = value; OnPropertyChanged(nameof(Status)); }
     }
+
+    public AntdUI.CellLink[]? Action { get; set; }
 
     public event PropertyChangedEventHandler? PropertyChanged;
     protected void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));

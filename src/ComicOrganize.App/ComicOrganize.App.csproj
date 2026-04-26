@@ -19,8 +19,4 @@
     <PackageReference Include="SharpCompress" Version="0.47.4" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="UI\" />
-  </ItemGroup>
-
 </Project>
