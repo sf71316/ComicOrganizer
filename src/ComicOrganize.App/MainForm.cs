@@ -12,6 +12,7 @@ public partial class MainForm : Window
     private AppConfig _config;
     private readonly MappingIntelligence _intelligence;
     private readonly ArchiveOrganizer _organizer;
+    private readonly CoverManager _coverManager;
 
     public MainForm()
     {
@@ -21,77 +22,195 @@ public partial class MainForm : Window
         _config = _configManager.Load();
         _intelligence = new MappingIntelligence();
         _organizer = new ArchiveOrganizer(_intelligence, _config);
+        _coverManager = new CoverManager(_config);
 
         InitializeUI();
 
         // 業務邏輯綁定
         btnBrowseSource.Click += (s, e) => BrowseFolder(txtSource);
         btnBrowseTarget.Click += (s, e) => BrowseFolder(txtTarget);
+        btnBrowseViewer.Click += (s, e) => BrowseFile(txtImageViewer, "執行檔 (*.exe)|*.exe|所有檔案 (*.*)|*.*");
         btnSaveConfig.Click += (s, e) => SaveConfig();
         btnScan.Click += async (s, e) => await ScanAsync();
 
-        // 點擊「預覽歸檔計畫」
-        btnExecute.Click += (s, e) =>
+        // 漫畫庫管理事件
+        treeFolders.SelectChanged += (s, e) =>
         {
-            var data = tableArchive.DataSource as BindingList<ArchiveItem>;
-            var checkedItems = data?.Where(x => x.Checked).ToList();
-
-            if (checkedItems == null || !checkedItems.Any())
-            {
-                AntdUI.Message.warn(this, "請先勾選要處理的項目");
-                return;
-            }
-
-            using (var preview = new PreviewForm(checkedItems, _config.RootDirectory, _intelligence, _organizer))
-            {
-                preview.ShowDialog(this);
-                // 執行完後重新掃描以刷新狀態
-                _ = ScanAsync();
-            }
+            if (e.Item.Tag is string path) OpenFolderTab(path, false);
+        };
+        treeFolders.NodeMouseDoubleClick += (s, e) =>
+        {
+            if (e.Item.Tag is string path) OpenFolderTab(path, true);
         };
 
-        // 雙擊修改目標路徑邏輯
-        tableArchive.CellDoubleClick += (s, e) =>
+        // 確保視窗載入完成後才開始載入樹狀目錄，避免 Handle 尚未建立的錯誤
+        this.Load += (s, e) => _ = LoadTreeAsync();
+    }
+
+    private async Task LoadTreeAsync()
+    {
+        if (string.IsNullOrEmpty(_config.RootDirectory) || !Directory.Exists(_config.RootDirectory)) return;
+
+        treeFolders.Items.Clear();
+        await Task.Run(() =>
         {
-            var record = e.Record;
-            if (record is ArchiveItem currentItem)
+            var rootDir = new DirectoryInfo(_config.RootDirectory);
+            var rootNode = CreateFolderNode(rootDir);
+
+            this.Invoke(() =>
             {
-                if (folderBrowserDialog.ShowDialog() == DialogResult.OK)
+                treeFolders.Items.Add(rootNode);
+                rootNode.Expand = true;
+            });
+        });
+    }
+
+    private AntdUI.TreeItem CreateFolderNode(DirectoryInfo dir)
+    {
+        var node = new AntdUI.TreeItem(dir.Name)
+        {
+            Tag = dir.FullName,
+            IconSvg = "FolderOpenOutlined"
+        };
+
+        try
+        {
+            foreach (var subDir in dir.GetDirectories())
+            {
+                if ((subDir.Attributes & FileAttributes.Hidden) != 0) continue;
+                node.Sub.Add(new AntdUI.TreeItem(subDir.Name)
                 {
-                    string newPath = folderBrowserDialog.SelectedPath;
-                    string newFolderName = Path.GetFileName(newPath);
-
-                    var data = tableArchive.DataSource as BindingList<ArchiveItem>;
-                    var checkedItems = data?.Where(x => x.Checked).ToList();
-
-                    if (checkedItems != null && checkedItems.Count > 1 && checkedItems.Contains(currentItem))
-                    {
-                        var diagResult = MessageBox.Show(
-                            $"是否將已勾選的 {checkedItems.Count} 個項目全部修改為此目標？",
-                            "批次修改確認",
-                            MessageBoxButtons.YesNo);
-
-                        if (diagResult == DialogResult.Yes)
-                        {
-                            foreach (var item in checkedItems)
-                            {
-                                UpdateItemTarget(item, newFolderName, newPath);
-                            }
-                        }
-                        else
-                        {
-                            UpdateItemTarget(currentItem, newFolderName, newPath);
-                        }
-                    }
-                    else
-                    {
-                        UpdateItemTarget(currentItem, newFolderName, newPath);
-                    }
-
-                    tableArchive.Invalidate();
-                }
+                    Tag = subDir.FullName,
+                    IconSvg = "FolderOutlined"
+                });
             }
+        }
+        catch { }
+
+        return node;
+    }
+
+    private void OpenFolderTab(string path, bool forceNew)
+    {
+        string folderName = Path.GetFileName(path);
+        if (string.IsNullOrEmpty(folderName)) folderName = path;
+
+        // 尋找是否已有同路徑的頁籤
+        var existingTab = tabsContent.Pages.Cast<AntdUI.TabPage>().FirstOrDefault(p => (string?)p.Tag == path);
+
+        if (existingTab != null && !forceNew)
+        {
+            tabsContent.SelectedTab = existingTab;
+            return;
+        }
+
+        var newPage = new AntdUI.TabPage
+        {
+            Text = folderName,
+            Tag = path,
+            Padding = new Padding(10)
         };
+
+        // 實作縮圖面板容器
+        var flowLayout = new System.Windows.Forms.FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoScroll = true,
+            BackColor = Color.White
+        };
+        newPage.Controls.Add(flowLayout);
+
+        tabsContent.Pages.Add(newPage);
+        tabsContent.SelectedTab = newPage;
+
+        // 非同步載入內容
+        _ = LoadGalleryAsync(flowLayout, path);
+    }
+
+    private async Task LoadGalleryAsync(FlowLayoutPanel container, string path)
+    {
+        container.Controls.Clear();
+        var dirInfo = new DirectoryInfo(path);
+
+        // 取得該目錄下的所有子目錄與檔案 (過濾隱藏檔)
+        var items = dirInfo.GetFileSystemInfos()
+                           .Where(i => (i.Attributes & FileAttributes.Hidden) == 0)
+                           .ToList();
+
+        foreach (var item in items)
+        {
+            // 為每個項目建立卡片
+            var card = new AntdUI.Panel
+            {
+                Size = new Size(180, 240),
+                Radius = 8,
+                Padding = new Padding(5),
+                Margin = new Padding(10),
+                BackColor = Color.FromArgb(250, 250, 250)
+            };
+
+            var pic = new System.Windows.Forms.PictureBox
+            {
+                Dock = DockStyle.Top,
+                Height = 180,
+                SizeMode = PictureBoxSizeMode.Zoom,
+                BackColor = Color.FromArgb(235, 235, 235)
+            };
+
+            var lbl = new AntdUI.Label
+            {
+                Dock = DockStyle.Fill,
+                Text = item.Name,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Font = new Font("Microsoft JhengHei UI", 9F)
+            };
+
+            var btnOpen = new AntdUI.Button
+            {
+                Text = "👁 閱讀",
+                Dock = DockStyle.Bottom,
+                Height = 35,
+                Type = TTypeMini.Default,
+                Ghost = true
+            };
+
+            btnOpen.Click += (s, e) => OpenWithExternalViewer(item.FullName);
+
+            card.Controls.Add(lbl);
+            card.Controls.Add(btnOpen);
+            card.Controls.Add(pic);
+            container.Controls.Add(card);
+
+            // 非同步載入封面
+            _ = Task.Run(async () =>
+            {
+                var cover = await _coverManager.GetCoverAsync(item.FullName, 180);
+                if (cover != null)
+                {
+                    this.Invoke(() => pic.Image = cover);
+                }
+            });
+        }
+    }
+
+    private void OpenWithExternalViewer(string filePath)
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(_config.ImageViewerPath) && File.Exists(_config.ImageViewerPath))
+            {
+                System.Diagnostics.Process.Start(_config.ImageViewerPath, $"\"{filePath}\"");
+            }
+            else
+            {
+                // 若未設定或路徑無效，使用系統預設
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(filePath) { UseShellExecute = true });
+            }
+        }
+        catch (Exception ex)
+        {
+            AntdUI.Message.error(this, "開啟失敗: " + ex.Message);
+        }
     }
 
     private void UpdateItemTarget(ArchiveItem item, string folderName, string fullPath)
@@ -112,16 +231,8 @@ public partial class MainForm : Window
     {
         txtSource.Text = _config.UnorganizedDirectory;
         txtTarget.Text = _config.RootDirectory;
+        txtImageViewer.Text = _config.ImageViewerPath;
         cbDebug.Checked = _config.DebugMode;
-
-        tableArchive.Columns = new ColumnCollection {
-            new ColumnCheck("Checked"),
-            new Column("Source", "來源名稱") { SortOrder = true },
-            new Column("TargetFolder", "匹配目標") { Width = "150", SortOrder = true },
-            new Column("DestinationPath", "目的路徑"),
-            new Column("Confidence", "信心度") { Width = "80", SortOrder = true },
-            new Column("Status", "狀態") { Width = "100" }
-        };
     }
 
     private void BrowseFolder(AntdUI.Input input)
@@ -132,10 +243,22 @@ public partial class MainForm : Window
         }
     }
 
+    private void BrowseFile(AntdUI.Input input, string filter)
+    {
+        using (var ofd = new OpenFileDialog { Filter = filter })
+        {
+            if (ofd.ShowDialog() == DialogResult.OK)
+            {
+                input.Text = ofd.FileName;
+            }
+        }
+    }
+
     private void SaveConfig()
     {
         _config.UnorganizedDirectory = txtSource.Text;
         _config.RootDirectory = txtTarget.Text;
+        _config.ImageViewerPath = txtImageViewer.Text;
         _config.DebugMode = cbDebug.Checked;
         _configManager.Save(_config);
         AntdUI.Message.info(this, "設定已成功儲存");
