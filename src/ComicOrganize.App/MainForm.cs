@@ -34,21 +34,39 @@ public partial class MainForm : Window
         btnScan.Click += async (s, e) => await ScanAsync();
 
         // 漫畫庫管理事件
-        treeFolders.SelectChanged += (s, e) =>
+        treeFolders.NodeMouseClick += (s, e) =>
         {
-            if (e.Item.Tag is string path) OpenFolderTab(path, false);
+            if (e.Item.Tag is string path)
+            {
+                if (e.Button == MouseButtons.Left)
+                {
+                    OpenFolderTab(path, false); // 在目前頁籤開啟
+                }
+                else if (e.Button == MouseButtons.Right)
+                {
+                    // 右鍵選單：另開頁籤
+                    AntdUI.ContextMenuStrip.open(treeFolders, (menuItem) =>
+                    {
+                        if (menuItem.Text == "另開頁籤")
+                        {
+                            OpenFolderTab(path, true);
+                        }
+                    }, new[] { new AntdUI.ContextMenuStripItem("另開頁籤") });
+                }
+            }
         };
-        treeFolders.NodeMouseDoubleClick += (s, e) =>
-        {
-            if (e.Item.Tag is string path) OpenFolderTab(path, true);
+
+        // 處理頁籤關閉事件
+        tabsContent.ClosingPage += (s, e) => {
+            return true; // 允許關閉
         };
 
         // 確保視窗載入完成後才開始載入樹狀目錄，避免 Handle 尚未建立的錯誤
         this.Load += (s, e) => _ = LoadTreeAsync();
-    }
+        }
 
-    private async Task LoadTreeAsync()
-    {
+        private async Task LoadTreeAsync()
+        {
         if (string.IsNullOrEmpty(_config.RootDirectory) || !Directory.Exists(_config.RootDirectory)) return;
 
         treeFolders.Items.Clear();
@@ -57,16 +75,52 @@ public partial class MainForm : Window
             var rootDir = new DirectoryInfo(_config.RootDirectory);
             var rootNode = CreateFolderNode(rootDir);
 
-            this.Invoke(() =>
-            {
+            this.Invoke(() => {
                 treeFolders.Items.Add(rootNode);
                 rootNode.Expand = true;
+                UpdateTreeWidth(); // 載入後計算寬度
             });
         });
-    }
+        }
 
-    private AntdUI.TreeItem CreateFolderNode(DirectoryInfo dir)
-    {
+        private void UpdateTreeWidth()
+        {
+        if (treeFolders.Items.Count == 0) return;
+
+        int maxWidth = 250; // 預設最小寬度
+        using (var g = treeFolders.CreateGraphics())
+        {
+            foreach (var item in treeFolders.Items)
+            {
+                int itemWidth = MeasureNodeWidth(g, item, 0);
+                if (itemWidth > maxWidth) maxWidth = itemWidth;
+            }
+        }
+
+        // 設定寬度，加上一點緩衝 (Padding)
+        treeFolders.Width = maxWidth + 40;
+        }
+
+        private int MeasureNodeWidth(Graphics g, AntdUI.TreeItem item, int level)
+        {
+        // 公式：(層級 * 縮排) + 圖示(約24) + 文字寬度
+        var size = g.MeasureString(item.Text, treeFolders.Font);
+        int currentWidth = (level * 20) + 30 + (int)size.Width;
+
+        int maxSubWidth = currentWidth;
+        if (item.Expand && item.Sub.Count > 0)
+        {
+            foreach (var subItem in item.Sub)
+            {
+                int subWidth = MeasureNodeWidth(g, subItem, level + 1);
+                if (subWidth > maxSubWidth) maxSubWidth = subWidth;
+            }
+        }
+        return maxSubWidth;
+        }
+
+        private AntdUI.TreeItem CreateFolderNode(DirectoryInfo dir)
+        {
         var node = new AntdUI.TreeItem(dir.Name)
         {
             Tag = dir.FullName,
@@ -88,17 +142,33 @@ public partial class MainForm : Window
         catch { }
 
         return node;
-    }
+        }
 
-    private void OpenFolderTab(string path, bool forceNew)
-    {
+        private void OpenFolderTab(string path, bool forceNew)
+        {
         string folderName = Path.GetFileName(path);
         if (string.IsNullOrEmpty(folderName)) folderName = path;
 
-        // 尋找是否已有同路徑的頁籤
-        var existingTab = tabsContent.Pages.Cast<AntdUI.TabPage>().FirstOrDefault(p => (string?)p.Tag == path);
+        // 如果不是強制另開，且目前有選中的頁籤，則更新目前頁籤
+        if (!forceNew && tabsContent.SelectedTab != null)
+        {
+            var currentTab = tabsContent.SelectedTab;
+            // 避免重複載入同一個路徑
+            if ((string?)currentTab.Tag == path) return;
 
-        if (existingTab != null && !forceNew)
+            currentTab.Text = folderName;
+            currentTab.Tag = path;
+            var flow = currentTab.Controls.OfType<FlowLayoutPanel>().FirstOrDefault();
+            if (flow != null)
+            {
+                _ = LoadGalleryAsync(flow, path);
+                return;
+            }
+        }
+
+        // 否則，尋找是否已有同路徑的頁籤 (避免重複另開)
+        var existingTab = tabsContent.Pages.Cast<AntdUI.TabPage>().FirstOrDefault(p => (string?)p.Tag == path);
+        if (existingTab != null)
         {
             tabsContent.SelectedTab = existingTab;
             return;
@@ -125,76 +195,125 @@ public partial class MainForm : Window
 
         // 非同步載入內容
         _ = LoadGalleryAsync(flowLayout, path);
-    }
-
-    private async Task LoadGalleryAsync(FlowLayoutPanel container, string path)
-    {
-        container.Controls.Clear();
-        var dirInfo = new DirectoryInfo(path);
-
-        // 取得該目錄下的所有子目錄與檔案 (過濾隱藏檔)
-        var items = dirInfo.GetFileSystemInfos()
-                           .Where(i => (i.Attributes & FileAttributes.Hidden) == 0)
-                           .ToList();
-
-        foreach (var item in items)
-        {
-            // 為每個項目建立卡片
-            var card = new AntdUI.Panel
-            {
-                Size = new Size(180, 240),
-                Radius = 8,
-                Padding = new Padding(5),
-                Margin = new Padding(10),
-                BackColor = Color.FromArgb(250, 250, 250)
-            };
-
-            var pic = new System.Windows.Forms.PictureBox
-            {
-                Dock = DockStyle.Top,
-                Height = 180,
-                SizeMode = PictureBoxSizeMode.Zoom,
-                BackColor = Color.FromArgb(235, 235, 235)
-            };
-
-            var lbl = new AntdUI.Label
-            {
-                Dock = DockStyle.Fill,
-                Text = item.Name,
-                TextAlign = ContentAlignment.MiddleCenter,
-                Font = new Font("Microsoft JhengHei UI", 9F)
-            };
-
-            var btnOpen = new AntdUI.Button
-            {
-                Text = "👁 閱讀",
-                Dock = DockStyle.Bottom,
-                Height = 35,
-                Type = TTypeMini.Default,
-                Ghost = true
-            };
-
-            btnOpen.Click += (s, e) => OpenWithExternalViewer(item.FullName);
-
-            card.Controls.Add(lbl);
-            card.Controls.Add(btnOpen);
-            card.Controls.Add(pic);
-            container.Controls.Add(card);
-
-            // 非同步載入封面
-            _ = Task.Run(async () =>
-            {
-                var cover = await _coverManager.GetCoverAsync(item.FullName, 180);
-                if (cover != null)
-                {
-                    this.Invoke(() => pic.Image = cover);
-                }
-            });
         }
-    }
+        private async Task LoadGalleryAsync(FlowLayoutPanel container, string path)
+        {
+            container.Controls.Clear();
+            var dirInfo = new DirectoryInfo(path);
 
-    private void OpenWithExternalViewer(string filePath)
-    {
+            // 取得該目錄下的所有子目錄與檔案 (過濾隱藏檔)
+            var items = dirInfo.GetFileSystemInfos()
+                               .Where(i => (i.Attributes & FileAttributes.Hidden) == 0)
+                               .OrderBy(i => i is DirectoryInfo ? 0 : 1) // 資料夾排前面
+                               .ThenBy(i => i.Name)
+                               .ToList();
+
+            foreach (var item in items)
+            {
+                bool isFolderNode = false;
+                if (item is DirectoryInfo subDir)
+                {
+                    // 判斷是否為導覽節點 (含有子目錄)
+                    isFolderNode = subDir.GetDirectories().Length > 0;
+                }
+
+                // 1. 建立沉浸式卡片
+                var card = new AntdUI.Panel
+                {
+                    Size = new Size(160, 240),
+                    Radius = 8,
+                    Margin = new Padding(12),
+                    BackColor = Color.White,
+                    Shadow = 4,
+                    Cursor = Cursors.Hand
+                };
+
+                var pic = new System.Windows.Forms.PictureBox
+                {
+                    Dock = DockStyle.Top,
+                    Height = 200,
+                    SizeMode = PictureBoxSizeMode.Zoom,
+                    BackColor = Color.FromArgb(245, 245, 245),
+                    Cursor = Cursors.Hand
+                };
+
+                var lbl = new AntdUI.Label
+                {
+                    Dock = DockStyle.Fill,
+                    Text = item.Name,
+                    TextAlign = ContentAlignment.MiddleCenter,
+                    Font = new Font("Microsoft JhengHei UI", 9F),
+                    Cursor = Cursors.Hand
+                };
+
+                // 2. 統一點擊處理
+                MouseEventHandler clickHandler = (s, e) =>
+                {
+                    if (e.Button == MouseButtons.Left)
+                    {
+                        if (isFolderNode) OpenFolderTab(item.FullName, false); // 進入子目錄
+                        else OpenWithExternalViewer(item.FullName); // 閱讀漫畫
+                    }
+                    else if (e.Button == MouseButtons.Right)
+                    {
+                        // 右鍵選單
+                        var menuItems = new List<AntdUI.ContextMenuStripItem>();
+                        if (isFolderNode) menuItems.Add(new AntdUI.ContextMenuStripItem("📂 進入目錄"));
+                        else menuItems.Add(new AntdUI.ContextMenuStripItem("👁 閱讀"));
+
+                        menuItems.Add(new AntdUI.ContextMenuStripItem("另開頁籤"));
+                        menuItems.Add(new AntdUI.ContextMenuStripItemDivider());
+                        menuItems.Add(new AntdUI.ContextMenuStripItem("📂 在檔案總管中開啟"));
+
+                        AntdUI.ContextMenuStrip.open((Control)s, (menuItem) =>
+                        {
+                            if (menuItem.Text.Contains("進入") || menuItem.Text.Contains("閱讀"))
+                            {
+                                if (isFolderNode) OpenFolderTab(item.FullName, false);
+                                else OpenWithExternalViewer(item.FullName);
+                            }
+                            else if (menuItem.Text == "另開頁籤")
+                            {
+                                OpenFolderTab(item.FullName, true);
+                            }
+                            else if (menuItem.Text.Contains("檔案總管"))
+                            {
+                                System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{item.FullName}\"");
+                            }
+                        }, menuItems.ToArray());
+                    }
+                };
+
+                card.MouseClick += clickHandler;
+                pic.MouseClick += clickHandler;
+                lbl.MouseClick += clickHandler;
+
+                card.Controls.Add(lbl);
+                card.Controls.Add(pic);
+                container.Controls.Add(card);
+
+                // 3. 異步載入封面或設定圖示
+                if (isFolderNode)
+                {
+                    // 若為導覽節點，直接顯示資料夾圖示 (不載入封面以節省資源)
+                    pic.Image = null; // 後續可以考慮放一個預設的資料夾 SVG
+                    pic.BackColor = Color.FromArgb(230, 244, 255);
+                }
+                else
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        var cover = await _coverManager.GetCoverAsync(item.FullName, 160);
+                        if (cover != null)
+                        {
+                            this.Invoke(() => pic.Image = cover);
+                        }
+                    });
+                }
+            }
+        }
+        private void OpenWithExternalViewer(string filePath)
+        {
         try
         {
             if (!string.IsNullOrEmpty(_config.ImageViewerPath) && File.Exists(_config.ImageViewerPath))
@@ -211,31 +330,37 @@ public partial class MainForm : Window
         {
             AntdUI.Message.error(this, "開啟失敗: " + ex.Message);
         }
-    }
+        }
 
-    private void UpdateItemTarget(ArchiveItem item, string folderName, string fullPath)
-    {
+        private void UpdateItemTarget(ArchiveItem item, string folderName, string fullPath)
+        {
         item.TargetFolder = folderName;
         item.DestinationPath = fullPath;
         item.Status = "手動修正";
         item.Checked = true;
-    }
+        }
 
-    protected override void OnMouseDown(MouseEventArgs e)
-    {
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
         DraggableMouseDown();
         base.OnMouseDown(e);
-    }
+        }
 
-    private void InitializeUI()
-    {
+        private void InitializeUI()
+        {
         txtSource.Text = _config.UnorganizedDirectory;
         txtTarget.Text = _config.RootDirectory;
         txtImageViewer.Text = _config.ImageViewerPath;
         cbDebug.Checked = _config.DebugMode;
-    }
 
-    private void BrowseFolder(AntdUI.Input input)
+        // 設定內容頁籤樣式：開啟關閉按鈕與變更配色
+        if (tabsContent.Style is AntdUI.Tabs.StyleCard style)
+        {
+            style.Closable = true;
+        }
+        tabsContent.CloseDisposePage = true; // 關閉頁籤時自動移除
+        tabsContent.FillActive = Color.FromArgb(22, 119, 255); // 使用主題藍色作為選中色
+        }    private void BrowseFolder(AntdUI.Input input)
     {
         if (folderBrowserDialog.ShowDialog() == DialogResult.OK)
         {

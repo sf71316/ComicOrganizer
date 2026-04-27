@@ -42,8 +42,8 @@ partial class MainForm
 
     private void InitializeComponent()
     {
+        AntdUI.Tabs.StyleCard styleCard2 = new AntdUI.Tabs.StyleCard();
         AntdUI.Tabs.StyleCard styleCard1 = new AntdUI.Tabs.StyleCard();
-        AntdUI.Tabs.StyleLine styleLine1 = new AntdUI.Tabs.StyleLine();
         windowBar = new AntdUI.PageHeader();
         tabs = new AntdUI.Tabs();
         tabPage1 = new AntdUI.TabPage();
@@ -99,7 +99,7 @@ partial class MainForm
         tabs.Pages.Add(tabPage2);
         tabs.Pages.Add(tabPage3);
         tabs.Size = new Size(1000, 752);
-        tabs.Style = styleCard1;
+        tabs.Style = styleCard2;
         tabs.TabIndex = 0;
         tabs.Type = AntdUI.TabType.Card;
         // 
@@ -116,12 +116,14 @@ partial class MainForm
         // 
         // tabsContent
         // 
+        tabsContent.CloseDisposePage = true;
         tabsContent.Dock = DockStyle.Fill;
         tabsContent.Location = new Point(255, 0);
         tabsContent.Name = "tabsContent";
         tabsContent.Size = new Size(745, 706);
-        tabsContent.Style = styleLine1;
+        tabsContent.Style = styleCard1;
         tabsContent.TabIndex = 0;
+        tabsContent.Type = AntdUI.TabType.Card;
         // 
         // splitter2
         // 
