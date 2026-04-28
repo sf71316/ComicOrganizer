@@ -15,3 +15,21 @@
 # OS
 Thumbs.db
 Desktop.ini
+
+# Test data
+TestData/
+
+# Claude Code workspace
+.claude/
+
+# TortoiseGit / git tool leftovers in working tree
+COMMIT_EDITMSG
+HEAD
+config
+description
+index
+tgitchangelist
+
+# Screenshots / archives kept locally only
+1.png
+ComicOrganize.zip

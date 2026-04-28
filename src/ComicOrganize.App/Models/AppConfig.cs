@@ -4,6 +4,7 @@ public class AppConfig
 {
     public string UnorganizedDirectory { get; set; } = string.Empty;
     public string RootDirectory { get; set; } = string.Empty;
+    public string ImageViewerPath { get; set; } = string.Empty;
     public List<string> ExcludedDirectories { get; set; } = new();
     public bool DebugMode { get; set; } = false;
 
