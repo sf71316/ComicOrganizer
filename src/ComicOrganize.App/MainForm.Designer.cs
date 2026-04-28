@@ -1,3 +1,6 @@
+using AntdUI;
+using FolderBrowserDialog = AntdUI.FolderBrowserDialog;
+
 namespace ComicOrganize.App;
 
 partial class MainForm
@@ -10,11 +13,9 @@ partial class MainForm
     private AntdUI.TabPage tabPage3;
 
     private AntdUI.Tree treeFolders;
-    private AntdUI.Panel panelRight;
-    private AntdUI.Panel panelToolbar;
     private AntdUI.Menu menuToolbar;
+    private AntdUI.Breadcrumb breadcrumb;
     private AntdUI.Tabs tabsContent;
-    private System.Windows.Forms.Splitter splitter2;
     
     private AntdUI.Table tableArchive;
     private AntdUI.Button btnScan;
@@ -33,7 +34,7 @@ partial class MainForm
     private AntdUI.Label label2;
     private AntdUI.Label label3;
 
-    private System.Windows.Forms.FolderBrowserDialog folderBrowserDialog;
+    private AntdUI.FolderBrowserDialog folderBrowserDialog;
 
     protected override void Dispose(bool disposing)
     {
@@ -46,39 +47,50 @@ partial class MainForm
 
     private void InitializeComponent()
     {
-        AntdUI.Tabs.StyleCard styleCard2 = new AntdUI.Tabs.StyleCard();
-        AntdUI.Tabs.StyleCard styleCard1 = new AntdUI.Tabs.StyleCard();
-        windowBar = new AntdUI.PageHeader();
-        tabs = new AntdUI.Tabs();
+        Tabs.StyleCard styleCard2 = new Tabs.StyleCard();
+        MenuItem menuItem1 = new MenuItem();
+        MenuItem menuItem2 = new MenuItem();
+        MenuItem menuItem3 = new MenuItem();
+        MenuItem menuItem4 = new MenuItem();
+        MenuItem menuItem5 = new MenuItem();
+        MenuItem menuItem6 = new MenuItem();
+        Tabs.StyleCard styleCard1 = new Tabs.StyleCard();
+        windowBar = new PageHeader();
+        tabs = new Tabs();
         tabPage1 = new AntdUI.TabPage();
-        panelRight = new AntdUI.Panel();
-        tabsContent = new AntdUI.Tabs();
-        panelToolbar = new AntdUI.Panel();
-        menuToolbar = new AntdUI.Menu();
-        splitter2 = new System.Windows.Forms.Splitter();
-        treeFolders = new AntdUI.Tree();
+        splitter2 = new AntdUI.Splitter();
+        treeFolders = new Tree();
+        splitter1 = new AntdUI.Splitter();
+        breadcrumb = new Breadcrumb();
+        menuToolbar = new Menu();
+        tabsContent = new Tabs();
         tabPage2 = new AntdUI.TabPage();
         lblStatus = new AntdUI.Label();
         btnExecute = new AntdUI.Button();
-        tableArchive = new AntdUI.Table();
+        tableArchive = new Table();
         btnScan = new AntdUI.Button();
         tabPage3 = new AntdUI.TabPage();
         label3 = new AntdUI.Label();
         label2 = new AntdUI.Label();
         label1 = new AntdUI.Label();
-        cbDebug = new AntdUI.Checkbox();
+        cbDebug = new Checkbox();
         btnSaveConfig = new AntdUI.Button();
         btnBrowseViewer = new AntdUI.Button();
         btnBrowseTarget = new AntdUI.Button();
         btnBrowseSource = new AntdUI.Button();
-        txtImageViewer = new AntdUI.Input();
-        txtTarget = new AntdUI.Input();
-        txtSource = new AntdUI.Input();
-        folderBrowserDialog = new System.Windows.Forms.FolderBrowserDialog();
+        txtImageViewer = new Input();
+        txtTarget = new Input();
+        txtSource = new Input();
         tabs.SuspendLayout();
         tabPage1.SuspendLayout();
-        panelRight.SuspendLayout();
-        panelToolbar.SuspendLayout();
+        ((System.ComponentModel.ISupportInitialize)splitter2).BeginInit();
+        splitter2.Panel1.SuspendLayout();
+        splitter2.Panel2.SuspendLayout();
+        splitter2.SuspendLayout();
+        ((System.ComponentModel.ISupportInitialize)splitter1).BeginInit();
+        splitter1.Panel1.SuspendLayout();
+        splitter1.Panel2.SuspendLayout();
+        splitter1.SuspendLayout();
         tabPage2.SuspendLayout();
         tabPage3.SuspendLayout();
         SuspendLayout();
@@ -87,11 +99,12 @@ partial class MainForm
         // 
         windowBar.BackColor = Color.FromArgb(192, 192, 255);
         windowBar.Dock = DockStyle.Top;
+        windowBar.IconSvg = "BookOutlined";
         windowBar.Location = new Point(0, 0);
         windowBar.Name = "windowBar";
         windowBar.ShowButton = true;
         windowBar.ShowIcon = true;
-        windowBar.Size = new Size(1000, 48);
+        windowBar.Size = new Size(1280, 48);
         windowBar.TabIndex = 1;
         windowBar.Text = "Comic Organize";
         // 
@@ -107,92 +120,133 @@ partial class MainForm
         tabs.Pages.Add(tabPage1);
         tabs.Pages.Add(tabPage2);
         tabs.Pages.Add(tabPage3);
-        tabs.SelectedIndex = 0;
-        tabs.Size = new Size(1000, 752);
+        tabs.Size = new Size(1280, 672);
         tabs.Style = styleCard2;
         tabs.TabIndex = 0;
-        tabs.Type = AntdUI.TabType.Card;
+        tabs.Type = TabType.Card;
         // 
         // tabPage1
         // 
-        tabPage1.Controls.Add(panelRight);
         tabPage1.Controls.Add(splitter2);
-        tabPage1.Controls.Add(treeFolders);
         tabPage1.Location = new Point(0, 46);
         tabPage1.Name = "tabPage1";
-        tabPage1.Size = new Size(1000, 706);
+        tabPage1.Size = new Size(1280, 626);
         tabPage1.TabIndex = 0;
         tabPage1.Text = "漫畫庫管理";
         // 
-        // panelRight
+        // splitter2
         // 
-        panelRight.Controls.Add(tabsContent);
-        panelRight.Controls.Add(panelToolbar);
-        panelRight.Dock = DockStyle.Fill;
-        panelRight.Location = new Point(255, 0);
-        panelRight.Name = "panelRight";
-        panelRight.Size = new Size(745, 706);
-        panelRight.TabIndex = 3;
+        splitter2.CollapsePanel = AntdUI.Splitter.ADCollapsePanel.Panel1;
+        splitter2.Dock = DockStyle.Fill;
+        splitter2.Location = new Point(0, 0);
+        splitter2.Name = "splitter2";
+        // 
+        // splitter2.Panel1
+        // 
+        splitter2.Panel1.Controls.Add(treeFolders);
+        splitter2.Panel1MinSize = 5;
+        // 
+        // splitter2.Panel2
+        // 
+        splitter2.Panel2.Controls.Add(splitter1);
+        splitter2.Size = new Size(1280, 626);
+        splitter2.SplitterDistance = 309;
+        splitter2.SplitterSize = 80;
+        splitter2.SplitterWidth = 10;
+        splitter2.TabIndex = 5;
+        // 
+        // treeFolders
+        // 
+        treeFolders.BackColor = Color.FromArgb(255, 255, 192);
+        treeFolders.BackgroundImageLayout = ImageLayout.None;
+        treeFolders.Dock = DockStyle.Fill;
+        treeFolders.EmptyText = "no data";
+        treeFolders.Location = new Point(0, 0);
+        treeFolders.Name = "treeFolders";
+        treeFolders.Round = true;
+        treeFolders.Size = new Size(309, 626);
+        treeFolders.TabIndex = 2;
+        treeFolders.Text = "tree1";
+        treeFolders.BeforeExpand += treeFolders_BeforeExpand;
+        treeFolders.NodeMouseDoubleClick += treeFolders_NodeMouseDoubleClick;
+        // 
+        // splitter1
+        // 
+        splitter1.Dock = DockStyle.Fill;
+        splitter1.Location = new Point(0, 0);
+        splitter1.Margin = new Padding(0);
+        splitter1.Name = "splitter1";
+        splitter1.Orientation = Orientation.Horizontal;
+        // 
+        // splitter1.Panel1
+        // 
+        splitter1.Panel1.BackColor = Color.WhiteSmoke;
+        splitter1.Panel1.Controls.Add(breadcrumb);
+        splitter1.Panel1.Controls.Add(menuToolbar);
+        splitter1.Panel1.Padding = new Padding(3);
+        splitter1.Panel1MinSize = 50;
+        // 
+        // splitter1.Panel2
+        // 
+        splitter1.Panel2.BackColor = Color.WhiteSmoke;
+        splitter1.Panel2.Controls.Add(tabsContent);
+        splitter1.Panel2.Padding = new Padding(0, 10, 0, 5);
+        splitter1.Size = new Size(961, 626);
+        splitter1.SplitterDistance = 69;
+        splitter1.SplitterSize = 1;
+        splitter1.SplitterWidth = 1;
+        splitter1.TabIndex = 4;
+        // 
+        // breadcrumb
+        // 
+        breadcrumb.BackColor = Color.Transparent;
+        breadcrumb.Dock = DockStyle.Left;
+        breadcrumb.Location = new Point(3, 3);
+        breadcrumb.Name = "breadcrumb";
+        breadcrumb.Padding = new Padding(12, 0, 12, 0);
+        breadcrumb.Size = new Size(527, 63);
+        breadcrumb.TabIndex = 3;
+        // 
+        // menuToolbar
+        // 
+        menuToolbar.BackColor = Color.Transparent;
+        menuToolbar.Dock = DockStyle.Right;
+        menuToolbar.Gap = 4;
+        menuItem1.IconSvg = "AppstoreOutlined";
+        menuItem2.Text = "縮圖(小)";
+        menuItem3.Text = "縮圖(中)";
+        menuItem4.Text = "縮圖(大)";
+        menuItem5.Text = "列表模式";
+        menuItem1.Sub.Add(menuItem2);
+        menuItem1.Sub.Add(menuItem3);
+        menuItem1.Sub.Add(menuItem4);
+        menuItem1.Sub.Add(menuItem5);
+        menuItem1.Text = "檢視模式";
+        menuItem6.IconSvg = "RedoOutlined";
+        menuItem6.ID = "refresh";
+        menuItem6.Name = "refresh";
+        menuItem6.Text = "重新整理";
+        menuToolbar.Items.Add(menuItem1);
+        menuToolbar.Items.Add(menuItem6);
+        menuToolbar.Location = new Point(706, 3);
+        menuToolbar.Mode = TMenuMode.Horizontal;
+        menuToolbar.Name = "menuToolbar";
+        menuToolbar.ScrollBarBlock = true;
+        menuToolbar.Size = new Size(252, 63);
+        menuToolbar.TabIndex = 0;
+        menuToolbar.Trigger = Trigger.Click;
+        menuToolbar.SelectChanged += menuToolbar_SelectChanged;
         // 
         // tabsContent
         // 
         tabsContent.CloseDisposePage = true;
         tabsContent.Dock = DockStyle.Fill;
-        tabsContent.Location = new Point(0, 45);
+        tabsContent.Location = new Point(0, 10);
         tabsContent.Name = "tabsContent";
-        tabsContent.Size = new Size(745, 661);
+        tabsContent.Size = new Size(961, 541);
         tabsContent.Style = styleCard1;
         tabsContent.TabIndex = 0;
-        tabsContent.Type = AntdUI.TabType.Card;
-        // 
-        // panelToolbar
-        // 
-        panelToolbar.Controls.Add(menuToolbar);
-        panelToolbar.Dock = DockStyle.Top;
-        panelToolbar.Location = new Point(0, 0);
-        panelToolbar.Name = "panelToolbar";
-        panelToolbar.Size = new Size(745, 45);
-        panelToolbar.TabIndex = 1;
-        // 
-        // menuToolbar
-        // 
-        menuToolbar.BackColor = Color.Transparent;
-        menuToolbar.Collapsed = true;
-        menuToolbar.Dock = DockStyle.Left;
-        menuToolbar.Items.AddRange(new AntdUI.MenuItem[] {
-            new AntdUI.MenuItem("檢視模式") {
-                IconSvg = "AppstoreOutlined",
-                Sub = {
-                    new AntdUI.MenuItem("縮圖(小)"),
-                    new AntdUI.MenuItem("縮圖(中)"),
-                    new AntdUI.MenuItem("縮圖(大)"),
-                    new AntdUI.MenuDividerItem(),
-                    new AntdUI.MenuItem("列表模式")
-                }
-            }
-        });
-        menuToolbar.Location = new Point(0, 0);
-        menuToolbar.Mode = AntdUI.TMenuMode.Vertical;
-        menuToolbar.Name = "menuToolbar";
-        menuToolbar.Size = new Size(46, 45);
-        menuToolbar.TabIndex = 0;
-        // 
-        // splitter2
-        // 
-        splitter2.Location = new Point(250, 0);
-        splitter2.Name = "splitter2";
-        splitter2.Size = new Size(5, 706);
-        splitter2.TabIndex = 1;
-        splitter2.TabStop = false;
-        // 
-        // treeFolders
-        // 
-        treeFolders.Dock = DockStyle.Left;
-        treeFolders.Location = new Point(0, 0);
-        treeFolders.Name = "treeFolders";
-        treeFolders.Size = new Size(250, 706);
-        treeFolders.TabIndex = 2;
-        treeFolders.Text = "tree1";
+        tabsContent.Type = TabType.Card;
         // 
         // tabPage2
         // 
@@ -222,12 +276,12 @@ partial class MainForm
         btnExecute.Size = new Size(172, 45);
         btnExecute.TabIndex = 1;
         btnExecute.Text = "預覽歸檔計畫";
-        btnExecute.Type = AntdUI.TTypeMini.Success;
+        btnExecute.Type = TTypeMini.Success;
         // 
         // tableArchive
         // 
         tableArchive.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-        tableArchive.AutoSizeColumnsMode = AntdUI.ColumnsMode.Fill;
+        tableArchive.AutoSizeColumnsMode = ColumnsMode.Fill;
         tableArchive.EmptyText = "no data";
         tableArchive.Gap = 4;
         tableArchive.Gaps = new Size(4, 4);
@@ -243,7 +297,7 @@ partial class MainForm
         btnScan.Size = new Size(178, 45);
         btnScan.TabIndex = 3;
         btnScan.Text = "開始掃描匹配";
-        btnScan.Type = AntdUI.TTypeMini.Primary;
+        btnScan.Type = TTypeMini.Primary;
         // 
         // tabPage3
         // 
@@ -303,7 +357,7 @@ partial class MainForm
         btnSaveConfig.Size = new Size(150, 45);
         btnSaveConfig.TabIndex = 1;
         btnSaveConfig.Text = "儲存設定";
-        btnSaveConfig.Type = AntdUI.TTypeMini.Primary;
+        btnSaveConfig.Type = TTypeMini.Primary;
         // 
         // btnBrowseViewer
         // 
@@ -355,18 +409,28 @@ partial class MainForm
         // 
         // MainForm
         // 
-        ClientSize = new Size(1000, 800);
+        ClientSize = new Size(1280, 720);
         Controls.Add(tabs);
         Controls.Add(windowBar);
         Name = "MainForm";
-        StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
+        StartPosition = FormStartPosition.CenterScreen;
         Text = "Comic Organize - 專業版";
+        Load += MainForm_Load;
         tabs.ResumeLayout(false);
         tabPage1.ResumeLayout(false);
-        panelRight.ResumeLayout(false);
-        panelToolbar.ResumeLayout(false);
+        splitter2.Panel1.ResumeLayout(false);
+        splitter2.Panel2.ResumeLayout(false);
+        ((System.ComponentModel.ISupportInitialize)splitter2).EndInit();
+        splitter2.ResumeLayout(false);
+        splitter1.Panel1.ResumeLayout(false);
+        splitter1.Panel2.ResumeLayout(false);
+        ((System.ComponentModel.ISupportInitialize)splitter1).EndInit();
+        splitter1.ResumeLayout(false);
         tabPage2.ResumeLayout(false);
         tabPage3.ResumeLayout(false);
         ResumeLayout(false);
     }
+
+    private AntdUI.Splitter splitter1;
+    private AntdUI.Splitter splitter2;
 }
