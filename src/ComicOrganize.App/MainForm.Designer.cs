@@ -10,7 +10,11 @@ partial class MainForm
     private AntdUI.TabPage tabPage3;
 
     private AntdUI.Tree treeFolders;
+    private AntdUI.Panel panelRight;
+    private AntdUI.Panel panelToolbar;
+    private AntdUI.Menu menuToolbar;
     private AntdUI.Tabs tabsContent;
+    private System.Windows.Forms.Splitter splitter2;
     
     private AntdUI.Table tableArchive;
     private AntdUI.Button btnScan;
@@ -47,8 +51,11 @@ partial class MainForm
         windowBar = new AntdUI.PageHeader();
         tabs = new AntdUI.Tabs();
         tabPage1 = new AntdUI.TabPage();
+        panelRight = new AntdUI.Panel();
         tabsContent = new AntdUI.Tabs();
-        splitter2 = new Splitter();
+        panelToolbar = new AntdUI.Panel();
+        menuToolbar = new AntdUI.Menu();
+        splitter2 = new System.Windows.Forms.Splitter();
         treeFolders = new AntdUI.Tree();
         tabPage2 = new AntdUI.TabPage();
         lblStatus = new AntdUI.Label();
@@ -67,9 +74,11 @@ partial class MainForm
         txtImageViewer = new AntdUI.Input();
         txtTarget = new AntdUI.Input();
         txtSource = new AntdUI.Input();
-        folderBrowserDialog = new FolderBrowserDialog();
+        folderBrowserDialog = new System.Windows.Forms.FolderBrowserDialog();
         tabs.SuspendLayout();
         tabPage1.SuspendLayout();
+        panelRight.SuspendLayout();
+        panelToolbar.SuspendLayout();
         tabPage2.SuspendLayout();
         tabPage3.SuspendLayout();
         SuspendLayout();
@@ -98,6 +107,7 @@ partial class MainForm
         tabs.Pages.Add(tabPage1);
         tabs.Pages.Add(tabPage2);
         tabs.Pages.Add(tabPage3);
+        tabs.SelectedIndex = 0;
         tabs.Size = new Size(1000, 752);
         tabs.Style = styleCard2;
         tabs.TabIndex = 0;
@@ -105,7 +115,7 @@ partial class MainForm
         // 
         // tabPage1
         // 
-        tabPage1.Controls.Add(tabsContent);
+        tabPage1.Controls.Add(panelRight);
         tabPage1.Controls.Add(splitter2);
         tabPage1.Controls.Add(treeFolders);
         tabPage1.Location = new Point(0, 46);
@@ -114,16 +124,58 @@ partial class MainForm
         tabPage1.TabIndex = 0;
         tabPage1.Text = "漫畫庫管理";
         // 
+        // panelRight
+        // 
+        panelRight.Controls.Add(tabsContent);
+        panelRight.Controls.Add(panelToolbar);
+        panelRight.Dock = DockStyle.Fill;
+        panelRight.Location = new Point(255, 0);
+        panelRight.Name = "panelRight";
+        panelRight.Size = new Size(745, 706);
+        panelRight.TabIndex = 3;
+        // 
         // tabsContent
         // 
         tabsContent.CloseDisposePage = true;
         tabsContent.Dock = DockStyle.Fill;
-        tabsContent.Location = new Point(255, 0);
+        tabsContent.Location = new Point(0, 45);
         tabsContent.Name = "tabsContent";
-        tabsContent.Size = new Size(745, 706);
+        tabsContent.Size = new Size(745, 661);
         tabsContent.Style = styleCard1;
         tabsContent.TabIndex = 0;
         tabsContent.Type = AntdUI.TabType.Card;
+        // 
+        // panelToolbar
+        // 
+        panelToolbar.Controls.Add(menuToolbar);
+        panelToolbar.Dock = DockStyle.Top;
+        panelToolbar.Location = new Point(0, 0);
+        panelToolbar.Name = "panelToolbar";
+        panelToolbar.Size = new Size(745, 45);
+        panelToolbar.TabIndex = 1;
+        // 
+        // menuToolbar
+        // 
+        menuToolbar.BackColor = Color.Transparent;
+        menuToolbar.Collapsed = true;
+        menuToolbar.Dock = DockStyle.Left;
+        menuToolbar.Items.AddRange(new AntdUI.MenuItem[] {
+            new AntdUI.MenuItem("檢視模式") {
+                IconSvg = "AppstoreOutlined",
+                Sub = {
+                    new AntdUI.MenuItem("縮圖(小)"),
+                    new AntdUI.MenuItem("縮圖(中)"),
+                    new AntdUI.MenuItem("縮圖(大)"),
+                    new AntdUI.MenuDividerItem(),
+                    new AntdUI.MenuItem("列表模式")
+                }
+            }
+        });
+        menuToolbar.Location = new Point(0, 0);
+        menuToolbar.Mode = AntdUI.TMenuMode.Vertical;
+        menuToolbar.Name = "menuToolbar";
+        menuToolbar.Size = new Size(46, 45);
+        menuToolbar.TabIndex = 0;
         // 
         // splitter2
         // 
@@ -307,14 +359,14 @@ partial class MainForm
         Controls.Add(tabs);
         Controls.Add(windowBar);
         Name = "MainForm";
-        StartPosition = FormStartPosition.CenterScreen;
+        StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
         Text = "Comic Organize - 專業版";
         tabs.ResumeLayout(false);
         tabPage1.ResumeLayout(false);
+        panelRight.ResumeLayout(false);
+        panelToolbar.ResumeLayout(false);
         tabPage2.ResumeLayout(false);
         tabPage3.ResumeLayout(false);
         ResumeLayout(false);
     }
-
-    private Splitter splitter2;
 }
