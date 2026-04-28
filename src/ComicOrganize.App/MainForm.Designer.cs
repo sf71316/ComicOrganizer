@@ -13,7 +13,8 @@ partial class MainForm
     private AntdUI.TabPage tabPage3;
 
     private AntdUI.Tree treeFolders;
-    private AntdUI.Menu menuToolbar;
+    private AntdUI.Button btnViewMode;
+    private AntdUI.Button btnRefresh;
     private AntdUI.Breadcrumb breadcrumb;
     private AntdUI.Tabs tabsContent;
     
@@ -49,12 +50,6 @@ partial class MainForm
     {
         folderBrowserDialog = new FolderBrowserDialog();
         Tabs.StyleCard styleCard2 = new Tabs.StyleCard();
-        MenuItem menuItem1 = new MenuItem();
-        MenuItem menuItem2 = new MenuItem();
-        MenuItem menuItem3 = new MenuItem();
-        MenuItem menuItem4 = new MenuItem();
-        MenuItem menuItem5 = new MenuItem();
-        MenuItem menuItem6 = new MenuItem();
         Tabs.StyleCard styleCard1 = new Tabs.StyleCard();
         windowBar = new PageHeader();
         tabs = new Tabs();
@@ -63,7 +58,8 @@ partial class MainForm
         treeFolders = new Tree();
         splitter1 = new AntdUI.Splitter();
         breadcrumb = new Breadcrumb();
-        menuToolbar = new Menu();
+        btnViewMode = new AntdUI.Button();
+        btnRefresh = new AntdUI.Button();
         tabsContent = new Tabs();
         tabPage2 = new AntdUI.TabPage();
         lblStatus = new AntdUI.Label();
@@ -183,7 +179,8 @@ partial class MainForm
         // 
         splitter1.Panel1.BackColor = Color.WhiteSmoke;
         splitter1.Panel1.Controls.Add(breadcrumb);
-        splitter1.Panel1.Controls.Add(menuToolbar);
+        splitter1.Panel1.Controls.Add(btnViewMode);
+        splitter1.Panel1.Controls.Add(btnRefresh);
         splitter1.Panel1.Padding = new Padding(3);
         splitter1.Panel1MinSize = 50;
         // 
@@ -207,36 +204,24 @@ partial class MainForm
         breadcrumb.Padding = new Padding(12, 0, 12, 0);
         breadcrumb.Size = new Size(527, 63);
         breadcrumb.TabIndex = 3;
-        // 
-        // menuToolbar
-        // 
-        menuToolbar.BackColor = Color.Transparent;
-        menuToolbar.Dock = DockStyle.Right;
-        menuToolbar.Gap = 4;
-        menuItem1.IconSvg = "AppstoreOutlined";
-        menuItem2.Text = "縮圖(小)";
-        menuItem3.Text = "縮圖(中)";
-        menuItem4.Text = "縮圖(大)";
-        menuItem5.Text = "列表模式";
-        menuItem1.Sub.Add(menuItem2);
-        menuItem1.Sub.Add(menuItem3);
-        menuItem1.Sub.Add(menuItem4);
-        menuItem1.Sub.Add(menuItem5);
-        menuItem1.Text = "檢視模式";
-        menuItem6.IconSvg = "RedoOutlined";
-        menuItem6.ID = "refresh";
-        menuItem6.Name = "refresh";
-        menuItem6.Text = "重新整理";
-        menuToolbar.Items.Add(menuItem1);
-        menuToolbar.Items.Add(menuItem6);
-        menuToolbar.Location = new Point(706, 3);
-        menuToolbar.Mode = TMenuMode.Horizontal;
-        menuToolbar.Name = "menuToolbar";
-        menuToolbar.ScrollBarBlock = true;
-        menuToolbar.Size = new Size(252, 63);
-        menuToolbar.TabIndex = 0;
-        menuToolbar.Trigger = Trigger.Click;
-        menuToolbar.SelectChanged += menuToolbar_SelectChanged;
+        //
+        // btnViewMode
+        //
+        btnViewMode.Dock = DockStyle.Right;
+        btnViewMode.IconSvg = "AppstoreOutlined";
+        btnViewMode.Name = "btnViewMode";
+        btnViewMode.Size = new Size(46, 57);
+        btnViewMode.TabIndex = 0;
+        btnViewMode.Type = TTypeMini.Default;
+        //
+        // btnRefresh
+        //
+        btnRefresh.Dock = DockStyle.Right;
+        btnRefresh.IconSvg = "RedoOutlined";
+        btnRefresh.Name = "btnRefresh";
+        btnRefresh.Size = new Size(46, 57);
+        btnRefresh.TabIndex = 1;
+        btnRefresh.Type = TTypeMini.Default;
         // 
         // tabsContent
         // 

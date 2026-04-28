@@ -36,6 +36,34 @@ public partial class MainForm : Window
         btnSaveConfig.Click += (s, e) => SaveConfig();
         btnScan.Click += async (s, e) => await ScanAsync();
 
+        // 檢視模式按鈕：點擊彈下拉選單
+        btnViewMode.Click += (s, e) =>
+        {
+            AntdUI.ContextMenuStrip.open(btnViewMode, mi =>
+            {
+                if (mi.Text == "縮圖(小)") _currentViewMode = GalleryViewMode.Small;
+                else if (mi.Text == "縮圖(中)") _currentViewMode = GalleryViewMode.Medium;
+                else if (mi.Text == "縮圖(大)") _currentViewMode = GalleryViewMode.Large;
+                else if (mi.Text == "列表模式") _currentViewMode = GalleryViewMode.List;
+                else return;
+                RefreshCurrentTab();
+            }, new AntdUI.IContextMenuStripItem[]
+            {
+                new AntdUI.ContextMenuStripItem("縮圖(小)"),
+                new AntdUI.ContextMenuStripItem("縮圖(中)"),
+                new AntdUI.ContextMenuStripItem("縮圖(大)"),
+                new AntdUI.ContextMenuStripItem("列表模式"),
+            });
+        };
+
+        // 重新整理按鈕 + F5
+        btnRefresh.Click += (s, e) => RefreshCurrentTab();
+        this.KeyPreview = true;
+        this.KeyDown += (s, e) =>
+        {
+            if (e.KeyCode == Keys.F5) { RefreshCurrentTab(); e.Handled = true; }
+        };
+
         // 漫畫庫管理事件
         treeFolders.NodeMouseClick += (s, e) =>
         {
@@ -637,22 +665,6 @@ public partial class MainForm : Window
         await LoadTreeAsync();
     }
 
-    private void menuToolbar_SelectChanged(object sender, MenuSelectEventArgs e)
-    {
-        if (e.Value.ID == "refresh")
-        {
-            RefreshCurrentTab();
-            return;
-        }
-
-        if (e.Value.Text == "縮圖(小)") _currentViewMode = GalleryViewMode.Small;
-        else if (e.Value.Text == "縮圖(中)") _currentViewMode = GalleryViewMode.Medium;
-        else if (e.Value.Text == "縮圖(大)") _currentViewMode = GalleryViewMode.Large;
-        else if (e.Value.Text == "列表模式") _currentViewMode = GalleryViewMode.List;
-        else return;
-
-        RefreshCurrentTab();
-    }
 }
 
 public class ArchiveItem : INotifyPropertyChanged
