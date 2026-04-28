@@ -47,6 +47,7 @@ partial class MainForm
 
     private void InitializeComponent()
     {
+        folderBrowserDialog = new FolderBrowserDialog();
         Tabs.StyleCard styleCard2 = new Tabs.StyleCard();
         MenuItem menuItem1 = new MenuItem();
         MenuItem menuItem2 = new MenuItem();

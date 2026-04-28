@@ -36,26 +36,6 @@ public partial class MainForm : Window
         btnSaveConfig.Click += (s, e) => SaveConfig();
         btnScan.Click += async (s, e) => await ScanAsync();
 
-        // 檢視模式切換菜單 (左側 Menu 型式)
-        menuToolbar.SelectChanged += (s, e) =>
-        {
-            if (e.Value.Text == "縮圖(小)") _currentViewMode = GalleryViewMode.Small;
-            else if (e.Value.Text == "縮圖(中)") _currentViewMode = GalleryViewMode.Medium;
-            else if (e.Value.Text == "縮圖(大)") _currentViewMode = GalleryViewMode.Large;
-            else if (e.Value.Text == "列表模式") _currentViewMode = GalleryViewMode.List;
-            else return;
-
-            // 刷新目前選中的頁籤內容
-            if (tabsContent.SelectedTab != null)
-            {
-                var flow = tabsContent.SelectedTab.Controls.OfType<FlowLayoutPanel>().FirstOrDefault();
-                if (flow != null && tabsContent.SelectedTab.Tag is string path)
-                {
-                    _ = LoadGalleryAsync(flow, path);
-                }
-            }
-        };
-
         // 漫畫庫管理事件
         treeFolders.NodeMouseClick += (s, e) =>
         {
@@ -100,21 +80,6 @@ public partial class MainForm : Window
         {
             if (e.Item.Tag is string p) OpenFolderTab(p, false);
         };
-
-        // 重新整理按鈕 + F5 快捷鍵
-        //btnRefresh.Click += (s, e) => RefreshCurrentTab();
-        //this.KeyPreview = true;
-        //this.KeyDown += (s, e) =>
-        //{
-        //    if (e.KeyCode == Keys.F5)
-        //    {
-        //        RefreshCurrentTab();
-        //        e.Handled = true;
-        //    }
-        //};
-
-
-
 
     }
     private async Task LoadTreeAsync()
@@ -677,7 +642,16 @@ public partial class MainForm : Window
         if (e.Value.ID == "refresh")
         {
             RefreshCurrentTab();
+            return;
         }
+
+        if (e.Value.Text == "縮圖(小)") _currentViewMode = GalleryViewMode.Small;
+        else if (e.Value.Text == "縮圖(中)") _currentViewMode = GalleryViewMode.Medium;
+        else if (e.Value.Text == "縮圖(大)") _currentViewMode = GalleryViewMode.Large;
+        else if (e.Value.Text == "列表模式") _currentViewMode = GalleryViewMode.List;
+        else return;
+
+        RefreshCurrentTab();
     }
 }
 
