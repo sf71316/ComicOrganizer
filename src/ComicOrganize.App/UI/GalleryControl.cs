@@ -133,6 +133,17 @@ public partial class GalleryControl : UserControl
 
     private void UpdateBreadcrumb(string path)
     {
+        // 大字目錄名稱：顯示當前 Tab 對應資料夾名（路徑最後一段）
+        if (!string.IsNullOrEmpty(path))
+        {
+            string name = Path.GetFileName(path);
+            lblFolderName.Text = string.IsNullOrEmpty(name) ? path : name;
+        }
+        else
+        {
+            lblFolderName.Text = "";
+        }
+
         breadcrumb.Items.Clear();
         if (string.IsNullOrEmpty(_config.RootDirectory) || string.IsNullOrEmpty(path)) return;
 
@@ -311,171 +322,38 @@ public partial class GalleryControl : UserControl
                            .ThenBy(i => i.Name)
                            .ToList();
 
-        Size cardSize;
-        int picHeight = 200;
-        float fontSize = 9F;
         bool isListMode = _currentViewMode == GalleryViewMode.List;
-
-        switch (_currentViewMode)
-        {
-            case GalleryViewMode.Small:
-                cardSize = new Size(120, 180);
-                picHeight = 145;
-                fontSize = 8.5F;
-                break;
-            case GalleryViewMode.Large:
-                cardSize = new Size(240, 360);
-                picHeight = 310;
-                fontSize = 10F;
-                break;
-            case GalleryViewMode.List:
-                cardSize = new Size(container.Width - 40, 60);
-                break;
-            case GalleryViewMode.Medium:
-            default:
-                cardSize = new Size(160, 240);
-                picHeight = 200;
-                break;
-        }
 
         foreach (var item in items)
         {
-            bool isFolderNode = false;
-            if (item is DirectoryInfo subDir)
-            {
-                isFolderNode = subDir.GetDirectories().Length > 0;
-            }
+            bool isFolderNode = item is DirectoryInfo subDir
+                                 && subDir.GetDirectories().Length > 0;
 
-            var card = new AntdUI.Panel
-            {
-                Size = cardSize,
-                Radius = isListMode ? 4 : 8,
-                Margin = isListMode ? new Padding(5, 2, 5, 2) : new Padding(12),
-                BackColor = Color.White,
-                Shadow = isListMode ? 2 : 4,
-                Cursor = Cursors.Hand
-            };
-
-            var pic = new System.Windows.Forms.PictureBox
-            {
-                SizeMode = PictureBoxSizeMode.Zoom,
-                BackColor = Color.FromArgb(245, 245, 245),
-                Cursor = Cursors.Hand
-            };
-
-            var lbl = new AntdUI.Label
-            {
-                Text = item.Name,
-                Font = new Font("Microsoft JhengHei UI", fontSize),
-                Cursor = Cursors.Hand
-            };
-
-            if (isListMode)
-            {
-                pic.Dock = DockStyle.Left;
-                pic.Width = 50;
-                lbl.Dock = DockStyle.Fill;
-                lbl.TextAlign = ContentAlignment.MiddleLeft;
-                lbl.Padding = new Padding(10, 0, 0, 0);
-            }
-            else
-            {
-                pic.Dock = DockStyle.Top;
-                pic.Height = picHeight;
-                lbl.Dock = DockStyle.Fill;
-                lbl.TextAlign = ContentAlignment.MiddleCenter;
-            }
-
-            MouseEventHandler clickHandler = (s, e) =>
-            {
-                if (e.Button == MouseButtons.Left)
-                {
-                    if (isFolderNode) OpenFolderTab(item.FullName, false);
-                    else OpenWithExternalViewer(item.FullName);
-                }
-                else if (e.Button == MouseButtons.Right)
-                {
-                    var menuItems = new List<AntdUI.IContextMenuStripItem>();
-                    if (isFolderNode) menuItems.Add(new AntdUI.ContextMenuStripItem("📂 進入目錄"));
-                    else menuItems.Add(new AntdUI.ContextMenuStripItem("👁 閱讀"));
-
-                    menuItems.Add(new AntdUI.ContextMenuStripItem("另開頁籤"));
-                    menuItems.Add(new AntdUI.ContextMenuStripItemDivider());
-                    menuItems.Add(new AntdUI.ContextMenuStripItem("📂 在檔案總管中開啟"));
-
-                    AntdUI.ContextMenuStrip.open((Control)s!, (menuItem) =>
-                    {
-                        if (menuItem.Text != null && (menuItem.Text.Contains("進入") || menuItem.Text.Contains("閱讀")))
-                        {
-                            if (isFolderNode) OpenFolderTab(item.FullName, false);
-                            else OpenWithExternalViewer(item.FullName);
-                        }
-                        else if (menuItem.Text == "另開頁籤")
-                        {
-                            OpenFolderTab(item.FullName, true);
-                        }
-                        else if (menuItem.Text != null && menuItem.Text.Contains("檔案總管"))
-                        {
-                            System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{item.FullName}\"");
-                        }
-                    }, menuItems.ToArray());
-                }
-            };
-
-            card.MouseClick += clickHandler;
-            pic.MouseClick += clickHandler;
-            lbl.MouseClick += clickHandler;
-
-            Action<bool> setHoverState = (hover) =>
-            {
-                if (hover)
-                {
-                    card.Back = Color.FromArgb(240, 245, 255);
-                    card.Shadow = isListMode ? 3 : 8;
-                    lbl.BringToFront();
-                }
-                else
-                {
-                    var clientPos = card.PointToClient(Control.MousePosition);
-                    if (!card.ClientRectangle.Contains(clientPos))
-                    {
-                        card.Back = Color.White;
-                        card.Shadow = isListMode ? 2 : 4;
-                    }
-                }
-            };
-
-            card.MouseEnter += (s, e) => setHoverState(true);
-            pic.MouseEnter += (s, e) => setHoverState(true);
-            lbl.MouseEnter += (s, e) => setHoverState(true);
-            card.MouseLeave += (s, e) => setHoverState(false);
-            pic.MouseLeave += (s, e) => setHoverState(false);
-            lbl.MouseLeave += (s, e) => setHoverState(false);
-
-            lbl.BackColor = Color.Transparent;
-
-            card.Controls.Add(lbl);
-            card.Controls.Add(pic);
+            var card = new ComicCardControl();
+            card.SetData(item, isFolderNode);
+            card.ApplyViewMode(_currentViewMode);
+            card.RequestOpenFolder += p => OpenFolderTab(p, false);
+            card.RequestOpenViewer += p => OpenWithExternalViewer(p);
+            card.RequestNewTab += (p, forceNew) => OpenFolderTab(p, forceNew);
+            card.RequestExplorer += p =>
+                System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{p}\"");
             container.Controls.Add(card);
 
-            if (isFolderNode)
+            if (!isFolderNode)
             {
-                pic.Image = null;
-                pic.BackColor = Color.FromArgb(230, 244, 255);
-            }
-            else
-            {
+                int thumbWidth = isListMode ? 80 : card.Width;
                 _ = Task.Run(async () =>
                 {
-                    int thumbWidth = isListMode ? 80 : cardSize.Width;
                     var cover = await _coverManager.GetCoverAsync(item.FullName, thumbWidth);
                     if (cover != null)
                     {
-                        this.Invoke(() => pic.Image = cover);
+                        this.Invoke(() => card.SetCover(cover));
                     }
                 });
             }
         }
+
+        await Task.CompletedTask;
     }
 
     private void OpenWithExternalViewer(string filePath)
