@@ -16,6 +16,7 @@ public static class ThemeColors
     private static readonly Color LightSurface = Color.FromArgb(241, 233, 249);
     private static readonly Color LightBorder = Color.FromArgb(192, 181, 207);
     private static readonly Color LightRowAlternateBg = Color.FromArgb(219, 217, 255);
+    private static readonly Color LightTreeViewSurface = Color.FromArgb(241, 233, 249);
 
     // Dark Mode Colors
     private static readonly Color DarkText = Color.FromArgb(220, 220, 220);
@@ -23,9 +24,10 @@ public static class ThemeColors
     private static readonly Color DarkPrimary = Color.FromArgb(60, 60, 60);
     private static readonly Color DarkSecondary = Color.FromArgb(45, 45, 48);
     private static readonly Color DarkAccent = Color.FromArgb(0, 122, 204);
-    private static readonly Color DarkSurface = Color.FromArgb(37, 37, 38);
+    private static readonly Color DarkSurface = Color.FromArgb(189, 189, 189);
     private static readonly Color DarkBorder = Color.FromArgb(63, 63, 70);
     private static readonly Color DarkRowAlternateBg = Color.FromArgb(45, 45, 48);
+    private static readonly Color DarkTreeViewSurface = Color.FromArgb(189, 189, 189);
 
     public static Color Text => ThemeManager.IsDark ? DarkText : LightText;
     public static Color Background => ThemeManager.IsDark ? DarkBackground : LightBackground;
@@ -33,7 +35,7 @@ public static class ThemeColors
     public static Color Secondary => ThemeManager.IsDark ? DarkSecondary : LightSecondary;
     public static Color Accent => ThemeManager.IsDark ? DarkAccent : LightAccent;
     public static Color Surface => ThemeManager.IsDark ? DarkSurface : LightSurface;
-    public static Color TreeViewSurface => Surface;
+    public static Color TreeViewSurface => ThemeManager.IsDark ? DarkTreeViewSurface : LightTreeViewSurface;
     public static Color Border => ThemeManager.IsDark ? DarkBorder : LightBorder;
     public static Color HoverToolBarBackground => Color.FromArgb(140, 127, 124, 128);
     public static Color RowAlternateBg => ThemeManager.IsDark ? DarkRowAlternateBg : LightRowAlternateBg;

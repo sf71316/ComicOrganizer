@@ -15,18 +15,17 @@ public partial class MainForm : Window
 
     public MainForm()
     {
+
         InitializeComponent();
 
         _configManager = new ConfigManager();
         _config = _configManager.Load();
-        
         // 初始化主題與語系
         LocalizationManager.Initialize(_config.Language);
         ThemeManager.Initialize(_config.Theme);
-        
         ThemeManager.ThemeChanged += (s, e) => ThemeManager.ApplyTheme(this);
         LocalizationManager.LanguageChanged += (s, e) => ApplyLocalization();
-        
+
         ThemeManager.ApplyTheme(this);
         ApplyLocalization();
 
@@ -61,10 +60,10 @@ public partial class MainForm : Window
     private void ApplyViewMode(GalleryControl.GalleryViewMode mode)
     {
         galleryControl.SetViewMode(mode);
-        mnuViewModeSmall.Checked  = mode == GalleryControl.GalleryViewMode.Small;
+        mnuViewModeSmall.Checked = mode == GalleryControl.GalleryViewMode.Small;
         mnuViewModeMedium.Checked = mode == GalleryControl.GalleryViewMode.Medium;
-        mnuViewModeLarge.Checked  = mode == GalleryControl.GalleryViewMode.Large;
-        mnuViewModeList.Checked   = mode == GalleryControl.GalleryViewMode.List;
+        mnuViewModeLarge.Checked = mode == GalleryControl.GalleryViewMode.Large;
+        mnuViewModeList.Checked = mode == GalleryControl.GalleryViewMode.List;
     }
 
     protected override void OnMouseDown(MouseEventArgs e)
@@ -106,7 +105,7 @@ public partial class MainForm : Window
         mnuFileArchive.Text = LocalizationManager.GetString("MenuArchive");
         mnuFileSettings.Text = LocalizationManager.GetString("MenuSettings");
         mnuFileExit.Text = LocalizationManager.GetString("MenuExit");
-        
+
         mnuView.Text = LocalizationManager.GetString("MenuView");
         mnuViewModeSmall.Text = LocalizationManager.GetString("ViewSmall");
         mnuViewModeMedium.Text = LocalizationManager.GetString("ViewMedium");

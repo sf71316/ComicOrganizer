@@ -17,10 +17,10 @@ public partial class SettingsForm : Window
 
         LoadConfig();
         WireEvents();
-        
+
         ThemeManager.ThemeChanged += (s, e) => ThemeManager.ApplyTheme(this);
         LocalizationManager.LanguageChanged += (s, e) => ApplyLocalization();
-        
+
         ThemeManager.ApplyTheme(this);
         ApplyLocalization();
     }
@@ -52,7 +52,6 @@ public partial class SettingsForm : Window
         btnBrowseTarget.Click += (s, e) => BrowseFolder(txtTarget);
         btnBrowseViewer.Click += (s, e) => BrowseFile(txtImageViewer, "執行檔 (*.exe)|*.exe|所有檔案 (*.*)|*.*");
         btnCancel.Click += (s, e) => { DialogResult = DialogResult.Cancel; Close(); };
-        btnSave.Click += (s, e) => SaveAndClose();
 
         selectTheme.SelectedValueChanged += (s, e) =>
         {
@@ -117,7 +116,7 @@ public partial class SettingsForm : Window
         Config.RootDirectory = txtTarget.Text;
         Config.ImageViewerPath = txtImageViewer.Text;
         Config.DebugMode = cbDebug.Checked;
-        
+
         // 修正轉型問題：使用 Index 而非直接轉型對象
         if (selectTheme.SelectedIndex >= 0)
             Config.Theme = (AppTheme)selectTheme.SelectedIndex;
@@ -129,5 +128,10 @@ public partial class SettingsForm : Window
         AntdUI.Message.info(this, LocalizationManager.GetString("SettingsSaved") ?? "設定已儲存");
         DialogResult = DialogResult.OK;
         Close();
+    }
+
+    private void btnSave_Click(object sender, EventArgs e)
+    {
+        SaveAndClose();
     }
 }
