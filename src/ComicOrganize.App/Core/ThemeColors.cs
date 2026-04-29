@@ -33,5 +33,9 @@ public static class ThemeColors
     /// 漫畫圖卡片懸浮工具列背景色（包含卡片右上角的工具列）
     /// </summary>
     public static readonly Color HoverToolBarBackground = Color.FromArgb(140, 127, 124, 128);
+    /// <summary>
+    /// 列表 zebra 偶數行底色（奇數行用 Color.White）
+    /// </summary>
+    public static readonly Color RowAlternateBg = Color.FromArgb(219, 217, 255); // #dbd9ff
 }
 

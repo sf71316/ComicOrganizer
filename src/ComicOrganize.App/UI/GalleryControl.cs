@@ -74,7 +74,18 @@ public partial class GalleryControl : UserControl
     {
         if (_currentViewMode == mode) return;
         _currentViewMode = mode;
+        SyncTabVisibility(tabsContent.SelectedTab);
         RefreshCurrentTab();
+    }
+
+    private void SyncTabVisibility(AntdUI.TabPage? page)
+    {
+        if (page == null) return;
+        var flow = FindTabFlowLayout(page);
+        var table = FindTabTable(page);
+        bool isList = _currentViewMode == GalleryViewMode.List;
+        if (flow != null) flow.Visible = !isList;
+        if (table != null) table.Visible = isList;
     }
 
     public void OnConfigUpdated(AppConfig config)
@@ -123,7 +134,13 @@ public partial class GalleryControl : UserControl
     private FlowLayoutPanel? FindTabFlowLayout(AntdUI.TabPage? page)
     {
         if (page == null) return null;
-        return page.Controls.OfType<FlowLayoutPanel>().FirstOrDefault();
+        return page.Controls.Find("tabFlowLayout", true).OfType<FlowLayoutPanel>().FirstOrDefault();
+    }
+
+    private AntdUI.Table? FindTabTable(AntdUI.TabPage? page)
+    {
+        if (page == null) return null;
+        return page.Controls.Find("tabTableList", true).OfType<AntdUI.Table>().FirstOrDefault();
     }
 
     private void UpdateBreadcrumb(string path)
@@ -163,8 +180,7 @@ public partial class GalleryControl : UserControl
     private void RefreshCurrentTab()
     {
         if (tabsContent.SelectedTab?.Tag is not string path) return;
-        var flow = FindTabFlowLayout(tabsContent.SelectedTab);
-        if (flow != null) _ = LoadGalleryAsync(flow, path);
+        LoadCurrentViewMode(tabsContent.SelectedTab, path);
     }
 
     private void LoadSubDirectories(AntdUI.TreeItem node, string path)
@@ -259,13 +275,9 @@ public partial class GalleryControl : UserControl
 
             currentTab.Text = folderName;
             currentTab.Tag = path;
-            var flow = FindTabFlowLayout(currentTab);
-            if (flow != null)
-            {
-                UpdateBreadcrumb(path);
-                _ = LoadGalleryAsync(flow, path);
-                return;
-            }
+            UpdateBreadcrumb(path);
+            LoadCurrentViewMode(currentTab, path);
+            return;
         }
 
         var existingTab = tabsContent.Pages.Cast<AntdUI.TabPage>().FirstOrDefault(p => (string?)p.Tag == path);
@@ -320,21 +332,327 @@ public partial class GalleryControl : UserControl
         headerPanel.Controls.Add(bc);
         headerPanel.Controls.Add(btnRefresh);
 
+        var contentHost = new System.Windows.Forms.Panel
+        {
+            Name = "tabContentHost",
+            Dock = DockStyle.Fill,
+            BackColor = Core.ThemeColors.Surface,
+        };
+
+        bool isList = _currentViewMode == GalleryViewMode.List;
+
         var flowLayout = new System.Windows.Forms.FlowLayoutPanel
         {
             Name = "tabFlowLayout",
             Dock = DockStyle.Fill,
             AutoScroll = true,
-            BackColor = Core.ThemeColors.Surface
+            BackColor = Core.ThemeColors.Surface,
+            Visible = !isList,
         };
 
-        newPage.Controls.Add(flowLayout);
+        var tableList = CreateTabTable();
+        tableList.Visible = isList;
+
+        // 縮圖 hover → 滑鼠附近 floating preview popup（只在縮圖欄觸發）
+        // column 順序：Action(44) | Thumbnail(80) | Name | Size | CreatedAt
+        const int thumbColStart = 44;
+        const int thumbColEnd = 44 + 80;
+        string? currentPreviewPath = null;
+        tableList.MouseMove += (s, e) =>
+        {
+            int headerH = tableList.RowHeightHeader ?? 40;
+            int rowH = tableList.RowHeight ?? 64;
+            if (e.X < thumbColStart || e.X >= thumbColEnd || e.Y < headerH
+                || tableList.DataSource is not System.ComponentModel.BindingList<GalleryListItem> list)
+            {
+                HidePreviewPopup();
+                currentPreviewPath = null;
+                return;
+            }
+            int rowIdx = (e.Y - headerH) / rowH;
+            if (rowIdx < 0 || rowIdx >= list.Count || string.IsNullOrEmpty(list[rowIdx].FullPath))
+            {
+                HidePreviewPopup();
+                currentPreviewPath = null;
+                return;
+            }
+            var item = list[rowIdx];
+            UpdatePreviewPopupPosition();
+            if (currentPreviewPath == item.FullPath) return;
+            currentPreviewPath = item.FullPath;
+            _ = LoadPreviewPopupAsync(item.FullPath);
+        };
+        tableList.MouseLeave += (s, e) =>
+        {
+            currentPreviewPath = null;
+            HidePreviewPopup();
+        };
+
+        // 「進入下一層」icon button click → 進入該資料夾
+        tableList.CellButtonClick += (object s, AntdUI.TableButtonEventArgs args) =>
+        {
+            if (args.Btn?.Id != "OpenFolder") return;
+            GalleryListItem? item = args.Record as GalleryListItem;
+            if (item == null && tableList.DataSource is System.ComponentModel.BindingList<GalleryListItem> list
+                && args.RowIndex >= 0 && args.RowIndex < list.Count)
+            {
+                item = list[args.RowIndex];
+            }
+            if (item != null && Directory.Exists(item.FullPath))
+            {
+                OpenFolderTab(item.FullPath, false);
+            }
+        };
+
+        // 右鍵選單（原 hoverToolbar 功能）
+        tableList.MouseClick += (s, e) =>
+        {
+            if (e.Button != MouseButtons.Right) return;
+            int headerH = tableList.RowHeightHeader ?? 40;
+            int rowH = tableList.RowHeight ?? 64;
+            if (e.Y < headerH || tableList.DataSource is not System.ComponentModel.BindingList<GalleryListItem> list)
+                return;
+            int rowIdx = (e.Y - headerH) / rowH;
+            if (rowIdx < 0 || rowIdx >= list.Count) return;
+            var item = list[rowIdx];
+            if (string.IsNullOrEmpty(item.FullPath)) return;
+
+            var items = new List<AntdUI.IContextMenuStripItem>
+            {
+                new AntdUI.ContextMenuStripItem("📖 閱讀"),
+                new AntdUI.ContextMenuStripItem("📂 檔案總管中開啟"),
+            };
+            if (Directory.Exists(item.FullPath))
+            {
+                items.Insert(0, new AntdUI.ContextMenuStripItem("🔗 另開頁籤"));
+            }
+            AntdUI.ContextMenuStrip.open(tableList, mi =>
+            {
+                if (mi.Text == "📖 閱讀") OpenWithExternalViewer(item.FullPath);
+                else if (mi.Text == "📂 檔案總管中開啟")
+                    System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{item.FullPath}\"");
+                else if (mi.Text == "🔗 另開頁籤") OpenFolderTab(item.FullPath, true);
+            }, items.ToArray());
+        };
+
+        contentHost.Controls.Add(flowLayout);
+        contentHost.Controls.Add(tableList);
+
+        newPage.Controls.Add(contentHost);
         newPage.Controls.Add(headerPanel);
         tabsContent.Pages.Add(newPage);
         tabsContent.SelectedTab = newPage;
 
         UpdateBreadcrumb(path);
-        _ = LoadGalleryAsync(flowLayout, path);
+        LoadCurrentViewMode(newPage, path);
+    }
+
+    private AntdUI.Table CreateTabTable()
+    {
+        var table = new AntdUI.Table
+        {
+            Name = "tabTableList",
+            Dock = DockStyle.Fill,
+            Bordered = false,
+            RowHeight = (int?)64,
+            AutoSizeColumnsMode = AntdUI.ColumnsMode.Fill,
+            Font = new Font("Microsoft JhengHei UI", 10F),
+            BackColor = Core.ThemeColors.Surface,
+        };
+
+        table.Columns = new AntdUI.ColumnCollection
+        {
+            new AntdUI.Column("Action", "", AntdUI.ColumnAlign.Center) { Width = "44" },
+            new AntdUI.Column("Thumbnail", "縮圖", AntdUI.ColumnAlign.Center) { Width = "80" },
+            new AntdUI.Column("Name", "名稱") { SortOrder = true },
+            new AntdUI.Column("Size", "大小", AntdUI.ColumnAlign.Right) { Width = "100", SortOrder = true },
+            new AntdUI.Column("CreatedAt", "建立時間", AntdUI.ColumnAlign.Center) { Width = "160", SortOrder = true },
+        };
+        table.EnableHeaderResizing = true;
+
+        // 點擊 row highlight
+        table.RowSelectedBg = Core.ThemeColors.Secondary;
+
+        // zebra：奇偶行不同底色
+        table.SetRowStyle += (object s, AntdUI.TableSetRowStyleEventArgs e) =>
+        {
+            return new AntdUI.Table.CellStyleInfo
+            {
+                BackColor = e.Index % 2 == 0 ? Color.White : Core.ThemeColors.RowAlternateBg,
+            };
+        };
+
+        return table;
+    }
+
+    private async Task LoadPreviewAsync(System.Windows.Forms.PictureBox pic, string path)
+    {
+        var img = await _coverManager.GetCoverAsync(path, 300);
+        if (img == null || pic.IsDisposed) return;
+        this.Invoke(() => { pic.Image = img; });
+    }
+
+    // ===== 滑鼠附近 floating preview popup =====
+    private HoverPreviewForm? _previewForm;
+    private System.Windows.Forms.PictureBox? _previewPic;
+
+    private void EnsurePreviewPopup()
+    {
+        if (_previewForm != null) return;
+        _previewForm = new HoverPreviewForm
+        {
+            FormBorderStyle = FormBorderStyle.None,
+            StartPosition = FormStartPosition.Manual,
+            ShowInTaskbar = false,
+            TopMost = true,
+            Size = new Size(240, 320),
+            BackColor = Color.White,
+        };
+        _previewPic = new System.Windows.Forms.PictureBox
+        {
+            Dock = DockStyle.Fill,
+            SizeMode = PictureBoxSizeMode.Zoom,
+            BackColor = Color.White,
+            BorderStyle = BorderStyle.FixedSingle,
+        };
+        _previewForm.Controls.Add(_previewPic);
+    }
+
+    private async Task LoadPreviewPopupAsync(string path)
+    {
+        EnsurePreviewPopup();
+        var img = await _coverManager.GetCoverAsync(path, 300);
+        if (img == null || _previewForm == null || _previewPic == null) return;
+        this.Invoke(() =>
+        {
+            _previewPic.Image = img;
+            UpdatePreviewPopupPosition();
+            if (!_previewForm.Visible) _previewForm.Show();
+        });
+    }
+
+    private void UpdatePreviewPopupPosition()
+    {
+        if (_previewForm == null) return;
+        var cur = Cursor.Position;
+        var screen = Screen.FromPoint(cur).WorkingArea;
+        int x = cur.X + 20;
+        int y = cur.Y + 20;
+        if (x + _previewForm.Width > screen.Right) x = cur.X - _previewForm.Width - 20;
+        if (y + _previewForm.Height > screen.Bottom) y = screen.Bottom - _previewForm.Height - 5;
+        _previewForm.Location = new Point(x, y);
+    }
+
+    private void HidePreviewPopup()
+    {
+        if (_previewForm != null && _previewForm.Visible) _previewForm.Hide();
+    }
+
+    private class HoverPreviewForm : Form
+    {
+        protected override bool ShowWithoutActivation => true;
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                var cp = base.CreateParams;
+                cp.ExStyle |= 0x08000000; // WS_EX_NOACTIVATE
+                return cp;
+            }
+        }
+    }
+
+
+    private void LoadCurrentViewMode(AntdUI.TabPage page, string path)
+    {
+        if (_currentViewMode == GalleryViewMode.List)
+        {
+            var table = FindTabTable(page);
+            if (table != null) _ = LoadGalleryListAsync(table, path);
+        }
+        else
+        {
+            var flow = FindTabFlowLayout(page);
+            if (flow != null) _ = LoadGalleryAsync(flow, path);
+        }
+    }
+
+    private async Task LoadGalleryListAsync(AntdUI.Table table, string path)
+    {
+        var dirInfo = new DirectoryInfo(path);
+        var fsInfos = dirInfo.GetFileSystemInfos()
+                             .Where(i => (i.Attributes & FileAttributes.Hidden) == 0)
+                             .OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
+                             .ToList();
+
+        var list = new System.ComponentModel.BindingList<GalleryListItem>();
+        var thumbTasks = new List<Task>();
+
+        foreach (var fs in fsInfos)
+        {
+            bool isDir = fs is DirectoryInfo;
+            // IsFolder 語意：「純導航資料夾」（子目錄裡還有子目錄），跟卡片模式對齊。
+            bool isPureFolderNode = isDir && ((DirectoryInfo)fs).GetDirectories().Length > 0;
+            long size = isDir ? 0 : ((FileInfo)fs).Length;
+            var item = new GalleryListItem
+            {
+                Name = fs.Name,
+                Size = isDir ? "" : FormatSize(size),
+                CreatedAt = fs.CreationTime.ToString("yyyy-MM-dd HH:mm"),
+                IsFolder = isPureFolderNode,
+                FullPath = fs.FullName,
+                Action = isDir
+                    ? new AntdUI.CellLink[]
+                    {
+                        new AntdUI.CellButton("OpenFolder", "", AntdUI.TTypeMini.Default)
+                        {
+                            Ghost = true,
+                            IconSvg = "RightOutlined",
+                        }
+                    }
+                    : null,
+            };
+            list.Add(item);
+
+            // 純導航節點不抓縮圖
+            if (!isPureFolderNode)
+            {
+                var path2 = fs.FullName;
+                thumbTasks.Add(Task.Run(async () =>
+                {
+                    var img = await _coverManager.GetCoverAsync(path2, 100);
+                    if (img != null) item.Thumbnail = new AntdUI.CellImage(img, 60) { Radius = 4 };
+                }));
+            }
+        }
+
+        // 先 set 不含縮圖的列表（使用者可立即看到資料）
+        table.DataSource = list;
+
+        if (thumbTasks.Count == 0) return;
+
+        // AntdUI Table 對 ListChanged/PropertyChanged 不 hook，唯一可靠重繪辦法是
+        // 重 set DataSource。等所有縮圖抓完一次重 set，cell 才會顯示 CellImage。
+        await Task.WhenAll(thumbTasks);
+        if (this.IsDisposed) return;
+        this.Invoke(() =>
+        {
+            table.DataSource = null;
+            table.DataSource = list;
+        });
+    }
+
+    private static string FormatSize(long bytes)
+    {
+        string[] units = { "B", "KB", "MB", "GB" };
+        double size = bytes;
+        int unit = 0;
+        while (size >= 1024 && unit < units.Length - 1)
+        {
+            size /= 1024;
+            unit++;
+        }
+        return $"{size:0.#} {units[unit]}";
     }
 
     private async Task LoadGalleryAsync(FlowLayoutPanel container, string path)

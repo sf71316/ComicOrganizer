@@ -64,7 +64,7 @@ partial class MainForm
         // 
         // windowBar
         // 
-        windowBar.BackColor = Color.FromArgb(131, 117, 159);
+        windowBar.BackColor = Core.ThemeColors.Primary;
         windowBar.Dock = DockStyle.Top;
         windowBar.Font = new Font("Microsoft JhengHei UI", 10F);
         windowBar.ForeColor = Color.White;
@@ -72,6 +72,7 @@ partial class MainForm
         windowBar.IconSvg = "";
         windowBar.Location = new Point(0, 0);
         windowBar.Name = "windowBar";
+        windowBar.Padding = new Padding(3);
         windowBar.ShowButton = true;
         windowBar.ShowIcon = true;
         windowBar.Size = new Size(1280, 48);

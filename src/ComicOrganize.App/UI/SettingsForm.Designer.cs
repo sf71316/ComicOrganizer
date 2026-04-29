@@ -41,40 +41,42 @@ partial class SettingsForm
         folderBrowserDialog = new FolderBrowserDialog();
         windowBar = new PageHeader();
         content = new AntdUI.Panel();
-        footer = new AntdUI.Panel();
-        label1 = new AntdUI.Label();
-        label2 = new AntdUI.Label();
-        label3 = new AntdUI.Label();
-        txtSource = new Input();
-        txtTarget = new Input();
-        txtImageViewer = new Input();
-        btnBrowseSource = new AntdUI.Button();
-        btnBrowseTarget = new AntdUI.Button();
-        btnBrowseViewer = new AntdUI.Button();
         cbDebug = new Checkbox();
+        btnBrowseViewer = new AntdUI.Button();
+        btnBrowseTarget = new AntdUI.Button();
+        btnBrowseSource = new AntdUI.Button();
+        txtImageViewer = new Input();
+        txtTarget = new Input();
+        txtSource = new Input();
+        label3 = new AntdUI.Label();
+        label2 = new AntdUI.Label();
+        label1 = new AntdUI.Label();
+        footer = new AntdUI.Panel();
         btnSave = new AntdUI.Button();
         btnCancel = new AntdUI.Button();
         content.SuspendLayout();
         footer.SuspendLayout();
         SuspendLayout();
-        //
+        // 
         // windowBar
-        //
-        windowBar.BackColor = Core.ThemeColors.Primary;
-        windowBar.ForeColor = Color.White;
-        windowBar.UseSystemStyleColor = true;
+        // 
+        windowBar.BackColor = Color.FromArgb(131, 117, 159);
         windowBar.Dock = DockStyle.Top;
+        windowBar.ForeColor = Color.White;
         windowBar.IconSvg = "SettingOutlined";
         windowBar.Location = new Point(0, 0);
         windowBar.Name = "windowBar";
+        windowBar.Padding = new Padding(3);
         windowBar.ShowButton = true;
         windowBar.ShowIcon = true;
         windowBar.Size = new Size(800, 48);
         windowBar.TabIndex = 0;
         windowBar.Text = "系統設定";
-        //
+        windowBar.UseSystemStyleColor = true;
+        // 
         // content
-        //
+        // 
+        content.BackColor = Color.FromArgb(241, 233, 249);
         content.Controls.Add(cbDebug);
         content.Controls.Add(btnBrowseViewer);
         content.Controls.Add(btnBrowseTarget);
@@ -92,89 +94,100 @@ partial class SettingsForm
         content.Radius = 0;
         content.Size = new Size(800, 432);
         content.TabIndex = 1;
-        //
-        // label1
-        //
-        label1.Location = new Point(40, 25);
-        label1.Name = "label1";
-        label1.Size = new Size(112, 34);
-        label1.TabIndex = 0;
-        label1.Text = "來源目錄";
-        //
-        // txtSource
-        //
-        txtSource.Location = new Point(40, 60);
-        txtSource.Name = "txtSource";
-        txtSource.PlaceholderText = "來源目錄 (待整理檔案路徑)";
-        txtSource.Size = new Size(600, 45);
-        txtSource.TabIndex = 1;
-        //
-        // btnBrowseSource
-        //
-        btnBrowseSource.Location = new Point(650, 60);
-        btnBrowseSource.Name = "btnBrowseSource";
-        btnBrowseSource.Size = new Size(80, 45);
-        btnBrowseSource.TabIndex = 2;
-        btnBrowseSource.Text = "瀏覽";
-        //
-        // label2
-        //
-        label2.Location = new Point(40, 130);
-        label2.Name = "label2";
-        label2.Size = new Size(112, 34);
-        label2.TabIndex = 3;
-        label2.Text = "歸檔目錄";
-        //
-        // txtTarget
-        //
-        txtTarget.Location = new Point(40, 165);
-        txtTarget.Name = "txtTarget";
-        txtTarget.PlaceholderText = "漫畫庫總根目錄 (Root)";
-        txtTarget.Size = new Size(600, 45);
-        txtTarget.TabIndex = 4;
-        //
-        // btnBrowseTarget
-        //
-        btnBrowseTarget.Location = new Point(650, 165);
-        btnBrowseTarget.Name = "btnBrowseTarget";
-        btnBrowseTarget.Size = new Size(80, 45);
-        btnBrowseTarget.TabIndex = 5;
-        btnBrowseTarget.Text = "瀏覽";
-        //
-        // label3
-        //
-        label3.Location = new Point(40, 235);
-        label3.Name = "label3";
-        label3.Size = new Size(112, 34);
-        label3.TabIndex = 6;
-        label3.Text = "圖片瀏覽器";
-        //
-        // txtImageViewer
-        //
-        txtImageViewer.Location = new Point(40, 270);
-        txtImageViewer.Name = "txtImageViewer";
-        txtImageViewer.PlaceholderText = "外部圖片瀏覽器執行檔路徑 (.exe)";
-        txtImageViewer.Size = new Size(600, 45);
-        txtImageViewer.TabIndex = 7;
-        //
-        // btnBrowseViewer
-        //
-        btnBrowseViewer.Location = new Point(650, 270);
-        btnBrowseViewer.Name = "btnBrowseViewer";
-        btnBrowseViewer.Size = new Size(80, 45);
-        btnBrowseViewer.TabIndex = 8;
-        btnBrowseViewer.Text = "瀏覽";
-        //
+        // 
         // cbDebug
-        //
+        // 
+        cbDebug.BackColor = Color.Transparent;
         cbDebug.Location = new Point(40, 345);
         cbDebug.Name = "cbDebug";
         cbDebug.Size = new Size(335, 30);
         cbDebug.TabIndex = 9;
         cbDebug.Text = "偵錯模式 (不移動檔案)";
-        //
+        // 
+        // btnBrowseViewer
+        // 
+        btnBrowseViewer.DefaultBack = Core.ThemeColors.Primary;
+        btnBrowseViewer.ForeColor = Color.White;
+        btnBrowseViewer.Location = new Point(650, 270);
+        btnBrowseViewer.Name = "btnBrowseViewer";
+        btnBrowseViewer.Size = new Size(80, 45);
+        btnBrowseViewer.TabIndex = 8;
+        btnBrowseViewer.Text = "瀏覽";
+        // 
+        // btnBrowseTarget
+        // 
+        btnBrowseTarget.DefaultBack = Core.ThemeColors.Primary;
+        btnBrowseTarget.ForeColor = Color.White;
+        btnBrowseTarget.Location = new Point(650, 165);
+        btnBrowseTarget.Name = "btnBrowseTarget";
+        btnBrowseTarget.Size = new Size(80, 45);
+        btnBrowseTarget.TabIndex = 5;
+        btnBrowseTarget.Text = "瀏覽";
+        // 
+        // btnBrowseSource
+        // 
+        btnBrowseSource.DefaultBack = Core.ThemeColors.Primary;
+        btnBrowseSource.ForeColor = Color.White;
+        btnBrowseSource.Location = new Point(650, 60);
+        btnBrowseSource.Name = "btnBrowseSource";
+        btnBrowseSource.Size = new Size(80, 45);
+        btnBrowseSource.TabIndex = 2;
+        btnBrowseSource.Text = "瀏覽";
+        // 
+        // txtImageViewer
+        // 
+        txtImageViewer.Location = new Point(40, 270);
+        txtImageViewer.Name = "txtImageViewer";
+        txtImageViewer.PlaceholderText = "外部圖片瀏覽器執行檔路徑 (.exe)";
+        txtImageViewer.Size = new Size(600, 45);
+        txtImageViewer.TabIndex = 7;
+        // 
+        // txtTarget
+        // 
+        txtTarget.Location = new Point(40, 165);
+        txtTarget.Name = "txtTarget";
+        txtTarget.PlaceholderText = "漫畫庫總根目錄 (Root)";
+        txtTarget.Size = new Size(600, 45);
+        txtTarget.TabIndex = 4;
+        // 
+        // txtSource
+        // 
+        txtSource.Location = new Point(40, 60);
+        txtSource.Name = "txtSource";
+        txtSource.PlaceholderText = "來源目錄 (待整理檔案路徑)";
+        txtSource.Size = new Size(600, 45);
+        txtSource.TabIndex = 1;
+        // 
+        // label3
+        // 
+        label3.BackColor = Color.Transparent;
+        label3.Location = new Point(40, 235);
+        label3.Name = "label3";
+        label3.Size = new Size(112, 34);
+        label3.TabIndex = 6;
+        label3.Text = "圖片瀏覽器";
+        // 
+        // label2
+        // 
+        label2.BackColor = Color.Transparent;
+        label2.Location = new Point(40, 130);
+        label2.Name = "label2";
+        label2.Size = new Size(112, 34);
+        label2.TabIndex = 3;
+        label2.Text = "歸檔目錄";
+        // 
+        // label1
+        // 
+        label1.BackColor = Color.Transparent;
+        label1.Location = new Point(40, 25);
+        label1.Name = "label1";
+        label1.Size = new Size(112, 34);
+        label1.TabIndex = 0;
+        label1.Text = "來源目錄";
+        // 
         // footer
-        //
+        // 
+        footer.BackColor = Color.FromArgb(241, 233, 249);
         footer.Controls.Add(btnSave);
         footer.Controls.Add(btnCancel);
         footer.Dock = DockStyle.Bottom;
@@ -184,28 +197,31 @@ partial class SettingsForm
         footer.Radius = 0;
         footer.Size = new Size(800, 70);
         footer.TabIndex = 2;
-        //
-        // btnCancel
-        //
-        btnCancel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        btnCancel.Location = new Point(540, 15);
-        btnCancel.Name = "btnCancel";
-        btnCancel.Size = new Size(110, 40);
-        btnCancel.TabIndex = 0;
-        btnCancel.Text = "取消";
-        //
+        // 
         // btnSave
-        //
+        // 
         btnSave.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        btnSave.BackColor = Core.ThemeColors.Primary;
+        btnSave.ForeColor = Color.White;
         btnSave.Location = new Point(660, 15);
         btnSave.Name = "btnSave";
         btnSave.Size = new Size(120, 40);
         btnSave.TabIndex = 1;
         btnSave.Text = "儲存設定";
         btnSave.Type = TTypeMini.Primary;
-        //
+        // 
+        // btnCancel
+        // 
+        btnCancel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        btnCancel.Location = new Point(540, 15);
+        btnCancel.Name = "btnCancel";
+        btnCancel.Size = new Size(110, 40);
+        btnCancel.TabIndex = 0;
+        btnCancel.Text = "取消";
+        // 
         // SettingsForm
-        //
+        // 
+        BackColor = Color.FromArgb(241, 233, 249);
         ClientSize = new Size(800, 550);
         Controls.Add(content);
         Controls.Add(footer);
