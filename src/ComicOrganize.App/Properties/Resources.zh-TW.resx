@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+              </xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="AppTitle" xml:space="preserve"><value>漫畫整理工具</value></data>
+  <data name="MenuGallery" xml:space="preserve"><value>漫畫庫</value></data>
+  <data name="MenuArchive" xml:space="preserve"><value>歸檔整理</value></data>
+  <data name="MenuSettings" xml:space="preserve"><value>設定</value></data>
+  <data name="MenuExit" xml:space="preserve"><value>結束</value></data>
+  <data name="MenuFile" xml:space="preserve"><value>功能(&amp;F)</value></data>
+  <data name="MenuView" xml:space="preserve"><value>檢視(&amp;V)</value></data>
+  <data name="MenuViewMode" xml:space="preserve"><value>檢視模式(&amp;M)</value></data>
+  <data name="ViewSmall" xml:space="preserve"><value>縮圖 (小)</value></data>
+  <data name="ViewMedium" xml:space="preserve"><value>縮圖 (中)</value></data>
+  <data name="ViewLarge" xml:space="preserve"><value>縮圖 (大)</value></data>
+  <data name="ViewList" xml:space="preserve"><value>列表</value></data>
+  <data name="SettingsTitle" xml:space="preserve"><value>系統設定</value></data>
+  <data name="SettingsSourcePath" xml:space="preserve"><value>未整理路徑</value></data>
+  <data name="SettingsTargetPath" xml:space="preserve"><value>目標庫路徑</value></data>
+  <data name="SettingsImageViewer" xml:space="preserve"><value>外部閱讀器路徑</value></data>
+  <data name="SettingsSave" xml:space="preserve"><value>儲存</value></data>
+  <data name="SettingsCancel" xml:space="preserve"><value>取消</value></data>
+  <data name="ThemeLight" xml:space="preserve"><value>淺色</value></data>
+  <data name="ThemeDark" xml:space="preserve"><value>深色</value></data>
+  <data name="ThemeSystem" xml:space="preserve"><value>跟隨系統</value></data>
+  <data name="LanguageTW" xml:space="preserve"><value>繁體中文</value></data>
+  <data name="LanguageEN" xml:space="preserve"><value>English</value></data>
+  <data name="ThemeLabel" xml:space="preserve"><value>介面主題</value></data>
+  <data name="LanguageLabel" xml:space="preserve"><value>語言介面</value></data>
+  <data name="Browse" xml:space="preserve"><value>瀏覽</value></data>
+  <data name="SettingsSaved" xml:space="preserve"><value>設定已儲存</value></data>
+  <data name="ArchiveScan" xml:space="preserve"><value>開始掃描匹配</value></data>
+  <data name="ArchivePreview" xml:space="preserve"><value>預覽歸檔計畫</value></data>
+  <data name="StatusReady" xml:space="preserve"><value>就緒</value></data>
+  <data name="NoData" xml:space="preserve"><value>無資料</value></data>
+  <data name="MenuOpenTab" xml:space="preserve"><value>另開頁籤</value></data>
+  <data name="MenuRefresh" xml:space="preserve"><value>重新整理</value></data>
+  <data name="MenuRead" xml:space="preserve"><value>閱讀</value></data>
+  <data name="MenuExplorer" xml:space="preserve"><value>在檔案總管中開啟</value></data>
+  <data name="Loading" xml:space="preserve"><value>載入中...</value></data>
+  <data name="ColumnThumbnail" xml:space="preserve"><value>縮圖</value></data>
+  <data name="ColumnName" xml:space="preserve"><value>名稱</value></data>
+  <data name="ColumnSize" xml:space="preserve"><value>大小</value></data>
+  <data name="ColumnCreatedAt" xml:space="preserve"><value>建立時間</value></data>
+  <data name="PreviewTitle" xml:space="preserve"><value>歸檔預覽</value></data>
+  <data name="ArchiveExecuteRun" xml:space="preserve"><value>開始執行歸檔</value></data>
+  <data name="ArchiveExecute" xml:space="preserve"><value>執行</value></data>
+  <data name="ArchiveSkip" xml:space="preserve"><value>略過</value></data>
+  <data name="SourceName" xml:space="preserve"><value>來源名稱</value></data>
+  <data name="Action" xml:space="preserve"><value>操作</value></data>
+  <data name="ArchiveFinished" xml:space="preserve"><value>歸檔處理完畢</value></data>
+</root>

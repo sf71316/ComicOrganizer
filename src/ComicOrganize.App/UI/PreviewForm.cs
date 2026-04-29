@@ -31,6 +31,35 @@ public partial class PreviewForm : Window
 
         btnCancel.Click += (s, e) => this.DialogResult = DialogResult.Cancel;
         btnExecute.Click += async (s, e) => await ExecuteArchiveAsync();
+
+        LocalizationManager.LanguageChanged += (s, e) => ApplyLocalization();
+        ApplyLocalization();
+        ThemeManager.ThemeChanged += (s, e) => ThemeManager.ApplyTheme(this);
+        ThemeManager.ApplyTheme(this);
+    }
+
+    private void ApplyLocalization()
+    {
+        this.Text = LocalizationManager.GetString("PreviewTitle");
+        btnExecute.Text = LocalizationManager.GetString("ArchiveExecuteRun");
+        btnCancel.Text = LocalizationManager.GetString("SettingsCancel");
+        // Update headers if already initialized
+        foreach (var item in collapseMain.Items)
+        {
+            foreach (var btn in item.Buttons)
+            {
+                if (btn is AntdUI.CollapseGroupButton sbtn)
+                {
+                    sbtn.CheckedText = LocalizationManager.GetString("ArchiveExecute");
+                    sbtn.UnCheckedText = LocalizationManager.GetString("ArchiveSkip");
+                }
+            }
+            if (item.Controls.Count > 0 && item.Controls[0] is AntdUI.Table table)
+            {
+                table.Columns[0].Title = LocalizationManager.GetString("SourceName");
+                table.Columns[1].Title = LocalizationManager.GetString("Action");
+            }
+        }
     }
 
     private void InitializeOfficialCollapseUI()

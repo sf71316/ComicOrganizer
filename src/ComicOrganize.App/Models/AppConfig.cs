@@ -8,6 +8,10 @@ public class AppConfig
     public List<string> ExcludedDirectories { get; set; } = new();
     public bool DebugMode { get; set; } = false;
 
+    // UI 偏好設定
+    public AppTheme Theme { get; set; } = AppTheme.System;
+    public string Language { get; set; } = "zh-TW";
+
     // 動態黑名單 (使用者可編輯)
     public List<string> Blacklist { get; set; } = new() 
     { 
@@ -22,4 +26,11 @@ public class AppConfig
         @"\d+x\d+",           // 解析度 (1280x720)
         @"\d{6,8}"            // 日期格式 (20240907)
     };
+}
+
+public enum AppTheme
+{
+    Light,
+    Dark,
+    System
 }

@@ -19,6 +19,17 @@ public partial class MainForm : Window
 
         _configManager = new ConfigManager();
         _config = _configManager.Load();
+        
+        // 初始化主題與語系
+        LocalizationManager.Initialize(_config.Language);
+        ThemeManager.Initialize(_config.Theme);
+        
+        ThemeManager.ThemeChanged += (s, e) => ThemeManager.ApplyTheme(this);
+        LocalizationManager.LanguageChanged += (s, e) => ApplyLocalization();
+        
+        ThemeManager.ApplyTheme(this);
+        ApplyLocalization();
+
         _intelligence = new MappingIntelligence();
         _organizer = new ArchiveOrganizer(_intelligence, _config);
         _coverManager = new CoverManager(_config);
@@ -85,5 +96,21 @@ public partial class MainForm : Window
             archiveControl.OnConfigUpdated(_config);
             galleryControl.OnConfigUpdated(_config);
         }
+    }
+
+    private void ApplyLocalization()
+    {
+        this.Text = LocalizationManager.GetString("AppTitle");
+        mnuFile.Text = LocalizationManager.GetString("MenuFile"); // Need to ensure these keys exist or match
+        mnuFileGallery.Text = LocalizationManager.GetString("MenuGallery");
+        mnuFileArchive.Text = LocalizationManager.GetString("MenuArchive");
+        mnuFileSettings.Text = LocalizationManager.GetString("MenuSettings");
+        mnuFileExit.Text = LocalizationManager.GetString("MenuExit");
+        
+        mnuView.Text = LocalizationManager.GetString("MenuView");
+        mnuViewModeSmall.Text = LocalizationManager.GetString("ViewSmall");
+        mnuViewModeMedium.Text = LocalizationManager.GetString("ViewMedium");
+        mnuViewModeLarge.Text = LocalizationManager.GetString("ViewLarge");
+        mnuViewModeList.Text = LocalizationManager.GetString("ViewList");
     }
 }

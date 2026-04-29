@@ -26,6 +26,8 @@ public partial class GalleryControl : UserControl
         tabsContent.CloseDisposePage = true;
         tabsContent.FillActive = Core.ThemeColors.Border;
 
+        LocalizationManager.LanguageChanged += (s, e) => ApplyLocalization();
+
         // Tree 右鍵選單
         treeFolders.NodeMouseClick += (s, e) =>
         {
@@ -33,20 +35,20 @@ public partial class GalleryControl : UserControl
             {
                 AntdUI.ContextMenuStrip.open(treeFolders, (menuItem) =>
                 {
-                    if (menuItem.Text == "另開頁籤")
+                    if (menuItem.Text == LocalizationManager.GetString("MenuOpenTab"))
                     {
                         OpenFolderTab(path, true);
                     }
-                    else if (menuItem.Text != null && menuItem.Text.Contains("重新整理"))
+                    else if (menuItem.Text != null && menuItem.Text.Contains(LocalizationManager.GetString("MenuRefresh")))
                     {
                         e.Item.Sub.Clear();
-                        e.Item.Sub.Add(new AntdUI.TreeItem("Loading...") { Tag = LazyPlaceholderTag });
+                        e.Item.Sub.Add(new AntdUI.TreeItem(LocalizationManager.GetString("Loading")) { Tag = LazyPlaceholderTag });
                         LoadSubDirectories(e.Item, path);
                     }
                 }, new AntdUI.IContextMenuStripItem[]
                 {
-                    new AntdUI.ContextMenuStripItem("另開頁籤"),
-                    new AntdUI.ContextMenuStripItem("🔄 重新整理"),
+                    new AntdUI.ContextMenuStripItem(LocalizationManager.GetString("MenuOpenTab")),
+                    new AntdUI.ContextMenuStripItem("🔄 " + LocalizationManager.GetString("MenuRefresh")),
                 });
             }
         };
@@ -59,6 +61,28 @@ public partial class GalleryControl : UserControl
 
         // 每個 Tab 自帶 breadcrumb，內容在 OpenFolderTab 建立 / 更新當前 Tab 時填好，
         // 切 Tab 不需重填，因此不綁 SelectedIndexChanged。
+        ApplyLocalization();
+    }
+
+    private void ApplyLocalization()
+    {
+        // 更新 Tree 中的 "Loading..." 節點文字（如果存在）
+        UpdateTreeLoadingText(treeFolders.Items);
+    }
+
+    private void UpdateTreeLoadingText(AntdUI.TreeItemCollection items)
+    {
+        foreach (var item in items)
+        {
+            if (item.Tag as string == LazyPlaceholderTag)
+            {
+                item.Text = LocalizationManager.GetString("Loading");
+            }
+            if (item.Sub.Count > 0)
+            {
+                UpdateTreeLoadingText(item.Sub);
+            }
+        }
     }
 
     public void Initialize(AppConfig config, CoverManager coverManager)

@@ -21,6 +21,10 @@ partial class SettingsForm
     private AntdUI.Button btnBrowseTarget;
     private AntdUI.Button btnBrowseViewer;
     private AntdUI.Checkbox cbDebug;
+    private AntdUI.Select selectTheme;
+    private AntdUI.Select selectLang;
+    private AntdUI.Label labelTheme;
+    private AntdUI.Label labelLang;
 
     private AntdUI.Button btnSave;
     private AntdUI.Button btnCancel;
@@ -51,6 +55,10 @@ partial class SettingsForm
         label3 = new AntdUI.Label();
         label2 = new AntdUI.Label();
         label1 = new AntdUI.Label();
+        labelTheme = new AntdUI.Label();
+        selectTheme = new Select();
+        labelLang = new AntdUI.Label();
+        selectLang = new Select();
         footer = new AntdUI.Panel();
         btnSave = new AntdUI.Button();
         btnCancel = new AntdUI.Button();
@@ -60,7 +68,7 @@ partial class SettingsForm
         // 
         // windowBar
         // 
-        windowBar.BackColor = Color.FromArgb(131, 117, 159);
+        windowBar.BackColor = Core.ThemeColors.Primary;
         windowBar.Dock = DockStyle.Top;
         windowBar.ForeColor = Color.White;
         windowBar.IconSvg = "SettingOutlined";
@@ -76,7 +84,11 @@ partial class SettingsForm
         // 
         // content
         // 
-        content.BackColor = Color.FromArgb(241, 233, 249);
+        content.BackColor = Core.ThemeColors.Surface;
+        content.Controls.Add(selectLang);
+        content.Controls.Add(labelLang);
+        content.Controls.Add(selectTheme);
+        content.Controls.Add(labelTheme);
         content.Controls.Add(cbDebug);
         content.Controls.Add(btnBrowseViewer);
         content.Controls.Add(btnBrowseTarget);
@@ -95,12 +107,44 @@ partial class SettingsForm
         content.Size = new Size(800, 432);
         content.TabIndex = 1;
         // 
+        // labelTheme
+        // 
+        labelTheme.BackColor = Color.Transparent;
+        labelTheme.Location = new Point(40, 325);
+        labelTheme.Name = "labelTheme";
+        labelTheme.Size = new Size(112, 34);
+        labelTheme.TabIndex = 10;
+        labelTheme.Text = "介面主題";
+        // 
+        // selectTheme
+        // 
+        selectTheme.Location = new Point(40, 360);
+        selectTheme.Name = "selectTheme";
+        selectTheme.Size = new Size(200, 40);
+        selectTheme.TabIndex = 11;
+        // 
+        // labelLang
+        // 
+        labelLang.BackColor = Color.Transparent;
+        labelLang.Location = new Point(260, 325);
+        labelLang.Name = "labelLang";
+        labelLang.Size = new Size(112, 34);
+        labelLang.TabIndex = 12;
+        labelLang.Text = "語言";
+        // 
+        // selectLang
+        // 
+        selectLang.Location = new Point(260, 360);
+        selectLang.Name = "selectLang";
+        selectLang.Size = new Size(200, 40);
+        selectLang.TabIndex = 13;
+        // 
         // cbDebug
         // 
         cbDebug.BackColor = Color.Transparent;
-        cbDebug.Location = new Point(40, 345);
+        cbDebug.Location = new Point(500, 365);
         cbDebug.Name = "cbDebug";
-        cbDebug.Size = new Size(335, 30);
+        cbDebug.Size = new Size(230, 30);
         cbDebug.TabIndex = 9;
         cbDebug.Text = "偵錯模式 (不移動檔案)";
         // 
@@ -108,7 +152,7 @@ partial class SettingsForm
         // 
         btnBrowseViewer.DefaultBack = Core.ThemeColors.Primary;
         btnBrowseViewer.ForeColor = Color.White;
-        btnBrowseViewer.Location = new Point(650, 270);
+        btnBrowseViewer.Location = new Point(650, 260);
         btnBrowseViewer.Name = "btnBrowseViewer";
         btnBrowseViewer.Size = new Size(80, 45);
         btnBrowseViewer.TabIndex = 8;
@@ -118,7 +162,7 @@ partial class SettingsForm
         // 
         btnBrowseTarget.DefaultBack = Core.ThemeColors.Primary;
         btnBrowseTarget.ForeColor = Color.White;
-        btnBrowseTarget.Location = new Point(650, 165);
+        btnBrowseTarget.Location = new Point(650, 155);
         btnBrowseTarget.Name = "btnBrowseTarget";
         btnBrowseTarget.Size = new Size(80, 45);
         btnBrowseTarget.TabIndex = 5;
@@ -128,7 +172,7 @@ partial class SettingsForm
         // 
         btnBrowseSource.DefaultBack = Core.ThemeColors.Primary;
         btnBrowseSource.ForeColor = Color.White;
-        btnBrowseSource.Location = new Point(650, 60);
+        btnBrowseSource.Location = new Point(650, 50);
         btnBrowseSource.Name = "btnBrowseSource";
         btnBrowseSource.Size = new Size(80, 45);
         btnBrowseSource.TabIndex = 2;
@@ -136,7 +180,7 @@ partial class SettingsForm
         // 
         // txtImageViewer
         // 
-        txtImageViewer.Location = new Point(40, 270);
+        txtImageViewer.Location = new Point(40, 260);
         txtImageViewer.Name = "txtImageViewer";
         txtImageViewer.PlaceholderText = "外部圖片瀏覽器執行檔路徑 (.exe)";
         txtImageViewer.Size = new Size(600, 45);
@@ -144,7 +188,7 @@ partial class SettingsForm
         // 
         // txtTarget
         // 
-        txtTarget.Location = new Point(40, 165);
+        txtTarget.Location = new Point(40, 155);
         txtTarget.Name = "txtTarget";
         txtTarget.PlaceholderText = "漫畫庫總根目錄 (Root)";
         txtTarget.Size = new Size(600, 45);
@@ -152,7 +196,7 @@ partial class SettingsForm
         // 
         // txtSource
         // 
-        txtSource.Location = new Point(40, 60);
+        txtSource.Location = new Point(40, 50);
         txtSource.Name = "txtSource";
         txtSource.PlaceholderText = "來源目錄 (待整理檔案路徑)";
         txtSource.Size = new Size(600, 45);
@@ -161,7 +205,7 @@ partial class SettingsForm
         // label3
         // 
         label3.BackColor = Color.Transparent;
-        label3.Location = new Point(40, 235);
+        label3.Location = new Point(40, 225);
         label3.Name = "label3";
         label3.Size = new Size(112, 34);
         label3.TabIndex = 6;
@@ -170,7 +214,7 @@ partial class SettingsForm
         // label2
         // 
         label2.BackColor = Color.Transparent;
-        label2.Location = new Point(40, 130);
+        label2.Location = new Point(40, 120);
         label2.Name = "label2";
         label2.Size = new Size(112, 34);
         label2.TabIndex = 3;
@@ -179,7 +223,7 @@ partial class SettingsForm
         // label1
         // 
         label1.BackColor = Color.Transparent;
-        label1.Location = new Point(40, 25);
+        label1.Location = new Point(40, 15);
         label1.Name = "label1";
         label1.Size = new Size(112, 34);
         label1.TabIndex = 0;
@@ -187,7 +231,7 @@ partial class SettingsForm
         // 
         // footer
         // 
-        footer.BackColor = Color.FromArgb(241, 233, 249);
+        footer.BackColor = Core.ThemeColors.Surface;
         footer.Controls.Add(btnSave);
         footer.Controls.Add(btnCancel);
         footer.Dock = DockStyle.Bottom;
@@ -221,7 +265,7 @@ partial class SettingsForm
         // 
         // SettingsForm
         // 
-        BackColor = Color.FromArgb(241, 233, 249);
+        BackColor = Core.ThemeColors.Background;
         ClientSize = new Size(800, 550);
         Controls.Add(content);
         Controls.Add(footer);

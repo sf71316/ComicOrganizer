@@ -23,6 +23,17 @@ public partial class ArchiveControl : UserControl
         _config = config;
         _intelligence = intelligence;
         _organizer = organizer;
+        
+        LocalizationManager.LanguageChanged += (s, e) => ApplyLocalization();
+        ApplyLocalization();
+    }
+
+    private void ApplyLocalization()
+    {
+        btnScan.Text = LocalizationManager.GetString("ArchiveScan");
+        btnExecute.Text = LocalizationManager.GetString("ArchivePreview");
+        lblStatus.Text = LocalizationManager.GetString("StatusReady");
+        tableArchive.EmptyText = LocalizationManager.GetString("NoData");
     }
 
     public void OnConfigUpdated(AppConfig config)

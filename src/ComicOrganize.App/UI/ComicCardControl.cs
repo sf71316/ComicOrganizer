@@ -45,7 +45,7 @@ public partial class ComicCardControl : UserControl
                 if (!this.ClientRectangle.Contains(pos))
                 {
                     hoverToolbar.Visible = false;
-                    rootPanel.Back = Color.White;
+                    rootPanel.Back = ComicOrganize.App.Core.ThemeColors.Surface;
                 }
             }
         };
