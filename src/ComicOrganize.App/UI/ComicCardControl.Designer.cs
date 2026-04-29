@@ -34,7 +34,7 @@ partial class ComicCardControl
         // 
         // rootPanel
         // 
-        rootPanel.BackColor = Color.White;
+        rootPanel.BackColor = Color.Transparent;
         rootPanel.Controls.Add(lbl);
         rootPanel.Controls.Add(pic);
         rootPanel.Controls.Add(hoverToolbar);
@@ -42,20 +42,20 @@ partial class ComicCardControl
         rootPanel.Location = new Point(0, 0);
         rootPanel.Name = "rootPanel";
         rootPanel.Padding = new Padding(5);
-        rootPanel.Radius = 0;
-        rootPanel.Size = new Size(160, 240);
+        rootPanel.Radius = 8;
+        rootPanel.Size = new Size(160, 259);
         rootPanel.TabIndex = 0;
         // 
         // lbl
         // 
         lbl.BackColor = Color.Transparent;
         lbl.Cursor = Cursors.Hand;
-        lbl.Dock = DockStyle.Fill;
+        lbl.Dock = DockStyle.Bottom;
         lbl.Font = new Font("Microsoft JhengHei UI", 12F);
-        lbl.Location = new Point(10, 210);
+        lbl.Location = new Point(5, 205);
         lbl.Name = "lbl";
         lbl.Padding = new Padding(4);
-        lbl.Size = new Size(140, 20);
+        lbl.Size = new Size(150, 49);
         lbl.TabIndex = 0;
         lbl.TextAlign = ContentAlignment.TopCenter;
         // 
@@ -65,8 +65,9 @@ partial class ComicCardControl
         pic.Cursor = Cursors.Hand;
         pic.Dock = DockStyle.Top;
         pic.Location = new Point(5, 5);
-        pic.Margin = new Padding(0);
+        pic.Margin = new Padding(0, 10, 0, 0);
         pic.Name = "pic";
+        pic.Radius = 8;
         pic.Size = new Size(150, 200);
         pic.TabIndex = 1;
         // 
@@ -87,7 +88,7 @@ partial class ComicCardControl
         // 
         btnRead.BackHover = Color.FromArgb(255, 255, 255);
         btnRead.Dock = DockStyle.Left;
-        btnRead.ForeColor = Color.FromArgb(192, 182, 222);
+        btnRead.ForeColor = Color.FromArgb(102, 69, 146);
         btnRead.Ghost = true;
         btnRead.IconRatio = 0.9F;
         btnRead.IconSvg = "BookOutlined";
@@ -100,7 +101,7 @@ partial class ComicCardControl
         // 
         btnExplorer.BackHover = Color.FromArgb(255, 255, 255);
         btnExplorer.Dock = DockStyle.Left;
-        btnExplorer.ForeColor = Color.FromArgb(192, 182, 222);
+        btnExplorer.ForeColor = Color.FromArgb(102, 69, 146);
         btnExplorer.Ghost = true;
         btnExplorer.IconRatio = 0.9F;
         btnExplorer.IconSvg = "FolderOpenOutlined";
@@ -114,9 +115,8 @@ partial class ComicCardControl
         Controls.Add(rootPanel);
         DoubleBuffered = true;
         Name = "ComicCardControl";
-        Size = new Size(160, 240);
+        Size = new Size(160, 259);
         rootPanel.ResumeLayout(false);
-        rootPanel.PerformLayout();
         hoverToolbar.ResumeLayout(false);
         ResumeLayout(false);
     }

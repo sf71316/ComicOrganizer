@@ -15,7 +15,8 @@ public partial class ComicCardControl : UserControl
     public ComicCardControl()
     {
         InitializeComponent();
-
+        this.BackColor = Color.Transparent;
+        
         // 把 hoverToolbar reparent 到 pic 之下，讓 alpha-blend 真的疊到封面圖上
         // （Designer 維持加在 rootPanel，方便視覺編輯時看見元件）
         if (hoverToolbar.Parent != pic)
@@ -36,7 +37,7 @@ public partial class ComicCardControl : UserControl
             {
                 hoverToolbar.Visible = true;
                 hoverToolbar.BringToFront();   // 確保 z-order 在最上、不被 pic 蓋掉
-                rootPanel.Back = Color.FromArgb(240, 245, 255);
+                rootPanel.Back = ComicOrganize.App.Core.ThemeColors.Secondary;
             }
             else
             {

@@ -75,7 +75,7 @@ partial class MainForm
         // 
         // windowBar
         // 
-        windowBar.BackColor = Color.FromArgb(192, 192, 255);
+        windowBar.BackColor = Core.ThemeColors.Primary;
         windowBar.Dock = DockStyle.Top;
         windowBar.IconSvg = "BookOutlined";
         windowBar.Location = new Point(0, 0);

@@ -1,3 +1,5 @@
+using AntdUI;
+
 namespace ComicOrganize.App.UI;
 
 partial class GalleryControl
@@ -7,8 +9,6 @@ partial class GalleryControl
     private AntdUI.Splitter splitter2;
     private AntdUI.Splitter splitter1;
     private AntdUI.Tree treeFolders;
-    private System.Windows.Forms.Label lblFolderName;
-    private AntdUI.Breadcrumb breadcrumb;
     private AntdUI.Button btnViewMode;
     private AntdUI.Button btnRefresh;
     private AntdUI.Tabs tabsContent;
@@ -24,16 +24,13 @@ partial class GalleryControl
 
     private void InitializeComponent()
     {
-        AntdUI.Tabs.StyleCard styleCard1 = new AntdUI.Tabs.StyleCard();
+        Tabs.StyleCard styleCard1 = new Tabs.StyleCard();
         splitter2 = new AntdUI.Splitter();
-        treeFolders = new AntdUI.Tree();
+        treeFolders = new Tree();
         splitter1 = new AntdUI.Splitter();
-        divider1 = new AntdUI.Divider();
-        lblFolderName = new Label();
         btnViewMode = new AntdUI.Button();
         btnRefresh = new AntdUI.Button();
-        breadcrumb = new AntdUI.Breadcrumb();
-        tabsContent = new AntdUI.Tabs();
+        tabsContent = new Tabs();
         ((System.ComponentModel.ISupportInitialize)splitter2).BeginInit();
         splitter2.Panel1.SuspendLayout();
         splitter2.Panel2.SuspendLayout();
@@ -53,12 +50,16 @@ partial class GalleryControl
         // 
         // splitter2.Panel1
         // 
+        splitter2.Panel1.BackColor = Color.FromArgb(192, 181, 207);
         splitter2.Panel1.Controls.Add(treeFolders);
+        splitter2.Panel1.Padding = new Padding(1);
         splitter2.Panel1MinSize = 5;
         // 
         // splitter2.Panel2
         // 
+        splitter2.Panel2.BackColor = Color.Transparent;
         splitter2.Panel2.Controls.Add(splitter1);
+        splitter2.Panel2.Padding = new Padding(1);
         splitter2.Size = new Size(1047, 700);
         splitter2.SplitterDistance = 271;
         splitter2.SplitterSize = 80;
@@ -67,14 +68,14 @@ partial class GalleryControl
         // 
         // treeFolders
         // 
-        treeFolders.BackColor = Color.FromArgb(255, 255, 192);
+        treeFolders.BackColor = Color.FromArgb(241, 233, 249);
         treeFolders.BackgroundImageLayout = ImageLayout.None;
         treeFolders.Dock = DockStyle.Fill;
         treeFolders.EmptyText = "no data";
-        treeFolders.Location = new Point(0, 0);
+        treeFolders.Location = new Point(1, 1);
         treeFolders.Name = "treeFolders";
         treeFolders.Round = true;
-        treeFolders.Size = new Size(271, 700);
+        treeFolders.Size = new Size(269, 698);
         treeFolders.TabIndex = 0;
         treeFolders.Text = "tree1";
         treeFolders.BeforeExpand += treeFolders_BeforeExpand;
@@ -83,98 +84,65 @@ partial class GalleryControl
         // splitter1
         // 
         splitter1.Dock = DockStyle.Fill;
-        splitter1.Location = new Point(0, 0);
+        splitter1.Location = new Point(1, 1);
         splitter1.Margin = new Padding(0);
         splitter1.Name = "splitter1";
         splitter1.Orientation = Orientation.Horizontal;
         // 
         // splitter1.Panel1
         // 
-        splitter1.Panel1.BackColor = Color.WhiteSmoke;
-        splitter1.Panel1.Controls.Add(divider1);
-        splitter1.Panel1.Controls.Add(lblFolderName);
         splitter1.Panel1.Controls.Add(btnViewMode);
         splitter1.Panel1.Controls.Add(btnRefresh);
-        splitter1.Panel1.Controls.Add(breadcrumb);
         splitter1.Panel1.Padding = new Padding(8, 4, 8, 4);
         splitter1.Panel1MinSize = 30;
         // 
         // splitter1.Panel2
         // 
-        splitter1.Panel2.BackColor = Color.WhiteSmoke;
         splitter1.Panel2.Controls.Add(tabsContent);
         splitter1.Panel2.Padding = new Padding(0, 10, 0, 5);
-        splitter1.Size = new Size(766, 700);
-        splitter1.SplitterBack = Color.FromArgb(217, 217, 217);
-        splitter1.SplitterDistance = 102;
+        splitter1.Size = new Size(764, 698);
+        splitter1.SplitterBack = Color.FromArgb(212, 211, 211);
+        splitter1.SplitterDistance = 49;
         splitter1.SplitterSize = 1;
         splitter1.SplitterWidth = 1;
         splitter1.TabIndex = 0;
         // 
-        // divider1
-        // 
-        divider1.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-        divider1.BackColor = Color.Transparent;
-        divider1.Location = new Point(3, 46);
-        divider1.Name = "divider1";
-        divider1.Orientation = AntdUI.TOrientation.Left;
-        divider1.Size = new Size(752, 16);
-        divider1.TabIndex = 3;
-        divider1.Text = "";
-        divider1.Thickness = 1F;
-        // 
-        // lblFolderName
-        // 
-        lblFolderName.BackColor = Color.Transparent;
-        lblFolderName.Font = new Font("Microsoft JhengHei UI", 13F, FontStyle.Bold);
-        lblFolderName.Location = new Point(8, 4);
-        lblFolderName.Name = "lblFolderName";
-        lblFolderName.Size = new Size(220, 32);
-        lblFolderName.TabIndex = 0;
-        lblFolderName.TextAlign = ContentAlignment.MiddleLeft;
-        // 
         // btnViewMode
         // 
-        btnViewMode.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        btnViewMode.BackHover = Color.FromArgb(131, 117, 159);
+        btnViewMode.Dock = DockStyle.Right;
         btnViewMode.Ghost = true;
-        btnViewMode.BackHover = Color.FromArgb(169, 142, 245);
+        btnViewMode.IconRatio = 1F;
         btnViewMode.IconSvg = "AppstoreOutlined";
-        btnViewMode.Location = new Point(669, 4);
+        btnViewMode.Location = new Point(676, 4);
         btnViewMode.Name = "btnViewMode";
-        btnViewMode.Size = new Size(40, 40);
+        btnViewMode.Size = new Size(40, 41);
         btnViewMode.TabIndex = 1;
         // 
         // btnRefresh
         // 
-        btnRefresh.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        btnRefresh.BackHover = Color.FromArgb(131, 117, 159);
+        btnRefresh.Dock = DockStyle.Right;
         btnRefresh.Ghost = true;
-        btnRefresh.BackHover = Color.FromArgb(169, 142, 245);
+        btnRefresh.IconRatio = 1F;
         btnRefresh.IconSvg = "RedoOutlined";
-        btnRefresh.Location = new Point(715, 4);
+        btnRefresh.Location = new Point(716, 4);
         btnRefresh.Name = "btnRefresh";
-        btnRefresh.Size = new Size(40, 40);
+        btnRefresh.Size = new Size(40, 41);
         btnRefresh.TabIndex = 2;
-        // 
-        // breadcrumb
-        // 
-        breadcrumb.BackColor = Color.Transparent;
-        breadcrumb.Font = new Font("Microsoft JhengHei UI", 12F);
-        breadcrumb.Location = new Point(8, 63);
-        breadcrumb.Name = "breadcrumb";
-        breadcrumb.Padding = new Padding(8, 0, 8, 0);
-        breadcrumb.Size = new Size(590, 32);
-        breadcrumb.TabIndex = 0;
         // 
         // tabsContent
         // 
         tabsContent.CloseDisposePage = true;
         tabsContent.Dock = DockStyle.Fill;
+        tabsContent.Font = new Font("Microsoft JhengHei UI", 12F);
         tabsContent.Location = new Point(0, 10);
         tabsContent.Name = "tabsContent";
-        tabsContent.Size = new Size(766, 582);
+        tabsContent.ScrollBack = Color.FromArgb(102, 69, 146);
+        tabsContent.Size = new Size(764, 633);
         tabsContent.Style = styleCard1;
         tabsContent.TabIndex = 0;
-        tabsContent.Type = AntdUI.TabType.Card;
+        tabsContent.Type = TabType.Card;
         // 
         // GalleryControl
         // 
@@ -191,6 +159,4 @@ partial class GalleryControl
         splitter1.ResumeLayout(false);
         ResumeLayout(false);
     }
-
-    private AntdUI.Divider divider1;
 }
