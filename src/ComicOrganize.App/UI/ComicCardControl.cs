@@ -53,7 +53,7 @@ public partial class ComicCardControl : UserControl
                 if (!this.ClientRectangle.Contains(pos))
                 {
                     hoverToolbar.Visible = false;
-                    rootPanel.Back = ComicOrganize.App.Core.ThemeColors.Surface;
+                    rootPanel.Back = Color.White;  // 離開恢復白底（不是 Surface 淺紫，那會跟父 flowLayout 同色看不出邊界）
                 }
             }
         };
