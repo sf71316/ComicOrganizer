@@ -5,7 +5,7 @@ partial class ComicCardControl
     private System.ComponentModel.IContainer components = null;
 
     private AntdUI.Panel rootPanel;
-    private System.Windows.Forms.PictureBox pic;
+    private AntdUI.Image3D pic;
     private System.Windows.Forms.Label lbl;
     private AntdUI.Panel hoverToolbar;
     private AntdUI.Button btnRead;
@@ -23,97 +23,100 @@ partial class ComicCardControl
     private void InitializeComponent()
     {
         rootPanel = new AntdUI.Panel();
-        pic = new System.Windows.Forms.PictureBox();
-        lbl = new System.Windows.Forms.Label();
+        lbl = new Label();
+        pic = new AntdUI.Image3D();
         hoverToolbar = new AntdUI.Panel();
         btnRead = new AntdUI.Button();
         btnExplorer = new AntdUI.Button();
         rootPanel.SuspendLayout();
-        ((System.ComponentModel.ISupportInitialize)pic).BeginInit();
         hoverToolbar.SuspendLayout();
         SuspendLayout();
-        //
-        // rootPanel — 卡片底（圓角 + 陰影）
-        //
-        // 加入順序決定 z-order：先加的在底層
-        // hoverToolbar 最後加 → z-order 最高 → 蓋在 pic 下緣
+        // 
+        // rootPanel
+        // 
         rootPanel.BackColor = Color.White;
-        rootPanel.Dock = DockStyle.Fill;
-        rootPanel.Name = "rootPanel";
-        rootPanel.Radius = 0;       // 直角，避免 GDI Region 圓角鋸齒
-        rootPanel.Shadow = 0;       // 不需陰影，避免動畫造成的視覺干擾
         rootPanel.Controls.Add(lbl);
         rootPanel.Controls.Add(pic);
         rootPanel.Controls.Add(hoverToolbar);
-        //
-        // pic — 封面
-        //
-        pic.BackColor = Color.FromArgb(245, 245, 245);
-        pic.Cursor = Cursors.Hand;
-        pic.Dock = DockStyle.Top;
-        pic.Height = 200;
-        pic.Name = "pic";
-        pic.SizeMode = PictureBoxSizeMode.Zoom;
-        pic.TabStop = false;
-        //
-        // lbl — 檔名（多行 wrap）
-        //
-        lbl.AutoSize = false;
+        rootPanel.Dock = DockStyle.Fill;
+        rootPanel.Location = new Point(0, 0);
+        rootPanel.Name = "rootPanel";
+        rootPanel.Padding = new Padding(5);
+        rootPanel.Radius = 0;
+        rootPanel.Size = new Size(160, 240);
+        rootPanel.TabIndex = 0;
+        // 
+        // lbl
+        // 
         lbl.BackColor = Color.Transparent;
         lbl.Cursor = Cursors.Hand;
         lbl.Dock = DockStyle.Fill;
-        lbl.Font = new Font("Microsoft JhengHei UI", 9F);
+        lbl.Font = new Font("Microsoft JhengHei UI", 12F);
+        lbl.Location = new Point(10, 210);
         lbl.Name = "lbl";
-        lbl.Padding = new Padding(4, 4, 4, 4);
+        lbl.Padding = new Padding(4);
+        lbl.Size = new Size(140, 20);
+        lbl.TabIndex = 0;
         lbl.TextAlign = ContentAlignment.TopCenter;
-        //
-        // hoverToolbar — 半透明浮動工具列（AntdUI.Panel 用 Back ARGB 自繪達到透明）
-        //
+        // 
+        // pic
+        // 
+        pic.BackColor = Color.FromArgb(245, 245, 245);
+        pic.Cursor = Cursors.Hand;
+        pic.Dock = DockStyle.Top;
+        pic.Location = new Point(5, 5);
+        pic.Margin = new Padding(0);
+        pic.Name = "pic";
+        pic.Size = new Size(150, 200);
+        pic.TabIndex = 1;
+        // 
+        // hoverToolbar
+        // 
+        hoverToolbar.Back = Color.FromArgb(140, 0, 0, 0);
         hoverToolbar.BackColor = Color.Transparent;
-        hoverToolbar.Back = Color.FromArgb(140, 0, 0, 0);   // 黑 ~55% alpha
-        hoverToolbar.Radius = 0;                            // 直角，避免 GDI Region 鋸齒
-        // Dock=Left 順序：先加的佔最左 → btnRead 在最左、btnExplorer 在其右
         hoverToolbar.Controls.Add(btnRead);
         hoverToolbar.Controls.Add(btnExplorer);
         hoverToolbar.Location = new Point(0, 159);
         hoverToolbar.Name = "hoverToolbar";
+        hoverToolbar.Radius = 0;
         hoverToolbar.Size = new Size(128, 41);
+        hoverToolbar.TabIndex = 2;
         hoverToolbar.Visible = false;
-        //
-        // btnRead — 閱讀（用已驗證有效的 BookOutlined）
-        //
+        // 
+        // btnRead
+        // 
+        btnRead.BackHover = Color.FromArgb(255, 255, 255);
         btnRead.Dock = DockStyle.Left;
-        btnRead.IconSvg = "BookOutlined";
-        btnRead.IconRatio = 0.9F;
-        btnRead.Name = "btnRead";
-        btnRead.Ghost = true;
         btnRead.ForeColor = Color.FromArgb(192, 182, 222);
-        btnRead.BackHover= Color.FromArgb(255, 255, 255);   // 白色，覆蓋在 hoverToolbar 的半透明黑上
+        btnRead.Ghost = true;
+        btnRead.IconRatio = 0.9F;
+        btnRead.IconSvg = "BookOutlined";
+        btnRead.Location = new Point(41, 0);
+        btnRead.Name = "btnRead";
         btnRead.Size = new Size(41, 41);
         btnRead.TabIndex = 0;
-        
-        //btnRead.Type = AntdUI.TTypeMini.Primary;
-        //
-        // btnExplorer — 檔案總管
-        //
+        // 
+        // btnExplorer
+        // 
+        btnExplorer.BackHover = Color.FromArgb(255, 255, 255);
         btnExplorer.Dock = DockStyle.Left;
-        btnExplorer.IconSvg = "FolderOpenOutlined";
-        btnExplorer.IconRatio = 0.9F;
-        btnExplorer.Name = "btnExplorer";
-        btnExplorer.Ghost = true;
         btnExplorer.ForeColor = Color.FromArgb(192, 182, 222);
-        btnExplorer.BackHover = Color.FromArgb(255, 255, 255);   // 白色，覆蓋在 hoverToolbar 的半透明黑上
+        btnExplorer.Ghost = true;
+        btnExplorer.IconRatio = 0.9F;
+        btnExplorer.IconSvg = "FolderOpenOutlined";
+        btnExplorer.Location = new Point(0, 0);
+        btnExplorer.Name = "btnExplorer";
         btnExplorer.Size = new Size(41, 41);
         btnExplorer.TabIndex = 1;
-        //btnExplorer.Type = AntdUI.TTypeMini.Primary;
-        //
+        // 
         // ComicCardControl
-        //
+        // 
         Controls.Add(rootPanel);
+        DoubleBuffered = true;
         Name = "ComicCardControl";
         Size = new Size(160, 240);
         rootPanel.ResumeLayout(false);
-        ((System.ComponentModel.ISupportInitialize)pic).EndInit();
+        rootPanel.PerformLayout();
         hoverToolbar.ResumeLayout(false);
         ResumeLayout(false);
     }

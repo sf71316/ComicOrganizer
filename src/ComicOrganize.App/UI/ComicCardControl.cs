@@ -157,8 +157,7 @@ public partial class ComicCardControl : UserControl
         }
 
         lbl.Font = new Font("Microsoft JhengHei UI", fontSize);
-        rootPanel.Radius = isList ? 4 : 8;
-        rootPanel.Shadow = isList ? 2 : 4;
+        // rootPanel 改 Forms.Panel 後沒有 Radius / Shadow 屬性 — 純直角矩形
 
         // hoverToolbar 浮在 pic 下緣中央（pic 內座標、直角矩形）
         // Size 由 Designer 控制（要拉長/拉寬直接改 Designer）
