@@ -26,29 +26,6 @@ public partial class GalleryControl : UserControl
         tabsContent.CloseDisposePage = true;
         tabsContent.FillActive = Core.ThemeColors.Border;
 
-        // 檢視模式按鈕：點擊彈下拉選單
-        btnViewMode.Click += (s, e) =>
-        {
-            AntdUI.ContextMenuStrip.open(btnViewMode, mi =>
-            {
-                if (mi.Text == "縮圖(小)") _currentViewMode = GalleryViewMode.Small;
-                else if (mi.Text == "縮圖(中)") _currentViewMode = GalleryViewMode.Medium;
-                else if (mi.Text == "縮圖(大)") _currentViewMode = GalleryViewMode.Large;
-                else if (mi.Text == "列表模式") _currentViewMode = GalleryViewMode.List;
-                else return;
-                RefreshCurrentTab();
-            }, new AntdUI.IContextMenuStripItem[]
-            {
-                new AntdUI.ContextMenuStripItem("縮圖(小)"),
-                new AntdUI.ContextMenuStripItem("縮圖(中)"),
-                new AntdUI.ContextMenuStripItem("縮圖(大)"),
-                new AntdUI.ContextMenuStripItem("列表模式"),
-            });
-        };
-
-        // 重新整理按鈕
-        btnRefresh.Click += (s, e) => RefreshCurrentTab();
-
         // Tree 右鍵選單
         treeFolders.NodeMouseClick += (s, e) =>
         {
@@ -91,6 +68,21 @@ public partial class GalleryControl : UserControl
         _ = LoadTreeAsync();
     }
 
+    public GalleryViewMode CurrentViewMode => _currentViewMode;
+
+    public void SetViewMode(GalleryViewMode mode)
+    {
+        if (_currentViewMode == mode) return;
+        _currentViewMode = mode;
+        RefreshCurrentTab();
+    }
+
+    public void OnConfigUpdated(AppConfig config)
+    {
+        _config = config;
+        _ = LoadTreeAsync();
+    }
+
     protected override bool ProcessCmdKey(ref System.Windows.Forms.Message msg, Keys keyData)
     {
         if (keyData == Keys.F5)
@@ -121,20 +113,17 @@ public partial class GalleryControl : UserControl
         });
     }
 
-    // 找出當前 Tab 內的 breadcrumb（建 newPage 時把 breadcrumb 放進 splitter.Panel1，
-    // Name="tabBreadcrumb" 方便這裡 traverse 找出來）
+    // 找出當前 Tab 內的 breadcrumb / FlowLayout（依控件 Name 找）
     private AntdUI.Breadcrumb? FindTabBreadcrumb(AntdUI.TabPage? page)
     {
         if (page == null) return null;
-        var splitter = page.Controls.OfType<AntdUI.Splitter>().FirstOrDefault();
-        return splitter?.Panel1.Controls.OfType<AntdUI.Breadcrumb>().FirstOrDefault();
+        return page.Controls.Find("tabBreadcrumb", true).OfType<AntdUI.Breadcrumb>().FirstOrDefault();
     }
 
     private FlowLayoutPanel? FindTabFlowLayout(AntdUI.TabPage? page)
     {
         if (page == null) return null;
-        var splitter = page.Controls.OfType<AntdUI.Splitter>().FirstOrDefault();
-        return splitter?.Panel2.Controls.OfType<FlowLayoutPanel>().FirstOrDefault();
+        return page.Controls.OfType<FlowLayoutPanel>().FirstOrDefault();
     }
 
     private void UpdateBreadcrumb(string path)
@@ -286,7 +275,7 @@ public partial class GalleryControl : UserControl
             return;
         }
 
-        // 新 Tab 結構：splitter (Horizontal, 上下分割) → Panel1=麵包屑、Panel2=卡片區
+        // 新 Tab 結構：headerPanel (Dock=Top, 麵包屑 + refresh) + FlowLayoutPanel (Dock=Fill, 卡片區)
         var newPage = new AntdUI.TabPage
         {
             Text = folderName,
@@ -294,16 +283,13 @@ public partial class GalleryControl : UserControl
             BackColor = Core.ThemeColors.Surface
         };
 
-        var tabSplitter = new AntdUI.Splitter
+        var headerPanel = new System.Windows.Forms.Panel
         {
-            Dock = DockStyle.Fill,
-            Orientation = Orientation.Horizontal,
-            IsSplitterFixed = true,
-            SplitterWidth = 1,
-            SplitterBack = Core.ThemeColors.Border,
+            Name = "tabHeader",
+            Dock = DockStyle.Top,
+            Height = 33,
+            BackColor = Core.ThemeColors.Background,
         };
-        tabSplitter.Panel1.BackColor = Core.ThemeColors.Background;
-        tabSplitter.Panel2.BackColor = Core.ThemeColors.Surface;
 
         var bc = new AntdUI.Breadcrumb
         {
@@ -317,22 +303,35 @@ public partial class GalleryControl : UserControl
         {
             if (e.Item.Tag is string p) OpenFolderTab(p, false);
         };
-        tabSplitter.Panel1.Controls.Add(bc);
+
+        var btnRefresh = new AntdUI.Button
+        {
+            Name = "tabBtnRefresh",
+            Dock = DockStyle.Right,
+            Ghost = true,
+            IconSvg = "RedoOutlined",
+            IconRatio = 0.9F,
+            ForeColor = Core.ThemeColors.Text,
+            BackHover = Core.ThemeColors.Secondary,
+            Size = new Size(40, 32),
+        };
+        btnRefresh.Click += (s, e) => RefreshCurrentTab();
+
+        headerPanel.Controls.Add(bc);
+        headerPanel.Controls.Add(btnRefresh);
 
         var flowLayout = new System.Windows.Forms.FlowLayoutPanel
         {
+            Name = "tabFlowLayout",
             Dock = DockStyle.Fill,
             AutoScroll = true,
             BackColor = Core.ThemeColors.Surface
         };
-        tabSplitter.Panel2.Controls.Add(flowLayout);
 
-        newPage.Controls.Add(tabSplitter);
+        newPage.Controls.Add(flowLayout);
+        newPage.Controls.Add(headerPanel);
         tabsContent.Pages.Add(newPage);
         tabsContent.SelectedTab = newPage;
-
-        // 加入後再設 SplitterDistance（Splitter 已知大小）
-        try { tabSplitter.SplitterDistance = 32; } catch { }
 
         UpdateBreadcrumb(path);
         _ = LoadGalleryAsync(flowLayout, path);

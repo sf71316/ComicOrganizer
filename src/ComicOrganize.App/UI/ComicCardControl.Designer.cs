@@ -73,13 +73,13 @@ partial class ComicCardControl
         // 
         // hoverToolbar
         // 
-        hoverToolbar.Back = Color.FromArgb(140, 0, 0, 0);
+        hoverToolbar.Back = Core.ThemeColors.HoverToolBarBackground;
         hoverToolbar.BackColor = Color.Transparent;
         hoverToolbar.Controls.Add(btnRead);
         hoverToolbar.Controls.Add(btnExplorer);
         hoverToolbar.Location = new Point(0, 159);
         hoverToolbar.Name = "hoverToolbar";
-        hoverToolbar.Radius = 0;
+        hoverToolbar.Radius = 10;
         hoverToolbar.Size = new Size(128, 41);
         hoverToolbar.TabIndex = 2;
         hoverToolbar.Visible = false;
@@ -88,7 +88,7 @@ partial class ComicCardControl
         // 
         btnRead.BackHover = Color.FromArgb(255, 255, 255);
         btnRead.Dock = DockStyle.Left;
-        btnRead.ForeColor = Color.FromArgb(102, 69, 146);
+        btnRead.ForeColor = Color.FromArgb(128, 54, 145);
         btnRead.Ghost = true;
         btnRead.IconRatio = 0.9F;
         btnRead.IconSvg = "BookOutlined";
@@ -101,7 +101,7 @@ partial class ComicCardControl
         // 
         btnExplorer.BackHover = Color.FromArgb(255, 255, 255);
         btnExplorer.Dock = DockStyle.Left;
-        btnExplorer.ForeColor = Color.FromArgb(102, 69, 146);
+        btnExplorer.ForeColor = Color.FromArgb(128, 54, 145);
         btnExplorer.Ghost = true;
         btnExplorer.IconRatio = 0.9F;
         btnExplorer.IconSvg = "FolderOpenOutlined";

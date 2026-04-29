@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -8,10 +8,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <SupportedOSPlatformVersion>7.0</SupportedOSPlatformVersion>
+    <ApplicationIcon>Assist\comic_5318786.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
     <None Remove="UI\PoisonMainForm.resx~RF6dfc1fc.TMP" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assist\comic_5318786.ico" />
   </ItemGroup>
 
   <ItemGroup>
