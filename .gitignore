@@ -33,3 +33,6 @@ tgitchangelist
 # Screenshots / archives kept locally only
 *.png
 ComicOrganize.zip
+
+# Publish output
+Publish/
