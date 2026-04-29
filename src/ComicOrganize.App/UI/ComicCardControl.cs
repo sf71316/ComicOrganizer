@@ -23,6 +23,14 @@ public partial class ComicCardControl : UserControl
         {
             hoverToolbar.Parent?.Controls.Remove(hoverToolbar);
             pic.Controls.Add(hoverToolbar);
+
+            // pic 是 PictureBox（非 ContainerControl），AutoScale chain 斷在這。
+            // 補一次 Scale → hoverToolbar 跟所有子 button 的 Size/Location/Font 都自動套 DPI。
+            if (this.DeviceDpi != 96)
+            {
+                float factor = this.DeviceDpi / 96f;
+                hoverToolbar.Scale(new SizeF(factor, factor));
+            }
         }
 
         WireUp();
@@ -161,7 +169,7 @@ public partial class ComicCardControl : UserControl
         // rootPanel 改 Forms.Panel 後沒有 Radius / Shadow 屬性 — 純直角矩形
 
         // hoverToolbar 浮在 pic 下緣中央（pic 內座標、直角矩形）
-        // Size 由 Designer 控制（要拉長/拉寬直接改 Designer）
+        // Size 已在 ctor 透過 hoverToolbar.Scale 套 DPI，這裡只算 layout
         if (!isList)
         {
             // 兩顆 Dock=Left 的 button 在 toolbar 內水平置中：依當前寬度動態算 Padding
@@ -170,9 +178,10 @@ public partial class ComicCardControl : UserControl
             hoverToolbar.Padding = new Padding(sidePad, 0, sidePad, 0);
 
             // toolbar 整體在 pic 下緣居中
+            int bottomGap = LogicalToDeviceUnits(8);
             hoverToolbar.Location = new Point(
                 (pic.Width - hoverToolbar.Width) / 2,
-                pic.Height - hoverToolbar.Height - 8  // 距 pic 底部 8px
+                pic.Height - hoverToolbar.Height - bottomGap
             );
             hoverToolbar.Region = null;
         }
