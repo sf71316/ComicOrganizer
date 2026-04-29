@@ -401,26 +401,18 @@ public partial class GalleryControl : UserControl, IThemedControl
         var tableList = CreateTabTable();
         tableList.Visible = isList;
 
-        // 縮圖 hover → 滑鼠附近 floating preview popup（只在縮圖欄觸發）
-        // column 順序：Action(44) | Thumbnail(80) | Name | Size | CreatedAt
-        // e.X / e.Y 是 device pixel，但 RowHeight / Column.Width 設定值是 logical
-        // → 必須 LogicalToDeviceUnits 換算，否則 DPI 150% 下 row index 錯位
-        int thumbColStart = LogicalToDeviceUnits(44);
-        int thumbColEnd = LogicalToDeviceUnits(44 + 64);
+        // 縮圖 hover → 滑鼠附近 floating preview popup
+        // 用 AntdUI.Table.HitTest 取 cell（DPI/scroll 全包，比自算 row/col 邊界可靠）
+        // column 順序：Action(0) | Thumbnail(1) | Name(2) | Size(3) | CreatedAt(4)
+        const int ThumbnailColIdx = 1;
         string? currentPreviewPath = null;
         tableList.MouseMove += (s, e) =>
         {
-            int headerH = LogicalToDeviceUnits(tableList.RowHeightHeader ?? 40);
-            int rowH = LogicalToDeviceUnits(tableList.RowHeight ?? 64);
-            if (e.X < thumbColStart || e.X >= thumbColEnd || e.Y < headerH
-                || tableList.DataSource is not System.ComponentModel.BindingList<GalleryListItem> list)
-            {
-                HidePreviewPopup();
-                currentPreviewPath = null;
-                return;
-            }
-            int rowIdx = (e.Y - headerH) / rowH;
-            if (rowIdx < 0 || rowIdx >= list.Count || string.IsNullOrEmpty(list[rowIdx].FullPath))
+            var cell = tableList.HitTest(e.X, e.Y, out int rowIdx, out int colIdx);
+            if (cell == null || colIdx != ThumbnailColIdx
+                || tableList.DataSource is not System.ComponentModel.BindingList<GalleryListItem> list
+                || rowIdx < 0 || rowIdx >= list.Count
+                || string.IsNullOrEmpty(list[rowIdx].FullPath))
             {
                 HidePreviewPopup();
                 currentPreviewPath = null;
@@ -458,12 +450,9 @@ public partial class GalleryControl : UserControl, IThemedControl
         tableList.MouseClick += (s, e) =>
         {
             if (e.Button != MouseButtons.Right) return;
-            int headerH = LogicalToDeviceUnits(tableList.RowHeightHeader ?? 40);
-            int rowH = LogicalToDeviceUnits(tableList.RowHeight ?? 64);
-            if (e.Y < headerH || tableList.DataSource is not System.ComponentModel.BindingList<GalleryListItem> list)
-                return;
-            int rowIdx = (e.Y - headerH) / rowH;
-            if (rowIdx < 0 || rowIdx >= list.Count) return;
+            var cell = tableList.HitTest(e.X, e.Y, out int rowIdx, out int _);
+            if (cell == null || tableList.DataSource is not System.ComponentModel.BindingList<GalleryListItem> list
+                || rowIdx < 0 || rowIdx >= list.Count) return;
             var item = list[rowIdx];
             if (string.IsNullOrEmpty(item.FullPath)) return;
 
@@ -504,7 +493,7 @@ public partial class GalleryControl : UserControl, IThemedControl
             Name = "tabTableList",
             Dock = DockStyle.Fill,
             Bordered = false,
-            RowHeight = (int?)64,
+            RowHeight = (int?)80,
             AutoSizeColumnsMode = AntdUI.ColumnsMode.Fill,
             Font = new Font("Microsoft JhengHei UI", 10F),
             BackColor = Core.ThemeColors.Surface,
@@ -513,7 +502,7 @@ public partial class GalleryControl : UserControl, IThemedControl
         table.Columns = new AntdUI.ColumnCollection
         {
             new AntdUI.Column("Action", "", AntdUI.ColumnAlign.Center) { Width = "44" },
-            new AntdUI.Column("Thumbnail", "縮圖", AntdUI.ColumnAlign.Center) { Width = "64" },
+            new AntdUI.Column("Thumbnail", "縮圖", AntdUI.ColumnAlign.Center) { Width = "80" },
             new AntdUI.Column("Name", "名稱") { SortOrder = true },
             new AntdUI.Column("Size", "大小", AntdUI.ColumnAlign.Right) { Width = "100", SortOrder = true },
             new AntdUI.Column("CreatedAt", "建立時間", AntdUI.ColumnAlign.Center) { Width = "160", SortOrder = true },
@@ -677,9 +666,9 @@ public partial class GalleryControl : UserControl, IThemedControl
                     var path2 = fs.FullName;
                     thumbTasks.Add(Task.Run(async () =>
                     {
-                        var img = await _coverManager.GetCoverAsync(path2, 100);
-                        // CellImage 邊長 = RowHeight(64) × 90% ≈ 58
-                        if (img != null) item.Thumbnail = new AntdUI.CellImage(img, 58) { Radius = 4 };
+                        var img = await _coverManager.GetCoverAsync(path2, 120);
+                        // CellImage 邊長 = RowHeight(80) × 90% = 72
+                        if (img != null) item.Thumbnail = new AntdUI.CellImage(img, 72) { Radius = 4 };
                     }));
                 }
             }

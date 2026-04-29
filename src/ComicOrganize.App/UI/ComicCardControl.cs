@@ -167,6 +167,7 @@ public partial class ComicCardControl : UserControl
             lbl.Padding = new Padding(4, 4, 4, 4);
         }
 
+        lbl.AutoSize = false;                // 確保 Dock=Fill 控制 size，不被 AutoSize 縮回單行
         lbl.AutoEllipsis = false;            // 不顯示截斷 ...
         lbl.Font = new Font("Microsoft JhengHei UI", fontSize);
         // rootPanel 改 Forms.Panel 後沒有 Radius / Shadow 屬性 — 純直角矩形
