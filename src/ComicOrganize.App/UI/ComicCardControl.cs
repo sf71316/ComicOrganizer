@@ -153,6 +153,7 @@ public partial class ComicCardControl : UserControl
             pic.Dock = DockStyle.Left;
             pic.Width = 50;
             pic.Height = 60;
+            lbl.Dock = DockStyle.Fill;
             lbl.TextAlign = ContentAlignment.MiddleLeft;
             lbl.Padding = new Padding(10, 0, 0, 0);
             hoverToolbar.Visible = false;
@@ -161,10 +162,12 @@ public partial class ComicCardControl : UserControl
         {
             pic.Dock = DockStyle.Top;
             pic.Height = picHeight;
+            lbl.Dock = DockStyle.Fill;       // 占 pic 下方所有剩餘空間（取代 Bottom + 固定 49px）
             lbl.TextAlign = ContentAlignment.TopCenter;
             lbl.Padding = new Padding(4, 4, 4, 4);
         }
 
+        lbl.AutoEllipsis = false;            // 不顯示截斷 ...
         lbl.Font = new Font("Microsoft JhengHei UI", fontSize);
         // rootPanel 改 Forms.Panel 後沒有 Radius / Shadow 屬性 — 純直角矩形
 

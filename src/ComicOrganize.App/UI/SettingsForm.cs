@@ -4,7 +4,7 @@ using ComicOrganize.App.Models;
 
 namespace ComicOrganize.App.UI;
 
-public partial class SettingsForm : Window
+public partial class SettingsForm : Window, IThemedControl
 {
     private readonly ConfigManager _configManager;
     public AppConfig Config { get; private set; }
@@ -18,11 +18,20 @@ public partial class SettingsForm : Window
         LoadConfig();
         WireEvents();
 
-        ThemeManager.ThemeChanged += (s, e) => ThemeManager.ApplyTheme(this);
-        LocalizationManager.LanguageChanged += (s, e) => ApplyLocalization();
+        this.WireThemeAndLocalization();
+    }
 
-        ThemeManager.ApplyTheme(this);
-        ApplyLocalization();
+    public void ApplyThemeColors()
+    {
+        windowBar.BackColor = Core.ThemeColors.Primary;
+        content.BackColor = Core.ThemeColors.Surface;
+        footer.BackColor = Core.ThemeColors.Surface;
+        this.BackColor = Core.ThemeColors.Background;
+        btnBrowseSource.DefaultBack = Core.ThemeColors.Primary;
+        btnBrowseTarget.DefaultBack = Core.ThemeColors.Primary;
+        btnBrowseViewer.DefaultBack = Core.ThemeColors.Primary;
+        btnSave.BackColor = Core.ThemeColors.Primary;
+        this.Refresh();
     }
 
     private void LoadConfig()
@@ -71,7 +80,7 @@ public partial class SettingsForm : Window
         };
     }
 
-    private void ApplyLocalization()
+    public void ApplyLocalization()
     {
         windowBar.Text = LocalizationManager.GetString("SettingsTitle");
         label1.Text = LocalizationManager.GetString("SettingsSourcePath");
@@ -125,7 +134,7 @@ public partial class SettingsForm : Window
             Config.Language = selectLang.SelectedIndex == 0 ? "zh-TW" : "en-US";
 
         _configManager.Save(Config);
-        AntdUI.Message.info(this, LocalizationManager.GetString("SettingsSaved") ?? "設定已儲存");
+        // 訊息留給 caller (MainForm.OpenSettings) 顯示，否則 Close() 後 message 隨 modal 消失看不到
         DialogResult = DialogResult.OK;
         Close();
     }

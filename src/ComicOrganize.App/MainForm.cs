@@ -5,7 +5,7 @@ using ComicOrganize.App.UI;
 
 namespace ComicOrganize.App;
 
-public partial class MainForm : Window
+public partial class MainForm : Window, IThemedControl
 {
     private readonly ConfigManager _configManager;
     private AppConfig _config;
@@ -15,19 +15,16 @@ public partial class MainForm : Window
 
     public MainForm()
     {
+        // 先載 config 並初始化 ThemeManager → ThemeColors.X getter 才會回傳對的色，
+        // InitializeComponent 內 Designer 設 BackColor = ThemeColors.X 取得正確色（不會被系統 DPI 鎖到 Dark）
+        _configManager = new ConfigManager();
+        _config = _configManager.Load();
+        LocalizationManager.Initialize(_config.Language);
+        ThemeManager.Initialize(_config.Theme);
 
         InitializeComponent();
 
-        _configManager = new ConfigManager();
-        _config = _configManager.Load();
-        // 初始化主題與語系
-        LocalizationManager.Initialize(_config.Language);
-        ThemeManager.Initialize(_config.Theme);
-        ThemeManager.ThemeChanged += (s, e) => ThemeManager.ApplyTheme(this);
-        LocalizationManager.LanguageChanged += (s, e) => ApplyLocalization();
-
-        ThemeManager.ApplyTheme(this);
-        ApplyLocalization();
+        this.WireThemeAndLocalization();
 
         _intelligence = new MappingIntelligence();
         _organizer = new ArchiveOrganizer(_intelligence, _config);
@@ -94,10 +91,22 @@ public partial class MainForm : Window
             _config = settings.Config;
             archiveControl.OnConfigUpdated(_config);
             galleryControl.OnConfigUpdated(_config);
+            AntdUI.Notification.info(this, 
+                LocalizationManager.GetString("SettingsSaved") ?? "設定已儲存",
+                "",autoClose:3,align:TAlignFrom.TR);
         }
     }
 
-    private void ApplyLocalization()
+    public void ApplyThemeColors()
+    {
+        windowBar.BackColor = Core.ThemeColors.Primary;
+        menuStrip1.BackColor = Core.ThemeColors.Background;
+        menuStrip1.ForeColor = Core.ThemeColors.Text;
+        this.BackColor = Core.ThemeColors.Background;
+        this.Refresh();
+    }
+
+    public void ApplyLocalization()
     {
         this.Text = LocalizationManager.GetString("AppTitle");
         mnuFile.Text = LocalizationManager.GetString("MenuFile"); // Need to ensure these keys exist or match

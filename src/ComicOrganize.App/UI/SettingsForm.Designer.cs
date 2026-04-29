@@ -42,6 +42,7 @@ partial class SettingsForm
 
     private void InitializeComponent()
     {
+        folderBrowserDialog = new FolderBrowserDialog();
         windowBar = new PageHeader();
         content = new AntdUI.Panel();
         selectLang = new Select();
@@ -67,7 +68,7 @@ partial class SettingsForm
         // 
         // windowBar
         // 
-        windowBar.BackColor = Color.FromArgb(60, 60, 60);
+        windowBar.BackColor = Core.ThemeColors.Primary;
         windowBar.Dock = DockStyle.Top;
         windowBar.ForeColor = Color.White;
         windowBar.IconSvg = "SettingOutlined";
@@ -83,7 +84,7 @@ partial class SettingsForm
         // 
         // content
         // 
-        content.BackColor = Color.FromArgb(189, 189, 189);
+        content.BackColor = Core.ThemeColors.Surface;
         content.Controls.Add(selectLang);
         content.Controls.Add(labelLang);
         content.Controls.Add(selectTheme);
@@ -149,7 +150,7 @@ partial class SettingsForm
         // 
         // btnBrowseViewer
         // 
-        btnBrowseViewer.DefaultBack = Color.FromArgb(60, 60, 60);
+        btnBrowseViewer.DefaultBack = Core.ThemeColors.Primary;
         btnBrowseViewer.ForeColor = Color.White;
         btnBrowseViewer.Location = new Point(650, 260);
         btnBrowseViewer.Name = "btnBrowseViewer";
@@ -159,7 +160,7 @@ partial class SettingsForm
         // 
         // btnBrowseTarget
         // 
-        btnBrowseTarget.DefaultBack = Color.FromArgb(60, 60, 60);
+        btnBrowseTarget.DefaultBack = Core.ThemeColors.Primary;
         btnBrowseTarget.ForeColor = Color.White;
         btnBrowseTarget.Location = new Point(650, 155);
         btnBrowseTarget.Name = "btnBrowseTarget";
@@ -169,7 +170,7 @@ partial class SettingsForm
         // 
         // btnBrowseSource
         // 
-        btnBrowseSource.DefaultBack = Color.FromArgb(60, 60, 60);
+        btnBrowseSource.DefaultBack = Core.ThemeColors.Primary;
         btnBrowseSource.ForeColor = Color.White;
         btnBrowseSource.Location = new Point(650, 50);
         btnBrowseSource.Name = "btnBrowseSource";
@@ -230,7 +231,7 @@ partial class SettingsForm
         // 
         // footer
         // 
-        footer.BackColor = Color.FromArgb(189, 189, 189);
+        footer.BackColor = Core.ThemeColors.Surface;
         footer.Controls.Add(btnSave);
         footer.Controls.Add(btnCancel);
         footer.Dock = DockStyle.Bottom;
@@ -244,7 +245,7 @@ partial class SettingsForm
         // btnSave
         // 
         btnSave.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        btnSave.BackColor = Color.FromArgb(60, 60, 60);
+        btnSave.BackColor = Core.ThemeColors.Primary;
         btnSave.ForeColor = Color.White;
         btnSave.Location = new Point(660, 15);
         btnSave.Name = "btnSave";
@@ -265,7 +266,7 @@ partial class SettingsForm
         // 
         // SettingsForm
         // 
-        BackColor = Color.FromArgb(30, 30, 30);
+        BackColor = Core.ThemeColors.Background;
         ClientSize = new Size(800, 550);
         Controls.Add(content);
         Controls.Add(footer);

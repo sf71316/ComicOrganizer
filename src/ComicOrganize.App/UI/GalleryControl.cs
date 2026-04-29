@@ -4,7 +4,7 @@ using ComicOrganize.App.Models;
 
 namespace ComicOrganize.App.UI;
 
-public partial class GalleryControl : UserControl
+public partial class GalleryControl : UserControl, IThemedControl
 {
     public enum GalleryViewMode { Small, Medium, Large, List }
     private GalleryViewMode _currentViewMode = GalleryViewMode.Medium;
@@ -26,7 +26,7 @@ public partial class GalleryControl : UserControl
         tabsContent.CloseDisposePage = true;
         tabsContent.FillActive = Core.ThemeColors.Border;
 
-        LocalizationManager.LanguageChanged += (s, e) => ApplyLocalization();
+        this.WireThemeAndLocalization();
 
         // Tree 右鍵選單
         treeFolders.NodeMouseClick += (s, e) =>
@@ -64,10 +64,34 @@ public partial class GalleryControl : UserControl
         ApplyLocalization();
     }
 
-    private void ApplyLocalization()
+    public void ApplyLocalization()
     {
         // 更新 Tree 中的 "Loading..." 節點文字（如果存在）
         UpdateTreeLoadingText(treeFolders.Items);
+    }
+
+    public void ApplyThemeColors()
+    {
+        splitter2.Panel1.BackColor = Core.ThemeColors.Border;
+        splitter2.Panel2.BackColor = Core.ThemeColors.Border;
+        treeFolders.BackColor = Core.ThemeColors.TreeViewSurface;
+        tabsContent.ScrollBack = Core.ThemeColors.Text;
+        tabsContent.FillActive = Core.ThemeColors.Border;
+
+        // 動態建立的 Tab 內 panel 也要重套
+        foreach (AntdUI.TabPage page in tabsContent.Pages)
+        {
+            page.BackColor = Core.ThemeColors.Surface;
+            foreach (var p in page.Controls.Find("tabContentHost", true).OfType<System.Windows.Forms.Panel>())
+                p.BackColor = Core.ThemeColors.Surface;
+            foreach (var p in page.Controls.Find("tabHeader", true).OfType<System.Windows.Forms.Panel>())
+                p.BackColor = Core.ThemeColors.Background;
+            foreach (var f in page.Controls.Find("tabFlowLayout", true).OfType<FlowLayoutPanel>())
+                f.BackColor = Core.ThemeColors.Surface;
+            foreach (var t in page.Controls.Find("tabTableList", true).OfType<AntdUI.Table>())
+                t.BackColor = Core.ThemeColors.Surface;
+        }
+        this.Refresh();
     }
 
     private void UpdateTreeLoadingText(AntdUI.TreeItemCollection items)

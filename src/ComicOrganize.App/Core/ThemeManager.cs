@@ -65,57 +65,15 @@ public static class ThemeManager
         UpdateAntdUITheme();
     }
 
+    /// <summary>
+    /// 套主題到 control hierarchy。
+    /// 設計：各 Form/UserControl 自己訂閱 ThemeChanged 並提供 ApplyThemeColors() 重設 token color，
+    /// 因為 Designer 內 BackColor=ThemeColors.X 是「值複製」一次性，IsDark 切後不會自動更新。
+    /// 此方法只負責同步 AntdUI.Config + 觸發 ThemeChanged 廣播給所有訂閱者。
+    /// </summary>
     public static void ApplyTheme(Control control)
     {
-        if (control is Form form)
-        {
-            form.BackColor = ThemeColors.Background;
-            form.ForeColor = ThemeColors.Text;
-        }
-
-        ApplyToControl(control);
-    }
-
-    private static void ApplyToControl(Control control)
-    {
-        // AntdUI 控制項通常會自動跟隨 AntdUI.Config.Theme
-        // 但我們自定義的控制項或原生 Forms 控制項需要手動更新
-        
-        if (control is AntdUI.Panel panel)
-        {
-            // 如果 Panel 用作卡片背景，可能需要特別處理
-            if (panel.Name == "rootPanel")
-            {
-                panel.Back = ThemeColors.Surface;
-            }
-        }
-        else if (!(control is AntdUI.IControl)) // 非 AntdUI 控制項
-        {
-            control.BackColor = GetDefaultBackColor(control);
-            control.ForeColor = GetDefaultForeColor(control);
-        }
-
-        foreach (Control child in control.Controls)
-        {
-            ApplyToControl(child);
-        }
-    }
-
-    private static Color GetDefaultBackColor(Control control)
-    {
-        return control switch
-        {
-            Button => ThemeColors.Secondary,
-            TextBox => ThemeColors.Surface,
-            ListBox => ThemeColors.Surface,
-            TreeView => ThemeColors.TreeViewSurface,
-            ListView => ThemeColors.Surface,
-            _ => ThemeColors.Background
-        };
-    }
-
-    private static Color GetDefaultForeColor(Control control)
-    {
-        return ThemeColors.Text;
+        AntdUI.Config.IsDark = IsDark;
+        OnThemeChanged();
     }
 }
