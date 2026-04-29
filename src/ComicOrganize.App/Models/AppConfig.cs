@@ -5,6 +5,12 @@ public class AppConfig
     public string UnorganizedDirectory { get; set; } = string.Empty;
     public string RootDirectory { get; set; } = string.Empty;
     public string ImageViewerPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 外部圖片瀏覽器啟動參數模板。佔位符 {path} 會被替換成實際檔案/資料夾路徑。
+    /// 預設 "{path}"（含引號）；遞迴載入子目錄改 -r "{path}"，依 viewer 而定。
+    /// </summary>
+    public string ImageViewerArgs { get; set; } = "\"{path}\"";
     public List<string> ExcludedDirectories { get; set; } = new();
     public bool DebugMode { get; set; } = false;
 

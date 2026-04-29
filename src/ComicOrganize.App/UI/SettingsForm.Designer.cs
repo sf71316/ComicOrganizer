@@ -1,5 +1,4 @@
 using AntdUI;
-using FolderBrowserDialog = AntdUI.FolderBrowserDialog;
 
 namespace ComicOrganize.App.UI;
 
@@ -17,6 +16,8 @@ partial class SettingsForm
     private AntdUI.Input txtSource;
     private AntdUI.Input txtTarget;
     private AntdUI.Input txtImageViewer;
+    private AntdUI.Input txtImageViewerArgs;
+    private AntdUI.Label labelImageViewerArgs;
     private AntdUI.Button btnBrowseSource;
     private AntdUI.Button btnBrowseTarget;
     private AntdUI.Button btnBrowseViewer;
@@ -29,8 +30,6 @@ partial class SettingsForm
     private AntdUI.Button btnSave;
     private AntdUI.Button btnCancel;
 
-    private AntdUI.FolderBrowserDialog folderBrowserDialog;
-
     protected override void Dispose(bool disposing)
     {
         if (disposing && (components != null))
@@ -42,7 +41,6 @@ partial class SettingsForm
 
     private void InitializeComponent()
     {
-        folderBrowserDialog = new FolderBrowserDialog();
         windowBar = new PageHeader();
         content = new AntdUI.Panel();
         selectLang = new Select();
@@ -54,6 +52,8 @@ partial class SettingsForm
         btnBrowseTarget = new AntdUI.Button();
         btnBrowseSource = new AntdUI.Button();
         txtImageViewer = new Input();
+        txtImageViewerArgs = new Input();
+        labelImageViewerArgs = new AntdUI.Label();
         txtTarget = new Input();
         txtSource = new Input();
         label3 = new AntdUI.Label();
@@ -68,7 +68,7 @@ partial class SettingsForm
         // 
         // windowBar
         // 
-        windowBar.BackColor = Core.ThemeColors.Primary;
+        windowBar.BackColor = Color.FromArgb(60, 60, 60);
         windowBar.Dock = DockStyle.Top;
         windowBar.ForeColor = Color.White;
         windowBar.IconSvg = "SettingOutlined";
@@ -84,7 +84,7 @@ partial class SettingsForm
         // 
         // content
         // 
-        content.BackColor = Core.ThemeColors.Surface;
+        content.BackColor = Color.FromArgb(189, 189, 189);
         content.Controls.Add(selectLang);
         content.Controls.Add(labelLang);
         content.Controls.Add(selectTheme);
@@ -94,6 +94,8 @@ partial class SettingsForm
         content.Controls.Add(btnBrowseTarget);
         content.Controls.Add(btnBrowseSource);
         content.Controls.Add(txtImageViewer);
+        content.Controls.Add(txtImageViewerArgs);
+        content.Controls.Add(labelImageViewerArgs);
         content.Controls.Add(txtTarget);
         content.Controls.Add(txtSource);
         content.Controls.Add(label3);
@@ -104,12 +106,12 @@ partial class SettingsForm
         content.Name = "content";
         content.Padding = new Padding(40, 25, 40, 25);
         content.Radius = 0;
-        content.Size = new Size(800, 432);
+        content.Size = new Size(800, 487);
         content.TabIndex = 1;
         // 
         // selectLang
         // 
-        selectLang.Location = new Point(260, 360);
+        selectLang.Location = new Point(260, 435);
         selectLang.Name = "selectLang";
         selectLang.Size = new Size(200, 40);
         selectLang.TabIndex = 13;
@@ -117,7 +119,7 @@ partial class SettingsForm
         // labelLang
         // 
         labelLang.BackColor = Color.Transparent;
-        labelLang.Location = new Point(260, 325);
+        labelLang.Location = new Point(260, 400);
         labelLang.Name = "labelLang";
         labelLang.Size = new Size(112, 34);
         labelLang.TabIndex = 12;
@@ -125,7 +127,7 @@ partial class SettingsForm
         // 
         // selectTheme
         // 
-        selectTheme.Location = new Point(40, 360);
+        selectTheme.Location = new Point(40, 435);
         selectTheme.Name = "selectTheme";
         selectTheme.Size = new Size(200, 40);
         selectTheme.TabIndex = 11;
@@ -133,7 +135,7 @@ partial class SettingsForm
         // labelTheme
         // 
         labelTheme.BackColor = Color.Transparent;
-        labelTheme.Location = new Point(40, 325);
+        labelTheme.Location = new Point(40, 400);
         labelTheme.Name = "labelTheme";
         labelTheme.Size = new Size(112, 34);
         labelTheme.TabIndex = 10;
@@ -142,7 +144,7 @@ partial class SettingsForm
         // cbDebug
         // 
         cbDebug.BackColor = Color.Transparent;
-        cbDebug.Location = new Point(500, 365);
+        cbDebug.Location = new Point(500, 445);
         cbDebug.Name = "cbDebug";
         cbDebug.Size = new Size(230, 30);
         cbDebug.TabIndex = 9;
@@ -150,7 +152,7 @@ partial class SettingsForm
         // 
         // btnBrowseViewer
         // 
-        btnBrowseViewer.DefaultBack = Core.ThemeColors.Primary;
+        btnBrowseViewer.DefaultBack = Color.FromArgb(60, 60, 60);
         btnBrowseViewer.ForeColor = Color.White;
         btnBrowseViewer.Location = new Point(650, 260);
         btnBrowseViewer.Name = "btnBrowseViewer";
@@ -160,7 +162,7 @@ partial class SettingsForm
         // 
         // btnBrowseTarget
         // 
-        btnBrowseTarget.DefaultBack = Core.ThemeColors.Primary;
+        btnBrowseTarget.DefaultBack = Color.FromArgb(60, 60, 60);
         btnBrowseTarget.ForeColor = Color.White;
         btnBrowseTarget.Location = new Point(650, 155);
         btnBrowseTarget.Name = "btnBrowseTarget";
@@ -170,7 +172,7 @@ partial class SettingsForm
         // 
         // btnBrowseSource
         // 
-        btnBrowseSource.DefaultBack = Core.ThemeColors.Primary;
+        btnBrowseSource.DefaultBack = Color.FromArgb(60, 60, 60);
         btnBrowseSource.ForeColor = Color.White;
         btnBrowseSource.Location = new Point(650, 50);
         btnBrowseSource.Name = "btnBrowseSource";
@@ -185,6 +187,23 @@ partial class SettingsForm
         txtImageViewer.PlaceholderText = "外部圖片瀏覽器執行檔路徑 (.exe)";
         txtImageViewer.Size = new Size(600, 45);
         txtImageViewer.TabIndex = 7;
+        // 
+        // txtImageViewerArgs
+        // 
+        txtImageViewerArgs.Location = new Point(40, 350);
+        txtImageViewerArgs.Name = "txtImageViewerArgs";
+        txtImageViewerArgs.PlaceholderText = "例如: \"{path}\"  或  -r \"{path}\"";
+        txtImageViewerArgs.Size = new Size(690, 45);
+        txtImageViewerArgs.TabIndex = 15;
+        // 
+        // labelImageViewerArgs
+        // 
+        labelImageViewerArgs.BackColor = Color.Transparent;
+        labelImageViewerArgs.Location = new Point(40, 315);
+        labelImageViewerArgs.Name = "labelImageViewerArgs";
+        labelImageViewerArgs.Size = new Size(200, 30);
+        labelImageViewerArgs.TabIndex = 14;
+        labelImageViewerArgs.Text = "啟動參數（{path} = 路徑）";
         // 
         // txtTarget
         // 
@@ -231,11 +250,11 @@ partial class SettingsForm
         // 
         // footer
         // 
-        footer.BackColor = Core.ThemeColors.Surface;
+        footer.BackColor = Color.FromArgb(189, 189, 189);
         footer.Controls.Add(btnSave);
         footer.Controls.Add(btnCancel);
         footer.Dock = DockStyle.Bottom;
-        footer.Location = new Point(0, 480);
+        footer.Location = new Point(0, 535);
         footer.Name = "footer";
         footer.Padding = new Padding(20, 15, 20, 15);
         footer.Radius = 0;
@@ -245,7 +264,7 @@ partial class SettingsForm
         // btnSave
         // 
         btnSave.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        btnSave.BackColor = Core.ThemeColors.Primary;
+        btnSave.BackColor = Color.FromArgb(60, 60, 60);
         btnSave.ForeColor = Color.White;
         btnSave.Location = new Point(660, 15);
         btnSave.Name = "btnSave";
@@ -266,8 +285,8 @@ partial class SettingsForm
         // 
         // SettingsForm
         // 
-        BackColor = Core.ThemeColors.Background;
-        ClientSize = new Size(800, 550);
+        BackColor = Color.FromArgb(30, 30, 30);
+        ClientSize = new Size(800, 605);
         Controls.Add(content);
         Controls.Add(footer);
         Controls.Add(windowBar);

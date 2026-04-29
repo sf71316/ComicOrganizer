@@ -347,7 +347,7 @@ public partial class GalleryControl : UserControl, IThemedControl
         {
             Name = "tabHeader",
             Dock = DockStyle.Top,
-            Height = 33,
+            Height = LogicalToDeviceUnits(33),  // DPI 150% 等高 → 50px，避免麵包屑文字裁切
             BackColor = Core.ThemeColors.Background,
         };
 
@@ -373,7 +373,7 @@ public partial class GalleryControl : UserControl, IThemedControl
             IconRatio = 0.9F,
             ForeColor = Core.ThemeColors.Text,
             BackHover = Core.ThemeColors.Secondary,
-            Size = new Size(40, 32),
+            Size = LogicalToDeviceUnits(new Size(40, 32)),
         };
         btnRefresh.Click += (s, e) => RefreshCurrentTab();
 
@@ -403,13 +403,15 @@ public partial class GalleryControl : UserControl, IThemedControl
 
         // 縮圖 hover → 滑鼠附近 floating preview popup（只在縮圖欄觸發）
         // column 順序：Action(44) | Thumbnail(80) | Name | Size | CreatedAt
-        const int thumbColStart = 44;
-        const int thumbColEnd = 44 + 80;
+        // e.X / e.Y 是 device pixel，但 RowHeight / Column.Width 設定值是 logical
+        // → 必須 LogicalToDeviceUnits 換算，否則 DPI 150% 下 row index 錯位
+        int thumbColStart = LogicalToDeviceUnits(44);
+        int thumbColEnd = LogicalToDeviceUnits(44 + 64);
         string? currentPreviewPath = null;
         tableList.MouseMove += (s, e) =>
         {
-            int headerH = tableList.RowHeightHeader ?? 40;
-            int rowH = tableList.RowHeight ?? 64;
+            int headerH = LogicalToDeviceUnits(tableList.RowHeightHeader ?? 40);
+            int rowH = LogicalToDeviceUnits(tableList.RowHeight ?? 64);
             if (e.X < thumbColStart || e.X >= thumbColEnd || e.Y < headerH
                 || tableList.DataSource is not System.ComponentModel.BindingList<GalleryListItem> list)
             {
@@ -456,8 +458,8 @@ public partial class GalleryControl : UserControl, IThemedControl
         tableList.MouseClick += (s, e) =>
         {
             if (e.Button != MouseButtons.Right) return;
-            int headerH = tableList.RowHeightHeader ?? 40;
-            int rowH = tableList.RowHeight ?? 64;
+            int headerH = LogicalToDeviceUnits(tableList.RowHeightHeader ?? 40);
+            int rowH = LogicalToDeviceUnits(tableList.RowHeight ?? 64);
             if (e.Y < headerH || tableList.DataSource is not System.ComponentModel.BindingList<GalleryListItem> list)
                 return;
             int rowIdx = (e.Y - headerH) / rowH;
@@ -511,7 +513,7 @@ public partial class GalleryControl : UserControl, IThemedControl
         table.Columns = new AntdUI.ColumnCollection
         {
             new AntdUI.Column("Action", "", AntdUI.ColumnAlign.Center) { Width = "44" },
-            new AntdUI.Column("Thumbnail", "縮圖", AntdUI.ColumnAlign.Center) { Width = "80" },
+            new AntdUI.Column("Thumbnail", "縮圖", AntdUI.ColumnAlign.Center) { Width = "64" },
             new AntdUI.Column("Name", "名稱") { SortOrder = true },
             new AntdUI.Column("Size", "大小", AntdUI.ColumnAlign.Right) { Width = "100", SortOrder = true },
             new AntdUI.Column("CreatedAt", "建立時間", AntdUI.ColumnAlign.Center) { Width = "160", SortOrder = true },
@@ -676,7 +678,8 @@ public partial class GalleryControl : UserControl, IThemedControl
                     thumbTasks.Add(Task.Run(async () =>
                     {
                         var img = await _coverManager.GetCoverAsync(path2, 100);
-                        if (img != null) item.Thumbnail = new AntdUI.CellImage(img, 60) { Radius = 4 };
+                        // CellImage 邊長 = RowHeight(64) × 90% ≈ 58
+                        if (img != null) item.Thumbnail = new AntdUI.CellImage(img, 58) { Radius = 4 };
                     }));
                 }
             }
@@ -766,17 +769,36 @@ public partial class GalleryControl : UserControl, IThemedControl
         return Task.CompletedTask;
     }
 
+    private static readonly HashSet<string> _imageExts = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif"
+    };
+
     private void OpenWithExternalViewer(string filePath)
     {
         try
         {
+            // Honeyview 對「資料夾路徑」只會把它當單一 item 開（看到第一張就停）。
+            // 改傳該資料夾內第一張圖 → viewer 載入後使用者用 PgDn/滾輪切換同目錄其它圖。
+            string targetPath = filePath;
+            if (Directory.Exists(filePath))
+            {
+                var firstImage = Directory.EnumerateFiles(filePath)
+                    .Where(f => _imageExts.Contains(Path.GetExtension(f)))
+                    .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+                    .FirstOrDefault();
+                if (firstImage != null) targetPath = firstImage;
+            }
+
             if (!string.IsNullOrEmpty(_config.ImageViewerPath) && File.Exists(_config.ImageViewerPath))
             {
-                System.Diagnostics.Process.Start(_config.ImageViewerPath, $"\"{filePath}\"");
+                string template = string.IsNullOrWhiteSpace(_config.ImageViewerArgs) ? "\"{path}\"" : _config.ImageViewerArgs;
+                string args = template.Replace("{path}", targetPath);
+                System.Diagnostics.Process.Start(_config.ImageViewerPath, args);
             }
             else
             {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(filePath) { UseShellExecute = true });
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(targetPath) { UseShellExecute = true });
             }
         }
         catch (Exception ex)

@@ -9,6 +9,9 @@ public partial class SettingsForm : Window, IThemedControl
     private readonly ConfigManager _configManager;
     public AppConfig Config { get; private set; }
 
+    // 從 Designer.cs 搬到這裡 inline 初始化，避免 VS Designer regenerate 重複把 new 那行吃掉
+    private readonly AntdUI.FolderBrowserDialog folderBrowserDialog = new AntdUI.FolderBrowserDialog();
+
     public SettingsForm(ConfigManager configManager, AppConfig config)
     {
         InitializeComponent();
@@ -39,6 +42,7 @@ public partial class SettingsForm : Window, IThemedControl
         txtSource.Text = Config.UnorganizedDirectory;
         txtTarget.Text = Config.RootDirectory;
         txtImageViewer.Text = Config.ImageViewerPath;
+        txtImageViewerArgs.Text = Config.ImageViewerArgs;
         cbDebug.Checked = Config.DebugMode;
 
         // Theme selector - 簡化 Items 避免轉型錯誤
@@ -124,6 +128,7 @@ public partial class SettingsForm : Window, IThemedControl
         Config.UnorganizedDirectory = txtSource.Text;
         Config.RootDirectory = txtTarget.Text;
         Config.ImageViewerPath = txtImageViewer.Text;
+        Config.ImageViewerArgs = string.IsNullOrWhiteSpace(txtImageViewerArgs.Text) ? "\"{path}\"" : txtImageViewerArgs.Text;
         Config.DebugMode = cbDebug.Checked;
 
         // 修正轉型問題：使用 Index 而非直接轉型對象
