@@ -18,6 +18,9 @@ public partial class GalleryControl : UserControl, IThemedControl
     {
         InitializeComponent();
 
+        // GalleryControl 自己開 DoubleBuffer：tabsContent 切換 / resize 時減抖
+        DoubleBuffered = true;
+
         // 設定內容頁籤樣式
         if (tabsContent.Style is AntdUI.Tabs.StyleCard style)
         {
@@ -389,7 +392,7 @@ public partial class GalleryControl : UserControl, IThemedControl
 
         bool isList = _currentViewMode == GalleryViewMode.List;
 
-        var flowLayout = new System.Windows.Forms.FlowLayoutPanel
+        var flowLayout = new BufferedFlowLayoutPanel
         {
             Name = "tabFlowLayout",
             Dock = DockStyle.Fill,
