@@ -760,6 +760,10 @@ public partial class GalleryControl : UserControl, IThemedControl
 
             // 切回 UI thread 建卡片（control 操作必須 UI thread）
             sw.Restart();
+            // 封面載入計數（thread-safe Interlocked）— 全部 task 完成才印 summary
+            int coverLoaded = 0, coverNull = 0, coverDone = 0;
+            var swCover = System.Diagnostics.Stopwatch.StartNew();
+            int totalCards = items.Count;
             this.Invoke(() =>
             {
                 var swInvoke = System.Diagnostics.Stopwatch.StartNew();
@@ -801,7 +805,20 @@ public partial class GalleryControl : UserControl, IThemedControl
                         var cover = await _coverManager.GetCoverAsync(item.FullName, thumbWidth);
                         if (cover != null)
                         {
+                            System.Threading.Interlocked.Increment(ref coverLoaded);
                             this.Invoke(() => card.SetCover(cover));
+                        }
+                        else
+                        {
+                            System.Threading.Interlocked.Increment(ref coverNull);
+                        }
+                        // 全部 task 完成 → print 一次 summary
+                        if (System.Threading.Interlocked.Increment(ref coverDone) == totalCards)
+                        {
+                            System.Diagnostics.Debug.WriteLine(
+                                $"[Cards] T+{swTotal.ElapsedMilliseconds}ms : covers done — " +
+                                $"{coverLoaded} loaded / {coverNull} no-cover / {totalCards} total " +
+                                $"(took {swCover.ElapsedMilliseconds}ms after Spin callback start)");
                         }
                     });
                 }
