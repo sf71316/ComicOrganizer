@@ -2,6 +2,9 @@ using ComicOrganize.App.Models;
 using System.Drawing;
 using System.IO;
 using System.IO.Compression;
+using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Formats.Png;
+using SixLabors.ImageSharp.Processing;
 
 namespace ComicOrganize.App.Core;
 
@@ -120,12 +123,13 @@ public class CoverManager
 
                 if (entry != null)
                 {
+                    string ext = Path.GetExtension(entry.FullName).ToLower();
                     using (var stream = entry.Open())
                     using (var ms = new MemoryStream())
                     {
                         stream.CopyTo(ms);
                         ms.Position = 0;
-                        using (var img = Image.FromStream(ms))
+                        using (var img = LoadImageFromStream(ms, ext))
                         {
                             return ResizeImage(img, maxWidth);
                         }
@@ -139,10 +143,52 @@ public class CoverManager
 
     private Image? LoadAndResizeImage(string filePath, int maxWidth)
     {
+        string ext = Path.GetExtension(filePath).ToLower();
+        if (ext == ".webp")
+        {
+            // GDI+ 不支援 WebP decoder，走 ImageSharp 載入後轉 GDI+ Bitmap
+            using (var img = LoadWebpAsBitmap(filePath))
+            {
+                return ResizeImage(img, maxWidth);
+            }
+        }
+
         using (var img = Image.FromFile(filePath))
         {
             return ResizeImage(img, maxWidth);
         }
+    }
+
+    /// <summary>
+    /// 從 stream 載入圖片：webp 走 ImageSharp，其他走 GDI+ Image.FromStream。
+    /// 用在 zip/cbz 內 entry 解壓後 stream → Image。
+    /// </summary>
+    private static Image LoadImageFromStream(Stream stream, string extension)
+    {
+        if (extension == ".webp")
+        {
+            using var imgSharp = SixLabors.ImageSharp.Image.Load<Rgba32>(stream);
+            return ConvertImageSharpToBitmap(imgSharp);
+        }
+        return Image.FromStream(stream);
+    }
+
+    /// <summary>
+    /// 用 ImageSharp 載 webp 檔，再透過 PNG 中介轉成 GDI+ Bitmap 給後續 ResizeImage 使用。
+    /// </summary>
+    private static Bitmap LoadWebpAsBitmap(string path)
+    {
+        using var imgSharp = SixLabors.ImageSharp.Image.Load<Rgba32>(path);
+        return ConvertImageSharpToBitmap(imgSharp);
+    }
+
+    private static Bitmap ConvertImageSharpToBitmap(SixLabors.ImageSharp.Image<Rgba32> imgSharp)
+    {
+        // 經 PNG memory stream 中介比直接 pixel-by-pixel 拷貝乾淨且少踩 stride 對齊問題
+        using var ms = new MemoryStream();
+        imgSharp.Save(ms, new PngEncoder());
+        ms.Position = 0;
+        return new Bitmap(ms);
     }
 
     private Image ResizeImage(Image img, int maxWidth)
