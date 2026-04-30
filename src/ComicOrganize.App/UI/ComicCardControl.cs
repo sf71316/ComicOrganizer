@@ -251,20 +251,20 @@ public partial class ComicCardControl : UserControl
 
         switch (mode)
         {
-            // 寬度 +10 補 rootPanel.Padding 從 5→10 增加的 10px 水平 padding；字級 9pt
+            // 卡片高度 +10 (lbl 是 Dock=Fill，pic 高度不變 → lbl 自動 +10 多容納一行/留白)
             case GalleryControl.GalleryViewMode.Small:
-                cardSize = new Size(170, 270);
+                cardSize = new Size(170, 280);
                 picHeight = 200;
                 fontSize = 9F;
                 break;
             case GalleryControl.GalleryViewMode.Large:
-                cardSize = new Size(330, 470);
+                cardSize = new Size(330, 480);
                 picHeight = 400;
                 fontSize = 9F;
                 break;
             case GalleryControl.GalleryViewMode.Medium:
             default:
-                cardSize = new Size(250, 370);
+                cardSize = new Size(250, 380);
                 picHeight = 300;
                 fontSize = 9F;
                 break;
