@@ -129,18 +129,34 @@ public partial class ComicCardControl : UserControl
         ApplyHoverToolbarLayout();
 
         // 對 hover 控件本身 hook MouseEnter/Leave 維持 hover 狀態（mouse 在 toolbar 上不算 leave）
-        EventHandler enter = (s, e) => SetHoverState(true);
-        EventHandler leave = (s, e) => SetHoverState(false);
-        foreach (var c in new Control[] { hoverToolbar, btnRead, btnExplorer })
-        {
-            c.MouseEnter += enter;
-            c.MouseLeave += leave;
-        }
+        HookHover(hoverToolbar);
+        HookHover(btnRead);
+        HookHover(btnExplorer);
 
         // 📖 「閱讀」按鈕一律呼叫 viewer（不管 folder 還是 file）：
         // viewer 對目錄會挑首張圖開啟。「進入目錄」操作交給卡片左鍵點擊 / 縮圖點擊
         btnRead.Click += (s, e) => RequestOpenViewer?.Invoke(ItemPath);
         btnExplorer.Click += (s, e) => RequestExplorer?.Invoke(ItemPath);
+    }
+
+    /// <summary>
+    /// 在 control 上 hook MouseEnter/Leave 連到 SetHoverState。
+    /// 平常 control（this/pic/lbl）跟 hover-only control（hoverToolbar/btnRead/btnExplorer）共用。
+    /// </summary>
+    private void HookHover(Control c)
+    {
+        c.MouseEnter += (s, e) => SetHoverState(true);
+        c.MouseLeave += (s, e) => SetHoverState(false);
+    }
+
+    /// <summary>
+    /// 卡片主要動作 dispatch：目錄 → 進入該目錄；檔案 → 開外部閱讀器。
+    /// 卡片左鍵點擊 + ContextMenu「進入/閱讀」項都用此邏輯。
+    /// </summary>
+    private void OpenPrimary()
+    {
+        if (IsFolderNode) RequestOpenFolder?.Invoke(ItemPath);
+        else RequestOpenViewer?.Invoke(ItemPath);
     }
 
     private void ApplyHoverToolbarLayout()
@@ -191,35 +207,21 @@ public partial class ComicCardControl : UserControl
 
     private void WireUp()
     {
-        // 平常只在 4 個 control 上 hook hover：this / rootPanel / pic / lbl
+        // 平常只在 3 個 control 上 hook hover：this / pic / lbl
         // hoverToolbar / btnRead / btnExplorer 的 hover 事件在 EnsureHoverControls 內補綁
-        EventHandler enter = (s, e) => SetHoverState(true);
-        EventHandler leave = (s, e) => SetHoverState(false);
-        foreach (var c in new Control[] { this, pic, lbl })
-        {
-            c.MouseEnter += enter;
-            c.MouseLeave += leave;
-        }
+        HookHover(this);
+        HookHover(pic);
+        HookHover(lbl);
 
         // 點擊
         MouseEventHandler clickHandler = (s, e) =>
         {
-            if (e.Button == MouseButtons.Left)
-            {
-                if (IsFolderNode) RequestOpenFolder?.Invoke(ItemPath);
-                else RequestOpenViewer?.Invoke(ItemPath);
-            }
-            else if (e.Button == MouseButtons.Right)
-            {
-                ShowContextMenu();
-            }
+            if (e.Button == MouseButtons.Left) OpenPrimary();
+            else if (e.Button == MouseButtons.Right) ShowContextMenu();
         };
         pic.MouseClick += clickHandler;
         lbl.MouseClick += clickHandler;
         this.MouseClick += clickHandler;
-
-        // Image3D 圓角是內建（pic.Radius=8），不需要 Resize 補 Region。保留 hook 給未來擴充
-        // pic.Resize += (s, e) => UpdatePicCornerRegion();
     }
 
     public void SetData(FileSystemInfo item, bool isFolderNode)
@@ -286,16 +288,7 @@ public partial class ComicCardControl : UserControl
 
         // hoverToolbar layout 只在已建立時重算；lazy 模式下首次 hover 後 EnsureHoverControls 會呼叫一次
         ApplyHoverToolbarLayout();
-
-        UpdatePicCornerRegion();
     }
-
-    private void UpdatePicCornerRegion()
-    {
-        // Image3D 自帶 Radius 圓角，不需要 Region。保留方法簽名以便未來換 control 時 pic.Resize hook 仍可用
-        pic.Region = null;
-    }
-
 
     private void ShowContextMenu()
     {
@@ -310,8 +303,7 @@ public partial class ComicCardControl : UserControl
         {
             if (menuItem.Text != null && (menuItem.Text.Contains("進入") || menuItem.Text.Contains("閱讀")))
             {
-                if (IsFolderNode) RequestOpenFolder?.Invoke(ItemPath);
-                else RequestOpenViewer?.Invoke(ItemPath);
+                OpenPrimary();
             }
             else if (menuItem.Text == "另開頁籤")
             {
