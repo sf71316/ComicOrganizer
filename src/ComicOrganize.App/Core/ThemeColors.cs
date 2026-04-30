@@ -1,41 +1,42 @@
+using System.Drawing;
+
 namespace ComicOrganize.App.Core;
 
 /// <summary>
-/// 全域主題色（漫畫庫淺紫主題）。對應 CSS 變數：
-/// --text #664592 / --background #d4d3d3 / --primary #83759f / --secondary #c2b1c9 / --accent #b093b4
-/// 修改主題時調這裡即可，所有用 ThemeColors.X 引用的位置都會同步生效。
+/// 全域主題色。支援 Dark/Light 模式切換。
 /// </summary>
 public static class ThemeColors
 {
-    /// <summary>
-    /// 通用文字顏色
-    /// </summary>
-    public static readonly Color Text = Color.FromArgb(102, 69, 146);   // #664592
-    /// <summary>
-    /// 通用背景色
-    /// </summary>
-    public static readonly Color Background = Color.FromArgb(212, 211, 211);  // #d4d3d3
-    public static readonly Color Primary = Color.FromArgb(131, 117, 159);  // #83759f
-    public static readonly Color Secondary = Color.FromArgb(194, 177, 201);  // #c2b1c9
-    public static readonly Color Accent = Color.FromArgb(176, 147, 180);  // #b093b4
+    // Light Mode Colors (原始主題)
+    private static readonly Color LightText = Color.FromArgb(102, 69, 146);
+    private static readonly Color LightBackground = Color.FromArgb(212, 211, 211);
+    private static readonly Color LightPrimary = Color.FromArgb(131, 117, 159);
+    private static readonly Color LightSecondary = Color.FromArgb(194, 177, 201);
+    private static readonly Color LightAccent = Color.FromArgb(176, 147, 180);
+    private static readonly Color LightSurface = Color.FromArgb(241, 233, 249);
+    private static readonly Color LightBorder = Color.FromArgb(192, 181, 207);
+    private static readonly Color LightRowAlternateBg = Color.FromArgb(219, 217, 255);
+    private static readonly Color LightTreeViewSurface = Color.FromArgb(241, 233, 249);
 
-    // 衍生色（不在原始 5-token 內，但本主題實用）
-    /// <summary>
-    /// 通用背景色（包含漫畫庫的內容區、漫畫圖卡片背景色、TreeView 背景色等）。對應 CSS 變數
-    /// </summary>
-    public static readonly Color Surface = Color.FromArgb(241, 233, 249);  // #eddffb 內容區淺紫底
-    /// <summary>
-    /// 漫畫庫 TreeView 的背景色（包含 TreeView 的內容區和空白區
-    /// </summary>
-    public static readonly Color TreeViewSurface = Color.FromArgb(241, 233, 249);  // #eddffb 內容區淺紫底
-    public static readonly Color Border = Color.FromArgb(192, 181, 207);
-    /// <summary>
-    /// 漫畫圖卡片懸浮工具列背景色（包含卡片右上角的工具列）
-    /// </summary>
-    public static readonly Color HoverToolBarBackground = Color.FromArgb(140, 127, 124, 128);
-    /// <summary>
-    /// 列表 zebra 偶數行底色（奇數行用 Color.White）
-    /// </summary>
-    public static readonly Color RowAlternateBg = Color.FromArgb(219, 217, 255); // #dbd9ff
+    // Dark Mode Colors
+    private static readonly Color DarkText = Color.FromArgb(220, 220, 220);
+    private static readonly Color DarkBackground = Color.FromArgb(30, 30, 30);
+    private static readonly Color DarkPrimary = Color.FromArgb(60, 60, 60);
+    private static readonly Color DarkSecondary = Color.FromArgb(45, 45, 48);
+    private static readonly Color DarkAccent = Color.FromArgb(0, 122, 204);
+    private static readonly Color DarkSurface = Color.FromArgb(189, 189, 189);
+    private static readonly Color DarkBorder = Color.FromArgb(63, 63, 70);
+    private static readonly Color DarkRowAlternateBg = Color.FromArgb(45, 45, 48);
+    private static readonly Color DarkTreeViewSurface = Color.FromArgb(189, 189, 189);
+
+    public static Color Text => ThemeManager.IsDark ? DarkText : LightText;
+    public static Color Background => ThemeManager.IsDark ? DarkBackground : LightBackground;
+    public static Color Primary => ThemeManager.IsDark ? DarkPrimary : LightPrimary;
+    public static Color Secondary => ThemeManager.IsDark ? DarkSecondary : LightSecondary;
+    public static Color Accent => ThemeManager.IsDark ? DarkAccent : LightAccent;
+    public static Color Surface => ThemeManager.IsDark ? DarkSurface : LightSurface;
+    public static Color TreeViewSurface => ThemeManager.IsDark ? DarkTreeViewSurface : LightTreeViewSurface;
+    public static Color Border => ThemeManager.IsDark ? DarkBorder : LightBorder;
+    public static Color HoverToolBarBackground => Color.FromArgb(140, 127, 124, 128);
+    public static Color RowAlternateBg => ThemeManager.IsDark ? DarkRowAlternateBg : LightRowAlternateBg;
 }
-

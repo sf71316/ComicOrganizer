@@ -5,7 +5,7 @@ using System.ComponentModel;
 
 namespace ComicOrganize.App.UI;
 
-public partial class ArchiveControl : UserControl
+public partial class ArchiveControl : UserControl, IThemedControl
 {
     private AppConfig? _config;
     private MappingIntelligence? _intelligence;
@@ -16,6 +16,7 @@ public partial class ArchiveControl : UserControl
         InitializeComponent();
         btnScan.Click += async (s, e) => await ScanAsync();
         btnExecute.Click += (s, e) => OpenPreview();
+        this.WireThemeAndLocalization();
     }
 
     public void Initialize(AppConfig config, MappingIntelligence intelligence, ArchiveOrganizer organizer)
@@ -23,6 +24,22 @@ public partial class ArchiveControl : UserControl
         _config = config;
         _intelligence = intelligence;
         _organizer = organizer;
+    }
+
+    public void ApplyThemeColors()
+    {
+        this.BackColor = Core.ThemeColors.Background;
+        panelToolbar.BackColor = Core.ThemeColors.Background;
+        tableArchive.BackColor = Core.ThemeColors.Surface;
+        this.Refresh();
+    }
+
+    public void ApplyLocalization()
+    {
+        btnScan.Text = LocalizationManager.GetString("ArchiveScan");
+        btnExecute.Text = LocalizationManager.GetString("ArchivePreview");
+        lblStatus.Text = LocalizationManager.GetString("StatusReady");
+        tableArchive.EmptyText = LocalizationManager.GetString("NoData");
     }
 
     public void OnConfigUpdated(AppConfig config)

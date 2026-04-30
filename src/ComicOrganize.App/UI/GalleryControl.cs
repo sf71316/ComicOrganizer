@@ -4,7 +4,7 @@ using ComicOrganize.App.Models;
 
 namespace ComicOrganize.App.UI;
 
-public partial class GalleryControl : UserControl
+public partial class GalleryControl : UserControl, IThemedControl
 {
     public enum GalleryViewMode { Small, Medium, Large, List }
     private GalleryViewMode _currentViewMode = GalleryViewMode.Medium;
@@ -18,6 +18,9 @@ public partial class GalleryControl : UserControl
     {
         InitializeComponent();
 
+        // GalleryControl 自己開 DoubleBuffer：tabsContent 切換 / resize 時減抖
+        DoubleBuffered = true;
+
         // 設定內容頁籤樣式
         if (tabsContent.Style is AntdUI.Tabs.StyleCard style)
         {
@@ -26,27 +29,39 @@ public partial class GalleryControl : UserControl
         tabsContent.CloseDisposePage = true;
         tabsContent.FillActive = Core.ThemeColors.Border;
 
-        // Tree 右鍵選單
+        this.WireThemeAndLocalization();
+
+        // Tree 點擊處理：
+        //  右鍵 → 開啟 context menu（另開頁籤 / 重新整理）
+        //  中鍵 → 直接開新頁籤（取代原本的雙擊行為）
         treeFolders.NodeMouseClick += (s, e) =>
         {
-            if (e.Item.Tag is string path && e.Button == MouseButtons.Right)
+            if (e.Item.Tag is not string path) return;
+
+            if (e.Button == MouseButtons.Middle)
+            {
+                OpenFolderTab(path, true);
+                return;
+            }
+
+            if (e.Button == MouseButtons.Right)
             {
                 AntdUI.ContextMenuStrip.open(treeFolders, (menuItem) =>
                 {
-                    if (menuItem.Text == "另開頁籤")
+                    if (menuItem.Text == LocalizationManager.GetString("MenuOpenTab"))
                     {
                         OpenFolderTab(path, true);
                     }
-                    else if (menuItem.Text != null && menuItem.Text.Contains("重新整理"))
+                    else if (menuItem.Text != null && menuItem.Text.Contains(LocalizationManager.GetString("MenuRefresh")))
                     {
                         e.Item.Sub.Clear();
-                        e.Item.Sub.Add(new AntdUI.TreeItem("Loading...") { Tag = LazyPlaceholderTag });
+                        e.Item.Sub.Add(new AntdUI.TreeItem(LocalizationManager.GetString("Loading")) { Tag = LazyPlaceholderTag });
                         LoadSubDirectories(e.Item, path);
                     }
                 }, new AntdUI.IContextMenuStripItem[]
                 {
-                    new AntdUI.ContextMenuStripItem("另開頁籤"),
-                    new AntdUI.ContextMenuStripItem("🔄 重新整理"),
+                    new AntdUI.ContextMenuStripItem(LocalizationManager.GetString("MenuOpenTab")),
+                    new AntdUI.ContextMenuStripItem("🔄 " + LocalizationManager.GetString("MenuRefresh")),
                 });
             }
         };
@@ -59,6 +74,52 @@ public partial class GalleryControl : UserControl
 
         // 每個 Tab 自帶 breadcrumb，內容在 OpenFolderTab 建立 / 更新當前 Tab 時填好，
         // 切 Tab 不需重填，因此不綁 SelectedIndexChanged。
+        ApplyLocalization();
+    }
+
+    public void ApplyLocalization()
+    {
+        // 更新 Tree 中的 "Loading..." 節點文字（如果存在）
+        UpdateTreeLoadingText(treeFolders.Items);
+    }
+
+    public void ApplyThemeColors()
+    {
+        splitter2.Panel1.BackColor = Core.ThemeColors.Border;
+        splitter2.Panel2.BackColor = Core.ThemeColors.Border;
+        treeFolders.BackColor = Core.ThemeColors.TreeViewSurface;
+        tabsContent.ScrollBack = Core.ThemeColors.Text;
+        tabsContent.FillActive = Core.ThemeColors.Border;
+
+        // 動態建立的 Tab 內 panel 也要重套
+        foreach (AntdUI.TabPage page in tabsContent.Pages)
+        {
+            page.BackColor = Core.ThemeColors.Surface;
+            foreach (var p in page.Controls.Find("tabContentHost", true).OfType<System.Windows.Forms.Panel>())
+                p.BackColor = Core.ThemeColors.Surface;
+            foreach (var p in page.Controls.Find("tabHeader", true).OfType<System.Windows.Forms.Panel>())
+                p.BackColor = Core.ThemeColors.Background;
+            foreach (var f in page.Controls.Find("tabFlowLayout", true).OfType<FlowLayoutPanel>())
+                f.BackColor = Core.ThemeColors.Surface;
+            foreach (var t in page.Controls.Find("tabTableList", true).OfType<AntdUI.Table>())
+                t.BackColor = Core.ThemeColors.Surface;
+        }
+        this.Refresh();
+    }
+
+    private void UpdateTreeLoadingText(AntdUI.TreeItemCollection items)
+    {
+        foreach (var item in items)
+        {
+            if (item.Tag as string == LazyPlaceholderTag)
+            {
+                item.Text = LocalizationManager.GetString("Loading");
+            }
+            if (item.Sub.Count > 0)
+            {
+                UpdateTreeLoadingText(item.Sub);
+            }
+        }
     }
 
     public void Initialize(AppConfig config, CoverManager coverManager)
@@ -73,9 +134,35 @@ public partial class GalleryControl : UserControl
     public void SetViewMode(GalleryViewMode mode)
     {
         if (_currentViewMode == mode) return;
+        var oldMode = _currentViewMode;
         _currentViewMode = mode;
         SyncTabVisibility(tabsContent.SelectedTab);
-        RefreshCurrentTab();
+
+        // 卡片模式之間切換 (Small/Medium/Large) 不重 load — 只 iterate 現有卡片改尺寸。
+        // 涉及 List 才需要 reload (FlowLayoutPanel ↔ Table 不同資料結構)。
+        bool oldIsCards = oldMode != GalleryViewMode.List;
+        bool newIsCards = mode != GalleryViewMode.List;
+        if (oldIsCards && newIsCards)
+        {
+            ResizeCardsOnCurrentTab();
+        }
+        else
+        {
+            RefreshCurrentTab();
+        }
+    }
+
+    private void ResizeCardsOnCurrentTab()
+    {
+        var page = tabsContent.SelectedTab;
+        var flow = FindTabFlowLayout(page);
+        if (flow == null) return;
+        flow.SuspendLayout();
+        foreach (var c in flow.Controls.OfType<ComicCardControl>())
+        {
+            c.ApplyViewMode(_currentViewMode);
+        }
+        flow.ResumeLayout(true);
     }
 
     private void SyncTabVisibility(AntdUI.TabPage? page)
@@ -104,16 +191,15 @@ public partial class GalleryControl : UserControl
         return base.ProcessCmdKey(ref msg, keyData);
     }
 
-    private async Task LoadTreeAsync()
+    private Task LoadTreeAsync()
     {
-        if (string.IsNullOrEmpty(_config.RootDirectory) || !Directory.Exists(_config.RootDirectory)) return;
+        if (string.IsNullOrEmpty(_config.RootDirectory) || !Directory.Exists(_config.RootDirectory)) return Task.CompletedTask;
 
         treeFolders.Items.Clear();
-        await Task.Run(() =>
+        AntdUI.Spin.open(splitter2.Panel1, async config =>
         {
             var rootDir = new DirectoryInfo(_config.RootDirectory);
-            var rootNode = CreateFolderNode(rootDir);
-
+            var rootNode = await Task.Run(() => CreateFolderNode(rootDir));
             this.Invoke(() =>
             {
                 treeFolders.Items.Add(rootNode);
@@ -122,26 +208,20 @@ public partial class GalleryControl : UserControl
                 UpdateTreeWidth();
             });
         });
+        return Task.CompletedTask;
     }
 
-    // 找出當前 Tab 內的 breadcrumb / FlowLayout（依控件 Name 找）
-    private AntdUI.Breadcrumb? FindTabBreadcrumb(AntdUI.TabPage? page)
+    // Tab 內子控件 lookup 共用方法。Tab 各自含 breadcrumb / flowLayout / tableList，
+    // 用 Name + 型別找到對應控件。null page 視為找不到。
+    private static T? FindInTab<T>(AntdUI.TabPage? page, string name) where T : Control
     {
         if (page == null) return null;
-        return page.Controls.Find("tabBreadcrumb", true).OfType<AntdUI.Breadcrumb>().FirstOrDefault();
+        return page.Controls.Find(name, true).OfType<T>().FirstOrDefault();
     }
 
-    private FlowLayoutPanel? FindTabFlowLayout(AntdUI.TabPage? page)
-    {
-        if (page == null) return null;
-        return page.Controls.Find("tabFlowLayout", true).OfType<FlowLayoutPanel>().FirstOrDefault();
-    }
-
-    private AntdUI.Table? FindTabTable(AntdUI.TabPage? page)
-    {
-        if (page == null) return null;
-        return page.Controls.Find("tabTableList", true).OfType<AntdUI.Table>().FirstOrDefault();
-    }
+    private AntdUI.Breadcrumb? FindTabBreadcrumb(AntdUI.TabPage? page) => FindInTab<AntdUI.Breadcrumb>(page, "tabBreadcrumb");
+    private FlowLayoutPanel? FindTabFlowLayout(AntdUI.TabPage? page) => FindInTab<FlowLayoutPanel>(page, "tabFlowLayout");
+    private AntdUI.Table? FindTabTable(AntdUI.TabPage? page) => FindInTab<AntdUI.Table>(page, "tabTableList");
 
     private void UpdateBreadcrumb(string path)
     {
@@ -185,28 +265,40 @@ public partial class GalleryControl : UserControl
 
     private void LoadSubDirectories(AntdUI.TreeItem node, string path)
     {
-        try
-        {
-            var dir = new DirectoryInfo(path);
-            var subDirs = dir.GetDirectories()
-                             .Where(d => (d.Attributes & FileAttributes.Hidden) == 0)
-                             .OrderBy(d => d.Name)
-                             .ToList();
+        // 已展開過就不重掃（外部變動靠右鍵「重新整理」手動觸發）
+        bool isPlaceholder = node.Sub.Count == 1
+                             && (node.Sub[0].Tag as string) == LazyPlaceholderTag;
+        if (!isPlaceholder) return;
 
-            // 仍是 placeholder 或實際數量不符 → 重建
-            bool isPlaceholder = node.Sub.Count == 1
-                                 && (node.Sub[0].Tag as string) == LazyPlaceholderTag;
-            if (isPlaceholder || node.Sub.Count != subDirs.Count)
+        // 改 async：UI thread 不阻塞，使用者雙擊 tree node 觸發 expand 不卡頓
+        Task.Run(() =>
+        {
+            List<DirectoryInfo> subDirs;
+            try
             {
-                node.Sub.Clear();
-                foreach (var subDir in subDirs)
-                {
-                    node.Sub.Add(CreateFolderNode(subDir));
-                }
-                UpdateTreeWidth();
+                subDirs = new DirectoryInfo(path).GetDirectories()
+                    .Where(d => (d.Attributes & FileAttributes.Hidden) == 0)
+                    .OrderBy(d => d.Name)
+                    .ToList();
             }
-        }
-        catch { }
+            catch { return; }
+
+            if (this.IsDisposed) return;
+            try
+            {
+                this.Invoke(() =>
+                {
+                    if (treeFolders.IsDisposed) return;
+                    node.Sub.Clear();
+                    foreach (var subDir in subDirs)
+                    {
+                        node.Sub.Add(CreateFolderNode(subDir));
+                    }
+                    UpdateTreeWidth();
+                });
+            }
+            catch { /* form/tree 已 dispose 等競態忽略 */ }
+        });
     }
 
     private void UpdateTreeWidth()
@@ -299,7 +391,7 @@ public partial class GalleryControl : UserControl
         {
             Name = "tabHeader",
             Dock = DockStyle.Top,
-            Height = 33,
+            Height = LogicalToDeviceUnits(33),  // DPI 150% 等高 → 50px，避免麵包屑文字裁切
             BackColor = Core.ThemeColors.Background,
         };
 
@@ -325,7 +417,7 @@ public partial class GalleryControl : UserControl
             IconRatio = 0.9F,
             ForeColor = Core.ThemeColors.Text,
             BackHover = Core.ThemeColors.Secondary,
-            Size = new Size(40, 32),
+            Size = LogicalToDeviceUnits(new Size(40, 32)),
         };
         btnRefresh.Click += (s, e) => RefreshCurrentTab();
 
@@ -341,7 +433,7 @@ public partial class GalleryControl : UserControl
 
         bool isList = _currentViewMode == GalleryViewMode.List;
 
-        var flowLayout = new System.Windows.Forms.FlowLayoutPanel
+        var flowLayout = new BufferedFlowLayoutPanel
         {
             Name = "tabFlowLayout",
             Dock = DockStyle.Fill,
@@ -353,30 +445,24 @@ public partial class GalleryControl : UserControl
         var tableList = CreateTabTable();
         tableList.Visible = isList;
 
-        // 縮圖 hover → 滑鼠附近 floating preview popup（只在縮圖欄觸發）
-        // column 順序：Action(44) | Thumbnail(80) | Name | Size | CreatedAt
-        const int thumbColStart = 44;
-        const int thumbColEnd = 44 + 80;
+        // 縮圖 hover → 滑鼠附近 floating preview popup
+        // 用 AntdUI.Table.HitTest 取 cell；
+        //  - 資料：cell.Row.RECORD 直接讀綁定物件，避開 i_row 索引偏移
+        //  - 欄位判斷：cell.COLUMN.Key 比對欄位 key，避開 i_cel 索引偏移
+        //    （HitTest 的 i_row/i_cel 對 header/scroll/hidden row 的計法跟 BindingList 索引可能不一致）
+        // 只在 Thumbnail 欄觸發 hover preview，避免整列都跳大圖太擾人
         string? currentPreviewPath = null;
         tableList.MouseMove += (s, e) =>
         {
-            int headerH = tableList.RowHeightHeader ?? 40;
-            int rowH = tableList.RowHeight ?? 64;
-            if (e.X < thumbColStart || e.X >= thumbColEnd || e.Y < headerH
-                || tableList.DataSource is not System.ComponentModel.BindingList<GalleryListItem> list)
+            var cell = tableList.HitTest(e.X, e.Y, out _, out _);
+            var item = cell?.Row?.RECORD as GalleryListItem;
+            bool onThumbnailCol = cell?.COLUMN?.Key == "Thumbnail";
+            if (!onThumbnailCol || item == null || string.IsNullOrEmpty(item.FullPath))
             {
                 HidePreviewPopup();
                 currentPreviewPath = null;
                 return;
             }
-            int rowIdx = (e.Y - headerH) / rowH;
-            if (rowIdx < 0 || rowIdx >= list.Count || string.IsNullOrEmpty(list[rowIdx].FullPath))
-            {
-                HidePreviewPopup();
-                currentPreviewPath = null;
-                return;
-            }
-            var item = list[rowIdx];
             UpdatePreviewPopupPosition();
             if (currentPreviewPath == item.FullPath) return;
             currentPreviewPath = item.FullPath;
@@ -408,14 +494,10 @@ public partial class GalleryControl : UserControl
         tableList.MouseClick += (s, e) =>
         {
             if (e.Button != MouseButtons.Right) return;
-            int headerH = tableList.RowHeightHeader ?? 40;
-            int rowH = tableList.RowHeight ?? 64;
-            if (e.Y < headerH || tableList.DataSource is not System.ComponentModel.BindingList<GalleryListItem> list)
-                return;
-            int rowIdx = (e.Y - headerH) / rowH;
-            if (rowIdx < 0 || rowIdx >= list.Count) return;
-            var item = list[rowIdx];
-            if (string.IsNullOrEmpty(item.FullPath)) return;
+            var cell = tableList.HitTest(e.X, e.Y, out _, out _);
+            // 同 hover 邏輯：直接從 cell.Row.RECORD 取資料，避開 i_row 索引偏移
+            var item = cell?.Row?.RECORD as GalleryListItem;
+            if (item == null || string.IsNullOrEmpty(item.FullPath)) return;
 
             var items = new List<AntdUI.IContextMenuStripItem>
             {
@@ -430,7 +512,7 @@ public partial class GalleryControl : UserControl
             {
                 if (mi.Text == "📖 閱讀") OpenWithExternalViewer(item.FullPath);
                 else if (mi.Text == "📂 檔案總管中開啟")
-                    System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{item.FullPath}\"");
+                    OpenInExplorer(item.FullPath);
                 else if (mi.Text == "🔗 另開頁籤") OpenFolderTab(item.FullPath, true);
             }, items.ToArray());
         };
@@ -454,16 +536,18 @@ public partial class GalleryControl : UserControl
             Name = "tabTableList",
             Dock = DockStyle.Fill,
             Bordered = false,
-            RowHeight = (int?)64,
+            RowHeight = (int?)80,
             AutoSizeColumnsMode = AntdUI.ColumnsMode.Fill,
             Font = new Font("Microsoft JhengHei UI", 10F),
             BackColor = Core.ThemeColors.Surface,
+            GapCell = 2,           // 單元格內間距：預設約 8-12 太大，縮圖欄留白多；改 2px 讓縮圖貼齊
+            VirtualMode = true,    // 大量 rows 時只繪 viewport 內，捲動流暢度大幅提升
         };
 
         table.Columns = new AntdUI.ColumnCollection
         {
             new AntdUI.Column("Action", "", AntdUI.ColumnAlign.Center) { Width = "44" },
-            new AntdUI.Column("Thumbnail", "縮圖", AntdUI.ColumnAlign.Center) { Width = "80" },
+            new AntdUI.Column("Thumbnail", "縮圖", AntdUI.ColumnAlign.Center) { Width = "72" },
             new AntdUI.Column("Name", "名稱") { SortOrder = true },
             new AntdUI.Column("Size", "大小", AntdUI.ColumnAlign.Right) { Width = "100", SortOrder = true },
             new AntdUI.Column("CreatedAt", "建立時間", AntdUI.ColumnAlign.Center) { Width = "160", SortOrder = true },
@@ -577,69 +661,105 @@ public partial class GalleryControl : UserControl
         }
     }
 
-    private async Task LoadGalleryListAsync(AntdUI.Table table, string path)
+    /// <summary>
+    /// 共用：背景抓 cover、抓到後在 UI thread 呼叫 onLoaded。
+    /// 對 dispose 競態做防護。回傳 Task 給呼叫端等待完成（或 fire-and-forget 不接）。
+    /// </summary>
+    private Task LoadCoverInBackgroundAsync(string path, int width, Action<Image> onLoaded)
     {
-        var dirInfo = new DirectoryInfo(path);
-        var fsInfos = dirInfo.GetFileSystemInfos()
-                             .Where(i => (i.Attributes & FileAttributes.Hidden) == 0)
-                             .OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
-                             .ToList();
-
-        var list = new System.ComponentModel.BindingList<GalleryListItem>();
-        var thumbTasks = new List<Task>();
-
-        foreach (var fs in fsInfos)
+        return Task.Run(async () =>
         {
-            bool isDir = fs is DirectoryInfo;
-            // IsFolder 語意：「純導航資料夾」（子目錄裡還有子目錄），跟卡片模式對齊。
-            bool isPureFolderNode = isDir && ((DirectoryInfo)fs).GetDirectories().Length > 0;
-            long size = isDir ? 0 : ((FileInfo)fs).Length;
-            var item = new GalleryListItem
-            {
-                Name = fs.Name,
-                Size = isDir ? "" : FormatSize(size),
-                CreatedAt = fs.CreationTime.ToString("yyyy-MM-dd HH:mm"),
-                IsFolder = isPureFolderNode,
-                FullPath = fs.FullName,
-                Action = isDir
-                    ? new AntdUI.CellLink[]
-                    {
-                        new AntdUI.CellButton("OpenFolder", "", AntdUI.TTypeMini.Default)
-                        {
-                            Ghost = true,
-                            IconSvg = "RightOutlined",
-                        }
-                    }
-                    : null,
-            };
-            list.Add(item);
+            var img = await _coverManager.GetCoverAsync(path, width);
+            if (img == null || this.IsDisposed) return;
+            try { this.Invoke(() => onLoaded(img)); }
+            catch { /* form 已 dispose 等競態忽略 */ }
+        });
+    }
 
-            // 純導航節點不抓縮圖
-            if (!isPureFolderNode)
+    private Task LoadGalleryListAsync(AntdUI.Table table, string path)
+    {
+        AntdUI.Spin.open(this, async config =>
+        {
+            // ===== Phase 1: 檔案掃描 + 列表 binding (Spin 遮蔽期間) =====
+            var fsInfos = await Task.Run(() =>
+                new DirectoryInfo(path).GetFileSystemInfos()
+                    .Where(i => (i.Attributes & FileAttributes.Hidden) == 0)
+                    .OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
+                    .ToList());
+
+            var prepared = await Task.Run(() => fsInfos.Select(fs =>
             {
-                var path2 = fs.FullName;
+                bool isDir = fs is DirectoryInfo;
+                long size = isDir ? 0 : ((FileInfo)fs).Length;
+                return (fs, isDir, size);
+            }).ToList());
+
+            var list = new System.ComponentModel.BindingList<GalleryListItem>();
+            var thumbTasks = new List<Task>();
+
+            foreach (var (fs, isDir, size) in prepared)
+            {
+                var item = new GalleryListItem
+                {
+                    Name = fs.Name,
+                    Size = isDir ? "" : FormatSize(size),
+                    CreatedAt = fs.CreationTime.ToString("yyyy-MM-dd HH:mm"),
+                    IsFolder = isDir,
+                    FullPath = fs.FullName,
+                    Action = isDir
+                        ? new AntdUI.CellLink[]
+                        {
+                            new AntdUI.CellButton("OpenFolder", "", AntdUI.TTypeMini.Default)
+                            {
+                                Ghost = true,
+                                IconSvg = "RightOutlined",
+                            }
+                        }
+                        : null,
+                };
+                list.Add(item);
+
+                // 縮圖任務 fire-and-forget — Thumbnail 是純資料賦值，不需 Invoke；
+                // 全部完成後再 reset DataSource 一次觸發整表重繪
+                var capturedItem = item;
                 thumbTasks.Add(Task.Run(async () =>
                 {
-                    var img = await _coverManager.GetCoverAsync(path2, 100);
-                    if (img != null) item.Thumbnail = new AntdUI.CellImage(img, 60) { Radius = 4 };
+                    var img = await _coverManager.GetCoverAsync(capturedItem.FullPath, 120);
+                    // CellImage(img, int) 第二個參數是 Radius 不是 Size！要靠 Size 屬性設邊長
+                    // 60×80 (3:4) 貼合漫畫封面比例
+                    if (img != null) capturedItem.Thumbnail = new AntdUI.CellImage(img)
+                    {
+                        Size = new Size(60, 80),
+                        Radius = 4,
+                        ImageFit = AntdUI.TFit.Cover,
+                    };
                 }));
             }
-        }
 
-        // 先 set 不含縮圖的列表（使用者可立即看到資料）
-        table.DataSource = list;
+            // 第一次 set：文字列表立即可見（縮圖欄空白）
+            this.Invoke(() => { table.DataSource = list; });
 
-        if (thumbTasks.Count == 0) return;
-
-        // AntdUI Table 對 ListChanged/PropertyChanged 不 hook，唯一可靠重繪辦法是
-        // 重 set DataSource。等所有縮圖抓完一次重 set，cell 才會顯示 CellImage。
-        await Task.WhenAll(thumbTasks);
-        if (this.IsDisposed) return;
-        this.Invoke(() =>
-        {
-            table.DataSource = null;
-            table.DataSource = list;
+            // ===== Phase 2: 縮圖背景載入（Spin 已關閉、列表可見） =====
+            if (thumbTasks.Count == 0) return;
+            _ = Task.Run(async () =>
+            {
+                await Task.WhenAll(thumbTasks);
+                if (this.IsDisposed) return;
+                try
+                {
+                    this.Invoke(() =>
+                    {
+                        if (table.IsDisposed) return;
+                        // AntdUI Table 對 ListChanged/PropertyChanged 不 hook，唯一可靠重繪辦法是 reset DataSource
+                        table.DataSource = null;
+                        table.DataSource = list;
+                    });
+                }
+                catch { /* form/table 已 dispose 等競態忽略 */ }
+            });
         });
+
+        return Task.CompletedTask;
     }
 
     private static string FormatSize(long bytes)
@@ -655,62 +775,104 @@ public partial class GalleryControl : UserControl
         return $"{size:0.#} {units[unit]}";
     }
 
-    private async Task LoadGalleryAsync(FlowLayoutPanel container, string path)
+    private Task LoadGalleryAsync(FlowLayoutPanel container, string path)
     {
         container.Controls.Clear();
-        var dirInfo = new DirectoryInfo(path);
 
-        var items = dirInfo.GetFileSystemInfos()
-                           .Where(i => (i.Attributes & FileAttributes.Hidden) == 0)
-                           .OrderBy(i => i is DirectoryInfo ? 0 : 1)
-                           .ThenBy(i => i.Name)
-                           .ToList();
-
-        bool isListMode = _currentViewMode == GalleryViewMode.List;
-
-        foreach (var item in items)
+        AntdUI.Spin.open(container, async config =>
         {
-            bool isFolderNode = item is DirectoryInfo subDir
-                                 && subDir.GetDirectories().Length > 0;
+            var items = await Task.Run(() =>
+                new DirectoryInfo(path).GetFileSystemInfos()
+                    .Where(i => (i.Attributes & FileAttributes.Hidden) == 0)
+                    .OrderBy(i => i is DirectoryInfo ? 0 : 1)
+                    .ThenBy(i => i.Name)
+                    .ToList());
 
-            var card = new ComicCardControl();
-            card.SetData(item, isFolderNode);
-            card.ApplyViewMode(_currentViewMode);
-            card.RequestOpenFolder += p => OpenFolderTab(p, false);
-            card.RequestOpenViewer += p => OpenWithExternalViewer(p);
-            card.RequestNewTab += (p, forceNew) => OpenFolderTab(p, forceNew);
-            card.RequestExplorer += p =>
-                System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{p}\"");
-            container.Controls.Add(card);
-
-            if (!isFolderNode)
+            // 把 foreach 拆 chunks，批與批之間 await Task.Delay(1) 讓出 UI thread 給 Spin 動畫 paint。
+            // 整體時間幾乎相同 (Add HWND 時間不變) 但使用者看得到 Spin 在轉 + cards 分批冒出有 progress 感
+            const int ChunkSize = 8;
+            for (int i = 0; i < items.Count; i += ChunkSize)
             {
-                int thumbWidth = isListMode ? 80 : card.Width;
-                _ = Task.Run(async () =>
+                var chunk = items.Skip(i).Take(ChunkSize).ToList();
+                this.Invoke(() =>
                 {
-                    var cover = await _coverManager.GetCoverAsync(item.FullName, thumbWidth);
-                    if (cover != null)
+                    container.SuspendLayout();
+                    foreach (var item in chunk)
                     {
-                        this.Invoke(() => card.SetCover(cover));
+                        bool isFolderNode = item is DirectoryInfo;
+                        var card = new ComicCardControl();
+                        card.SetData(item, isFolderNode);
+                        card.ApplyViewMode(_currentViewMode);
+                        card.RequestOpenFolder += p => OpenFolderTab(p, false);
+                        card.RequestOpenViewer += p => OpenWithExternalViewer(p);
+                        card.RequestNewTab += (p, forceNew) => OpenFolderTab(p, forceNew);
+                        card.RequestExplorer += p => OpenInExplorer(p);
+                        container.Controls.Add(card);
+
+                        // 目錄與檔案都試著載封面：CoverManager 對目錄會遞迴往下找首張圖檔（受 MaxScanDepth 限制）
+                        var capturedCard = card;
+                        _ = LoadCoverInBackgroundAsync(item.FullName, card.Width, img => capturedCard.SetCover(img));
                     }
+                    container.ResumeLayout(true);   // 該 chunk 的 cards 立刻 layout + paint
                 });
+                await Task.Delay(1);   // 讓 UI thread 喘口氣 paint Spin animation frame
+            }
+        });
+
+        return Task.CompletedTask;
+    }
+
+    private static readonly HashSet<string> _imageExts = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif"
+    };
+
+    /// <summary>
+    /// 「在檔案總管中開啟」共用邏輯：
+    /// 目錄 → explorer 直接開該目錄、看裡面內容
+    /// 檔案 → explorer /select 開父目錄 + highlight 該檔
+    /// </summary>
+    private static void OpenInExplorer(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                System.Diagnostics.Process.Start("explorer.exe", $"\"{path}\"");
+            }
+            else
+            {
+                System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{path}\"");
             }
         }
-
-        await Task.CompletedTask;
+        catch { /* 忽略無法開啟的狀況 */ }
     }
 
     private void OpenWithExternalViewer(string filePath)
     {
         try
         {
+            // Honeyview 對「資料夾路徑」只會把它當單一 item 開（看到第一張就停）。
+            // 改傳該資料夾內第一張圖 → viewer 載入後使用者用 PgDn/滾輪切換同目錄其它圖。
+            string targetPath = filePath;
+            if (Directory.Exists(filePath))
+            {
+                var firstImage = Directory.EnumerateFiles(filePath)
+                    .Where(f => _imageExts.Contains(Path.GetExtension(f)))
+                    .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+                    .FirstOrDefault();
+                if (firstImage != null) targetPath = firstImage;
+            }
+
             if (!string.IsNullOrEmpty(_config.ImageViewerPath) && File.Exists(_config.ImageViewerPath))
             {
-                System.Diagnostics.Process.Start(_config.ImageViewerPath, $"\"{filePath}\"");
+                string template = string.IsNullOrWhiteSpace(_config.ImageViewerArgs) ? "\"{path}\"" : _config.ImageViewerArgs;
+                string args = template.Replace("{path}", targetPath);
+                System.Diagnostics.Process.Start(_config.ImageViewerPath, args);
             }
             else
             {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(filePath) { UseShellExecute = true });
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(targetPath) { UseShellExecute = true });
             }
         }
         catch (Exception ex)
@@ -731,9 +893,6 @@ public partial class GalleryControl : UserControl
 
     private void treeFolders_NodeMouseDoubleClick(object sender, AntdUI.TreeSelectEventArgs e)
     {
-        if (e.Item.Tag is string path)
-        {
-            OpenFolderTab(path, false);
-        }
+        // 改用滑鼠中鍵開新頁籤，這裡留空讓 AntdUI Tree 走預設行為（toggle expand）
     }
 }

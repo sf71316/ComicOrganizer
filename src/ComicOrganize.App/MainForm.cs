@@ -5,7 +5,7 @@ using ComicOrganize.App.UI;
 
 namespace ComicOrganize.App;
 
-public partial class MainForm : Window
+public partial class MainForm : Window, IThemedControl
 {
     private readonly ConfigManager _configManager;
     private AppConfig _config;
@@ -15,10 +15,17 @@ public partial class MainForm : Window
 
     public MainForm()
     {
-        InitializeComponent();
-
+        // 先載 config 並初始化 ThemeManager → ThemeColors.X getter 才會回傳對的色，
+        // InitializeComponent 內 Designer 設 BackColor = ThemeColors.X 取得正確色（不會被系統 DPI 鎖到 Dark）
         _configManager = new ConfigManager();
         _config = _configManager.Load();
+        LocalizationManager.Initialize(_config.Language);
+        ThemeManager.Initialize(_config.Theme);
+
+        InitializeComponent();
+
+        this.WireThemeAndLocalization();
+
         _intelligence = new MappingIntelligence();
         _organizer = new ArchiveOrganizer(_intelligence, _config);
         _coverManager = new CoverManager(_config);
@@ -50,10 +57,10 @@ public partial class MainForm : Window
     private void ApplyViewMode(GalleryControl.GalleryViewMode mode)
     {
         galleryControl.SetViewMode(mode);
-        mnuViewModeSmall.Checked  = mode == GalleryControl.GalleryViewMode.Small;
+        mnuViewModeSmall.Checked = mode == GalleryControl.GalleryViewMode.Small;
         mnuViewModeMedium.Checked = mode == GalleryControl.GalleryViewMode.Medium;
-        mnuViewModeLarge.Checked  = mode == GalleryControl.GalleryViewMode.Large;
-        mnuViewModeList.Checked   = mode == GalleryControl.GalleryViewMode.List;
+        mnuViewModeLarge.Checked = mode == GalleryControl.GalleryViewMode.Large;
+        mnuViewModeList.Checked = mode == GalleryControl.GalleryViewMode.List;
     }
 
     protected override void OnMouseDown(MouseEventArgs e)
@@ -84,6 +91,34 @@ public partial class MainForm : Window
             _config = settings.Config;
             archiveControl.OnConfigUpdated(_config);
             galleryControl.OnConfigUpdated(_config);
+            AntdUI.Notification.info(this, 
+                LocalizationManager.GetString("SettingsSaved") ?? "設定已儲存",
+                "",autoClose:3,align:TAlignFrom.TR);
         }
+    }
+
+    public void ApplyThemeColors()
+    {
+        windowBar.BackColor = Core.ThemeColors.Primary;
+        menuStrip1.BackColor = Core.ThemeColors.Background;
+        menuStrip1.ForeColor = Core.ThemeColors.Text;
+        this.BackColor = Core.ThemeColors.Background;
+        this.Refresh();
+    }
+
+    public void ApplyLocalization()
+    {
+        this.Text = LocalizationManager.GetString("AppTitle");
+        mnuFile.Text = LocalizationManager.GetString("MenuFile"); // Need to ensure these keys exist or match
+        mnuFileGallery.Text = LocalizationManager.GetString("MenuGallery");
+        mnuFileArchive.Text = LocalizationManager.GetString("MenuArchive");
+        mnuFileSettings.Text = LocalizationManager.GetString("MenuSettings");
+        mnuFileExit.Text = LocalizationManager.GetString("MenuExit");
+
+        mnuView.Text = LocalizationManager.GetString("MenuView");
+        mnuViewModeSmall.Text = LocalizationManager.GetString("ViewSmall");
+        mnuViewModeMedium.Text = LocalizationManager.GetString("ViewMedium");
+        mnuViewModeLarge.Text = LocalizationManager.GetString("ViewLarge");
+        mnuViewModeList.Text = LocalizationManager.GetString("ViewList");
     }
 }
