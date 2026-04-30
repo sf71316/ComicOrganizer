@@ -97,4 +97,7 @@
   <data name="SourceName" xml:space="preserve"><value>Source Name</value></data>
   <data name="Action" xml:space="preserve"><value>Action</value></data>
   <data name="ArchiveFinished" xml:space="preserve"><value>Archive process finished</value></data>
+  <data name="SettingsMenuGeneral" xml:space="preserve"><value>General</value></data>
+  <data name="SettingsMenuLibrary" xml:space="preserve"><value>Library</value></data>
+  <data name="SettingsMaxScanDepth" xml:space="preserve"><value>Max Scan Depth (cover recursion)</value></data>
 </root>

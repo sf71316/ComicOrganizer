@@ -12,14 +12,12 @@ public partial class ComicCardControl : UserControl
     public event Action<string, bool>? RequestNewTab;
     public event Action<string>? RequestExplorer;
 
-    // Per-instance ToolTip：static 共用會脫離 form 生命週期，AntdUI.Panel 也不一定 raise WinForms hover
-    private readonly System.Windows.Forms.ToolTip _tooltip = new()
-    {
-        AutoPopDelay = 8000,
-        InitialDelay = 400,
-        ReshowDelay = 150,
-        ShowAlways = true,
-    };
+    // 手動觸發 AntdUI.Tooltip.open + 自管 delay：
+    // TooltipComponent.SetTip 對 AntdUI.Panel 不可靠（AntdUI 自繪 control 的 hover events 不一定走 IExtenderProvider），
+    // 改用 hover→Timer→Tooltip.open 模式：1 秒內 leave 取消，不顯示；stay 1s+ 才顯示
+    private string _itemName = "";
+    private readonly System.Windows.Forms.Timer _tooltipDelayTimer = new() { Interval = 2000 };
+    private bool _tooltipShown = false;
 
     // typeStrip 從 sibling 改成 pic 上的半透明 overlay：pic 不被推下、圓角不被遮，
     // 卡片整體一個 rounded box，typeStrip 是浮在封面圖頂的 24px 半透明 header
@@ -30,7 +28,7 @@ public partial class ComicCardControl : UserControl
         BackColor = Color.Transparent,           // Forms 層不繪 — alpha 才能透出 pic 的圖
         Back = Color.FromArgb(120, 0, 0, 0),     // 47% 黑半透明（封面圖在後面透出）
         Radius = 8,
-        RadiusAlign = AntdUI.TAlignRound.Top,
+        RadiusAlign = AntdUI.TAlignRound.Top
     };
     private readonly System.Windows.Forms.Label typeIconLbl = new()
     {
@@ -47,6 +45,10 @@ public partial class ComicCardControl : UserControl
     {
         InitializeComponent();
         this.BackColor = Color.Transparent;
+
+        // pic 的 BackColor 改 Transparent — Designer 預設 (245,245,245) 淺灰會在
+        // hover 時（rootPanel.Back=Secondary 紫）讓 image 圓角外的矩形區出現灰色小區塊
+        pic.BackColor = Color.Transparent;
 
         // hoverToolbar + typeStrip 都 reparent 到 pic 之下：
         //  - hoverToolbar：alpha-blend 疊到封面圖上
@@ -71,12 +73,24 @@ public partial class ComicCardControl : UserControl
             typeStrip.Scale(new SizeF(factor, factor));
         }
 
+        // tooltip delay timer：到時才開 tooltip，期間若 leave 已 Stop 取消
+        _tooltipDelayTimer.Tick += (s, e) =>
+        {
+            _tooltipDelayTimer.Stop();
+            if (!string.IsNullOrEmpty(_itemName) && !_tooltipShown)
+            {
+                AntdUI.Tooltip.open(rootPanel, _itemName, AntdUI.TAlign.Bottom);
+                _tooltipShown = true;
+            }
+        };
+
         WireUp();
     }
 
     private void WireUp()
     {
         // hover 偵測：只改 Back 色當回饋，Shadow 固定（避免 AntdUI Shadow 漸變動畫造成「陰影飄離」視覺）
+        // Tooltip 用 delay timer 防抖：enter 啟動 timer、leave 取消 + 關 tooltip
         Action<bool> setHover = show =>
         {
             if (show)
@@ -84,6 +98,12 @@ public partial class ComicCardControl : UserControl
                 hoverToolbar.Visible = true;
                 hoverToolbar.BringToFront();   // 確保 z-order 在最上、不被 pic 蓋掉
                 rootPanel.Back = ComicOrganize.App.Core.ThemeColors.Secondary;
+
+                // 還沒顯示才需要重啟 timer（已顯示就不必，避免在子控件間移動時重啟動畫）
+                if (!_tooltipShown && !_tooltipDelayTimer.Enabled)
+                {
+                    _tooltipDelayTimer.Start();
+                }
             }
             else
             {
@@ -92,6 +112,8 @@ public partial class ComicCardControl : UserControl
                 {
                     hoverToolbar.Visible = false;
                     rootPanel.Back = Color.White;  // 離開恢復白底（不是 Surface 淺紫，那會跟父 flowLayout 同色看不出邊界）
+                    _tooltipDelayTimer.Stop();      // 取消還沒 fire 的 delay
+                    _tooltipShown = false;          // 真正離開卡片才 reset，下次 hover 才重新計時
                 }
             }
         };
@@ -142,16 +164,11 @@ public partial class ComicCardControl : UserControl
         // typeStrip 左側小 icon 區分檔案/目錄
         typeIconLbl.Text = isFolderNode ? "📁" : "📄";
 
-        // Tooltip 兜底：lbl wrap 截斷時 hover 仍看得到完整檔名
-        _tooltip.SetToolTip(rootPanel, item.Name);
-        _tooltip.SetToolTip(lbl, item.Name);
-        _tooltip.SetToolTip(typeStrip, item.Name);
+        // Tooltip：存檔名給 delay timer fire 時用（手動 Tooltip.open）
+        _itemName = item.Name;
 
-        if (isFolderNode)
-        {
-            pic.Image = null;
-            pic.BackColor = Color.FromArgb(230, 244, 255);
-        }
+        // 目錄/檔案類型已透過 typeStrip 的 📁/📄 區分，pic.BackColor 維持 Transparent
+        // 沒封面的目錄卡片 pic 區會顯示 rootPanel.Back（白底/hover 紫底），typeStrip 的 📁 提示這是目錄
     }
 
     public void SetCover(Image? cover)
@@ -161,7 +178,8 @@ public partial class ComicCardControl : UserControl
 
     public void ApplyViewMode(GalleryControl.GalleryViewMode mode)
     {
-        bool isList = mode == GalleryControl.GalleryViewMode.List;
+        // List 模式不會建 ComicCardControl（GalleryControl.LoadCurrentViewMode 走 LoadGalleryListAsync 用 AntdUI.Table），
+        // 所以 ApplyViewMode 只需處理 Small/Medium/Large 三個卡片模式
         Size cardSize;
         int picHeight;
         float fontSize;
@@ -179,11 +197,6 @@ public partial class ComicCardControl : UserControl
                 picHeight = 400;
                 fontSize = 12F;
                 break;
-            case GalleryControl.GalleryViewMode.List:
-                cardSize = new Size((this.Parent?.ClientSize.Width ?? 600) - 40, 60);
-                picHeight = 60;
-                fontSize = 12F;
-                break;
             case GalleryControl.GalleryViewMode.Medium:
             default:
                 cardSize = new Size(240, 370);
@@ -193,38 +206,20 @@ public partial class ComicCardControl : UserControl
         }
 
         this.Size = cardSize;
-        this.Margin = isList ? new Padding(5, 2, 5, 2) : new Padding(12);
+        this.Margin = new Padding(12);
 
-        // List mode 高度只 60px 放不下 24px typeStrip → 隱藏
-        typeStrip.Visible = !isList;
-
-        if (isList)
-        {
-            pic.Dock = DockStyle.Left;
-            pic.Width = 50;
-            pic.Height = 60;
-            lbl.Dock = DockStyle.Fill;
-            lbl.TextAlign = ContentAlignment.MiddleLeft;
-            lbl.Padding = new Padding(10, 0, 0, 0);
-            hoverToolbar.Visible = false;
-        }
-        else
-        {
-            pic.Dock = DockStyle.Top;
-            pic.Height = picHeight;
-            lbl.Dock = DockStyle.Fill;       // 占 pic 下方所有剩餘空間（取代 Bottom + 固定 49px）
-            lbl.TextAlign = ContentAlignment.TopCenter;
-            lbl.Padding = new Padding(4, 4, 4, 4);
-        }
+        pic.Dock = DockStyle.Top;
+        pic.Height = picHeight;
+        lbl.Dock = DockStyle.Fill;
+        lbl.TextAlign = ContentAlignment.TopCenter;
+        lbl.Padding = new Padding(4, 4, 4, 4);
 
         lbl.AutoSize = false;                // 確保 Dock=Fill 控制 size，不被 AutoSize 縮回單行
         lbl.AutoEllipsis = false;            // 不顯示截斷 ...
         lbl.Font = new Font("Microsoft JhengHei UI", fontSize);
-        // rootPanel 改 Forms.Panel 後沒有 Radius / Shadow 屬性 — 純直角矩形
 
         // hoverToolbar 浮在 pic 下緣中央（pic 內座標、直角矩形）
         // Size 已在 ctor 透過 hoverToolbar.Scale 套 DPI，這裡只算 layout
-        if (!isList)
         {
             // 兩顆 Dock=Left 的 button 在 toolbar 內水平置中：依當前寬度動態算 Padding
             int totalBtnWidth = btnRead.Width + btnExplorer.Width;

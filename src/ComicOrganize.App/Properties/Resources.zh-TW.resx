@@ -97,4 +97,7 @@
   <data name="SourceName" xml:space="preserve"><value>來源名稱</value></data>
   <data name="Action" xml:space="preserve"><value>操作</value></data>
   <data name="ArchiveFinished" xml:space="preserve"><value>歸檔處理完畢</value></data>
+  <data name="SettingsMenuGeneral" xml:space="preserve"><value>一般設定</value></data>
+  <data name="SettingsMenuLibrary" xml:space="preserve"><value>漫畫庫管理</value></data>
+  <data name="SettingsMaxScanDepth" xml:space="preserve"><value>搜尋層數限制 (封面遞迴)</value></data>
 </root>

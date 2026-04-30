@@ -14,6 +14,13 @@ public class AppConfig
     public List<string> ExcludedDirectories { get; set; } = new();
     public bool DebugMode { get; set; } = false;
 
+    /// <summary>
+    /// CoverManager 遞迴搜尋封面圖檔的最大層數。
+    /// 父資料夾沒有直接圖檔時，遞迴往子資料夾找第一張圖當封面。
+    /// 預設 3 — 對應 作家/作品/章節/圖檔 結構的「作家」層往下找 3 層即可命中圖檔。
+    /// </summary>
+    public int MaxScanDepth { get; set; } = 3;
+
     // UI 偏好設定
     public AppTheme Theme { get; set; } = AppTheme.System;
     public string Language { get; set; } = "zh-TW";

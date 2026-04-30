@@ -28,6 +28,7 @@ public partial class SettingsForm : Window, IThemedControl
     {
         windowBar.BackColor = Core.ThemeColors.Primary;
         content.BackColor = Core.ThemeColors.Surface;
+        leftMenu.BackColor = Core.ThemeColors.Background;
         footer.BackColor = Core.ThemeColors.Surface;
         this.BackColor = Core.ThemeColors.Background;
         btnBrowseSource.DefaultBack = Core.ThemeColors.Primary;
@@ -44,6 +45,7 @@ public partial class SettingsForm : Window, IThemedControl
         txtImageViewer.Text = Config.ImageViewerPath;
         txtImageViewerArgs.Text = Config.ImageViewerArgs;
         cbDebug.Checked = Config.DebugMode;
+        numMaxScanDepth.Value = Config.MaxScanDepth;
 
         // Theme selector - 簡化 Items 避免轉型錯誤
         selectTheme.Items.Clear();
@@ -66,6 +68,10 @@ public partial class SettingsForm : Window, IThemedControl
         btnBrowseViewer.Click += (s, e) => BrowseFile(txtImageViewer, "執行檔 (*.exe)|*.exe|所有檔案 (*.*)|*.*");
         btnCancel.Click += (s, e) => { DialogResult = DialogResult.Cancel; Close(); };
 
+        // 左側選單切換 sub-panel
+        btnMenuGeneral.Click += (s, e) => ShowSection(SettingsSection.General);
+        btnMenuLibrary.Click += (s, e) => ShowSection(SettingsSection.Library);
+
         selectTheme.SelectedValueChanged += (s, e) =>
         {
             if (selectTheme.SelectedIndex >= 0)
@@ -84,6 +90,18 @@ public partial class SettingsForm : Window, IThemedControl
         };
     }
 
+    private enum SettingsSection { General, Library }
+
+    private void ShowSection(SettingsSection section)
+    {
+        bool isGeneral = section == SettingsSection.General;
+        generalPanel.Visible = isGeneral;
+        libraryPanel.Visible = !isGeneral;
+        // 選中的按鈕用 Primary 樣式，未選中用 Default
+        btnMenuGeneral.Type = isGeneral ? AntdUI.TTypeMini.Primary : AntdUI.TTypeMini.Default;
+        btnMenuLibrary.Type = isGeneral ? AntdUI.TTypeMini.Default : AntdUI.TTypeMini.Primary;
+    }
+
     public void ApplyLocalization()
     {
         windowBar.Text = LocalizationManager.GetString("SettingsTitle");
@@ -95,6 +113,13 @@ public partial class SettingsForm : Window, IThemedControl
         btnSave.Text = LocalizationManager.GetString("SettingsSave");
         btnCancel.Text = LocalizationManager.GetString("SettingsCancel");
         btnBrowseSource.Text = btnBrowseTarget.Text = btnBrowseViewer.Text = LocalizationManager.GetString("Browse") ?? "瀏覽";
+
+        // 左側選單分類
+        btnMenuGeneral.Text = LocalizationManager.GetString("SettingsMenuGeneral") ?? "一般設定";
+        btnMenuLibrary.Text = LocalizationManager.GetString("SettingsMenuLibrary") ?? "漫畫庫管理";
+
+        // 漫畫庫管理 - 搜尋層數
+        labelMaxScanDepth.Text = LocalizationManager.GetString("SettingsMaxScanDepth") ?? "搜尋層數限制 (封面遞迴)";
     }
 
     protected override void OnMouseDown(MouseEventArgs e)
@@ -130,6 +155,7 @@ public partial class SettingsForm : Window, IThemedControl
         Config.ImageViewerPath = txtImageViewer.Text;
         Config.ImageViewerArgs = string.IsNullOrWhiteSpace(txtImageViewerArgs.Text) ? "\"{path}\"" : txtImageViewerArgs.Text;
         Config.DebugMode = cbDebug.Checked;
+        Config.MaxScanDepth = (int)numMaxScanDepth.Value;
 
         // 修正轉型問題：使用 Index 而非直接轉型對象
         if (selectTheme.SelectedIndex >= 0)

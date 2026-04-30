@@ -402,23 +402,23 @@ public partial class GalleryControl : UserControl, IThemedControl
         tableList.Visible = isList;
 
         // 縮圖 hover → 滑鼠附近 floating preview popup
-        // 用 AntdUI.Table.HitTest 取 cell（DPI/scroll 全包，比自算 row/col 邊界可靠）
-        // column 順序：Action(0) | Thumbnail(1) | Name(2) | Size(3) | CreatedAt(4)
-        const int ThumbnailColIdx = 1;
+        // 用 AntdUI.Table.HitTest 取 cell；
+        //  - 資料：cell.Row.RECORD 直接讀綁定物件，避開 i_row 索引偏移
+        //  - 欄位判斷：cell.COLUMN.Key 比對欄位 key，避開 i_cel 索引偏移
+        //    （HitTest 的 i_row/i_cel 對 header/scroll/hidden row 的計法跟 BindingList 索引可能不一致）
+        // 只在 Thumbnail 欄觸發 hover preview，避免整列都跳大圖太擾人
         string? currentPreviewPath = null;
         tableList.MouseMove += (s, e) =>
         {
-            var cell = tableList.HitTest(e.X, e.Y, out int rowIdx, out int colIdx);
-            if (cell == null || colIdx != ThumbnailColIdx
-                || tableList.DataSource is not System.ComponentModel.BindingList<GalleryListItem> list
-                || rowIdx < 0 || rowIdx >= list.Count
-                || string.IsNullOrEmpty(list[rowIdx].FullPath))
+            var cell = tableList.HitTest(e.X, e.Y, out _, out _);
+            var item = cell?.Row?.RECORD as GalleryListItem;
+            bool onThumbnailCol = cell?.COLUMN?.Key == "Thumbnail";
+            if (!onThumbnailCol || item == null || string.IsNullOrEmpty(item.FullPath))
             {
                 HidePreviewPopup();
                 currentPreviewPath = null;
                 return;
             }
-            var item = list[rowIdx];
             UpdatePreviewPopupPosition();
             if (currentPreviewPath == item.FullPath) return;
             currentPreviewPath = item.FullPath;
@@ -450,11 +450,10 @@ public partial class GalleryControl : UserControl, IThemedControl
         tableList.MouseClick += (s, e) =>
         {
             if (e.Button != MouseButtons.Right) return;
-            var cell = tableList.HitTest(e.X, e.Y, out int rowIdx, out int _);
-            if (cell == null || tableList.DataSource is not System.ComponentModel.BindingList<GalleryListItem> list
-                || rowIdx < 0 || rowIdx >= list.Count) return;
-            var item = list[rowIdx];
-            if (string.IsNullOrEmpty(item.FullPath)) return;
+            var cell = tableList.HitTest(e.X, e.Y, out _, out _);
+            // 同 hover 邏輯：直接從 cell.Row.RECORD 取資料，避開 i_row 索引偏移
+            var item = cell?.Row?.RECORD as GalleryListItem;
+            if (item == null || string.IsNullOrEmpty(item.FullPath)) return;
 
             var items = new List<AntdUI.IContextMenuStripItem>
             {
@@ -497,12 +496,13 @@ public partial class GalleryControl : UserControl, IThemedControl
             AutoSizeColumnsMode = AntdUI.ColumnsMode.Fill,
             Font = new Font("Microsoft JhengHei UI", 10F),
             BackColor = Core.ThemeColors.Surface,
+            GapCell = 2,    // 單元格內間距：預設約 8-12 太大，縮圖欄留白多；改 2px 讓縮圖貼齊
         };
 
         table.Columns = new AntdUI.ColumnCollection
         {
             new AntdUI.Column("Action", "", AntdUI.ColumnAlign.Center) { Width = "44" },
-            new AntdUI.Column("Thumbnail", "縮圖", AntdUI.ColumnAlign.Center) { Width = "80" },
+            new AntdUI.Column("Thumbnail", "縮圖", AntdUI.ColumnAlign.Center) { Width = "72" },
             new AntdUI.Column("Name", "名稱") { SortOrder = true },
             new AntdUI.Column("Size", "大小", AntdUI.ColumnAlign.Right) { Width = "100", SortOrder = true },
             new AntdUI.Column("CreatedAt", "建立時間", AntdUI.ColumnAlign.Center) { Width = "160", SortOrder = true },
@@ -618,35 +618,38 @@ public partial class GalleryControl : UserControl, IThemedControl
 
     private Task LoadGalleryListAsync(AntdUI.Table table, string path)
     {
-        AntdUI.Spin.open(table, async config =>
+        // 兩階段載入：
+        //  Phase 1（Spin 蓋住表格時間短）：掃目錄 + 建文字列表 + 第一次 set DataSource
+        //  Phase 2（Spin 已關，背景）：縮圖 Task.Run 跑完 Task.WhenAll → 重 set DataSource 觸發重繪
+        // 進目錄使用者很快看到「文字列表 + 空縮圖欄」，縮圖過幾秒陸續補上
+        // Spin 必須套在 UserControl (this) — 套在 AntdUI.Table 或它的父 Forms.Panel 上 overlay 不會顯示
+        AntdUI.Spin.open(this, async config =>
         {
-            // IO 背景跑（GetFileSystemInfos + GetDirectories）
+            // ===== Phase 1: 檔案掃描 + 列表 binding（被 Spin 遮蔽）=====
             var fsInfos = await Task.Run(() =>
                 new DirectoryInfo(path).GetFileSystemInfos()
                     .Where(i => (i.Attributes & FileAttributes.Hidden) == 0)
                     .OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
                     .ToList());
 
-            // 預先在背景 thread 計算 isPureFolderNode（避免後續 UI thread 內逐一 GetDirectories 阻塞）
             var prepared = await Task.Run(() => fsInfos.Select(fs =>
             {
                 bool isDir = fs is DirectoryInfo;
-                bool isPureFolderNode = isDir && ((DirectoryInfo)fs).GetDirectories().Length > 0;
                 long size = isDir ? 0 : ((FileInfo)fs).Length;
-                return (fs, isDir, isPureFolderNode, size);
+                return (fs, isDir, size);
             }).ToList());
 
             var list = new System.ComponentModel.BindingList<GalleryListItem>();
             var thumbTasks = new List<Task>();
 
-            foreach (var (fs, isDir, isPureFolderNode, size) in prepared)
+            foreach (var (fs, isDir, size) in prepared)
             {
                 var item = new GalleryListItem
                 {
                     Name = fs.Name,
                     Size = isDir ? "" : FormatSize(size),
                     CreatedAt = fs.CreationTime.ToString("yyyy-MM-dd HH:mm"),
-                    IsFolder = isPureFolderNode,
+                    IsFolder = isDir,
                     FullPath = fs.FullName,
                     Action = isDir
                         ? new AntdUI.CellLink[]
@@ -661,31 +664,44 @@ public partial class GalleryControl : UserControl, IThemedControl
                 };
                 list.Add(item);
 
-                if (!isPureFolderNode)
+                // 縮圖任務 fire-and-forget — 不在 Spin 內 await，讓 Spin 早點關
+                var path2 = fs.FullName;
+                thumbTasks.Add(Task.Run(async () =>
                 {
-                    var path2 = fs.FullName;
-                    thumbTasks.Add(Task.Run(async () =>
+                    var img = await _coverManager.GetCoverAsync(path2, 120);
+                    // CellImage(img, int) 第二個參數是 Radius 不是 Size！要靠 Size 屬性設邊長。
+                    // 60×80 (3:4) 貼合漫畫封面比例；ImageFit.Cover = 等比縮放填滿並切多餘部分（少量上下裁）
+                    if (img != null) item.Thumbnail = new AntdUI.CellImage(img)
                     {
-                        var img = await _coverManager.GetCoverAsync(path2, 120);
-                        // CellImage 邊長 = RowHeight(80) × 90% = 72
-                        if (img != null) item.Thumbnail = new AntdUI.CellImage(img, 72) { Radius = 4 };
-                    }));
-                }
+                        Size = new Size(60, 80),
+                        Radius = 4,
+                        ImageFit = AntdUI.TFit.Cover,
+                    };
+                }));
             }
 
-            // 先 set 列表（無縮圖），讓使用者看到資料
+            // 第一次 set：文字列表立即可見（縮圖欄空白）
             this.Invoke(() => { table.DataSource = list; });
 
+            // ===== Phase 2: 縮圖背景載入（Spin 已關閉、列表可見） =====
+            // 用 fire-and-forget 啟動背景任務 — Spin callback 在這裡 return → 自動關 Spin
             if (thumbTasks.Count == 0) return;
-
-            // AntdUI Table 對 ListChanged/PropertyChanged 不 hook，唯一可靠重繪辦法是
-            // 重 set DataSource。等所有縮圖抓完一次重 set，cell 才會顯示 CellImage。
-            await Task.WhenAll(thumbTasks);
-            if (this.IsDisposed) return;
-            this.Invoke(() =>
+            _ = Task.Run(async () =>
             {
-                table.DataSource = null;
-                table.DataSource = list;
+                await Task.WhenAll(thumbTasks);
+                if (this.IsDisposed) return;
+                try
+                {
+                    this.Invoke(() =>
+                    {
+                        // AntdUI Table 對 ListChanged/PropertyChanged 不 hook，
+                        // 唯一可靠重繪辦法是 reset DataSource
+                        if (table.IsDisposed) return;
+                        table.DataSource = null;
+                        table.DataSource = list;
+                    });
+                }
+                catch { /* form/table 已 dispose 等競態忽略 */ }
             });
         });
 
@@ -726,8 +742,7 @@ public partial class GalleryControl : UserControl, IThemedControl
             {
                 foreach (var item in items)
                 {
-                    bool isFolderNode = item is DirectoryInfo subDir
-                                         && subDir.GetDirectories().Length > 0;
+                    bool isFolderNode = item is DirectoryInfo;
 
                     var card = new ComicCardControl();
                     card.SetData(item, isFolderNode);
@@ -739,18 +754,16 @@ public partial class GalleryControl : UserControl, IThemedControl
                         System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{p}\"");
                     container.Controls.Add(card);
 
-                    if (!isFolderNode)
+                    // 目錄與檔案都試著載封面：CoverManager 對目錄會遞迴往下找首張圖檔（受 MaxScanDepth 限制）
+                    int thumbWidth = isListMode ? 80 : card.Width;
+                    _ = Task.Run(async () =>
                     {
-                        int thumbWidth = isListMode ? 80 : card.Width;
-                        _ = Task.Run(async () =>
+                        var cover = await _coverManager.GetCoverAsync(item.FullName, thumbWidth);
+                        if (cover != null)
                         {
-                            var cover = await _coverManager.GetCoverAsync(item.FullName, thumbWidth);
-                            if (cover != null)
-                            {
-                                this.Invoke(() => card.SetCover(cover));
-                            }
-                        });
-                    }
+                            this.Invoke(() => card.SetCover(cover));
+                        }
+                    });
                 }
             });
         });

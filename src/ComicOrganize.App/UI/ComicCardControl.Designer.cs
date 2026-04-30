@@ -61,7 +61,7 @@ partial class ComicCardControl
         // 
         // pic
         // 
-        pic.BackColor = Color.FromArgb(245, 245, 245);
+        pic.BackColor = Color.Transparent;
         pic.Cursor = Cursors.Hand;
         pic.Dock = DockStyle.Top;
         pic.Location = new Point(5, 5);
@@ -73,7 +73,7 @@ partial class ComicCardControl
         // 
         // hoverToolbar
         // 
-        hoverToolbar.Back = Core.ThemeColors.HoverToolBarBackground;
+        hoverToolbar.Back = Color.FromArgb(140, 127, 124, 128);
         hoverToolbar.BackColor = Color.Transparent;
         hoverToolbar.Controls.Add(btnRead);
         hoverToolbar.Controls.Add(btnExplorer);

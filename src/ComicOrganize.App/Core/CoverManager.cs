@@ -51,17 +51,59 @@ public class CoverManager
 
     private Image? GetFolderCover(string folderPath, int maxWidth)
     {
-        var files = Directory.GetFiles(folderPath);
-        var coverFile = files.FirstOrDefault(f => 
-            Path.GetFileNameWithoutExtension(f).Equals("cover", StringComparison.OrdinalIgnoreCase) &&
-            ImageExtensions.Contains(Path.GetExtension(f).ToLower()));
+        return GetFolderCoverRecursive(folderPath, maxWidth, _config.MaxScanDepth);
+    }
 
-        if (coverFile != null) return LoadAndResizeImage(coverFile, maxWidth);
+    /// <summary>
+    /// 遞迴搜尋封面：當前目錄 cover.* → 第一張圖檔 → 第一個 zip/cbz → 字典序首個子目錄遞迴。
+    /// remainingDepth 控制最大遞迴層數，避免無限/過深掃描。
+    /// </summary>
+    private Image? GetFolderCoverRecursive(string folderPath, int maxWidth, int remainingDepth)
+    {
+        if (remainingDepth <= 0) return null;
 
-        var firstImage = files.OrderBy(f => f).FirstOrDefault(f => 
-            ImageExtensions.Contains(Path.GetExtension(f).ToLower()));
+        try
+        {
+            var files = Directory.GetFiles(folderPath);
 
-        if (firstImage != null) return LoadAndResizeImage(firstImage, maxWidth);
+            // 1. cover.* 命名圖檔
+            var coverFile = files.FirstOrDefault(f =>
+                Path.GetFileNameWithoutExtension(f).Equals("cover", StringComparison.OrdinalIgnoreCase) &&
+                ImageExtensions.Contains(Path.GetExtension(f).ToLower()));
+            if (coverFile != null) return LoadAndResizeImage(coverFile, maxWidth);
+
+            // 2. 字典序第一張圖檔
+            var firstImage = files.OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault(f => ImageExtensions.Contains(Path.GetExtension(f).ToLower()));
+            if (firstImage != null) return LoadAndResizeImage(firstImage, maxWidth);
+
+            // 3. 字典序第一個 zip/cbz
+            var firstArchive = files.OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault(f =>
+                {
+                    string ext = Path.GetExtension(f).ToLower();
+                    return ext == ".zip" || ext == ".cbz";
+                });
+            if (firstArchive != null)
+            {
+                var img = GetZipCover(firstArchive, maxWidth);
+                if (img != null) return img;
+            }
+
+            // 4. 沒任何可用素材 → 遞迴字典序第一個有東西的子目錄
+            var subDirs = Directory.GetDirectories(folderPath)
+                .OrderBy(d => d, StringComparer.OrdinalIgnoreCase);
+            foreach (var subDir in subDirs)
+            {
+                var img = GetFolderCoverRecursive(subDir, maxWidth, remainingDepth - 1);
+                if (img != null) return img;
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"遞迴封面搜尋失敗 ({folderPath}): {ex.Message}");
+        }
+
         return null;
     }
 
