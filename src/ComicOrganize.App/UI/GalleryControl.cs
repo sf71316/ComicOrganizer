@@ -621,27 +621,33 @@ public partial class GalleryControl : UserControl, IThemedControl
 
     private Task LoadGalleryListAsync(AntdUI.Table table, string path)
     {
-        // 兩階段載入：
-        //  Phase 1（Spin 蓋住表格時間短）：掃目錄 + 建文字列表 + 第一次 set DataSource
-        //  Phase 2（Spin 已關，背景）：縮圖 Task.Run 跑完 Task.WhenAll → 重 set DataSource 觸發重繪
-        // 進目錄使用者很快看到「文字列表 + 空縮圖欄」，縮圖過幾秒陸續補上
-        // Spin 必須套在 UserControl (this) — 套在 AntdUI.Table 或它的父 Forms.Panel 上 overlay 不會顯示
+        // [DEBUG] 計時：找出哪一段卡 (移除前先確認瓶頸)
+        var swTotal = System.Diagnostics.Stopwatch.StartNew();
+        System.Diagnostics.Debug.WriteLine($"[List] T+0ms : Spin.open called for {path}");
+
         AntdUI.Spin.open(this, async config =>
         {
-            // ===== Phase 1: 檔案掃描 + 列表 binding（被 Spin 遮蔽）=====
+            System.Diagnostics.Debug.WriteLine($"[List] T+{swTotal.ElapsedMilliseconds}ms : Spin callback start");
+
+            // ===== Phase 1: 檔案掃描 =====
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var fsInfos = await Task.Run(() =>
                 new DirectoryInfo(path).GetFileSystemInfos()
                     .Where(i => (i.Attributes & FileAttributes.Hidden) == 0)
                     .OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
                     .ToList());
+            System.Diagnostics.Debug.WriteLine($"[List] T+{swTotal.ElapsedMilliseconds}ms : scan done ({fsInfos.Count} items, took {sw.ElapsedMilliseconds}ms)");
 
+            sw.Restart();
             var prepared = await Task.Run(() => fsInfos.Select(fs =>
             {
                 bool isDir = fs is DirectoryInfo;
                 long size = isDir ? 0 : ((FileInfo)fs).Length;
                 return (fs, isDir, size);
             }).ToList());
+            System.Diagnostics.Debug.WriteLine($"[List] T+{swTotal.ElapsedMilliseconds}ms : prepared (took {sw.ElapsedMilliseconds}ms)");
 
+            sw.Restart();
             var list = new System.ComponentModel.BindingList<GalleryListItem>();
             var thumbTasks = new List<Task>();
 
@@ -683,25 +689,30 @@ public partial class GalleryControl : UserControl, IThemedControl
                 }));
             }
 
+            System.Diagnostics.Debug.WriteLine($"[List] T+{swTotal.ElapsedMilliseconds}ms : list build done (took {sw.ElapsedMilliseconds}ms)");
+
             // 第一次 set：文字列表立即可見（縮圖欄空白）
+            sw.Restart();
             this.Invoke(() => { table.DataSource = list; });
+            System.Diagnostics.Debug.WriteLine($"[List] T+{swTotal.ElapsedMilliseconds}ms : DataSource set (Invoke took {sw.ElapsedMilliseconds}ms) <- USER SHOULD SEE LIST NOW");
 
             // ===== Phase 2: 縮圖背景載入（Spin 已關閉、列表可見） =====
-            // 用 fire-and-forget 啟動背景任務 — Spin callback 在這裡 return → 自動關 Spin
             if (thumbTasks.Count == 0) return;
             _ = Task.Run(async () =>
             {
+                var swThumb = System.Diagnostics.Stopwatch.StartNew();
                 await Task.WhenAll(thumbTasks);
+                System.Diagnostics.Debug.WriteLine($"[List] thumbnails done in {swThumb.ElapsedMilliseconds}ms");
                 if (this.IsDisposed) return;
                 try
                 {
                     this.Invoke(() =>
                     {
-                        // AntdUI Table 對 ListChanged/PropertyChanged 不 hook，
-                        // 唯一可靠重繪辦法是 reset DataSource
                         if (table.IsDisposed) return;
+                        var swReset = System.Diagnostics.Stopwatch.StartNew();
                         table.DataSource = null;
                         table.DataSource = list;
+                        System.Diagnostics.Debug.WriteLine($"[List] thumbnail reset DataSource took {swReset.ElapsedMilliseconds}ms");
                     });
                 }
                 catch { /* form/table 已 dispose 等競態忽略 */ }
@@ -728,34 +739,60 @@ public partial class GalleryControl : UserControl, IThemedControl
     {
         container.Controls.Clear();
 
+        // [DEBUG] 計時：找出哪一段卡
+        var swTotal = System.Diagnostics.Stopwatch.StartNew();
+        System.Diagnostics.Debug.WriteLine($"[Cards] T+0ms : Spin.open called for {path}");
+
         AntdUI.Spin.open(container, async config =>
         {
-            // IO 背景跑，避免卡 UI
+            System.Diagnostics.Debug.WriteLine($"[Cards] T+{swTotal.ElapsedMilliseconds}ms : Spin callback start");
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var items = await Task.Run(() =>
                 new DirectoryInfo(path).GetFileSystemInfos()
                     .Where(i => (i.Attributes & FileAttributes.Hidden) == 0)
                     .OrderBy(i => i is DirectoryInfo ? 0 : 1)
                     .ThenBy(i => i.Name)
                     .ToList());
+            System.Diagnostics.Debug.WriteLine($"[Cards] T+{swTotal.ElapsedMilliseconds}ms : scan done ({items.Count} items, took {sw.ElapsedMilliseconds}ms)");
 
             bool isListMode = _currentViewMode == GalleryViewMode.List;
 
             // 切回 UI thread 建卡片（control 操作必須 UI thread）
+            sw.Restart();
             this.Invoke(() =>
             {
+                var swInvoke = System.Diagnostics.Stopwatch.StartNew();
+                // SuspendLayout 期間 Controls.Add 不觸發 FlowLayoutPanel reflow，最後 ResumeLayout 一次完成
+                container.SuspendLayout();
+                long ctorMs = 0, setDataMs = 0, applyViewModeMs = 0, eventsMs = 0, addMs = 0;
                 foreach (var item in items)
                 {
                     bool isFolderNode = item is DirectoryInfo;
 
+                    var swStep = System.Diagnostics.Stopwatch.StartNew();
                     var card = new ComicCardControl();
+                    ctorMs += swStep.ElapsedTicks;
+
+                    swStep.Restart();
                     card.SetData(item, isFolderNode);
+                    setDataMs += swStep.ElapsedTicks;
+
+                    swStep.Restart();
                     card.ApplyViewMode(_currentViewMode);
+                    applyViewModeMs += swStep.ElapsedTicks;
+
+                    swStep.Restart();
                     card.RequestOpenFolder += p => OpenFolderTab(p, false);
                     card.RequestOpenViewer += p => OpenWithExternalViewer(p);
                     card.RequestNewTab += (p, forceNew) => OpenFolderTab(p, forceNew);
                     card.RequestExplorer += p =>
                         System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{p}\"");
+                    eventsMs += swStep.ElapsedTicks;
+
+                    swStep.Restart();
                     container.Controls.Add(card);
+                    addMs += swStep.ElapsedTicks;
 
                     // 目錄與檔案都試著載封面：CoverManager 對目錄會遞迴往下找首張圖檔（受 MaxScanDepth 限制）
                     int thumbWidth = isListMode ? 80 : card.Width;
@@ -768,7 +805,15 @@ public partial class GalleryControl : UserControl, IThemedControl
                         }
                     });
                 }
+                container.ResumeLayout(true);   // 一次性 reflow + paint
+                double tickToMs = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+                System.Diagnostics.Debug.WriteLine(
+                    $"[Cards] per-card breakdown: ctor={ctorMs * tickToMs:F1}ms, " +
+                    $"SetData={setDataMs * tickToMs:F1}ms, ApplyViewMode={applyViewModeMs * tickToMs:F1}ms, " +
+                    $"events={eventsMs * tickToMs:F1}ms, Add={addMs * tickToMs:F1}ms");
+                System.Diagnostics.Debug.WriteLine($"[Cards] T+{swTotal.ElapsedMilliseconds}ms : cards added in Invoke (took {swInvoke.ElapsedMilliseconds}ms) <- USER SHOULD SEE CARDS NOW");
             });
+            System.Diagnostics.Debug.WriteLine($"[Cards] T+{swTotal.ElapsedMilliseconds}ms : Spin callback returning (Spin will close)");
         });
 
         return Task.CompletedTask;

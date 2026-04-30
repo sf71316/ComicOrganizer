@@ -19,62 +19,21 @@ public partial class ComicCardControl : UserControl
     private readonly System.Windows.Forms.Timer _tooltipDelayTimer = new() { Interval = 2000 };
     private bool _tooltipShown = false;
 
-    // typeStrip 從 sibling 改成 pic 上的半透明 overlay：pic 不被推下、圓角不被遮。
-    // 改 hover-only（跟 hoverToolbar 一起 toggle）：平常不繪製，省下 alpha-blend 5760px / pipeline cost。
-    // 平常檔案/目錄區分靠 pic 本身（檔案 = 封面、目錄 = 資料夾 SVG icon）；hover 才秀精確 emoji。
-    private readonly AntdUI.Panel typeStrip = new()
-    {
-        Dock = DockStyle.Top,
-        Height = 24,
-        BackColor = Color.Transparent,           // Forms 層不繪 — alpha 才能透出 pic 的圖
-        Back = Color.FromArgb(120, 0, 0, 0),     // 47% 黑半透明（封面圖在後面透出）
-        Radius = 8,
-        RadiusAlign = AntdUI.TAlignRound.Top,
-        Visible = false,                          // 跟 hoverToolbar 一樣 hover-only
-    };
-
-    private readonly System.Windows.Forms.Label typeIconLbl = new()
-    {
-        Dock = DockStyle.Left,
-        Width = 28,
-        Text = "📄",
-        Font = new Font("Segoe UI Emoji", 11F),
-        TextAlign = ContentAlignment.MiddleCenter,
-        BackColor = Color.Transparent,
-        ForeColor = Color.White,                // 半透明黑底配白字（emoji color font 仍照系統色，但設了不吃虧）
-    };
+    // hoverToolbar / typeStrip / btnRead / btnExplorer / typeIconLbl 全部 lazy 建立：
+    // 首次 hover 才 new + Add 到 pic.Controls，HWND 才實體化。
+    // 大量卡片捲動進場時，每張卡的 Controls.Add 從 ~6.5ms (9 HWNDs) 降到 ~3ms (4 HWNDs)
+    private AntdUI.Panel? hoverToolbar;
+    private AntdUI.Button? btnRead;
+    private AntdUI.Button? btnExplorer;
+    private AntdUI.Panel? typeStrip;
+    private System.Windows.Forms.Label? typeIconLbl;
+    private bool _hoverControlsCreated = false;
 
     public ComicCardControl()
     {
         InitializeComponent();
-        this.BackColor = Color.Transparent;
-
-        // pic 的 BackColor 改 Transparent — Designer 預設 (245,245,245) 淺灰會在
-        // hover 時（rootPanel.Back=Secondary 紫）讓 image 圓角外的矩形區出現灰色小區塊
-        pic.BackColor = Color.Transparent;
-
-        // hoverToolbar + typeStrip 都 reparent 到 pic 之下：
-        //  - hoverToolbar：alpha-blend 疊到封面圖上
-        //  - typeStrip：浮在封面圖頂，半透明 header
-        // （Designer 維持把 hoverToolbar 加在 rootPanel，方便視覺編輯時看見；typeStrip 純 inline）
-        typeStrip.Controls.Add(typeIconLbl);
-        if (hoverToolbar.Parent != pic)
-        {
-            hoverToolbar.Parent?.Controls.Remove(hoverToolbar);
-            pic.Controls.Add(hoverToolbar);
-        }
-        pic.Controls.Add(typeStrip);
-        typeStrip.BringToFront();           // Dock=Top 在 pic 內最上方
-        hoverToolbar.BringToFront();        // hoverToolbar 在 typeStrip 之上（hover 時兩者都顯示）
-
-        // pic 是 Image3D（非 ContainerControl），AutoScale chain 斷在這。
-        // 補一次 Scale → typeStrip / hoverToolbar 跟內部子控件 Size/Location/Font 都自動套 DPI。
-        if (this.DeviceDpi != 96)
-        {
-            float factor = this.DeviceDpi / 96f;
-            hoverToolbar.Scale(new SizeF(factor, factor));
-            typeStrip.Scale(new SizeF(factor, factor));
-        }
+        // BackColor = White / Padding(10) 已在 Designer 設定（取代以前 rootPanel）
+        // pic.BackColor = Transparent 在 Designer 設定 — 讓 hover 時 this.BackColor=Secondary 透出
 
         // tooltip delay timer：到時才開 tooltip，期間若 leave 已 Stop 取消
         _tooltipDelayTimer.Tick += (s, e) =>
@@ -82,7 +41,7 @@ public partial class ComicCardControl : UserControl
             _tooltipDelayTimer.Stop();
             if (!string.IsNullOrEmpty(_itemName) && !_tooltipShown)
             {
-                AntdUI.Tooltip.open(rootPanel, _itemName, AntdUI.TAlign.Bottom);
+                AntdUI.Tooltip.open(this, _itemName, AntdUI.TAlign.Bottom);
                 _tooltipShown = true;
             }
         };
@@ -90,43 +49,155 @@ public partial class ComicCardControl : UserControl
         WireUp();
     }
 
+    /// <summary>
+    /// 首次 hover 才建立 typeStrip + hoverToolbar + 內部 buttons。
+    /// 之前在 ctor 建會讓每張卡 Controls.Add 進 container 時實體化 9 個 HWND（含此 5 個）。
+    /// 改 lazy 後平常只有 4 個 HWND（this + rootPanel + pic + lbl），首次 hover 補建剩下 5 個。
+    /// </summary>
+    private void EnsureHoverControls()
+    {
+        if (_hoverControlsCreated) return;
+        _hoverControlsCreated = true;
+
+        typeStrip = new AntdUI.Panel
+        {
+            Dock = DockStyle.Top,
+            Height = 24,
+            BackColor = Color.Transparent,
+            Back = Color.FromArgb(120, 0, 0, 0),
+            Radius = 8,
+            RadiusAlign = AntdUI.TAlignRound.Top,
+            Visible = false,
+        };
+        typeIconLbl = new System.Windows.Forms.Label
+        {
+            Dock = DockStyle.Left,
+            Width = 28,
+            Text = IsFolderNode ? "📁" : "📄",
+            Font = new Font("Segoe UI Emoji", 11F),
+            TextAlign = ContentAlignment.MiddleCenter,
+            BackColor = Color.Transparent,
+            ForeColor = Color.White,
+        };
+        typeStrip.Controls.Add(typeIconLbl);
+
+        hoverToolbar = new AntdUI.Panel
+        {
+            Back = Color.FromArgb(140, 127, 124, 128),
+            BackColor = Color.Transparent,
+            Radius = 10,
+            Size = new Size(128, 41),
+            Visible = false,
+        };
+        btnRead = new AntdUI.Button
+        {
+            BackHover = Color.FromArgb(255, 255, 255),
+            Dock = DockStyle.Left,
+            ForeColor = Color.FromArgb(128, 54, 145),
+            Ghost = true,
+            IconRatio = 0.9F,
+            IconSvg = "BookOutlined",
+            Size = new Size(41, 41),
+        };
+        btnExplorer = new AntdUI.Button
+        {
+            BackHover = Color.FromArgb(255, 255, 255),
+            Dock = DockStyle.Left,
+            ForeColor = Color.FromArgb(128, 54, 145),
+            Ghost = true,
+            IconRatio = 0.9F,
+            IconSvg = "FolderOpenOutlined",
+            Size = new Size(41, 41),
+        };
+        hoverToolbar.Controls.Add(btnRead);
+        hoverToolbar.Controls.Add(btnExplorer);
+
+        pic.Controls.Add(hoverToolbar);
+        pic.Controls.Add(typeStrip);
+        typeStrip.BringToFront();
+        hoverToolbar.BringToFront();
+
+        // pic 是 PictureBox（非 ContainerControl），AutoScale chain 斷在這。補一次 Scale 套 DPI。
+        if (this.DeviceDpi != 96)
+        {
+            float factor = this.DeviceDpi / 96f;
+            hoverToolbar.Scale(new SizeF(factor, factor));
+            typeStrip.Scale(new SizeF(factor, factor));
+        }
+
+        // 套用 hoverToolbar 在 pic 內的 layout（依當前 pic 尺寸）
+        ApplyHoverToolbarLayout();
+
+        // 對 hover 控件本身 hook MouseEnter/Leave 維持 hover 狀態（mouse 在 toolbar 上不算 leave）
+        EventHandler enter = (s, e) => SetHoverState(true);
+        EventHandler leave = (s, e) => SetHoverState(false);
+        foreach (var c in new Control[] { hoverToolbar, btnRead, btnExplorer })
+        {
+            c.MouseEnter += enter;
+            c.MouseLeave += leave;
+        }
+
+        btnRead.Click += (s, e) =>
+        {
+            if (IsFolderNode) RequestOpenFolder?.Invoke(ItemPath);
+            else RequestOpenViewer?.Invoke(ItemPath);
+        };
+        btnExplorer.Click += (s, e) => RequestExplorer?.Invoke(ItemPath);
+    }
+
+    private void ApplyHoverToolbarLayout()
+    {
+        if (!_hoverControlsCreated || hoverToolbar == null || btnRead == null || btnExplorer == null) return;
+
+        int totalBtnWidth = btnRead.Width + btnExplorer.Width;
+        int sidePad = Math.Max(0, (hoverToolbar.Width - totalBtnWidth) / 2);
+        hoverToolbar.Padding = new Padding(sidePad, 0, sidePad, 0);
+
+        int bottomGap = LogicalToDeviceUnits(8);
+        hoverToolbar.Location = new Point(
+            (pic.Width - hoverToolbar.Width) / 2,
+            pic.Height - hoverToolbar.Height - bottomGap
+        );
+        hoverToolbar.Region = null;
+    }
+
+    private void SetHoverState(bool show)
+    {
+        if (show)
+        {
+            EnsureHoverControls();   // 首次 hover 補建 controls
+            typeStrip!.Visible = true;
+            hoverToolbar!.Visible = true;
+            typeStrip.BringToFront();
+            hoverToolbar.BringToFront();
+            this.BackColor = ComicOrganize.App.Core.ThemeColors.Secondary;
+
+            if (!_tooltipShown && !_tooltipDelayTimer.Enabled)
+            {
+                _tooltipDelayTimer.Start();
+            }
+        }
+        else
+        {
+            var pos = this.PointToClient(Control.MousePosition);
+            if (!this.ClientRectangle.Contains(pos))
+            {
+                if (typeStrip != null) typeStrip.Visible = false;
+                if (hoverToolbar != null) hoverToolbar.Visible = false;
+                this.BackColor = Color.White;
+                _tooltipDelayTimer.Stop();
+                _tooltipShown = false;
+            }
+        }
+    }
+
     private void WireUp()
     {
-        // hover 偵測：只改 Back 色當回饋，Shadow 固定（避免 AntdUI Shadow 漸變動畫造成「陰影飄離」視覺）
-        // Tooltip 用 delay timer 防抖：enter 啟動 timer、leave 取消 + 關 tooltip
-        Action<bool> setHover = show =>
-        {
-            if (show)
-            {
-                typeStrip.Visible = true;
-                hoverToolbar.Visible = true;
-                typeStrip.BringToFront();
-                hoverToolbar.BringToFront();
-                rootPanel.BackColor = ComicOrganize.App.Core.ThemeColors.Secondary;
-
-                // 還沒顯示才需要重啟 timer（已顯示就不必，避免在子控件間移動時重啟動畫）
-                if (!_tooltipShown && !_tooltipDelayTimer.Enabled)
-                {
-                    _tooltipDelayTimer.Start();
-                }
-            }
-            else
-            {
-                var pos = this.PointToClient(Control.MousePosition);
-                if (!this.ClientRectangle.Contains(pos))
-                {
-                    typeStrip.Visible = false;
-                    hoverToolbar.Visible = false;
-                    rootPanel.BackColor = Color.White;  // 離開恢復白底（不是 Surface 淺紫，那會跟父 flowLayout 同色看不出邊界）
-                    _tooltipDelayTimer.Stop();      // 取消還沒 fire 的 delay
-                    _tooltipShown = false;          // 真正離開卡片才 reset，下次 hover 才重新計時
-                }
-            }
-        };
-
-        EventHandler enter = (s, e) => setHover(true);
-        EventHandler leave = (s, e) => setHover(false);
-        foreach (var c in new Control[] { this, rootPanel, pic, lbl, hoverToolbar, btnRead, btnExplorer })
+        // 平常只在 4 個 control 上 hook hover：this / rootPanel / pic / lbl
+        // hoverToolbar / btnRead / btnExplorer 的 hover 事件在 EnsureHoverControls 內補綁
+        EventHandler enter = (s, e) => SetHoverState(true);
+        EventHandler leave = (s, e) => SetHoverState(false);
+        foreach (var c in new Control[] { this, pic, lbl })
         {
             c.MouseEnter += enter;
             c.MouseLeave += leave;
@@ -147,15 +218,7 @@ public partial class ComicCardControl : UserControl
         };
         pic.MouseClick += clickHandler;
         lbl.MouseClick += clickHandler;
-        rootPanel.MouseClick += clickHandler;
-
-        // 工具列按鈕
-        btnRead.Click += (s, e) =>
-        {
-            if (IsFolderNode) RequestOpenFolder?.Invoke(ItemPath);
-            else RequestOpenViewer?.Invoke(ItemPath);
-        };
-        btnExplorer.Click += (s, e) => RequestExplorer?.Invoke(ItemPath);
+        this.MouseClick += clickHandler;
 
         // PictureBox 圓角裁切（Resize 後重建）
         pic.Resize += (s, e) => UpdatePicCornerRegion();
@@ -167,14 +230,11 @@ public partial class ComicCardControl : UserControl
         IsFolderNode = isFolderNode;
         lbl.Text = item.Name;
 
-        // typeStrip 左側小 icon 區分檔案/目錄
-        typeIconLbl.Text = isFolderNode ? "📁" : "📄";
+        // typeIconLbl 還沒建（lazy）— EnsureHoverControls 建立時讀 IsFolderNode 設 emoji
+        if (typeIconLbl != null) typeIconLbl.Text = isFolderNode ? "📁" : "📄";
 
         // Tooltip：存檔名給 delay timer fire 時用（手動 Tooltip.open）
         _itemName = item.Name;
-
-        // 目錄/檔案類型已透過 typeStrip 的 📁/📄 區分，pic.BackColor 維持 Transparent
-        // 沒封面的目錄卡片 pic 區會顯示 rootPanel.Back（白底/hover 紫底），typeStrip 的 📁 提示這是目錄
     }
 
     public void SetCover(Image? cover)
@@ -193,22 +253,22 @@ public partial class ComicCardControl : UserControl
 
         switch (mode)
         {
-            // lbl 留 ~60px (2 行 12pt + padding) — 超過就截，hover Tooltip 顯示完整
+            // 寬度 +10 補 rootPanel.Padding 從 5→10 增加的 10px 水平 padding；字級 9pt
             case GalleryControl.GalleryViewMode.Small:
-                cardSize = new Size(160, 270);
+                cardSize = new Size(170, 270);
                 picHeight = 200;
-                fontSize = 12F;
+                fontSize = 9F;
                 break;
             case GalleryControl.GalleryViewMode.Large:
-                cardSize = new Size(320, 470);
+                cardSize = new Size(330, 470);
                 picHeight = 400;
-                fontSize = 12F;
+                fontSize = 9F;
                 break;
             case GalleryControl.GalleryViewMode.Medium:
             default:
-                cardSize = new Size(240, 370);
+                cardSize = new Size(250, 370);
                 picHeight = 300;
-                fontSize = 12F;
+                fontSize = 9F;
                 break;
         }
 
@@ -225,29 +285,16 @@ public partial class ComicCardControl : UserControl
         lbl.AutoEllipsis = false;            // 不顯示截斷 ...
         lbl.Font = new Font("Microsoft JhengHei UI", fontSize);
 
-        // hoverToolbar 浮在 pic 下緣中央（pic 內座標、直角矩形）
-        // Size 已在 ctor 透過 hoverToolbar.Scale 套 DPI，這裡只算 layout
-        {
-            // 兩顆 Dock=Left 的 button 在 toolbar 內水平置中：依當前寬度動態算 Padding
-            int totalBtnWidth = btnRead.Width + btnExplorer.Width;
-            int sidePad = Math.Max(0, (hoverToolbar.Width - totalBtnWidth) / 2);
-            hoverToolbar.Padding = new Padding(sidePad, 0, sidePad, 0);
-
-            // toolbar 整體在 pic 下緣居中
-            int bottomGap = LogicalToDeviceUnits(8);
-            hoverToolbar.Location = new Point(
-                (pic.Width - hoverToolbar.Width) / 2,
-                pic.Height - hoverToolbar.Height - bottomGap
-            );
-            hoverToolbar.Region = null;
-        }
+        // hoverToolbar layout 只在已建立時重算；lazy 模式下首次 hover 後 EnsureHoverControls 會呼叫一次
+        ApplyHoverToolbarLayout();
 
         UpdatePicCornerRegion();
     }
 
     private void UpdatePicCornerRegion()
     {
-        // 卡片改直角（避免 GDI Region 鋸齒），pic 不再裁圓角
+        // 拿掉 Region 圓角：每次 pic.Resize 建 GraphicsPath + HRGN 太貴（5-10ms × N 次 Resize 觸發）
+        // pic 變直角矩形；視覺上不再有圓角但效能優先
         pic.Region = null;
     }
 
