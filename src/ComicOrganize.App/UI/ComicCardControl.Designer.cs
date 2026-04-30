@@ -4,7 +4,9 @@ partial class ComicCardControl
 {
     private System.ComponentModel.IContainer components = null;
 
-    private AntdUI.Panel rootPanel;
+    // rootPanel 改 Forms.Panel：拿掉 AntdUI 自繪 pipeline (圓角 anti-alias) 大幅減少捲動時 paint 成本
+    // 視覺差異：卡片整體變直角，但 pic/typeStrip 圓角還在
+    private System.Windows.Forms.Panel rootPanel;
     private AntdUI.Image3D pic;
     private System.Windows.Forms.Label lbl;
     private AntdUI.Panel hoverToolbar;
@@ -22,7 +24,7 @@ partial class ComicCardControl
 
     private void InitializeComponent()
     {
-        rootPanel = new AntdUI.Panel();
+        rootPanel = new System.Windows.Forms.Panel();
         lbl = new Label();
         pic = new AntdUI.Image3D();
         hoverToolbar = new AntdUI.Panel();
@@ -31,10 +33,10 @@ partial class ComicCardControl
         rootPanel.SuspendLayout();
         hoverToolbar.SuspendLayout();
         SuspendLayout();
-        // 
-        // rootPanel
-        // 
-        rootPanel.BackColor = Color.Transparent;
+        //
+        // rootPanel (Forms.Panel — 沒 Radius / Back 屬性，靠 BackColor + 直角矩形)
+        //
+        rootPanel.BackColor = Color.White;
         rootPanel.Controls.Add(lbl);
         rootPanel.Controls.Add(pic);
         rootPanel.Controls.Add(hoverToolbar);
@@ -42,7 +44,6 @@ partial class ComicCardControl
         rootPanel.Location = new Point(0, 0);
         rootPanel.Name = "rootPanel";
         rootPanel.Padding = new Padding(5);
-        rootPanel.Radius = 8;
         rootPanel.Size = new Size(160, 259);
         rootPanel.TabIndex = 0;
         // 

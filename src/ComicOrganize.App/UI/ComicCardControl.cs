@@ -97,7 +97,7 @@ public partial class ComicCardControl : UserControl
             {
                 hoverToolbar.Visible = true;
                 hoverToolbar.BringToFront();   // 確保 z-order 在最上、不被 pic 蓋掉
-                rootPanel.Back = ComicOrganize.App.Core.ThemeColors.Secondary;
+                rootPanel.BackColor = ComicOrganize.App.Core.ThemeColors.Secondary;
 
                 // 還沒顯示才需要重啟 timer（已顯示就不必，避免在子控件間移動時重啟動畫）
                 if (!_tooltipShown && !_tooltipDelayTimer.Enabled)
@@ -111,7 +111,7 @@ public partial class ComicCardControl : UserControl
                 if (!this.ClientRectangle.Contains(pos))
                 {
                     hoverToolbar.Visible = false;
-                    rootPanel.Back = Color.White;  // 離開恢復白底（不是 Surface 淺紫，那會跟父 flowLayout 同色看不出邊界）
+                    rootPanel.BackColor = Color.White;  // 離開恢復白底（不是 Surface 淺紫，那會跟父 flowLayout 同色看不出邊界）
                     _tooltipDelayTimer.Stop();      // 取消還沒 fire 的 delay
                     _tooltipShown = false;          // 真正離開卡片才 reset，下次 hover 才重新計時
                 }
