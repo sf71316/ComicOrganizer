@@ -124,9 +124,35 @@ public partial class GalleryControl : UserControl, IThemedControl
     public void SetViewMode(GalleryViewMode mode)
     {
         if (_currentViewMode == mode) return;
+        var oldMode = _currentViewMode;
         _currentViewMode = mode;
         SyncTabVisibility(tabsContent.SelectedTab);
-        RefreshCurrentTab();
+
+        // 卡片模式之間切換 (Small/Medium/Large) 不重 load — 只 iterate 現有卡片改尺寸。
+        // 涉及 List 才需要 reload (FlowLayoutPanel ↔ Table 不同資料結構)。
+        bool oldIsCards = oldMode != GalleryViewMode.List;
+        bool newIsCards = mode != GalleryViewMode.List;
+        if (oldIsCards && newIsCards)
+        {
+            ResizeCardsOnCurrentTab();
+        }
+        else
+        {
+            RefreshCurrentTab();
+        }
+    }
+
+    private void ResizeCardsOnCurrentTab()
+    {
+        var page = tabsContent.SelectedTab;
+        var flow = FindTabFlowLayout(page);
+        if (flow == null) return;
+        flow.SuspendLayout();
+        foreach (var c in flow.Controls.OfType<ComicCardControl>())
+        {
+            c.ApplyViewMode(_currentViewMode);
+        }
+        flow.ResumeLayout(true);
     }
 
     private void SyncTabVisibility(AntdUI.TabPage? page)
@@ -771,77 +797,80 @@ public partial class GalleryControl : UserControl, IThemedControl
 
             bool isListMode = _currentViewMode == GalleryViewMode.List;
 
-            // 切回 UI thread 建卡片（control 操作必須 UI thread）
+            // 把 foreach 拆 chunks，批與批之間 await Task.Delay(1) 讓出 UI thread 給 Spin 動畫 paint。
+            // 整體時間幾乎相同 (Add HWND 時間不變) 但使用者看得到 Spin 在轉。
+            // 順便：使用者也能看到 cards 一批批冒出來，比一次全出來感覺更有 progress。
             sw.Restart();
-            // 封面載入計數（thread-safe Interlocked）— 全部 task 完成才印 summary
             int coverLoaded = 0, coverNull = 0, coverDone = 0;
             var swCover = System.Diagnostics.Stopwatch.StartNew();
             int totalCards = items.Count;
-            this.Invoke(() =>
+            const int ChunkSize = 8;
+            long ctorMs = 0, setDataMs = 0, applyViewModeMs = 0, eventsMs = 0, addMs = 0;
+            for (int i = 0; i < items.Count; i += ChunkSize)
             {
-                var swInvoke = System.Diagnostics.Stopwatch.StartNew();
-                // SuspendLayout 期間 Controls.Add 不觸發 FlowLayoutPanel reflow，最後 ResumeLayout 一次完成
-                container.SuspendLayout();
-                long ctorMs = 0, setDataMs = 0, applyViewModeMs = 0, eventsMs = 0, addMs = 0;
-                foreach (var item in items)
+                var chunk = items.Skip(i).Take(ChunkSize).ToList();
+                this.Invoke(() =>
                 {
-                    bool isFolderNode = item is DirectoryInfo;
-
-                    var swStep = System.Diagnostics.Stopwatch.StartNew();
-                    var card = new ComicCardControl();
-                    ctorMs += swStep.ElapsedTicks;
-
-                    swStep.Restart();
-                    card.SetData(item, isFolderNode);
-                    setDataMs += swStep.ElapsedTicks;
-
-                    swStep.Restart();
-                    card.ApplyViewMode(_currentViewMode);
-                    applyViewModeMs += swStep.ElapsedTicks;
-
-                    swStep.Restart();
-                    card.RequestOpenFolder += p => OpenFolderTab(p, false);
-                    card.RequestOpenViewer += p => OpenWithExternalViewer(p);
-                    card.RequestNewTab += (p, forceNew) => OpenFolderTab(p, forceNew);
-                    card.RequestExplorer += p => OpenInExplorer(p);
-                    eventsMs += swStep.ElapsedTicks;
-
-                    swStep.Restart();
-                    container.Controls.Add(card);
-                    addMs += swStep.ElapsedTicks;
-
-                    // 目錄與檔案都試著載封面：CoverManager 對目錄會遞迴往下找首張圖檔（受 MaxScanDepth 限制）
-                    int thumbWidth = isListMode ? 80 : card.Width;
-                    _ = Task.Run(async () =>
+                    container.SuspendLayout();
+                    foreach (var item in chunk)
                     {
-                        var cover = await _coverManager.GetCoverAsync(item.FullName, thumbWidth);
-                        if (cover != null)
+                        bool isFolderNode = item is DirectoryInfo;
+
+                        var swStep = System.Diagnostics.Stopwatch.StartNew();
+                        var card = new ComicCardControl();
+                        ctorMs += swStep.ElapsedTicks;
+
+                        swStep.Restart();
+                        card.SetData(item, isFolderNode);
+                        setDataMs += swStep.ElapsedTicks;
+
+                        swStep.Restart();
+                        card.ApplyViewMode(_currentViewMode);
+                        applyViewModeMs += swStep.ElapsedTicks;
+
+                        swStep.Restart();
+                        card.RequestOpenFolder += p => OpenFolderTab(p, false);
+                        card.RequestOpenViewer += p => OpenWithExternalViewer(p);
+                        card.RequestNewTab += (p, forceNew) => OpenFolderTab(p, forceNew);
+                        card.RequestExplorer += p => OpenInExplorer(p);
+                        eventsMs += swStep.ElapsedTicks;
+
+                        swStep.Restart();
+                        container.Controls.Add(card);
+                        addMs += swStep.ElapsedTicks;
+
+                        int thumbWidth = isListMode ? 80 : card.Width;
+                        _ = Task.Run(async () =>
                         {
-                            System.Threading.Interlocked.Increment(ref coverLoaded);
-                            this.Invoke(() => card.SetCover(cover));
-                        }
-                        else
-                        {
-                            System.Threading.Interlocked.Increment(ref coverNull);
-                        }
-                        // 全部 task 完成 → print 一次 summary
-                        if (System.Threading.Interlocked.Increment(ref coverDone) == totalCards)
-                        {
-                            System.Diagnostics.Debug.WriteLine(
-                                $"[Cards] T+{swTotal.ElapsedMilliseconds}ms : covers done — " +
-                                $"{coverLoaded} loaded / {coverNull} no-cover / {totalCards} total " +
-                                $"(took {swCover.ElapsedMilliseconds}ms after Spin callback start)");
-                        }
-                    });
-                }
-                container.ResumeLayout(true);   // 一次性 reflow + paint
-                double tickToMs = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
-                System.Diagnostics.Debug.WriteLine(
-                    $"[Cards] per-card breakdown: ctor={ctorMs * tickToMs:F1}ms, " +
-                    $"SetData={setDataMs * tickToMs:F1}ms, ApplyViewMode={applyViewModeMs * tickToMs:F1}ms, " +
-                    $"events={eventsMs * tickToMs:F1}ms, Add={addMs * tickToMs:F1}ms");
-                System.Diagnostics.Debug.WriteLine($"[Cards] T+{swTotal.ElapsedMilliseconds}ms : cards added in Invoke (took {swInvoke.ElapsedMilliseconds}ms) <- USER SHOULD SEE CARDS NOW");
-            });
+                            var cover = await _coverManager.GetCoverAsync(item.FullName, thumbWidth);
+                            if (cover != null)
+                            {
+                                System.Threading.Interlocked.Increment(ref coverLoaded);
+                                this.Invoke(() => card.SetCover(cover));
+                            }
+                            else
+                            {
+                                System.Threading.Interlocked.Increment(ref coverNull);
+                            }
+                            if (System.Threading.Interlocked.Increment(ref coverDone) == totalCards)
+                            {
+                                System.Diagnostics.Debug.WriteLine(
+                                    $"[Cards] T+{swTotal.ElapsedMilliseconds}ms : covers done — " +
+                                    $"{coverLoaded} loaded / {coverNull} no-cover / {totalCards} total " +
+                                    $"(took {swCover.ElapsedMilliseconds}ms after Spin callback start)");
+                            }
+                        });
+                    }
+                    container.ResumeLayout(true);   // 該 chunk 的 cards 立刻 layout + paint
+                });
+                await Task.Delay(1);   // 讓 UI thread 喘口氣 paint Spin animation frame
+            }
+            double tickToMs = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            System.Diagnostics.Debug.WriteLine(
+                $"[Cards] per-card breakdown: ctor={ctorMs * tickToMs:F1}ms, " +
+                $"SetData={setDataMs * tickToMs:F1}ms, ApplyViewMode={applyViewModeMs * tickToMs:F1}ms, " +
+                $"events={eventsMs * tickToMs:F1}ms, Add={addMs * tickToMs:F1}ms");
+            System.Diagnostics.Debug.WriteLine($"[Cards] T+{swTotal.ElapsedMilliseconds}ms : all cards added (chunked) <- USER SHOULD SEE CARDS NOW");
             System.Diagnostics.Debug.WriteLine($"[Cards] T+{swTotal.ElapsedMilliseconds}ms : Spin callback returning (Spin will close)");
         });
 
