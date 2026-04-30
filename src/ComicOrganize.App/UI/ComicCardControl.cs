@@ -19,8 +19,9 @@ public partial class ComicCardControl : UserControl
     private readonly System.Windows.Forms.Timer _tooltipDelayTimer = new() { Interval = 2000 };
     private bool _tooltipShown = false;
 
-    // typeStrip 從 sibling 改成 pic 上的半透明 overlay：pic 不被推下、圓角不被遮，
-    // 卡片整體一個 rounded box，typeStrip 是浮在封面圖頂的 24px 半透明 header
+    // typeStrip 從 sibling 改成 pic 上的半透明 overlay：pic 不被推下、圓角不被遮。
+    // 改 hover-only（跟 hoverToolbar 一起 toggle）：平常不繪製，省下 alpha-blend 5760px / pipeline cost。
+    // 平常檔案/目錄區分靠 pic 本身（檔案 = 封面、目錄 = 資料夾 SVG icon）；hover 才秀精確 emoji。
     private readonly AntdUI.Panel typeStrip = new()
     {
         Dock = DockStyle.Top,
@@ -28,8 +29,10 @@ public partial class ComicCardControl : UserControl
         BackColor = Color.Transparent,           // Forms 層不繪 — alpha 才能透出 pic 的圖
         Back = Color.FromArgb(120, 0, 0, 0),     // 47% 黑半透明（封面圖在後面透出）
         Radius = 8,
-        RadiusAlign = AntdUI.TAlignRound.Top
+        RadiusAlign = AntdUI.TAlignRound.Top,
+        Visible = false,                          // 跟 hoverToolbar 一樣 hover-only
     };
+
     private readonly System.Windows.Forms.Label typeIconLbl = new()
     {
         Dock = DockStyle.Left,
@@ -95,8 +98,10 @@ public partial class ComicCardControl : UserControl
         {
             if (show)
             {
+                typeStrip.Visible = true;
                 hoverToolbar.Visible = true;
-                hoverToolbar.BringToFront();   // 確保 z-order 在最上、不被 pic 蓋掉
+                typeStrip.BringToFront();
+                hoverToolbar.BringToFront();
                 rootPanel.BackColor = ComicOrganize.App.Core.ThemeColors.Secondary;
 
                 // 還沒顯示才需要重啟 timer（已顯示就不必，避免在子控件間移動時重啟動畫）
@@ -110,6 +115,7 @@ public partial class ComicCardControl : UserControl
                 var pos = this.PointToClient(Control.MousePosition);
                 if (!this.ClientRectangle.Contains(pos))
                 {
+                    typeStrip.Visible = false;
                     hoverToolbar.Visible = false;
                     rootPanel.BackColor = Color.White;  // 離開恢復白底（不是 Surface 淺紫，那會跟父 flowLayout 同色看不出邊界）
                     _tooltipDelayTimer.Stop();      // 取消還沒 fire 的 delay
@@ -175,6 +181,7 @@ public partial class ComicCardControl : UserControl
     {
         if (cover != null) pic.Image = cover;
     }
+
 
     public void ApplyViewMode(GalleryControl.GalleryViewMode mode)
     {
