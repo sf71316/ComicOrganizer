@@ -281,6 +281,7 @@ public partial class ComicCardControl : UserControl
 
         lbl.AutoSize = false;                // 確保 Dock=Fill 控制 size，不被 AutoSize 縮回單行
         lbl.AutoEllipsis = false;            // 不顯示截斷 ...
+        lbl.UseCompatibleTextRendering = true;  // GDI+ DrawString 對 CJK 無空格的情況可字元級斷行
         lbl.Font = new Font("Microsoft JhengHei UI", fontSize);
 
         // hoverToolbar layout 只在已建立時重算；lazy 模式下首次 hover 後 EnsureHoverControls 會呼叫一次
