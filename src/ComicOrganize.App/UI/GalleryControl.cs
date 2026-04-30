@@ -236,28 +236,40 @@ public partial class GalleryControl : UserControl, IThemedControl
 
     private void LoadSubDirectories(AntdUI.TreeItem node, string path)
     {
-        try
-        {
-            var dir = new DirectoryInfo(path);
-            var subDirs = dir.GetDirectories()
-                             .Where(d => (d.Attributes & FileAttributes.Hidden) == 0)
-                             .OrderBy(d => d.Name)
-                             .ToList();
+        // 已展開過就不重掃（外部變動靠右鍵「重新整理」手動觸發）
+        bool isPlaceholder = node.Sub.Count == 1
+                             && (node.Sub[0].Tag as string) == LazyPlaceholderTag;
+        if (!isPlaceholder) return;
 
-            // 仍是 placeholder 或實際數量不符 → 重建
-            bool isPlaceholder = node.Sub.Count == 1
-                                 && (node.Sub[0].Tag as string) == LazyPlaceholderTag;
-            if (isPlaceholder || node.Sub.Count != subDirs.Count)
+        // 改 async：UI thread 不阻塞，使用者雙擊 tree node 觸發 expand 不卡頓
+        Task.Run(() =>
+        {
+            List<DirectoryInfo> subDirs;
+            try
             {
-                node.Sub.Clear();
-                foreach (var subDir in subDirs)
-                {
-                    node.Sub.Add(CreateFolderNode(subDir));
-                }
-                UpdateTreeWidth();
+                subDirs = new DirectoryInfo(path).GetDirectories()
+                    .Where(d => (d.Attributes & FileAttributes.Hidden) == 0)
+                    .OrderBy(d => d.Name)
+                    .ToList();
             }
-        }
-        catch { }
+            catch { return; }
+
+            if (this.IsDisposed) return;
+            try
+            {
+                this.Invoke(() =>
+                {
+                    if (treeFolders.IsDisposed) return;
+                    node.Sub.Clear();
+                    foreach (var subDir in subDirs)
+                    {
+                        node.Sub.Add(CreateFolderNode(subDir));
+                    }
+                    UpdateTreeWidth();
+                });
+            }
+            catch { /* form/tree 已 dispose 等競態忽略 */ }
+        });
     }
 
     private void UpdateTreeWidth()
@@ -499,7 +511,8 @@ public partial class GalleryControl : UserControl, IThemedControl
             AutoSizeColumnsMode = AntdUI.ColumnsMode.Fill,
             Font = new Font("Microsoft JhengHei UI", 10F),
             BackColor = Core.ThemeColors.Surface,
-            GapCell = 2,    // 單元格內間距：預設約 8-12 太大，縮圖欄留白多；改 2px 讓縮圖貼齊
+            GapCell = 2,           // 單元格內間距：預設約 8-12 太大，縮圖欄留白多；改 2px 讓縮圖貼齊
+            VirtualMode = true,    // 大量 rows 時只繪 viewport 內，捲動流暢度大幅提升
         };
 
         table.Columns = new AntdUI.ColumnCollection
