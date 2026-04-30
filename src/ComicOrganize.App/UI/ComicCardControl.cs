@@ -117,7 +117,7 @@ public partial class ComicCardControl : UserControl
         typeStrip.BringToFront();
         hoverToolbar.BringToFront();
 
-        // pic 是 PictureBox（非 ContainerControl），AutoScale chain 斷在這。補一次 Scale 套 DPI。
+        // pic 是 Image3D（非 ContainerControl），AutoScale chain 斷在這。補一次 Scale 套 DPI。
         if (this.DeviceDpi != 96)
         {
             float factor = this.DeviceDpi / 96f;
@@ -137,11 +137,9 @@ public partial class ComicCardControl : UserControl
             c.MouseLeave += leave;
         }
 
-        btnRead.Click += (s, e) =>
-        {
-            if (IsFolderNode) RequestOpenFolder?.Invoke(ItemPath);
-            else RequestOpenViewer?.Invoke(ItemPath);
-        };
+        // 📖 「閱讀」按鈕一律呼叫 viewer（不管 folder 還是 file）：
+        // viewer 對目錄會挑首張圖開啟。「進入目錄」操作交給卡片左鍵點擊 / 縮圖點擊
+        btnRead.Click += (s, e) => RequestOpenViewer?.Invoke(ItemPath);
         btnExplorer.Click += (s, e) => RequestExplorer?.Invoke(ItemPath);
     }
 
@@ -220,8 +218,8 @@ public partial class ComicCardControl : UserControl
         lbl.MouseClick += clickHandler;
         this.MouseClick += clickHandler;
 
-        // PictureBox 圓角裁切（Resize 後重建）
-        pic.Resize += (s, e) => UpdatePicCornerRegion();
+        // Image3D 圓角是內建（pic.Radius=8），不需要 Resize 補 Region。保留 hook 給未來擴充
+        // pic.Resize += (s, e) => UpdatePicCornerRegion();
     }
 
     public void SetData(FileSystemInfo item, bool isFolderNode)
@@ -293,8 +291,7 @@ public partial class ComicCardControl : UserControl
 
     private void UpdatePicCornerRegion()
     {
-        // 拿掉 Region 圓角：每次 pic.Resize 建 GraphicsPath + HRGN 太貴（5-10ms × N 次 Resize 觸發）
-        // pic 變直角矩形；視覺上不再有圓角但效能優先
+        // Image3D 自帶 Radius 圓角，不需要 Region。保留方法簽名以便未來換 control 時 pic.Resize hook 仍可用
         pic.Region = null;
     }
 

@@ -483,7 +483,7 @@ public partial class GalleryControl : UserControl, IThemedControl
             {
                 if (mi.Text == "📖 閱讀") OpenWithExternalViewer(item.FullPath);
                 else if (mi.Text == "📂 檔案總管中開啟")
-                    System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{item.FullPath}\"");
+                    OpenInExplorer(item.FullPath);
                 else if (mi.Text == "🔗 另開頁籤") OpenFolderTab(item.FullPath, true);
             }, items.ToArray());
         };
@@ -803,8 +803,7 @@ public partial class GalleryControl : UserControl, IThemedControl
                     card.RequestOpenFolder += p => OpenFolderTab(p, false);
                     card.RequestOpenViewer += p => OpenWithExternalViewer(p);
                     card.RequestNewTab += (p, forceNew) => OpenFolderTab(p, forceNew);
-                    card.RequestExplorer += p =>
-                        System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{p}\"");
+                    card.RequestExplorer += p => OpenInExplorer(p);
                     eventsMs += swStep.ElapsedTicks;
 
                     swStep.Restart();
@@ -853,6 +852,27 @@ public partial class GalleryControl : UserControl, IThemedControl
     {
         ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif"
     };
+
+    /// <summary>
+    /// 「在檔案總管中開啟」共用邏輯：
+    /// 目錄 → explorer 直接開該目錄、看裡面內容
+    /// 檔案 → explorer /select 開父目錄 + highlight 該檔
+    /// </summary>
+    private static void OpenInExplorer(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                System.Diagnostics.Process.Start("explorer.exe", $"\"{path}\"");
+            }
+            else
+            {
+                System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{path}\"");
+            }
+        }
+        catch { /* 忽略無法開啟的狀況 */ }
+    }
 
     private void OpenWithExternalViewer(string filePath)
     {

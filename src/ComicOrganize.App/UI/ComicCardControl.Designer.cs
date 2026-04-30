@@ -8,7 +8,8 @@ partial class ComicCardControl
     // 每張卡少 1 個 HWND（4 個 → 3 個），Add 時間預期掉 25%。
     // hover 狀態色直接設 this.BackColor。
     // hoverToolbar / btnRead / btnExplorer / typeStrip / typeIconLbl 仍 lazy 建立 (首次 hover 才創 HWND)
-    private System.Windows.Forms.PictureBox pic;
+    // pic = AntdUI.Image3D 換回（試 PictureBox 後 Add 時間沒明顯改善，換回拿原生 anti-aliased 圓角）
+    private AntdUI.Image3D pic;
     private System.Windows.Forms.Label lbl;
 
     protected override void Dispose(bool disposing)
@@ -23,38 +24,43 @@ partial class ComicCardControl
     private void InitializeComponent()
     {
         lbl = new Label();
-        pic = new System.Windows.Forms.PictureBox();
+        pic = new AntdUI.Image3D();
         SuspendLayout();
-        //
-        // lbl (Dock=Fill 在 ApplyViewMode override 為 Fill；Designer 先給 Bottom)
-        //
+        // 
+        // lbl
+        // 
         lbl.BackColor = Color.Transparent;
         lbl.Cursor = Cursors.Hand;
         lbl.Dock = DockStyle.Fill;
         lbl.Font = new Font("Microsoft JhengHei UI", 12F);
+        lbl.Location = new Point(10, 210);
         lbl.Name = "lbl";
         lbl.Padding = new Padding(4);
+        lbl.Size = new Size(140, 39);
         lbl.TabIndex = 0;
         lbl.TextAlign = ContentAlignment.TopCenter;
-        //
-        // pic (Forms.PictureBox — Zoom 模式等比縮放置中；Radius 屬性不存在，圓角不裁)
-        //
+        // 
+        // pic
+        // 
         pic.BackColor = Color.Transparent;
         pic.Cursor = Cursors.Hand;
         pic.Dock = DockStyle.Top;
+        pic.Duration = 0;
+        pic.ImageFit = AntdUI.TFit.None;
+        pic.Location = new Point(10, 10);
         pic.Name = "pic";
-        pic.SizeMode = PictureBoxSizeMode.Zoom;
+        pic.Radius = 8;
         pic.Size = new Size(140, 200);
         pic.TabIndex = 1;
-        //
+        // 
         // ComicCardControl
-        //
+        // 
         BackColor = Color.White;
-        Padding = new Padding(10);
         Controls.Add(lbl);
         Controls.Add(pic);
         DoubleBuffered = true;
         Name = "ComicCardControl";
+        Padding = new Padding(10);
         Size = new Size(160, 259);
         ResumeLayout(false);
     }
