@@ -48,19 +48,7 @@ public partial class MainForm : Window, IThemedControl
         mnuFileSettings.Click += (s, e) => OpenSettings();
         mnuFileExit.Click += (s, e) => Close();
 
-        mnuViewModeSmall.Click += (s, e) => ApplyViewMode(GalleryControl.GalleryViewMode.Small);
-        mnuViewModeMedium.Click += (s, e) => ApplyViewMode(GalleryControl.GalleryViewMode.Medium);
-        mnuViewModeLarge.Click += (s, e) => ApplyViewMode(GalleryControl.GalleryViewMode.Large);
-        mnuViewModeList.Click += (s, e) => ApplyViewMode(GalleryControl.GalleryViewMode.List);
-    }
-
-    private void ApplyViewMode(GalleryControl.GalleryViewMode mode)
-    {
-        galleryControl.SetViewMode(mode);
-        mnuViewModeSmall.Checked = mode == GalleryControl.GalleryViewMode.Small;
-        mnuViewModeMedium.Checked = mode == GalleryControl.GalleryViewMode.Medium;
-        mnuViewModeLarge.Checked = mode == GalleryControl.GalleryViewMode.Large;
-        mnuViewModeList.Checked = mode == GalleryControl.GalleryViewMode.List;
+        // 檢視模式改放在每個 Tab header 內的 Segmented，per-tab 獨立。MainForm 不再 dispatch view mode
     }
 
     protected override void OnMouseDown(MouseEventArgs e)
@@ -73,14 +61,12 @@ public partial class MainForm : Window, IThemedControl
     {
         archiveControl.Visible = false;
         galleryControl.Visible = true;
-        mnuView.Enabled = true;
     }
 
     private void ShowArchive()
     {
         galleryControl.Visible = false;
         archiveControl.Visible = true;
-        mnuView.Enabled = false;
     }
 
     private void OpenSettings()
@@ -115,10 +101,6 @@ public partial class MainForm : Window, IThemedControl
         mnuFileSettings.Text = LocalizationManager.GetString("MenuSettings");
         mnuFileExit.Text = LocalizationManager.GetString("MenuExit");
 
-        mnuView.Text = LocalizationManager.GetString("MenuView");
-        mnuViewModeSmall.Text = LocalizationManager.GetString("ViewSmall");
-        mnuViewModeMedium.Text = LocalizationManager.GetString("ViewMedium");
-        mnuViewModeLarge.Text = LocalizationManager.GetString("ViewLarge");
-        mnuViewModeList.Text = LocalizationManager.GetString("ViewList");
+        // 檢視模式選單已移除，改放每個 Tab header 內的 Segmented
     }
 }

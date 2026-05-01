@@ -7,12 +7,31 @@ namespace ComicOrganize.App.UI;
 public partial class GalleryControl : UserControl, IThemedControl
 {
     public enum GalleryViewMode { Small, Medium, Large, List }
-    private GalleryViewMode _currentViewMode = GalleryViewMode.Medium;
 
     private AppConfig _config = null!;
     private CoverManager _coverManager = null!;
 
     private const string LazyPlaceholderTag = "__LAZY__";
+
+    /// <summary>
+    /// 每個 tab 自己的 view mode（per-tab 獨立）。
+    /// 新 tab 預設 Medium；tab close 時 entry 會清掉避免 dispose 後 reference 殘留。
+    /// </summary>
+    private readonly Dictionary<AntdUI.TabPage, GalleryViewMode> _tabViewModes = new();
+
+    /// <summary>
+    /// 共用 TooltipComponent — attach 到動態建的 button (例：每個 tab 的 btnRefresh)，
+    /// 跟主視窗生命週期一致；ArrowAlign 跟 Segmented TooltipConfig 一致 (Bottom)
+    /// </summary>
+    private readonly AntdUI.TooltipComponent _btnTooltip = new() { ArrowAlign = AntdUI.TAlign.Bottom };
+
+    // 純相框 SVG（移除 <text> — AntdUI SVG renderer 不渲染 text 元素，字母改用 SegmentedItem.Text 顯示）
+
+    private GalleryViewMode GetTabMode(AntdUI.TabPage? page)
+    {
+        if (page == null) return GalleryViewMode.Medium;
+        return _tabViewModes.TryGetValue(page, out var mode) ? mode : GalleryViewMode.Medium;
+    }
 
     public GalleryControl()
     {
@@ -66,9 +85,10 @@ public partial class GalleryControl : UserControl, IThemedControl
             }
         };
 
-        // 處理頁籤關閉事件
+        // 處理頁籤關閉事件 — 清掉 _tabViewModes 內對應的 entry 避免 dispose 後 reference 殘留
         tabsContent.ClosingPage += (s, e) =>
         {
+            if (e.Value != null) _tabViewModes.Remove(e.Value);
             return true;
         };
 
@@ -81,6 +101,24 @@ public partial class GalleryControl : UserControl, IThemedControl
     {
         // 更新 Tree 中的 "Loading..." 節點文字（如果存在）
         UpdateTreeLoadingText(treeFolders.Items);
+
+        // 更新所有已開 Tab 的 Segmented Tooltip + btnRefresh Tooltip（語言切換時同步）
+        string[] tipKeys = { "ViewSmall", "ViewMedium", "ViewLarge", "ViewList" };
+        foreach (AntdUI.TabPage page in tabsContent.Pages)
+        {
+            var seg = page.Controls.Find("tabViewModeSeg", true).OfType<AntdUI.Segmented>().FirstOrDefault();
+            if (seg != null)
+            {
+                for (int i = 0; i < seg.Items.Count && i < tipKeys.Length; i++)
+                {
+                    seg.Items[i].Tooltip = LocalizationManager.GetString(tipKeys[i]);
+                }
+            }
+            foreach (var btn in page.Controls.Find("tabBtnRefresh", true).OfType<AntdUI.Button>())
+            {
+                _btnTooltip.SetTip(btn, LocalizationManager.GetString("MenuRefresh"));
+            }
+        }
     }
 
     public void ApplyThemeColors()
@@ -88,6 +126,8 @@ public partial class GalleryControl : UserControl, IThemedControl
         splitter2.Panel1.BackColor = Core.ThemeColors.Border;
         splitter2.Panel2.BackColor = Core.ThemeColors.Border;
         treeFolders.BackColor = Core.ThemeColors.TreeViewSurface;
+        // tabsContent 自己的 BackColor 預設繼承父 (Panel2=Border)，沒開 tab 時整片露 Border 色 → 強制設 Surface
+        tabsContent.BackColor = Core.ThemeColors.Surface;
         tabsContent.ScrollBack = Core.ThemeColors.Text;
         tabsContent.FillActive = Core.ThemeColors.Border;
 
@@ -97,8 +137,8 @@ public partial class GalleryControl : UserControl, IThemedControl
             page.BackColor = Core.ThemeColors.Surface;
             foreach (var p in page.Controls.Find("tabContentHost", true).OfType<System.Windows.Forms.Panel>())
                 p.BackColor = Core.ThemeColors.Surface;
-            foreach (var p in page.Controls.Find("tabHeader", true).OfType<System.Windows.Forms.Panel>())
-                p.BackColor = Core.ThemeColors.Background;
+            foreach (var p in page.Controls.Find("tabHeader", true).OfType<AntdUI.Panel>())
+                p.Back = Core.ThemeColors.TabHeader;
             foreach (var f in page.Controls.Find("tabFlowLayout", true).OfType<FlowLayoutPanel>())
                 f.BackColor = Core.ThemeColors.Surface;
             foreach (var t in page.Controls.Find("tabTableList", true).OfType<AntdUI.Table>())
@@ -129,38 +169,39 @@ public partial class GalleryControl : UserControl, IThemedControl
         _ = LoadTreeAsync();
     }
 
-    public GalleryViewMode CurrentViewMode => _currentViewMode;
-
-    public void SetViewMode(GalleryViewMode mode)
+    /// <summary>
+    /// 切換指定 tab 的檢視模式（per-tab 獨立）。
+    /// 卡片模式之間切換只 iterate 現有卡片改尺寸；涉及 List 才需要 reload。
+    /// </summary>
+    public void SetTabViewMode(AntdUI.TabPage page, GalleryViewMode mode)
     {
-        if (_currentViewMode == mode) return;
-        var oldMode = _currentViewMode;
-        _currentViewMode = mode;
-        SyncTabVisibility(tabsContent.SelectedTab);
+        if (page == null) return;
+        var oldMode = GetTabMode(page);
+        if (oldMode == mode) return;
+        _tabViewModes[page] = mode;
+        SyncTabVisibility(page);
 
-        // 卡片模式之間切換 (Small/Medium/Large) 不重 load — 只 iterate 現有卡片改尺寸。
-        // 涉及 List 才需要 reload (FlowLayoutPanel ↔ Table 不同資料結構)。
         bool oldIsCards = oldMode != GalleryViewMode.List;
         bool newIsCards = mode != GalleryViewMode.List;
         if (oldIsCards && newIsCards)
         {
-            ResizeCardsOnCurrentTab();
+            ResizeCardsOnTab(page, mode);
         }
         else
         {
-            RefreshCurrentTab();
+            // 切到/離 List 必須重 load（FlowLayoutPanel ↔ Table 結構不同）
+            if (page.Tag is string path) LoadCurrentViewMode(page, path);
         }
     }
 
-    private void ResizeCardsOnCurrentTab()
+    private void ResizeCardsOnTab(AntdUI.TabPage page, GalleryViewMode mode)
     {
-        var page = tabsContent.SelectedTab;
         var flow = FindTabFlowLayout(page);
         if (flow == null) return;
         flow.SuspendLayout();
         foreach (var c in flow.Controls.OfType<ComicCardControl>())
         {
-            c.ApplyViewMode(_currentViewMode);
+            c.ApplyViewMode(mode);
         }
         flow.ResumeLayout(true);
     }
@@ -170,7 +211,7 @@ public partial class GalleryControl : UserControl, IThemedControl
         if (page == null) return;
         var flow = FindTabFlowLayout(page);
         var table = FindTabTable(page);
-        bool isList = _currentViewMode == GalleryViewMode.List;
+        bool isList = GetTabMode(page) == GalleryViewMode.List;
         if (flow != null) flow.Visible = !isList;
         if (table != null) table.Visible = isList;
     }
@@ -379,7 +420,7 @@ public partial class GalleryControl : UserControl, IThemedControl
             return;
         }
 
-        // 新 Tab 結構：headerPanel (Dock=Top, 麵包屑 + refresh) + FlowLayoutPanel (Dock=Fill, 卡片區)
+        // 新 Tab 結構：headerPanel (Dock=Top, 麵包屑 + refresh + view mode) + FlowLayoutPanel (Dock=Fill, 卡片區)
         var newPage = new AntdUI.TabPage
         {
             Text = folderName,
@@ -387,12 +428,17 @@ public partial class GalleryControl : UserControl, IThemedControl
             BackColor = Core.ThemeColors.Surface
         };
 
-        var headerPanel = new System.Windows.Forms.Panel
+        // 新 tab 預設 Medium。先存到 dictionary，後續控件用 GetTabMode(newPage) 取
+        _tabViewModes[newPage] = GalleryViewMode.Medium;
+
+        var headerPanel = new AntdUI.Panel
         {
             Name = "tabHeader",
             Dock = DockStyle.Top,
             Height = LogicalToDeviceUnits(33),  // DPI 150% 等高 → 50px，避免麵包屑文字裁切
-            BackColor = Core.ThemeColors.Background,
+            BackColor = Color.Transparent,
+            Back = Core.ThemeColors.TabHeader,  // 跟主題切換
+            Radius = 0,
         };
 
         var bc = new AntdUI.Breadcrumb
@@ -414,14 +460,40 @@ public partial class GalleryControl : UserControl, IThemedControl
             Dock = DockStyle.Right,
             Ghost = true,
             IconSvg = "RedoOutlined",
-            IconRatio = 0.9F,
+            IconRatio = 1F,
             ForeColor = Core.ThemeColors.Text,
             BackHover = Core.ThemeColors.Secondary,
             Size = LogicalToDeviceUnits(new Size(40, 32)),
         };
         btnRefresh.Click += (s, e) => RefreshCurrentTab();
+        _btnTooltip.SetTip(btnRefresh, LocalizationManager.GetString("MenuRefresh"));
 
+        // 4-segment view mode 切換器（Small / Medium / Large / List）
+        var segViewMode = new AntdUI.Segmented
+        {
+            Name = "tabViewModeSeg",
+            Dock = DockStyle.Right,
+            Size = LogicalToDeviceUnits(new Size(160, 28)),
+            IconRatio = 1F,
+            BackColor = Color.Transparent,
+            Font = new Font("Microsoft JhengHei UI", 10F, FontStyle.Bold),  // S/M/L 字粗體
+            // ArrowAlign=Top → 箭頭在 tooltip 頂端朝上 → tooltip 顯示在 segmented 下方
+            TooltipConfig = new AntdUI.TooltipConfig { ArrowAlign = AntdUI.TAlign.Bottom },
+        };
+        // S/M/L 共用相框 SVG，字母用 SegmentedItem.Text 屬性顯示（AntdUI 自己 layout icon + text）
+        segViewMode.Items.Add(new AntdUI.SegmentedItem { Text = "S", Tooltip = LocalizationManager.GetString("ViewSmall") });
+        segViewMode.Items.Add(new AntdUI.SegmentedItem { Text = "M", Tooltip = LocalizationManager.GetString("ViewMedium") });
+        segViewMode.Items.Add(new AntdUI.SegmentedItem { Text = "L", Tooltip = LocalizationManager.GetString("ViewLarge") });
+        segViewMode.Items.Add(new AntdUI.SegmentedItem { IconSvg = "UnorderedListOutlined", Tooltip = LocalizationManager.GetString("ViewList") });
+        segViewMode.SelectIndex = (int)GalleryViewMode.Medium;
+        segViewMode.SelectIndexChanged += (s, e) =>
+        {
+            SetTabViewMode(newPage, (GalleryViewMode)segViewMode.SelectIndex);
+        };
+
+        // Dock=Right 多控件時最後加的在最右邊：先加 segViewMode 再加 btnRefresh → segViewMode 在 btnRefresh 左
         headerPanel.Controls.Add(bc);
+        headerPanel.Controls.Add(segViewMode);
         headerPanel.Controls.Add(btnRefresh);
 
         var contentHost = new System.Windows.Forms.Panel
@@ -431,7 +503,7 @@ public partial class GalleryControl : UserControl, IThemedControl
             BackColor = Core.ThemeColors.Surface,
         };
 
-        bool isList = _currentViewMode == GalleryViewMode.List;
+        bool isList = false;   // 新 tab 預設 Medium 不是 List
 
         var flowLayout = new BufferedFlowLayoutPanel
         {
@@ -649,7 +721,8 @@ public partial class GalleryControl : UserControl, IThemedControl
 
     private void LoadCurrentViewMode(AntdUI.TabPage page, string path)
     {
-        if (_currentViewMode == GalleryViewMode.List)
+        var mode = GetTabMode(page);
+        if (mode == GalleryViewMode.List)
         {
             var table = FindTabTable(page);
             if (table != null) _ = LoadGalleryListAsync(table, path);
@@ -657,7 +730,7 @@ public partial class GalleryControl : UserControl, IThemedControl
         else
         {
             var flow = FindTabFlowLayout(page);
-            if (flow != null) _ = LoadGalleryAsync(flow, path);
+            if (flow != null) _ = LoadGalleryAsync(flow, path, mode);
         }
     }
 
@@ -775,7 +848,7 @@ public partial class GalleryControl : UserControl, IThemedControl
         return $"{size:0.#} {units[unit]}";
     }
 
-    private Task LoadGalleryAsync(FlowLayoutPanel container, string path)
+    private Task LoadGalleryAsync(FlowLayoutPanel container, string path, GalleryViewMode mode)
     {
         container.Controls.Clear();
 
@@ -802,7 +875,7 @@ public partial class GalleryControl : UserControl, IThemedControl
                         bool isFolderNode = item is DirectoryInfo;
                         var card = new ComicCardControl();
                         card.SetData(item, isFolderNode);
-                        card.ApplyViewMode(_currentViewMode);
+                        card.ApplyViewMode(mode);
                         card.RequestOpenFolder += p => OpenFolderTab(p, false);
                         card.RequestOpenViewer += p => OpenWithExternalViewer(p);
                         card.RequestNewTab += (p, forceNew) => OpenFolderTab(p, forceNew);

@@ -96,7 +96,7 @@ public partial class ComicCardControl : UserControl
             ForeColor = Color.FromArgb(128, 54, 145),
             Ghost = true,
             IconRatio = 0.9F,
-            IconSvg = "BookOutlined",
+            IconSvg = "ReadOutlined",
             Size = new Size(41, 41),
         };
         btnExplorer = new AntdUI.Button

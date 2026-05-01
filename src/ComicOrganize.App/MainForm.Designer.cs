@@ -85,7 +85,7 @@ partial class MainForm
         menuStrip1.BackColor = Core.ThemeColors.Background;
         menuStrip1.Font = new Font("Microsoft JhengHei UI", 10F);
         menuStrip1.ForeColor = Core.ThemeColors.Text;
-        menuStrip1.Items.AddRange(new ToolStripItem[] { mnuFile, mnuView });
+        menuStrip1.Items.AddRange(new ToolStripItem[] { mnuFile });
         menuStrip1.Location = new Point(0, 48);
         menuStrip1.Name = "menuStrip1";
         menuStrip1.Padding = new Padding(8, 4, 0, 4);
