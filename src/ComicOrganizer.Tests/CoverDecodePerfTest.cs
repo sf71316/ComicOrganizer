@@ -45,6 +45,56 @@ public class CoverDecodePerfTest
         _output.WriteLine("");
     }
 
+    [Theory]
+    [InlineData(170)]   // Small
+    [InlineData(250)]   // Medium
+    [InlineData(330)]   // Large
+    public void Benchmark_WebP_DecodeAndResize(int targetWidth)
+    {
+        const string WebpImage = @"D:\Project\ComicOrganize\TestData\Library\flugel\[Flugel] 絢乃アテンション 第1-2話 [中国翻訳] [無修正] [DL版]\1.webp";
+        if (!File.Exists(WebpImage))
+        {
+            _output.WriteLine($"WebP test image missing: {WebpImage} — skip");
+            return;
+        }
+
+        // Warmup
+        for (int i = 0; i < Warmup; i++)
+        {
+            ImageSharpWebpFull(WebpImage, targetWidth).Dispose();
+            ImageSharpWebpTargetSize(WebpImage, targetWidth).Dispose();
+        }
+
+        var full = MeasureMs(() => ImageSharpWebpFull(WebpImage, targetWidth));
+        var dct = MeasureMs(() => ImageSharpWebpTargetSize(WebpImage, targetWidth));
+
+        _output.WriteLine($"=== WebP target={targetWidth} px ({Iterations} iter) ===");
+        _output.WriteLine($"ImageSharp full decode + resize : {full,7:F2} ms");
+        _output.WriteLine($"ImageSharp + TargetSize         : {dct,7:F2} ms  ({full / dct:F2}x vs full)");
+        _output.WriteLine("");
+    }
+
+    private static SixLabors.ImageSharp.Image<Bgra32> ImageSharpWebpFull(string path, int maxWidth)
+    {
+        var img = SixLabors.ImageSharp.Image.Load<Bgra32>(path);
+        img.Mutate(x => x.Resize(maxWidth, 0));
+        return img;
+    }
+
+    private static SixLabors.ImageSharp.Image<Bgra32> ImageSharpWebpTargetSize(string path, int maxWidth)
+    {
+        var options = new DecoderOptions
+        {
+            TargetSize = new SixLabors.ImageSharp.Size(maxWidth, 0)
+        };
+        var img = SixLabors.ImageSharp.Image.Load<Bgra32>(options, path);
+        if (img.Width != maxWidth)
+        {
+            img.Mutate(x => x.Resize(maxWidth, 0));
+        }
+        return img;
+    }
+
     [Fact]
     public void Benchmark_IdentifyOnly()
     {
