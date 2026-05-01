@@ -389,9 +389,9 @@ partial class SettingsForm
         numMinCoverSize.Location = new Point(40, 560);
         numMinCoverSize.Name = "numMinCoverSize";
         numMinCoverSize.Minimum = 0;
-        numMinCoverSize.Maximum = 999999;
+        numMinCoverSize.Maximum = 9999;
         numMinCoverSize.Value = 100;
-        numMinCoverSize.Size = new Size(140, 45);
+        numMinCoverSize.Size = new Size(100, 45);
         numMinCoverSize.TabIndex = 14;
         //
         // selectMinCoverUnit
@@ -399,7 +399,7 @@ partial class SettingsForm
         selectMinCoverUnit.Items.Add("KB");
         selectMinCoverUnit.Items.Add("MB");
         selectMinCoverUnit.SelectedIndex = 0;
-        selectMinCoverUnit.Location = new Point(190, 560);
+        selectMinCoverUnit.Location = new Point(150, 560);
         selectMinCoverUnit.Name = "selectMinCoverUnit";
         selectMinCoverUnit.Size = new Size(80, 45);
         selectMinCoverUnit.TabIndex = 15;
@@ -407,7 +407,7 @@ partial class SettingsForm
         // labelCoverSizeTilde
         //
         labelCoverSizeTilde.BackColor = Color.Transparent;
-        labelCoverSizeTilde.Location = new Point(280, 568);
+        labelCoverSizeTilde.Location = new Point(240, 568);
         labelCoverSizeTilde.Name = "labelCoverSizeTilde";
         labelCoverSizeTilde.Size = new Size(20, 30);
         labelCoverSizeTilde.TabIndex = 16;
@@ -415,12 +415,12 @@ partial class SettingsForm
         //
         // numMaxCoverSize
         //
-        numMaxCoverSize.Location = new Point(310, 560);
+        numMaxCoverSize.Location = new Point(270, 560);
         numMaxCoverSize.Name = "numMaxCoverSize";
         numMaxCoverSize.Minimum = 1;
-        numMaxCoverSize.Maximum = 999999;
+        numMaxCoverSize.Maximum = 9999;
         numMaxCoverSize.Value = 5;
-        numMaxCoverSize.Size = new Size(140, 45);
+        numMaxCoverSize.Size = new Size(100, 45);
         numMaxCoverSize.TabIndex = 17;
         //
         // selectMaxCoverUnit
@@ -428,7 +428,7 @@ partial class SettingsForm
         selectMaxCoverUnit.Items.Add("KB");
         selectMaxCoverUnit.Items.Add("MB");
         selectMaxCoverUnit.SelectedIndex = 1;
-        selectMaxCoverUnit.Location = new Point(460, 560);
+        selectMaxCoverUnit.Location = new Point(380, 560);
         selectMaxCoverUnit.Name = "selectMaxCoverUnit";
         selectMaxCoverUnit.Size = new Size(80, 45);
         selectMaxCoverUnit.TabIndex = 18;
