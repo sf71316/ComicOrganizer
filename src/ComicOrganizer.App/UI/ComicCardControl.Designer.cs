@@ -56,7 +56,7 @@ partial class ComicCardControl
         // 
         // ComicCardControl
         // 
-        BackColor = Color.White;
+        BackColor = Color.Transparent;  // 配合 SupportsTransparentBackColor — parent 透出，OnPaint 自繪圓角填滿
         Controls.Add(lbl);
         Controls.Add(pic);
         DoubleBuffered = true;

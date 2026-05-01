@@ -13,6 +13,11 @@ public partial class ComicCardControl : UserControl
     public event Action<string, bool>? RequestNewTab;
     public event Action<string>? RequestExplorer;
     private const int CornerRadius = 8; // 與 pic.Radius 一致
+
+    // 卡片內部 bg 色（白底 / hover 時 Secondary 紫）。
+    // 之前用 this.BackColor 切換，但配合 Region 硬邊裁切 + AA stroke 會有粒感；
+    // 改成 OnPaint 用 AA FillPath 自繪，BackColor 設 Transparent 讓四角顯露 parent。
+    private Color _currentBgColor = Color.White;
     // 手動觸發 AntdUI.Tooltip.open + 自管 delay：
     // TooltipComponent.SetTip 對 AntdUI.Panel 不可靠（AntdUI 自繪 control 的 hover events 不一定走 IExtenderProvider），
     // 改用 hover→Timer→Tooltip.open 模式：1 秒內 leave 取消，不顯示；stay 1s+ 才顯示
@@ -32,7 +37,11 @@ public partial class ComicCardControl : UserControl
     public ComicCardControl()
     {
         InitializeComponent();
-        // BackColor / hover 色靠 default WM_PAINT 畫；圓角靠 Region（OnResize 設定）
+        // 開 SupportsTransparentBackColor 讓 BackColor=Transparent 走「parent bg 透出」邏輯，
+        // OnPaint 內用 AA 畫圓角填滿，UserControl 矩形外四角自然顯露 parent (FlowLayoutPanel) 的 Surface。
+        // 不再用 Region 硬邊裁切，AA 邊緣完整保留。
+        SetStyle(ControlStyles.SupportsTransparentBackColor | ControlStyles.OptimizedDoubleBuffer, true);
+
         // tooltip delay timer：到時才開 tooltip，期間若 leave 已 Stop 取消
         _tooltipDelayTimer.Tick += (s, e) =>
         {
@@ -45,30 +54,33 @@ public partial class ComicCardControl : UserControl
         };
         WireUp();
     }
-    // 圓角靠 Region 裁切，BackColor / hover 色由 default WM_PAINT 自動畫。
-    // 不用 cache bitmap：UserControl 自己要畫的內容只有純色背景，FillPath 成本可忽略，
-    // 且 hover 時 BackColor 切換會讓 cache 必須失效，cache hit 率極低。
     protected override void OnResize(EventArgs e)
     {
         base.OnResize(e);
-        if (Width <= 0 || Height <= 0) return;
-        var oldRegion = Region;
-        using var path = GetRoundedPath(new Rectangle(0, 0, Width, Height), CornerRadius);
-        Region = new Region(path);
-        oldRegion?.Dispose();
-        Invalidate();   // Region 變了重畫一次邊框
+        Invalidate();   // 尺寸變化重畫圓角填滿 + 框線
     }
 
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
         if (Width <= 0 || Height <= 0) return;
-        // 1px rounded border：畫在 (0,0)~(Width-1,Height-1)，stroke 中心在路徑上、
-        // 外半邊被 Region 裁掉，內半邊吃到視覺成一條淡淡 1px 線；改用 inset 1px 確保完整
-        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        using var path = GetRoundedPath(new Rectangle(0, 0, Width - 1, Height - 1), CornerRadius);
-        using var pen = new Pen(ComicOrganizer.App.Core.ThemeColors.Border, 1);
-        e.Graphics.DrawPath(pen, path);
+        var g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.PixelOffsetMode = PixelOffsetMode.Half;
+
+        // 圓角填滿（hover 時為 Secondary 紫）
+        using (var fillPath = GetRoundedPath(new Rectangle(0, 0, Width, Height), CornerRadius))
+        using (var brush = new SolidBrush(_currentBgColor))
+        {
+            g.FillPath(brush, fillPath);
+        }
+
+        // 1px 圓角框線 (inset 半 px 讓 1px stroke 完整落在可見區)
+        using (var strokePath = GetRoundedPath(new Rectangle(0, 0, Width - 1, Height - 1), CornerRadius))
+        using (var pen = new Pen(ComicOrganizer.App.Core.ThemeColors.Border, 1))
+        {
+            g.DrawPath(pen, strokePath);
+        }
     }
 
     private static GraphicsPath GetRoundedPath(Rectangle rect, int radius)
@@ -217,7 +229,8 @@ public partial class ComicCardControl : UserControl
             hoverToolbar!.Visible = true;
             typeStrip.BringToFront();
             hoverToolbar.BringToFront();
-            this.BackColor = ComicOrganizer.App.Core.ThemeColors.Secondary;
+            _currentBgColor = ComicOrganizer.App.Core.ThemeColors.Secondary;
+            Invalidate();   // 重畫圓角填滿
 
             if (!_tooltipShown && !_tooltipDelayTimer.Enabled)
             {
@@ -231,7 +244,8 @@ public partial class ComicCardControl : UserControl
             {
                 if (typeStrip != null) typeStrip.Visible = false;
                 if (hoverToolbar != null) hoverToolbar.Visible = false;
-                this.BackColor = Color.White;
+                _currentBgColor = Color.White;
+                Invalidate();
                 _tooltipDelayTimer.Stop();
                 _tooltipShown = false;
             }
