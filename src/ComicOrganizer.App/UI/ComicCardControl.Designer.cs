@@ -28,7 +28,7 @@ partial class ComicCardControl
         //
         // lbl
         //
-        lbl.BackColor = Color.Transparent;
+        lbl.BackColor = Color.Transparent;   // 透明讓 hover 時 UserControl Secondary 從文字下方透出
         lbl.Cursor = Cursors.Hand;
         lbl.Dock = DockStyle.Fill;
         lbl.Font = new Font("Microsoft JhengHei UI", 12F);
@@ -39,8 +39,8 @@ partial class ComicCardControl
         //
         // pic
         //
-        pic.BackColor = Color.Transparent;
-        pic.Back = Color.White;
+        pic.BackColor = Color.White;   // 不透明 → scroll 時 WinForms 可走 BitBlt 快路徑，不全 invalidate
+        pic.Back = Color.White;        // AntdUI 內部 fill (跟 BackColor 同色)
         pic.Cursor = Cursors.Hand;
         pic.Dock = DockStyle.Top;
         pic.Duration = 0;
