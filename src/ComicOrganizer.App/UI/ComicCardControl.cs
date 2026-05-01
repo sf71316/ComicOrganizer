@@ -202,9 +202,10 @@ public partial class ComicCardControl : UserControl
 
     private void WireUp()
     {
-        // 平常只在 3 個 control 上 hook hover：this / pic / lbl
-        // hoverToolbar / btnRead / btnExplorer 的 hover 事件在 EnsureHoverControls 內補綁
+        // 平常 hook hover：this / borderPanel (新加 wrapper) / pic / lbl
+        // borderPanel padding 區也要監聽 leave，否則 mouse: pic → padding → 卡外 中間少一段 leave
         HookHover(this);
+        HookHover(borderPanel);
         HookHover(pic);
         HookHover(lbl);
 
@@ -216,6 +217,7 @@ public partial class ComicCardControl : UserControl
         };
         pic.MouseClick += clickHandler;
         lbl.MouseClick += clickHandler;
+        borderPanel.MouseClick += clickHandler;
         this.MouseClick += clickHandler;
     }
 
