@@ -110,4 +110,7 @@
   <data name="RebuildIdle" xml:space="preserve"><value>Idle</value></data>
   <data name="RebuildDone" xml:space="preserve"><value>Done</value></data>
   <data name="RebuildCancelled" xml:space="preserve"><value>Cancelled</value></data>
+  <data name="MenuOpenInExplorer" xml:space="preserve"><value>Open in Explorer</value></data>
+  <data name="MenuOpenInCurrentTab" xml:space="preserve"><value>Open in Current Tab</value></data>
+  <data name="MenuOpenInNewTab" xml:space="preserve"><value>Open in New Tab</value></data>
 </root>

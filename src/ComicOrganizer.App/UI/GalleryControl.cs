@@ -13,6 +13,9 @@ public partial class GalleryControl : UserControl, IThemedControl
 
     private const string LazyPlaceholderTag = "__LAZY__";
 
+    // 區分 tree 右鍵點在節點 vs 空白：NodeMouseClick 時設 true，MouseUp 看到 true 就跳過 blank menu
+    private bool _treeRightOnNode;
+
     // 卡片封面統一以 Large card 寬度載入（= ComicCardControl Large mode 的 cardSize.Width）。
     // 切換 S/M/L 時 pic.ImageFit=Contain 自動等比縮小顯示，不需重新載圖。
     // 代價：每張 bitmap 多 ~250KB，100 張多 ~25MB，可接受。
@@ -73,6 +76,8 @@ public partial class GalleryControl : UserControl, IThemedControl
         // Tree 點擊處理：
         //  右鍵 → 開啟 context menu（另開頁籤 / 重新整理）
         //  中鍵 → 直接開新頁籤（取代原本的雙擊行為）
+        //  右鍵節點 → 三項選單 (檔案總管 / 目前頁籤 / 另開頁籤)
+        //  右鍵空白 → 一項選單 (重新整理)；用 _treeRightOnNode 旗標區分
         treeFolders.NodeMouseClick += (s, e) =>
         {
             if (e.Item.Tag is not string path) return;
@@ -85,24 +90,21 @@ public partial class GalleryControl : UserControl, IThemedControl
 
             if (e.Button == MouseButtons.Right)
             {
-                AntdUI.ContextMenuStrip.open(treeFolders, (menuItem) =>
-                {
-                    if (menuItem.Text == LocalizationManager.GetString("MenuOpenTab"))
-                    {
-                        OpenFolderTab(path, true);
-                    }
-                    else if (menuItem.Text != null && menuItem.Text.Contains(LocalizationManager.GetString("MenuRefresh")))
-                    {
-                        e.Item.Sub.Clear();
-                        e.Item.Sub.Add(new AntdUI.TreeItem(LocalizationManager.GetString("Loading")) { Tag = LazyPlaceholderTag });
-                        LoadSubDirectories(e.Item, path);
-                    }
-                }, new AntdUI.IContextMenuStripItem[]
-                {
-                    new AntdUI.ContextMenuStripItem(LocalizationManager.GetString("MenuOpenTab")),
-                    new AntdUI.ContextMenuStripItem("🔄 " + LocalizationManager.GetString("MenuRefresh")),
-                });
+                _treeRightOnNode = true;
+                ShowTreeNodeContextMenu(path);
             }
+        };
+
+        // 空白處右鍵 → 重新整理 (整棵 tree 重新載入根目錄)
+        treeFolders.MouseUp += (s, e) =>
+        {
+            if (e.Button != MouseButtons.Right) return;
+            if (_treeRightOnNode)
+            {
+                _treeRightOnNode = false;
+                return;
+            }
+            ShowTreeBlankContextMenu();
         };
 
         // 處理頁籤關閉事件 — 清掉 _tabViewModes 內對應的 entry 避免 dispose 後 reference 殘留
@@ -250,6 +252,47 @@ public partial class GalleryControl : UserControl, IThemedControl
             return true;
         }
         return base.ProcessCmdKey(ref msg, keyData);
+    }
+
+    /// <summary>
+    /// Tree 節點右鍵 → 三項選單（檔案總管 / 目前頁籤 / 另開頁籤），各帶 SVG icon。
+    /// </summary>
+    private void ShowTreeNodeContextMenu(string path)
+    {
+        var items = new AntdUI.IContextMenuStripItem[]
+        {
+            new AntdUI.ContextMenuStripItem(LocalizationManager.GetString("MenuOpenInExplorer") ?? "檔案總管開啟")
+                { IconSvg = "FolderOpenOutlined" },
+            new AntdUI.ContextMenuStripItem(LocalizationManager.GetString("MenuOpenInCurrentTab") ?? "目前頁籤開啟")
+                { IconSvg = "FileOutlined" },
+            new AntdUI.ContextMenuStripItem(LocalizationManager.GetString("MenuOpenInNewTab") ?? "另開新頁籤")
+                { IconSvg = "PlusOutlined" },
+        };
+
+        AntdUI.ContextMenuStrip.open(treeFolders, mi =>
+        {
+            string? t = mi.Text;
+            if (t == null) return;
+            if (t.Contains("檔案總管") || t.Contains("Explorer")) OpenInExplorer(path);
+            else if (t.Contains("目前頁籤") || t.Contains("Current")) OpenFolderTab(path, false);
+            else if (t.Contains("另開") || t.Contains("New Tab")) OpenFolderTab(path, true);
+        }, items);
+    }
+
+    /// <summary>
+    /// Tree 空白處右鍵 → 一項選單（重新整理整棵 tree）。
+    /// </summary>
+    private void ShowTreeBlankContextMenu()
+    {
+        var items = new AntdUI.IContextMenuStripItem[]
+        {
+            new AntdUI.ContextMenuStripItem(LocalizationManager.GetString("MenuRefresh") ?? "重新整理")
+                { IconSvg = "RedoOutlined" },
+        };
+        AntdUI.ContextMenuStrip.open(treeFolders, mi =>
+        {
+            _ = LoadTreeAsync();
+        }, items);
     }
 
     private Task LoadTreeAsync()
