@@ -13,6 +13,11 @@ public partial class GalleryControl : UserControl, IThemedControl
 
     private const string LazyPlaceholderTag = "__LAZY__";
 
+    // 卡片封面統一以 Large card 寬度載入（= ComicCardControl Large mode 的 cardSize.Width）。
+    // 切換 S/M/L 時 pic.ImageFit=Contain 自動等比縮小顯示，不需重新載圖。
+    // 代價：每張 bitmap 多 ~250KB，100 張多 ~25MB，可接受。
+    private const int MaxCardCoverWidth = 330;
+
     /// <summary>
     /// 每個 tab 自己的 view mode（per-tab 獨立）。
     /// 新 tab 預設 Medium；tab close 時 entry 會清掉避免 dispose 後 reference 殘留。
@@ -883,8 +888,9 @@ public partial class GalleryControl : UserControl, IThemedControl
                         container.Controls.Add(card);
 
                         // 目錄與檔案都試著載封面：CoverManager 對目錄會遞迴往下找首張圖檔（受 MaxScanDepth 限制）
+                        // 統一以 Large 寬度載入，切換 view mode 時 pic.ImageFit=Contain 縮放顯示，不需重新載
                         var capturedCard = card;
-                        _ = LoadCoverInBackgroundAsync(item.FullName, card.Width, img => capturedCard.SetCover(img));
+                        _ = LoadCoverInBackgroundAsync(item.FullName, MaxCardCoverWidth, img => capturedCard.SetCover(img));
                     }
                     container.ResumeLayout(true);   // 該 chunk 的 cards 立刻 layout + paint
                 });

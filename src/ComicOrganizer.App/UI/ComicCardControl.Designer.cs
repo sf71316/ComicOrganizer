@@ -46,7 +46,7 @@ partial class ComicCardControl
         pic.Cursor = Cursors.Hand;
         pic.Dock = DockStyle.Top;
         pic.Duration = 0;
-        pic.ImageFit = AntdUI.TFit.None;
+        pic.ImageFit = AntdUI.TFit.Contain;
         pic.Location = new Point(10, 10);
         pic.Name = "pic";
         pic.Radius = 8;
