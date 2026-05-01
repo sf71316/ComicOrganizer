@@ -12,12 +12,7 @@ public partial class ComicCardControl : UserControl
     public event Action<string>? RequestOpenViewer;
     public event Action<string, bool>? RequestNewTab;
     public event Action<string>? RequestExplorer;
-    private const int CornerRadius = 8; // 與 pic.Radius 一致
-
-    // 卡片內部 bg 色（白底 / hover 時 Secondary 紫）。
-    // 之前用 this.BackColor 切換，但配合 Region 硬邊裁切 + AA stroke 會有粒感；
-    // 改成 OnPaint 用 AA FillPath 自繪，BackColor 設 Transparent 讓四角顯露 parent。
-    private Color _currentBgColor = Color.White;
+    // 圓角 / 邊框 / 底色都交給 borderPanel (AntdUI.Panel) 處理 — 比自己 OnPaint 穩定。
     // 手動觸發 AntdUI.Tooltip.open + 自管 delay：
     // TooltipComponent.SetTip 對 AntdUI.Panel 不可靠（AntdUI 自繪 control 的 hover events 不一定走 IExtenderProvider），
     // 改用 hover→Timer→Tooltip.open 模式：1 秒內 leave 取消，不顯示；stay 1s+ 才顯示
@@ -37,11 +32,6 @@ public partial class ComicCardControl : UserControl
     public ComicCardControl()
     {
         InitializeComponent();
-        // 開 SupportsTransparentBackColor 讓 BackColor=Transparent 走「parent bg 透出」邏輯，
-        // OnPaint 內用 AA 畫圓角填滿，UserControl 矩形外四角自然顯露 parent (FlowLayoutPanel) 的 Surface。
-        // 不再用 Region 硬邊裁切，AA 邊緣完整保留。
-        SetStyle(ControlStyles.SupportsTransparentBackColor | ControlStyles.OptimizedDoubleBuffer, true);
-
         // tooltip delay timer：到時才開 tooltip，期間若 leave 已 Stop 取消
         _tooltipDelayTimer.Tick += (s, e) =>
         {
@@ -53,45 +43,6 @@ public partial class ComicCardControl : UserControl
             }
         };
         WireUp();
-    }
-    protected override void OnResize(EventArgs e)
-    {
-        base.OnResize(e);
-        Invalidate();   // 尺寸變化重畫圓角填滿 + 框線
-    }
-
-    protected override void OnPaint(PaintEventArgs e)
-    {
-        base.OnPaint(e);
-        if (Width <= 0 || Height <= 0) return;
-        var g = e.Graphics;
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-
-        // 框線改用「兩層 FillPath」實作 — 避開 GDI+ pen stroke 在 AA 下對 top/left vs
-        // bottom/right 各邊不對稱的怪異行為。外層用 border 色填整個圓角，內層縮 1px 蓋上 bg 色，
-        // 露出的 1px 環就是框線。AA 兩條 path 各自都對稱、無 stroke alignment 問題。
-        using (var outerPath = GetRoundedPathF(new RectangleF(0, 0, Width, Height), CornerRadius))
-        using (var borderBrush = new SolidBrush(ComicOrganizer.App.Core.ThemeColors.Border))
-        {
-            g.FillPath(borderBrush, outerPath);
-        }
-        using (var innerPath = GetRoundedPathF(new RectangleF(1, 1, Width - 2, Height - 2), CornerRadius - 1))
-        using (var bgBrush = new SolidBrush(_currentBgColor))
-        {
-            g.FillPath(bgBrush, innerPath);
-        }
-    }
-
-    private static GraphicsPath GetRoundedPathF(RectangleF rect, float radius)
-    {
-        var path = new GraphicsPath();
-        float d = radius * 2;
-        path.AddArc(rect.X, rect.Y, d, d, 180, 90);
-        path.AddArc(rect.Right - d, rect.Y, d, d, 270, 90);
-        path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
-        path.AddArc(rect.X, rect.Bottom - d, d, d, 90, 90);
-        path.CloseFigure();
-        return path;
     }
     /// <summary>
     /// 首次 hover 才建立 typeStrip + hoverToolbar + 內部 buttons。
@@ -228,8 +179,7 @@ public partial class ComicCardControl : UserControl
             hoverToolbar!.Visible = true;
             typeStrip.BringToFront();
             hoverToolbar.BringToFront();
-            _currentBgColor = ComicOrganizer.App.Core.ThemeColors.Secondary;
-            Invalidate();   // 重畫圓角填滿
+            borderPanel.Back = ComicOrganizer.App.Core.ThemeColors.Secondary;
 
             if (!_tooltipShown && !_tooltipDelayTimer.Enabled)
             {
@@ -243,8 +193,7 @@ public partial class ComicCardControl : UserControl
             {
                 if (typeStrip != null) typeStrip.Visible = false;
                 if (hoverToolbar != null) hoverToolbar.Visible = false;
-                _currentBgColor = Color.White;
-                Invalidate();
+                borderPanel.Back = Color.White;
                 _tooltipDelayTimer.Stop();
                 _tooltipShown = false;
             }
