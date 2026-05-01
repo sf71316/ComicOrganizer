@@ -144,33 +144,33 @@ public class CacheWriter : IDisposable
 
         try
         {
-            using var tx = _metaStore.BeginTransaction();
             while (totalSize > limit && safetyMaxIterations-- > 0)
             {
-                var victims = _metaStore.ListLruVictims(BatchEvictCount).ToList();
+                var victims = _metaStore.ListLruVictims(BatchEvictCount);
                 if (victims.Count == 0) break;
 
-                foreach (var v in victims)
+                _metaStore.RunInTransaction(() =>
                 {
-                    if (v.CoverThumbKey != null)
+                    foreach (var v in victims)
                     {
-                        // 估 thumb 檔大小（用 file_size 近似不準，但比每次 stat 快）；最後再算 totalSize
-                        try
+                        if (v.CoverThumbKey != null)
                         {
-                            using var stream = _thumbStore.OpenRead(v.CoverThumbKey);
-                            evictedBytes += stream?.Length ?? 0;
+                            try
+                            {
+                                using var stream = _thumbStore.OpenRead(v.CoverThumbKey);
+                                evictedBytes += stream?.Length ?? 0;
+                            }
+                            catch { }
+                            _thumbStore.Delete(v.CoverThumbKey);
                         }
-                        catch { }
-                        _thumbStore.Delete(v.CoverThumbKey);
+                        _metaStore.Delete(v.Path);
+                        evictedCount++;
                     }
-                    _metaStore.Delete(v.Path);
-                    evictedCount++;
-                }
+                });
 
                 // 重算 total（每 batch 算一次）
                 totalSize = _thumbStore.TotalSizeBytes();
             }
-            tx.Commit();
         }
         catch (Exception ex)
         {
@@ -184,28 +184,29 @@ public class CacheWriter : IDisposable
     {
         try
         {
-            using var tx = _metaStore.BeginTransaction();
-            foreach (var op in batch)
+            _metaStore.RunInTransaction(() =>
             {
-                try
+                foreach (var op in batch)
                 {
-                    if (op.TouchOnly != null)
+                    try
                     {
-                        _metaStore.TouchLastAccessed(op.TouchOnly, NowUnix());
+                        if (op.TouchOnly != null)
+                        {
+                            _metaStore.TouchLastAccessed(op.TouchOnly, NowUnix());
+                        }
+                        else if (op.Meta != null && op.ThumbKey != null && op.JpegBytes != null)
+                        {
+                            _thumbStore.Write(op.ThumbKey, op.JpegBytes);
+                            _metaStore.Upsert(op.Meta);
+                        }
                     }
-                    else if (op.Meta != null && op.ThumbKey != null && op.JpegBytes != null)
+                    catch (Exception innerEx)
                     {
-                        _thumbStore.Write(op.ThumbKey, op.JpegBytes);
-                        _metaStore.Upsert(op.Meta);
+                        // 單筆失敗不影響 batch 其他 ops
+                        Debug.WriteLine($"[CacheWriter] op failed: {innerEx.Message}");
                     }
                 }
-                catch (Exception innerEx)
-                {
-                    // 單筆失敗不影響 batch 其他 ops
-                    Debug.WriteLine($"[CacheWriter] op failed: {innerEx.Message}");
-                }
-            }
-            tx.Commit();
+            });
         }
         catch (Exception ex)
         {

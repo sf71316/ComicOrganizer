@@ -1,5 +1,3 @@
-using System.Data;
-
 namespace ComicOrganizer.App.Core;
 
 /// <summary>
@@ -12,10 +10,10 @@ public interface IAssetMetaStore : IDisposable
     void Upsert(AssetMeta meta);
     void TouchLastAccessed(string path, long now);
 
-    IEnumerable<AssetMeta> ListChildren(string folderPath);
+    IReadOnlyList<AssetMeta> ListChildren(string folderPath);
 
     /// <summary>取出 lastAccessed 最舊的 N 筆（用於 LRU eviction）。</summary>
-    IEnumerable<AssetMeta> ListLruVictims(int count);
+    IReadOnlyList<AssetMeta> ListLruVictims(int count);
 
     void Delete(string path);
 
@@ -30,6 +28,9 @@ public interface IAssetMetaStore : IDisposable
     /// <summary>cache asset 加總 file_size（folder 不計），用於 LRU 大小判斷。</summary>
     long TotalThumbBytes();
 
-    /// <summary>批次寫入用。CacheWriter 在 transaction 內呼叫多次 Upsert/Touch。</summary>
-    IDbTransaction BeginTransaction();
+    /// <summary>
+    /// 批次寫入：action 內呼叫多次 Upsert/Touch/Delete 包在單一 SQLite transaction。
+    /// 持鎖整段 action 期間，避免多執行緒對同一 connection 開 nested transaction。
+    /// </summary>
+    void RunInTransaction(Action action);
 }
