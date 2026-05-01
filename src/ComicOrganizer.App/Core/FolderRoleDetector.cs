@@ -12,15 +12,43 @@ public enum FolderRole
 }
 
 /// <summary>
-/// Bottom-up 偵測資料夾在漫畫庫中的角色。
+/// Bottom-up 偵測資料夾在漫畫庫中的角色。從 leaf 往上推，不預設深度，
+/// 能容忍各種庫結構（不常看/作者/作品、語言/作者/作品、直接 作者/作品 …）。
 ///
-/// 規則：
-///   leaf = 含 image 的資料夾 / .zip / .cbz → Work
-///   父節點全是 Work / Archive → Author
-///   父節點全是 Author → Category（除非自身是 RootDirectory，那是 Library）
-///   父節點含 Category → Category（再上一層）
+/// === 判斷策略（四層）===
 ///
-/// 取樣：當資料夾 children 很多時只取前 N 個判定，避免大目錄全掃。
+/// 1. Fast path（不看子內容直接定）
+///    path == _libraryRoot                              → Library
+///    File: .zip/.cbz/.rar/.cbr/.7z                     → Work
+///    File: .jpg/.png/.webp/...                         → Work (單張圖)
+///
+/// 2. Leaf 判定（看自己的檔案）
+///    imageCount >= 5 且過半符合 PageNameRules          → Work (章節資料夾)
+///    imageCount > 0 且無子目錄、無 archive             → Work (single short)
+///    archive > 0 且無子目錄                            → Author (一堆 zip 容器)
+///    全空                                              → Unknown
+///
+/// 3. 子目錄全是同類（取樣前 SampleChildCount 個遞迴 Detect）
+///    全 Work (單一 child) :  名字像 Work title → Work；否則 Author
+///    全 Work (多個 child) :  名字像 Series    → Category
+///                            名字像 Work title → Category (Series 沒抓到的容錯)
+///                            否則              → Author
+///    全 Author             :  Category
+///    全 Category           :  用 grandchild 探測 — 含 Author → Category；否則 → Author
+///    含 Author             :  Category (多作者容器)
+///    Work + Category 混合  :  Author (作者 + 一些 Series 合集)
+///
+/// 4. Tie-breaker（宣告式 regex 陣列，不早 return — 必須等子分析完才用名字）
+///    SeriesNameRules : \d+集全 / 全\d+[巻卷] / 完結篇 / Vol.X-Vol.Y / 合集|総集編|総集
+///    WorkTitleRules  : (C\d{2,3}) / 同人誌/成年コミック / 漢化|中国翻訳|DL版 /
+///                      第N話|Vol.N|Ch.N / 6-8 位日期數字 / 多個 []
+///
+/// === 關鍵設計 ===
+/// - Cache：_cache dict 防止重複 Detect 同路徑
+/// - 取樣：SampleChildCount=5，避免大目錄全掃
+/// - Leaf 門檻：LeafImageThreshold=5（少於此數可能是 cover.jpg 不算 leaf）
+/// - 不早 return：例如「総集編」名字含 Series 信號，但若底下只是頁圖仍是 Work
+/// - Grandchild 探測：區分「Author 底下的 Series 合集」vs「Category 底下的多作者」
 /// </summary>
 public class FolderRoleDetector
 {
