@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace ComicOrganizer.App.Core;
 
 public enum FolderRole
@@ -128,55 +130,64 @@ public class FolderRoleDetector
     }
 
     /// <summary>
-    /// 從資料夾命名 pattern 判斷是不是 Work title。
-    /// Author 命名通常短 (`Flugel` / `[小林優子]` / `Group (Author)`)；
-    /// Work title 命名通常含 Comic Market 編號 / (同人誌) tag / 多個 `[]`。
+    /// Work title 判定規則 — folder name 命中任一條 → 視為 Work。
+    /// 規則 (Name, Regex)：未來可拉到 AppConfig 讓使用者自訂。
     /// </summary>
+    private static readonly (string Name, Regex Pattern)[] WorkTitleRules =
+    {
+        // Comic Market 編號 (C99 / C103)
+        ("ComicMarket",      new Regex(@"\(C\d{2,3}\)", RegexOptions.Compiled)),
+        // 商品類型標記
+        ("DoujinshiTag",     new Regex(@"\((?:同人誌|成年コミック|商業誌)\)", RegexOptions.Compiled)),
+        // 翻譯 / 漢化 / 版本標記
+        ("TranslationTag",   new Regex(@"漢化|中国翻訳|中譯|DL版|無修正|個人漢化", RegexOptions.Compiled)),
+        // 章節編號標記
+        ("ChapterMarker",    new Regex(@"第\d+話|Vol\.\s*\d+|Ch\.\s*\d+",
+                                      RegexOptions.Compiled | RegexOptions.IgnoreCase)),
+        // 6-8 位數字 (日期 yyyymmdd 之類)
+        ("DateLikeNumber",   new Regex(@"\d{6,8}", RegexOptions.Compiled)),
+        // 多個 [] (≥2)：Author 通常只 1 個 [作者]；2+ 通常是 Work
+        ("MultipleBrackets", new Regex(@"\[[^\]]*\][^[]*\[[^\]]*\]", RegexOptions.Compiled)),
+    };
+
+    /// <summary>章節頁面檔名判定規則 — image 檔名命中任一條 → 視為章節頁。</summary>
+    private static readonly Regex[] PageNameRules =
+    {
+        new(@"^\d+$",         RegexOptions.Compiled),                                        // 純數字: 01, 002
+        new(@"^p_?\d+",       RegexOptions.Compiled | RegexOptions.IgnoreCase),              // p01, p_001
+        new(@"^page_?\d+",    RegexOptions.Compiled | RegexOptions.IgnoreCase),              // page1, page_001
+        new(@"^\d+[_\-]",     RegexOptions.Compiled),                                        // 01_a, 02-b
+        new(@"^第\d+頁",       RegexOptions.Compiled),
+    };
+
+    /// <summary>排除清單：明顯不是頁碼的檔名 (不算章節 page 數)。</summary>
+    private static readonly Regex[] NotPageRules =
+    {
+        new(@"^cover\b",  RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new(@"^banner\b", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new(@"^thumb\b",  RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new(@"^logo\b",   RegexOptions.Compiled | RegexOptions.IgnoreCase),
+    };
+
+    /// <summary>命中 WorkTitleRules 任一條 → 是 Work title。</summary>
     private static bool LooksLikeWorkTitle(string folderName)
     {
         if (string.IsNullOrEmpty(folderName)) return false;
-
-        // 含 (C76) Comic Market 編號 → 強信號
-        if (System.Text.RegularExpressions.Regex.IsMatch(folderName, @"\(C\d{2,3}\)"))
-            return true;
-        // 含「同人誌」/「成年コミック」/「商業誌」/「漢化組」標記 → Work
-        if (folderName.Contains("(同人誌)") ||
-            folderName.Contains("(成年コミック)") ||
-            folderName.Contains("(商業誌)") ||
-            folderName.Contains("漢化") ||
-            folderName.Contains("中国翻訳") ||
-            folderName.Contains("中譯") ||
-            folderName.Contains("DL版"))
-            return true;
-        // 含日期格式 (yyyymmdd / 第 N 話 / Vol.N / Ch.N)
-        if (System.Text.RegularExpressions.Regex.IsMatch(folderName, @"\d{6,8}") ||
-            System.Text.RegularExpressions.Regex.IsMatch(folderName, @"第\d+話") ||
-            System.Text.RegularExpressions.Regex.IsMatch(folderName, @"Vol\.\d+", System.Text.RegularExpressions.RegexOptions.IgnoreCase) ||
-            System.Text.RegularExpressions.Regex.IsMatch(folderName, @"Ch\.\d+", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
-            return true;
-        // 多個 [] (≥2)：Author folder 通常只 1 個 (含作者)，2+ 通常是 Work title 結構
-        int bracketCount = System.Text.RegularExpressions.Regex.Matches(folderName, @"\[[^\]]*\]").Count;
-        if (bracketCount >= 2) return true;
-
-        return false;
+        return WorkTitleRules.Any(r => r.Pattern.IsMatch(folderName));
     }
 
-    /// <summary>
-    /// 判斷一組 image 檔名是否看起來像「章節頁面」(01.jpg, 02.jpg, page_001.jpg)。
-    /// 多數命名是純數字 / 含數字後綴 → 章節頁；多數含奇怪字母 (cover, banner) → 不是。
-    /// </summary>
+    /// <summary>過半 image 命中 PageNameRules 且不被 NotPageRules 排除 → 是 chapter folder。</summary>
     private static bool LooksLikeNumberedPages(List<string> imageFiles)
     {
         if (imageFiles.Count == 0) return false;
-        int numericLike = imageFiles.Count(f =>
+        int matched = imageFiles.Count(f =>
         {
             var name = Path.GetFileNameWithoutExtension(f);
-            // 純數字 / 含主要為數字 (e.g. p001, 01_a)
-            return name.Length > 0 && name.Any(char.IsDigit) &&
-                   !name.Equals("cover", StringComparison.OrdinalIgnoreCase) &&
-                   !name.StartsWith("banner", StringComparison.OrdinalIgnoreCase);
+            if (string.IsNullOrEmpty(name)) return false;
+            if (NotPageRules.Any(r => r.IsMatch(name))) return false;
+            return PageNameRules.Any(r => r.IsMatch(name));
         });
-        return numericLike >= imageFiles.Count / 2;   // 過半像數字 → 是 chapter
+        return matched >= imageFiles.Count / 2;
     }
 
     private static string Normalize(string p) =>
