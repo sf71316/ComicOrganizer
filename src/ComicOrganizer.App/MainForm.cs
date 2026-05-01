@@ -17,6 +17,7 @@ public partial class MainForm : Window, IThemedControl
     private readonly IAssetMetaStore _metaStore;
     private readonly IThumbStore _thumbStore;
     private readonly CacheWriter _cacheWriter;
+    private readonly CacheRebuildService _rebuildService;
 
     public MainForm()
     {
@@ -41,6 +42,7 @@ public partial class MainForm : Window, IThemedControl
         _thumbStore = new FileSystemThumbStore(Path.Combine(baseDir, "thumbs"));
         _cacheWriter = new CacheWriter(_metaStore, _thumbStore);
         _coverManager.AttachCache(_metaStore, _thumbStore, _cacheWriter);
+        _rebuildService = new CacheRebuildService(_config, _coverManager, _metaStore, _thumbStore);
 
         // 等 Form Load 後 Initialize（此時 handle 已建立、Invoke 才能用）
         this.Load += (s, e) =>
@@ -58,9 +60,16 @@ public partial class MainForm : Window, IThemedControl
         mnuFileGallery.Click += (s, e) => ShowGallery();
         mnuFileArchive.Click += (s, e) => ShowArchive();
         mnuFileSettings.Click += (s, e) => OpenSettings();
+        mnuFileRebuildCache.Click += (s, e) => OpenRebuildCacheDialog();
         mnuFileExit.Click += (s, e) => Close();
 
         // 檢視模式改放在每個 Tab header 內的 Segmented，per-tab 獨立。MainForm 不再 dispatch view mode
+    }
+
+    private void OpenRebuildCacheDialog()
+    {
+        using var form = new UI.RebuildCacheForm(_rebuildService);
+        form.ShowDialog(this);
     }
 
     protected override void OnMouseDown(MouseEventArgs e)
@@ -120,6 +129,7 @@ public partial class MainForm : Window, IThemedControl
         mnuFileGallery.Text = LocalizationManager.GetString("MenuGallery");
         mnuFileArchive.Text = LocalizationManager.GetString("MenuArchive");
         mnuFileSettings.Text = LocalizationManager.GetString("MenuSettings");
+        mnuFileRebuildCache.Text = LocalizationManager.GetString("MenuRebuildCache") ?? "重建索引資料庫(&R)...";
         mnuFileExit.Text = LocalizationManager.GetString("MenuExit");
 
         // 檢視模式選單已移除，改放每個 Tab header 內的 Segmented

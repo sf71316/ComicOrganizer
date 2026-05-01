@@ -101,4 +101,13 @@
   <data name="SettingsMenuLibrary" xml:space="preserve"><value>Library</value></data>
   <data name="SettingsMaxScanDepth" xml:space="preserve"><value>Max Scan Depth (cover recursion)</value></data>
   <data name="SettingsCoverSizeRange" xml:space="preserve"><value>Cover sampling file size range</value></data>
+  <data name="MenuRebuildCache" xml:space="preserve"><value>Rebuild Cache Database(&amp;R)...</value></data>
+  <data name="RebuildCacheTitle" xml:space="preserve"><value>Rebuild Cache Database</value></data>
+  <data name="RebuildFull" xml:space="preserve"><value>Full Rebuild</value></data>
+  <data name="RebuildFullDesc" xml:space="preserve"><value>Clear all cache, rescan from root directory</value></data>
+  <data name="RebuildPartial" xml:space="preserve"><value>Partial Rebuild...</value></data>
+  <data name="RebuildPartialDesc" xml:space="preserve"><value>Select a subtree to rescan</value></data>
+  <data name="RebuildIdle" xml:space="preserve"><value>Idle</value></data>
+  <data name="RebuildDone" xml:space="preserve"><value>Done</value></data>
+  <data name="RebuildCancelled" xml:space="preserve"><value>Cancelled</value></data>
 </root>

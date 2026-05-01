@@ -18,6 +18,8 @@ partial class MainForm
     private ToolStripMenuItem mnuFileArchive;
     private ToolStripSeparator mnuFileSep1;
     private ToolStripMenuItem mnuFileSettings;
+    private ToolStripSeparator mnuFileSepCache;
+    private ToolStripMenuItem mnuFileRebuildCache;
     private ToolStripSeparator mnuFileSep2;
     private ToolStripMenuItem mnuFileExit;
 
@@ -47,6 +49,8 @@ partial class MainForm
         mnuFileArchive = new ToolStripMenuItem();
         mnuFileSep1 = new ToolStripSeparator();
         mnuFileSettings = new ToolStripMenuItem();
+        mnuFileSepCache = new ToolStripSeparator();
+        mnuFileRebuildCache = new ToolStripMenuItem();
         mnuFileSep2 = new ToolStripSeparator();
         mnuFileExit = new ToolStripMenuItem();
         mnuView = new ToolStripMenuItem();
@@ -95,7 +99,7 @@ partial class MainForm
         // 
         // mnuFile
         // 
-        mnuFile.DropDownItems.AddRange(new ToolStripItem[] { mnuFileGallery, mnuFileArchive, mnuFileSep1, mnuFileSettings, mnuFileSep2, mnuFileExit });
+        mnuFile.DropDownItems.AddRange(new ToolStripItem[] { mnuFileGallery, mnuFileArchive, mnuFileSep1, mnuFileSettings, mnuFileSepCache, mnuFileRebuildCache, mnuFileSep2, mnuFileExit });
         mnuFile.Name = "mnuFile";
         mnuFile.Size = new Size(63, 22);
         mnuFile.Text = "功能(&F)";
@@ -122,7 +126,18 @@ partial class MainForm
         mnuFileSettings.Name = "mnuFileSettings";
         mnuFileSettings.Size = new Size(164, 22);
         mnuFileSettings.Text = "系統設定(&S)...";
-        // 
+        //
+        // mnuFileSepCache
+        //
+        mnuFileSepCache.Name = "mnuFileSepCache";
+        mnuFileSepCache.Size = new Size(161, 6);
+        //
+        // mnuFileRebuildCache
+        //
+        mnuFileRebuildCache.Name = "mnuFileRebuildCache";
+        mnuFileRebuildCache.Size = new Size(164, 22);
+        mnuFileRebuildCache.Text = "重建索引資料庫(&R)...";
+        //
         // mnuFileSep2
         // 
         mnuFileSep2.Name = "mnuFileSep2";
