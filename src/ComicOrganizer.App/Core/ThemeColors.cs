@@ -16,6 +16,7 @@ public static class ThemeColors
     private static readonly Color LightSurface = Color.FromArgb(241, 233, 249);
     private static readonly Color LightBorder = Color.FromArgb(154, 124, 194);
     private static readonly Color LightTabHeader = Color.FromArgb(0xE8, 0xD7, 0xFA);  // #e8d7fa 比 Surface 沉一點
+    private static readonly Color LightStatusBar = Color.FromArgb(0x84, 0x77, 0x9D);  // #84779d 紫灰，深於 Primary
     private static readonly Color LightRowAlternateBg = Color.FromArgb(219, 217, 255);
     private static readonly Color LightTreeViewSurface = Color.FromArgb(241, 233, 249);
 
@@ -28,6 +29,7 @@ public static class ThemeColors
     private static readonly Color DarkSurface = Color.FromArgb(189, 189, 189);
     private static readonly Color DarkBorder = Color.FromArgb(63, 63, 70);
     private static readonly Color DarkTabHeader = Color.FromArgb(63, 63, 70);   // 暗模式 header 用 Border 同色（比 Surface 中灰更沉）
+    private static readonly Color DarkStatusBar = Color.FromArgb(45, 45, 48);   // 跟 RowAlternate 同色，沉穩
     private static readonly Color DarkRowAlternateBg = Color.FromArgb(45, 45, 48);
     private static readonly Color DarkTreeViewSurface = Color.FromArgb(189, 189, 189);
 
@@ -40,6 +42,7 @@ public static class ThemeColors
     public static Color TreeViewSurface => ThemeManager.IsDark ? DarkTreeViewSurface : LightTreeViewSurface;
     public static Color Border => ThemeManager.IsDark ? DarkBorder : LightBorder;
     public static Color TabHeader => ThemeManager.IsDark ? DarkTabHeader : LightTabHeader;
+    public static Color StatusBar => ThemeManager.IsDark ? DarkStatusBar : LightStatusBar;
     public static Color HoverToolBarBackground => Color.FromArgb(140, 127, 124, 128);
     public static Color RowAlternateBg => ThemeManager.IsDark ? DarkRowAlternateBg : LightRowAlternateBg;
 }

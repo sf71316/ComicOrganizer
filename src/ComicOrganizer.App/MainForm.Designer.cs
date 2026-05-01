@@ -210,7 +210,7 @@ partial class MainForm
         statusBar.Dock = DockStyle.Bottom;
         statusBar.Size = new Size(1280, 28);
         statusBar.BackColor = Color.Transparent;
-        statusBar.Back = Core.ThemeColors.Surface;
+        statusBar.Back = Core.ThemeColors.StatusBar;
         statusBar.Padding = new Padding(12, 4, 12, 4);
         statusBar.Visible = true;     // 常駐顯示，由 ShowStatus 更新文字
         statusBar.Name = "statusBar";
@@ -221,6 +221,7 @@ partial class MainForm
         statusLabel.Dock = DockStyle.Fill;
         statusLabel.Text = "";
         statusLabel.BackColor = Color.Transparent;
+        statusLabel.ForeColor = Color.White;        // 紫灰底，白字較易讀
         statusLabel.Name = "statusLabel";
         // 
         // archiveControl
