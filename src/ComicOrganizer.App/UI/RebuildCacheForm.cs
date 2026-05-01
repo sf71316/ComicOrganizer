@@ -103,6 +103,7 @@ public partial class RebuildCacheForm : Window
         btnPartialRebuild.Enabled = !running;
         btnCancel.Visible = running;
         btnClose.Enabled = !running;
+        this.progressBar.Visible = running;
         if (!running) progressBar.Value = 0f;
     }
 

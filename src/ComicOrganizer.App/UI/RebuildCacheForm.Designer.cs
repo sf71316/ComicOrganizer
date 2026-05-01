@@ -44,9 +44,10 @@ partial class RebuildCacheForm
         // 
         windowBar.Dock = DockStyle.Top;
         windowBar.Location = new Point(0, 0);
+        windowBar.Margin = new Padding(5);
         windowBar.Name = "windowBar";
         windowBar.ShowButton = true;
-        windowBar.Size = new Size(548, 50);
+        windowBar.Size = new Size(849, 77);
         windowBar.TabIndex = 1;
         windowBar.Text = "重建索引資料庫";
         windowBar.UseTitleFont = true;
@@ -65,25 +66,29 @@ partial class RebuildCacheForm
         content.Controls.Add(lblFullDesc);
         content.Controls.Add(btnFullRebuild);
         content.Dock = DockStyle.Fill;
-        content.Location = new Point(0, 50);
+        content.Location = new Point(0, 77);
+        content.Margin = new Padding(5);
         content.Name = "content";
-        content.Padding = new Padding(30);
-        content.Size = new Size(548, 326);
+        content.Padding = new Padding(47, 46, 47, 46);
+        content.Size = new Size(849, 456);
         content.TabIndex = 0;
         // 
         // btnClose
         // 
-        btnClose.Location = new Point(427, 270);
+        btnClose.Location = new Point(663, 376);
+        btnClose.Margin = new Padding(5);
         btnClose.Name = "btnClose";
-        btnClose.Size = new Size(85, 35);
+        btnClose.Size = new Size(134, 54);
         btnClose.TabIndex = 0;
         btnClose.Text = "關閉";
+        btnClose.Type = AntdUI.TTypeMini.Info;
         // 
         // btnCancel
         // 
-        btnCancel.Location = new Point(332, 270);
+        btnCancel.Location = new Point(514, 376);
+        btnCancel.Margin = new Padding(5);
         btnCancel.Name = "btnCancel";
-        btnCancel.Size = new Size(85, 35);
+        btnCancel.Size = new Size(134, 54);
         btnCancel.TabIndex = 1;
         btnCancel.Text = "取消";
         btnCancel.Visible = false;
@@ -91,77 +96,87 @@ partial class RebuildCacheForm
         // lblCurrent
         // 
         lblCurrent.BackColor = Color.Transparent;
-        lblCurrent.Location = new Point(30, 295);
+        lblCurrent.Location = new Point(42, 294);
+        lblCurrent.Margin = new Padding(5);
         lblCurrent.Name = "lblCurrent";
-        lblCurrent.Size = new Size(480, 25);
+        lblCurrent.Size = new Size(754, 38);
         lblCurrent.TabIndex = 2;
         lblCurrent.Text = "";
         // 
         // lblStatus
         // 
         lblStatus.BackColor = Color.Transparent;
-        lblStatus.Location = new Point(30, 270);
+        lblStatus.Location = new Point(42, 339);
+        lblStatus.Margin = new Padding(5);
         lblStatus.Name = "lblStatus";
-        lblStatus.Size = new Size(200, 25);
+        lblStatus.Size = new Size(314, 38);
         lblStatus.TabIndex = 3;
         lblStatus.Text = "";
         // 
         // progressBar
         // 
-        progressBar.Location = new Point(30, 235);
+        progressBar.Location = new Point(42, 253);
+        progressBar.Margin = new Padding(5);
         progressBar.Name = "progressBar";
-        progressBar.Size = new Size(480, 25);
+        progressBar.Size = new Size(754, 38);
         progressBar.TabIndex = 4;
+        progressBar.Visible = false;
         // 
         // divider
         // 
-        divider.Location = new Point(30, 200);
+        divider.Location = new Point(42, 228);
+        divider.Margin = new Padding(5);
         divider.Name = "divider";
-        divider.Size = new Size(480, 20);
+        divider.Size = new Size(754, 31);
         divider.TabIndex = 5;
         // 
         // lblPartialDesc
         // 
         lblPartialDesc.BackColor = Color.Transparent;
-        lblPartialDesc.Location = new Point(220, 145);
+        lblPartialDesc.Location = new Point(341, 143);
+        lblPartialDesc.Margin = new Padding(5);
         lblPartialDesc.Name = "lblPartialDesc";
-        lblPartialDesc.Size = new Size(290, 30);
+        lblPartialDesc.Size = new Size(456, 46);
         lblPartialDesc.TabIndex = 6;
         lblPartialDesc.Text = "選擇子目錄重新掃描";
         // 
         // btnPartialRebuild
         // 
-        btnPartialRebuild.Location = new Point(30, 140);
+        btnPartialRebuild.Location = new Point(42, 136);
+        btnPartialRebuild.Margin = new Padding(5);
         btnPartialRebuild.Name = "btnPartialRebuild";
-        btnPartialRebuild.Size = new Size(180, 40);
+        btnPartialRebuild.Size = new Size(283, 61);
         btnPartialRebuild.TabIndex = 7;
         btnPartialRebuild.Text = "部分重建...";
         // 
         // lblFullDesc
         // 
         lblFullDesc.BackColor = Color.Transparent;
-        lblFullDesc.Location = new Point(220, 85);
+        lblFullDesc.Location = new Point(341, 51);
+        lblFullDesc.Margin = new Padding(5);
         lblFullDesc.Name = "lblFullDesc";
-        lblFullDesc.Size = new Size(290, 30);
+        lblFullDesc.Size = new Size(456, 46);
         lblFullDesc.TabIndex = 8;
         lblFullDesc.Text = "清空所有 cache，從根目錄重新掃描";
         // 
         // btnFullRebuild
         // 
-        btnFullRebuild.Location = new Point(30, 80);
+        btnFullRebuild.Location = new Point(42, 44);
+        btnFullRebuild.Margin = new Padding(5);
         btnFullRebuild.Name = "btnFullRebuild";
-        btnFullRebuild.Size = new Size(180, 40);
+        btnFullRebuild.Size = new Size(283, 61);
         btnFullRebuild.TabIndex = 9;
         btnFullRebuild.Text = "完整重建";
         btnFullRebuild.Type = AntdUI.TTypeMini.Primary;
         // 
         // RebuildCacheForm
         // 
-        AutoScaleDimensions = new SizeF(7F, 15F);
+        AutoScaleDimensions = new SizeF(11F, 23F);
         AutoScaleMode = AutoScaleMode.Font;
-        ClientSize = new Size(548, 376);
+        ClientSize = new Size(849, 533);
         Controls.Add(content);
         Controls.Add(windowBar);
+        Margin = new Padding(5);
         Name = "RebuildCacheForm";
         StartPosition = FormStartPosition.CenterParent;
         Text = "重建索引資料庫";
