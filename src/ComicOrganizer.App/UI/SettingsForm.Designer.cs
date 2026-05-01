@@ -40,10 +40,10 @@ partial class SettingsForm
     private AntdUI.Button btnBrowseViewer;
     private AntdUI.Label labelMaxScanDepth;
     private AntdUI.InputNumber numMaxScanDepth;
-    private AntdUI.Label labelMinCoverSize;
+    private AntdUI.Label labelCoverSizeRange;
     private AntdUI.InputNumber numMinCoverSize;
     private AntdUI.Select selectMinCoverUnit;
-    private AntdUI.Label labelMaxCoverSize;
+    private AntdUI.Label labelCoverSizeTilde;
     private AntdUI.InputNumber numMaxCoverSize;
     private AntdUI.Select selectMaxCoverUnit;
 
@@ -88,10 +88,10 @@ partial class SettingsForm
         btnBrowseViewer = new AntdUI.Button();
         labelMaxScanDepth = new AntdUI.Label();
         numMaxScanDepth = new InputNumber();
-        labelMinCoverSize = new AntdUI.Label();
+        labelCoverSizeRange = new AntdUI.Label();
         numMinCoverSize = new InputNumber();
         selectMinCoverUnit = new AntdUI.Select();
-        labelMaxCoverSize = new AntdUI.Label();
+        labelCoverSizeTilde = new AntdUI.Label();
         numMaxCoverSize = new InputNumber();
         selectMaxCoverUnit = new AntdUI.Select();
         btnSave = new AntdUI.Button();
@@ -231,10 +231,10 @@ partial class SettingsForm
         libraryPanel.BackColor = Color.Transparent;
         libraryPanel.Controls.Add(selectMaxCoverUnit);
         libraryPanel.Controls.Add(numMaxCoverSize);
-        libraryPanel.Controls.Add(labelMaxCoverSize);
+        libraryPanel.Controls.Add(labelCoverSizeTilde);
         libraryPanel.Controls.Add(selectMinCoverUnit);
         libraryPanel.Controls.Add(numMinCoverSize);
-        libraryPanel.Controls.Add(labelMinCoverSize);
+        libraryPanel.Controls.Add(labelCoverSizeRange);
         libraryPanel.Controls.Add(numMaxScanDepth);
         libraryPanel.Controls.Add(labelMaxScanDepth);
         libraryPanel.Controls.Add(btnBrowseViewer);
@@ -256,7 +256,7 @@ partial class SettingsForm
         libraryPanel.TabIndex = 1;
         libraryPanel.Visible = false;
         libraryPanel.AutoScroll = true;
-        libraryPanel.AutoScrollMinSize = new Size(0, 720);  // 內容超出 panel 高時垂直 scroll
+        libraryPanel.AutoScrollMinSize = new Size(0, 620);  // 內容超出 panel 高時垂直 scroll
         //
         // label1
         //
@@ -375,14 +375,14 @@ partial class SettingsForm
         numMaxScanDepth.Size = new Size(150, 45);
         numMaxScanDepth.TabIndex = 12;
         //
-        // labelMinCoverSize
+        // labelCoverSizeRange
         //
-        labelMinCoverSize.BackColor = Color.Transparent;
-        labelMinCoverSize.Location = new Point(40, 525);
-        labelMinCoverSize.Name = "labelMinCoverSize";
-        labelMinCoverSize.Size = new Size(420, 30);
-        labelMinCoverSize.TabIndex = 13;
-        labelMinCoverSize.Text = "封面最小檔案大小 (過濾縮圖/banner)";
+        labelCoverSizeRange.BackColor = Color.Transparent;
+        labelCoverSizeRange.Location = new Point(40, 525);
+        labelCoverSizeRange.Name = "labelCoverSizeRange";
+        labelCoverSizeRange.Size = new Size(420, 30);
+        labelCoverSizeRange.TabIndex = 13;
+        labelCoverSizeRange.Text = "封面取樣檔案大小範圍";
         //
         // numMinCoverSize
         //
@@ -404,18 +404,18 @@ partial class SettingsForm
         selectMinCoverUnit.Size = new Size(80, 45);
         selectMinCoverUnit.TabIndex = 15;
         //
-        // labelMaxCoverSize
+        // labelCoverSizeTilde
         //
-        labelMaxCoverSize.BackColor = Color.Transparent;
-        labelMaxCoverSize.Location = new Point(40, 620);
-        labelMaxCoverSize.Name = "labelMaxCoverSize";
-        labelMaxCoverSize.Size = new Size(420, 30);
-        labelMaxCoverSize.TabIndex = 16;
-        labelMaxCoverSize.Text = "封面最大檔案大小 (過濾拚版/插畫)";
+        labelCoverSizeTilde.BackColor = Color.Transparent;
+        labelCoverSizeTilde.Location = new Point(280, 568);
+        labelCoverSizeTilde.Name = "labelCoverSizeTilde";
+        labelCoverSizeTilde.Size = new Size(20, 30);
+        labelCoverSizeTilde.TabIndex = 16;
+        labelCoverSizeTilde.Text = "～";
         //
         // numMaxCoverSize
         //
-        numMaxCoverSize.Location = new Point(40, 655);
+        numMaxCoverSize.Location = new Point(310, 560);
         numMaxCoverSize.Name = "numMaxCoverSize";
         numMaxCoverSize.Minimum = 1;
         numMaxCoverSize.Maximum = 999999;
@@ -428,7 +428,7 @@ partial class SettingsForm
         selectMaxCoverUnit.Items.Add("KB");
         selectMaxCoverUnit.Items.Add("MB");
         selectMaxCoverUnit.SelectedIndex = 1;
-        selectMaxCoverUnit.Location = new Point(190, 655);
+        selectMaxCoverUnit.Location = new Point(460, 560);
         selectMaxCoverUnit.Name = "selectMaxCoverUnit";
         selectMaxCoverUnit.Size = new Size(80, 45);
         selectMaxCoverUnit.TabIndex = 18;

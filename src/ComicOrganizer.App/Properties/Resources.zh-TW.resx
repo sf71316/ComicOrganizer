@@ -100,6 +100,5 @@
   <data name="SettingsMenuGeneral" xml:space="preserve"><value>一般設定</value></data>
   <data name="SettingsMenuLibrary" xml:space="preserve"><value>漫畫庫管理</value></data>
   <data name="SettingsMaxScanDepth" xml:space="preserve"><value>搜尋層數限制 (封面遞迴)</value></data>
-  <data name="SettingsMinCoverSize" xml:space="preserve"><value>封面最小檔案大小 (過濾縮圖/banner)</value></data>
-  <data name="SettingsMaxCoverSize" xml:space="preserve"><value>封面最大檔案大小 (過濾拚版/插畫)</value></data>
+  <data name="SettingsCoverSizeRange" xml:space="preserve"><value>封面取樣檔案大小範圍</value></data>
 </root>

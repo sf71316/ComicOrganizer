@@ -122,8 +122,7 @@ public partial class SettingsForm : Window, IThemedControl
 
         // 漫畫庫管理 - 搜尋層數 + 封面大小過濾
         labelMaxScanDepth.Text = LocalizationManager.GetString("SettingsMaxScanDepth") ?? "搜尋層數限制 (封面遞迴)";
-        labelMinCoverSize.Text = LocalizationManager.GetString("SettingsMinCoverSize") ?? "封面最小檔案大小 (過濾縮圖/banner)";
-        labelMaxCoverSize.Text = LocalizationManager.GetString("SettingsMaxCoverSize") ?? "封面最大檔案大小 (過濾拚版/插畫)";
+        labelCoverSizeRange.Text = LocalizationManager.GetString("SettingsCoverSizeRange") ?? "封面取樣檔案大小範圍";
     }
 
     /// <summary>
