@@ -70,11 +70,11 @@ public class FolderRoleDetector
 
         if (!Directory.Exists(path)) return FolderRole.Unknown;
 
-        // === 資料夾名 pattern 判定 ===
-        // (C\d+) Comic Market 編號 / (同人誌) / 多個 [] = 強信號 Work
-        // 即使含 chapter 子目錄 (單章節作品) 也應視為 Work，不該被推成 Author
         var folderName = Path.GetFileName(path);
-        if (LooksLikeWorkTitle(folderName)) return FolderRole.Work;
+
+        // === Series 名字判定優先（合集 / 完結 / Vol.1-N 等）===
+        // 即使有 [作者] Comic Market 等 Work 信號，「6集全」這類就是 Category (Series)
+        if (LooksLikeSeries(folderName)) return FolderRole.Category;
 
         // 列 children
         string[] files;
@@ -117,17 +117,66 @@ public class FolderRoleDetector
 
         if (childRoles.Count == 0) return FolderRole.Unknown;
 
-        // 子全是 Work → 自己是 Author
-        if (childRoles.All(r => r == FolderRole.Work)) return FolderRole.Author;
-        // 子全是 Author → 自己是 Category
+        // 子全是 Work → 看資料夾名 + 子數量決定是 Work / Author / Category
+        if (childRoles.All(r => r == FolderRole.Work))
+        {
+            // (a) 單一 chapter 子目錄 + 名字像 Work title (Comic Market / 同人誌 / 多 [])
+            //     → 自己是 Work (含一個 chapter folder)
+            if (subdirCount + (archiveCount > 0 ? 1 : 0) == 1 && LooksLikeWorkTitle(folderName))
+                return FolderRole.Work;
+            // (b) 多個 Work children + 名字像 Work title
+            //     → 偏 Category (可能 Series 沒被 SeriesNameRules 抓到)
+            if (LooksLikeWorkTitle(folderName)) return FolderRole.Category;
+            // (c) 預設：Author with multiple works
+            return FolderRole.Author;
+        }
+        // 子全是 Author → 自己是 Category (e.g., "不常看")
         if (childRoles.All(r => r == FolderRole.Author)) return FolderRole.Category;
-        // 子含 Category → 自己也是 Category（多層分類）
-        if (childRoles.Any(r => r == FolderRole.Category)) return FolderRole.Category;
-        // 混合 Work/Author → 偏 Author
-        if (childRoles.All(r => r == FolderRole.Work || r == FolderRole.Author)) return FolderRole.Author;
-
-        return FolderRole.Unknown;
+        // 子全是 Category → 看 Category 的內涵
+        // 包 Authors 的 Category (語言/中文/作者) → 自己是上層 Category
+        // 包 Works 的 Category (Cuvie/NIGHTMARE 6集全) → 自己是 Author
+        if (childRoles.All(r => r == FolderRole.Category))
+        {
+            bool containsAuthors = subdirs.Take(SampleChildCount).Any(CategoryContainsAuthors);
+            return containsAuthors ? FolderRole.Category : FolderRole.Author;
+        }
+        // 子含 Author → 多作者容器 → Category (Library / 真 Category)
+        if (childRoles.Any(r => r == FolderRole.Author)) return FolderRole.Category;
+        // 剩下：Work + Category 混合 (即 Author 含一些單作品 + 一些 Series 合集)
+        // 例：Cuvie/{ NIGHTMARE 6集全 (Category), 其他作品.zip (Work) }
+        return FolderRole.Author;
     }
+
+    /// <summary>遞迴判斷 Category 是否包含 Author（區分「真 Category」vs「Series under Author」）。</summary>
+    private bool CategoryContainsAuthors(string categoryPath)
+    {
+        try
+        {
+            var grandSubs = Directory.GetDirectories(categoryPath).Take(SampleChildCount);
+            foreach (var gs in grandSubs)
+            {
+                var role = Detect(gs);
+                if (role == FolderRole.Author) return true;
+                if (role == FolderRole.Category && CategoryContainsAuthors(gs)) return true;
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    /// <summary>
+    /// Series（合集 / 系列）判定規則 — 命中任一 → folder 是「多 Work 集合」應為 Category。
+    /// 即使 folder 名有 [作者]/Comic Market 編號等 Work 信號，含 Series 標記也優先判 Category。
+    /// </summary>
+    private static readonly (string Name, Regex Pattern)[] SeriesNameRules =
+    {
+        ("VolumesComplete", new Regex(@"\d+集全", RegexOptions.Compiled)),                       // 6集全
+        ("AllVolumes",      new Regex(@"全\d+[巻卷]", RegexOptions.Compiled)),                    // 全6巻
+        ("Completed",       new Regex(@"完結篇?", RegexOptions.Compiled)),
+        ("VolumeRange",     new Regex(@"Vol\.\s*\d+\s*[-－~～]\s*Vol\.\s*\d+",
+                                      RegexOptions.Compiled | RegexOptions.IgnoreCase)),           // Vol.1-Vol.5
+        ("Anthology",       new Regex(@"合集|総集編|総集", RegexOptions.Compiled)),
+    };
 
     /// <summary>
     /// Work title 判定規則 — folder name 命中任一條 → 視為 Work。
@@ -174,6 +223,13 @@ public class FolderRoleDetector
     {
         if (string.IsNullOrEmpty(folderName)) return false;
         return WorkTitleRules.Any(r => r.Pattern.IsMatch(folderName));
+    }
+
+    /// <summary>命中 SeriesNameRules 任一條 → folder 是合集 / 系列 (Category)。</summary>
+    private static bool LooksLikeSeries(string folderName)
+    {
+        if (string.IsNullOrEmpty(folderName)) return false;
+        return SeriesNameRules.Any(r => r.Pattern.IsMatch(folderName));
     }
 
     /// <summary>過半 image 命中 PageNameRules 且不被 NotPageRules 排除 → 是 chapter folder。</summary>
