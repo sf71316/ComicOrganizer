@@ -755,17 +755,34 @@ public partial class GalleryControl : UserControl, IThemedControl
     }
 
     /// <summary>
+    /// 限制同時 decode + resize 的 task 數，避免 ThreadPool 把全部核心都塞滿、
+    /// 多 task 互搶 GDI+ 與 memory bandwidth 把每張 wall-clock 從 30ms 膨脹到 200ms+。
+    /// 設成 ProcessorCount/2 讓 UI thread 與其他 IO 還有餘裕；最少保留 2 個。
+    /// </summary>
+    private static readonly SemaphoreSlim _coverSemaphore =
+        new(Math.Max(2, Environment.ProcessorCount / 2));
+
+    /// <summary>
     /// 共用：背景抓 cover、抓到後在 UI thread 呼叫 onLoaded。
     /// 對 dispose 競態做防護。回傳 Task 給呼叫端等待完成（或 fire-and-forget 不接）。
+    /// 透過 _coverSemaphore 限制平行度。
     /// </summary>
     private Task LoadCoverInBackgroundAsync(string path, int width, Action<Image> onLoaded)
     {
         return Task.Run(async () =>
         {
-            var img = await _coverManager.GetCoverAsync(path, width);
-            if (img == null || this.IsDisposed) return;
-            try { this.Invoke(() => onLoaded(img)); }
-            catch { /* form 已 dispose 等競態忽略 */ }
+            await _coverSemaphore.WaitAsync();
+            try
+            {
+                var img = await _coverManager.GetCoverAsync(path, width);
+                if (img == null || this.IsDisposed) return;
+                try { this.Invoke(() => onLoaded(img)); }
+                catch { /* form 已 dispose 等競態忽略 */ }
+            }
+            finally
+            {
+                _coverSemaphore.Release();
+            }
         });
     }
 
