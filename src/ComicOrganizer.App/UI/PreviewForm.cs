@@ -1,0 +1,213 @@
+using AntdUI;
+using ComicOrganizer.App.Core;
+using ComicOrganizer.App.Models;
+using System.ComponentModel;
+
+namespace ComicOrganizer.App.UI;
+
+public partial class PreviewForm : Window
+{
+    private List<ArchiveGroup> _groups;
+    private readonly MappingIntelligence _intelligence;
+    private readonly ArchiveOrganizer _organizer;
+
+    public PreviewForm(List<ArchiveItem> items, string rootDirectory, MappingIntelligence intelligence, ArchiveOrganizer organizer)
+    {
+        InitializeComponent();
+        _intelligence = intelligence;
+        _organizer = organizer;
+
+        _groups = items.GroupBy(x => x.DestinationPath)
+                       .Select(g => new ArchiveGroup
+                       {
+                           DestinationPath = g.Key,
+                           Items = new BindingList<ArchiveItem>(g.ToList())
+                       }).ToList();
+
+        // 確保父容器支援捲軸
+        //container.AutoScroll = true;
+
+        this.Load += (s, e) => InitializeOfficialCollapseUI();
+
+        btnCancel.Click += (s, e) => this.DialogResult = DialogResult.Cancel;
+        btnExecute.Click += async (s, e) => await ExecuteArchiveAsync();
+
+        LocalizationManager.LanguageChanged += (s, e) => ApplyLocalization();
+        ApplyLocalization();
+        ThemeManager.ThemeChanged += (s, e) => ThemeManager.ApplyTheme(this);
+        ThemeManager.ApplyTheme(this);
+    }
+
+    private void ApplyLocalization()
+    {
+        this.Text = LocalizationManager.GetString("PreviewTitle");
+        btnExecute.Text = LocalizationManager.GetString("ArchiveExecuteRun");
+        btnCancel.Text = LocalizationManager.GetString("SettingsCancel");
+        // Update headers if already initialized
+        foreach (var item in collapseMain.Items)
+        {
+            foreach (var btn in item.Buttons)
+            {
+                if (btn is AntdUI.CollapseGroupButton sbtn)
+                {
+                    sbtn.CheckedText = LocalizationManager.GetString("ArchiveExecute");
+                    sbtn.UnCheckedText = LocalizationManager.GetString("ArchiveSkip");
+                }
+            }
+            if (item.Controls.Count > 0 && item.Controls[0] is AntdUI.Table table)
+            {
+                table.Columns[0].Title = LocalizationManager.GetString("SourceName");
+                table.Columns[1].Title = LocalizationManager.GetString("Action");
+            }
+        }
+    }
+
+    private void InitializeOfficialCollapseUI()
+    {
+        //container.Controls.Clear();
+
+        // 1. 建立主 Collapse 元件
+        //var collapse = new AntdUI.Collapse
+        //{
+        //    Unique= true,
+        //    Dock = DockStyle.Top,
+        //    AutoSize = true,
+        //    Name = "collapseMain",
+        //    ContentPadding = new Size(5, 5),
+        //    HeaderBg = Color.FromArgb(194, 193, 192),
+        //    FontExpand = new Font("Microsoft JhengHei UI", 12F, FontStyle.Bold)
+        //};
+
+        // 確保初始寬度大於 0，否則佈局引擎不會工作
+        collapseMain.Width = this.splitter1.Panel2.Width > 0 ? this.splitter1.Panel2.Width - 20 : 800;
+        collapseMain.Height = 100; // 給予初始高度
+
+        // 處理群組開關事件
+        collapseMain.ButtonClick += (s, e) =>
+        {
+            var grp = _groups.FirstOrDefault(g => g.DestinationPath == e.Value.Name);
+            if (grp != null)
+            {
+                grp.Checked = e.Value.Checked;
+                UpdateExecuteButtonState();
+            }
+        };
+
+        foreach (var group in _groups)
+        {
+            // 2. 建立 CollapseItem
+            var collapseItem = new AntdUI.CollapseItem
+            {
+                Text = $"{group.DisplayTitle} ",
+                //Expand = true,
+                Height = 200,
+                AutoScroll = true,
+
+            };
+
+            // 3. 加入 Switch 按鈕
+            var switchBtn = new AntdUI.CollapseGroupButton
+            {
+                Name = group.DestinationPath,
+                EditType = AntdUI.EButtonEditTypes.Switch,
+                CheckedText = "執行",
+                UnCheckedText = "略過",
+                Checked = group.Checked,
+                SwitchMode = true,
+                Width = 100
+            };
+            collapseItem.Buttons.Add(switchBtn);
+
+            var table = new AntdUI.Table
+            {
+                Dock = DockStyle.Fill,
+                DataSource = group.Items,
+                AutoSizeColumnsMode = AntdUI.ColumnsMode.Fill,
+                Gap = 4,
+            };
+
+            table.Columns = new ColumnCollection {
+                new Column("Source", "來源名稱") { Width = "90%" },
+                new Column("Action", "操作")
+            };
+
+            table.CellButtonClick += (s, e) =>
+            {
+                if (e.Btn.Id == "Delete" && e.Record is ArchiveItem archiveItem)
+                {
+                    group.Items.Remove(archiveItem);
+                    collapseItem.Text = group.DisplayTitle;
+                    if (group.Items.Count == 0) collapseItem.Visible = false;
+                    UpdateExecuteButtonState();
+                    collapseMain.LoadLayout();
+                }
+            };
+
+            collapseItem.Controls.Add(table);
+            collapseMain.Items.Add(collapseItem);
+        }
+        UpdateExecuteButtonState();
+
+    }
+
+    private void UpdateExecuteButtonState()
+    {
+        btnExecute.Enabled = _groups.Any(x => x.Checked && x.Items.Count > 0);
+    }
+
+    private async Task ExecuteArchiveAsync()
+    {
+        var checkedGroups = _groups.Where(g => g.Checked && g.Items.Count > 0).ToList();
+        int totalFiles = checkedGroups.Sum(g => g.Items.Count);
+        if (totalFiles == 0) return;
+
+        btnExecute.Loading = true;
+        btnCancel.Enabled = false;
+        progress.Visible = true;
+
+        await Task.Run(() =>
+        {
+            int currentCount = 0;
+            foreach (var group in checkedGroups)
+            {
+                foreach (var item in group.Items)
+                {
+                    currentCount++;
+                    string targetPath = Path.Combine(group.DestinationPath, item.Source);
+
+                    this.Invoke(() =>
+                    {
+                        item.Status = "移動中...";
+                        lblProgress.Text = $"處理: {item.Source}";
+                        progress.Value = (int)((double)currentCount / totalFiles * 100);
+                    });
+
+                    try
+                    {
+                        string destDir = Path.GetDirectoryName(targetPath)!;
+                        if (!Directory.Exists(destDir)) Directory.CreateDirectory(destDir);
+                        if (Directory.Exists(item.FullPath)) Directory.Move(item.FullPath, targetPath);
+                        else File.Move(item.FullPath, targetPath);
+
+                        var kws = _organizer.ExtractAllKeywords(item.Source);
+                        foreach (var kw in kws)
+                        {
+                            if (_organizer.IsKeywordValidForTarget(kw, Path.GetFileName(group.DestinationPath)))
+                                _intelligence.Learn(kw, Path.GetFileName(group.DestinationPath));
+                        }
+                        this.Invoke(() => item.Status = "完成");
+                    }
+                    catch (Exception ex)
+                    {
+                        this.Invoke(() => item.Status = "失敗: " + ex.Message);
+                    }
+                }
+            }
+        });
+
+        AntdUI.Message.success(this, "歸檔處理完畢");
+        btnExecute.Loading = false;
+        btnCancel.Text = "關閉";
+        btnCancel.Enabled = true;
+    }
+}

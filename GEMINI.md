@@ -1,4 +1,4 @@
-# ComicOrganize 專案概觀
+# ComicOrganizer 專案概觀
 
 這是一個用於自動化整理漫畫、圖集資料夾的工具專案。目前核心邏輯基於 PowerShell 實作，正計畫轉型為 C# 視覺化應用程式並優化核心算法。
 

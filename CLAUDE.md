@@ -4,29 +4,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 專案性質
 
-ComicOrganize 是一套**漫畫/圖集自動整理工具**，正在從 `script/圖片整理.ps1`（命令列 PowerShell legacy）轉型為 `src/` 下的 **C# WinForms 視覺化應用程式**。新版核心功能：智慧封面提取、模糊匹配自動歸檔、自我學習關鍵字 → 目錄映射。
+ComicOrganizer 是一套**漫畫/圖集自動整理工具**，正在從 `script/圖片整理.ps1`（命令列 PowerShell legacy）轉型為 `src/` 下的 **C# WinForms 視覺化應用程式**。新版核心功能：智慧封面提取、模糊匹配自動歸檔、自我學習關鍵字 → 目錄映射。
 
 開發時應**以 `src/` 下的 C# 專案為主**；PowerShell 腳本只是規格參考，不應再擴充。
 
 ## 常用指令
 
-所有指令都從 `src/` 下執行（solution 為 `ComicOrganize.slnx`）。
+所有指令都從 `src/` 下執行（solution 為 `ComicOrganizer.slnx`）。
 
 ```bash
 # 建置整個 solution
-dotnet build src/ComicOrganize.slnx
+dotnet build src/ComicOrganizer.slnx
 
 # 執行 WinForms 應用
-dotnet run --project src/ComicOrganize.App/ComicOrganize.App.csproj
+dotnet run --project src/ComicOrganizer.App/ComicOrganizer.App.csproj
 
 # 執行所有 xUnit 測試
-dotnet test src/ComicOrganize.Tests/ComicOrganize.Tests.csproj
+dotnet test src/ComicOrganizer.Tests/ComicOrganizer.Tests.csproj
 
 # 執行單一測試（依方法名）
-dotnet test src/ComicOrganize.Tests/ComicOrganize.Tests.csproj --filter "FullyQualifiedName~Test_JapaneseAuthorLearning_ShouldWork"
+dotnet test src/ComicOrganizer.Tests/ComicOrganizer.Tests.csproj --filter "FullyQualifiedName~Test_JapaneseAuthorLearning_ShouldWork"
 
 # 依測試類別過濾
-dotnet test src/ComicOrganize.Tests/ComicOrganize.Tests.csproj --filter "FullyQualifiedName~SelfLearningTests"
+dotnet test src/ComicOrganizer.Tests/ComicOrganizer.Tests.csproj --filter "FullyQualifiedName~SelfLearningTests"
 ```
 
 注意事項：
@@ -38,7 +38,7 @@ dotnet test src/ComicOrganize.Tests/ComicOrganize.Tests.csproj --filter "FullyQu
 
 UI 與業務邏輯解耦：MainForm 在啟動時建構一條 service chain（`ConfigManager` → `AppConfig` → `MappingIntelligence` → `ArchiveOrganizer` + `CoverManager`），所有檔案系統與比對邏輯都收斂到 `Core/`。三個 Tab 對應三大功能區塊。
 
-### Core 層（`ComicOrganize.App/Core/`）
+### Core 層（`ComicOrganizer.App/Core/`）
 
 - **`ConfigManager`** — JSON 持久化 `AppConfig`，預設儲存在 `AppDomain.CurrentDomain.BaseDirectory/appsettings.json`（也就是 `bin/.../appsettings.json`）。
 - **`MappingIntelligence`** — 自我學習的關鍵字 → 目錄映射表，獨立持久化在 `mappings.json`。`Learn()` 會把 key 正規化（`ToLower().Trim()`）後寫入並立刻 `Save()`；`TryGetMappedFolder()` 會**依 key 長度由長到短**比對，避免短關鍵字誤觸。`PreviewForm` 在執行歸檔成功後才呼叫 `Learn()` —— 即「使用者確認過的成功移動」才會進入知識庫。
@@ -52,7 +52,7 @@ UI 與業務邏輯解耦：MainForm 在啟動時建構一條 service chain（`Co
   - 單檔圖片：直接讀取。
   - 全部走 `Task.Run` + `ResizeImage` 縮圖，不阻塞 UI。`SharpCompress` 已加入相依但目前只用了 BCL 的 ZipFile —— 若要支援 rar/7z 需改走 SharpCompress。
 
-### Models（`ComicOrganize.App/Models/`）
+### Models（`ComicOrganizer.App/Models/`）
 
 - `AppConfig` — 來源/根目錄、外部圖片瀏覽器 exe 路徑、Blacklist、BlacklistPatterns、DebugMode。
 - `ArchiveItem`（定義在 `MainForm.cs` 末段，**不是** `Models/`） — Table 綁定的 row，實作 `INotifyPropertyChanged`。
