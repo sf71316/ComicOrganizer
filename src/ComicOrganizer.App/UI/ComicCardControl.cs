@@ -56,6 +56,19 @@ public partial class ComicCardControl : UserControl
         using var path = GetRoundedPath(new Rectangle(0, 0, Width, Height), CornerRadius);
         Region = new Region(path);
         oldRegion?.Dispose();
+        Invalidate();   // Region 變了重畫一次邊框
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
+        if (Width <= 0 || Height <= 0) return;
+        // 1px rounded border：畫在 (0,0)~(Width-1,Height-1)，stroke 中心在路徑上、
+        // 外半邊被 Region 裁掉，內半邊吃到視覺成一條淡淡 1px 線；改用 inset 1px 確保完整
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        using var path = GetRoundedPath(new Rectangle(0, 0, Width - 1, Height - 1), CornerRadius);
+        using var pen = new Pen(ComicOrganizer.App.Core.ThemeColors.Border, 1);
+        e.Graphics.DrawPath(pen, path);
     }
 
     private static GraphicsPath GetRoundedPath(Rectangle rect, int radius)
