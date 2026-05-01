@@ -1,4 +1,5 @@
 using ComicOrganizer.App.Models;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.IO.Compression;
@@ -12,6 +13,18 @@ public class CoverManager
     private readonly AppConfig _config;
     private static readonly string[] ImageExtensions = { ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif" };
 
+    // 開啟後 GetCoverAsync 會在 Debug Output 印分階段時序，方便在不同儲存介質
+    // (HDD vs SSD) 上觀察 zip vs subdir 解析路徑的成本。
+    // 訊息以 "[Cover]" 開頭，VS Output 或 DebugView 可篩選。
+    private const bool DebugTiming = true;
+
+    private static void Log(string msg)
+    {
+        if (DebugTiming) Debug.WriteLine("[Cover] " + msg);
+    }
+
+    private static string Short(string path) => Path.GetFileName(path);
+
     public CoverManager(AppConfig config)
     {
         _config = config;
@@ -24,30 +37,48 @@ public class CoverManager
     {
         return await Task.Run(() =>
         {
+            var swTotal = Stopwatch.StartNew();
+            string kind = "?";
+            Image? result = null;
             try
             {
                 if (Directory.Exists(path))
                 {
-                    return GetFolderCover(path, maxWidth);
+                    kind = "FOLDER";
+                    result = GetFolderCover(path, maxWidth);
                 }
                 else if (File.Exists(path))
                 {
                     string ext = Path.GetExtension(path).ToLower();
                     if (ext == ".zip" || ext == ".cbz")
                     {
-                        return GetZipCover(path, maxWidth);
+                        kind = "ZIP-direct";
+                        result = GetZipCover(path, maxWidth);
                     }
                     else if (ImageExtensions.Contains(ext))
                     {
-                        return LoadAndResizeImage(path, maxWidth);
+                        kind = "IMG-direct";
+                        result = LoadAndResizeImage(path, maxWidth);
                     }
+                    else
+                    {
+                        kind = "UNSUPPORTED(" + ext + ")";
+                    }
+                }
+                else
+                {
+                    kind = "MISSING";
                 }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"提取封面失敗 ({path}): {ex.Message}");
+                kind += "-EX";
+                Log($"FAIL {kind} '{Short(path)}': {ex.Message}");
+                return null;
             }
-            return null;
+            swTotal.Stop();
+            Log($"{kind,-12} '{Short(path)}' → {(result != null ? $"{result.Width}x{result.Height}" : "null"),-12} total={swTotal.ElapsedMilliseconds}ms");
+            return result;
         });
     }
 
@@ -62,22 +93,37 @@ public class CoverManager
     /// </summary>
     private Image? GetFolderCoverRecursive(string folderPath, int maxWidth, int remainingDepth)
     {
-        if (remainingDepth <= 0) return null;
+        if (remainingDepth <= 0)
+        {
+            Log($"  depth-exhausted at '{Short(folderPath)}'");
+            return null;
+        }
 
         try
         {
+            var swDir = Stopwatch.StartNew();
             var files = Directory.GetFiles(folderPath);
+            swDir.Stop();
+            Log($"  scan '{Short(folderPath)}' ({files.Length} files) dir-list={swDir.ElapsedMilliseconds}ms");
 
             // 1. cover.* 命名圖檔
             var coverFile = files.FirstOrDefault(f =>
                 Path.GetFileNameWithoutExtension(f).Equals("cover", StringComparison.OrdinalIgnoreCase) &&
                 ImageExtensions.Contains(Path.GetExtension(f).ToLower()));
-            if (coverFile != null) return LoadAndResizeImage(coverFile, maxWidth);
+            if (coverFile != null)
+            {
+                Log($"  rule=COVER_FILE picked '{Short(coverFile)}'");
+                return LoadAndResizeImage(coverFile, maxWidth);
+            }
 
             // 2. 字典序第一張圖檔
             var firstImage = files.OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
                 .FirstOrDefault(f => ImageExtensions.Contains(Path.GetExtension(f).ToLower()));
-            if (firstImage != null) return LoadAndResizeImage(firstImage, maxWidth);
+            if (firstImage != null)
+            {
+                Log($"  rule=FIRST_IMAGE picked '{Short(firstImage)}'");
+                return LoadAndResizeImage(firstImage, maxWidth);
+            }
 
             // 3. 字典序第一個 zip/cbz
             var firstArchive = files.OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
@@ -88,6 +134,7 @@ public class CoverManager
                 });
             if (firstArchive != null)
             {
+                Log($"  rule=FIRST_ZIP picked '{Short(firstArchive)}'");
                 var img = GetZipCover(firstArchive, maxWidth);
                 if (img != null) return img;
             }
@@ -97,13 +144,14 @@ public class CoverManager
                 .OrderBy(d => d, StringComparer.OrdinalIgnoreCase);
             foreach (var subDir in subDirs)
             {
+                Log($"  rule=RECURSE_SUBDIR '{Short(subDir)}' (depth left={remainingDepth - 1})");
                 var img = GetFolderCoverRecursive(subDir, maxWidth, remainingDepth - 1);
                 if (img != null) return img;
             }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"遞迴封面搜尋失敗 ({folderPath}): {ex.Message}");
+            Log($"  EX in folder '{Short(folderPath)}': {ex.Message}");
         }
 
         return null;
@@ -113,8 +161,10 @@ public class CoverManager
     {
         try
         {
+            var swOpen = Stopwatch.StartNew();
             using (var archive = ZipFile.OpenRead(zipPath))
             {
+                swOpen.Stop();
                 var entry = archive.Entries
                     .Where(e => ImageExtensions.Contains(Path.GetExtension(e.FullName).ToLower()))
                     .OrderBy(e => e.FullName)
@@ -123,38 +173,67 @@ public class CoverManager
                 if (entry != null)
                 {
                     string ext = Path.GetExtension(entry.FullName).ToLower();
+                    string method = entry.CompressedLength == entry.Length ? "stored" : "deflate";
+
+                    var swExtract = Stopwatch.StartNew();
                     using (var stream = entry.Open())
                     using (var ms = new MemoryStream())
                     {
                         stream.CopyTo(ms);
+                        swExtract.Stop();
                         ms.Position = 0;
+
+                        var swDecode = Stopwatch.StartNew();
                         using (var img = LoadImageFromStream(ms, ext))
                         {
-                            return ResizeImage(img, maxWidth);
+                            swDecode.Stop();
+                            var swResize = Stopwatch.StartNew();
+                            var resized = ResizeImage(img, maxWidth);
+                            swResize.Stop();
+
+                            Log($"  zip='{Short(zipPath)}' entry='{entry.FullName}' size={entry.Length / 1024}KB method={method}" +
+                                $" open={swOpen.ElapsedMilliseconds}ms extract={swExtract.ElapsedMilliseconds}ms" +
+                                $" decode={swDecode.ElapsedMilliseconds}ms resize={swResize.ElapsedMilliseconds}ms");
+                            return resized;
                         }
                     }
                 }
+                Log($"  zip='{Short(zipPath)}' has no image entries");
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Log($"  zip EX '{Short(zipPath)}': {ex.Message}");
+        }
         return null;
     }
 
     private Image? LoadAndResizeImage(string filePath, int maxWidth)
     {
         string ext = Path.GetExtension(filePath).ToLower();
+        var swDecode = Stopwatch.StartNew();
         if (ext == ".webp")
         {
             // GDI+ 不支援 WebP decoder，走 ImageSharp 載入後轉 GDI+ Bitmap
             using (var img = LoadWebpAsBitmap(filePath))
             {
-                return ResizeImage(img, maxWidth);
+                swDecode.Stop();
+                var swResize = Stopwatch.StartNew();
+                var res = ResizeImage(img, maxWidth);
+                swResize.Stop();
+                Log($"  load ext={ext} src={img.Width}x{img.Height} decode={swDecode.ElapsedMilliseconds}ms resize={swResize.ElapsedMilliseconds}ms");
+                return res;
             }
         }
 
         using (var img = Image.FromFile(filePath))
         {
-            return ResizeImage(img, maxWidth);
+            swDecode.Stop();
+            var swResize = Stopwatch.StartNew();
+            var res = ResizeImage(img, maxWidth);
+            swResize.Stop();
+            Log($"  load ext={ext} src={img.Width}x{img.Height} decode={swDecode.ElapsedMilliseconds}ms resize={swResize.ElapsedMilliseconds}ms");
+            return res;
         }
     }
 
