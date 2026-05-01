@@ -103,21 +103,36 @@ public class FolderRoleAnalysisTest
 
         foreach (var sub in subdirs) Walk(sub, detector, depth + 1, stats);
 
-        // Author 目錄要額外列直接放的 zip/cbz/pdf 檔（每個 = 一個 Work）
+        // Author 目錄要額外列直接放的檔案（zip/cbz/pdf/長檔名被截斷的檔等）
+        // 放寬條件：不靠副檔名 (有些檔名末段被截斷沒 `.`，Path.GetExtension 抓不到)
+        // 過濾 cover.* / banner.* / 系統檔 / 隱藏檔
         if (role == FolderRole.Author)
         {
-            string[] archiveExts = { ".zip", ".cbz", ".pdf" };
-            IEnumerable<string> archives;
+            IEnumerable<string> files;
             try
             {
-                archives = Directory.GetFiles(path)
-                    .Where(f => archiveExts.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
+                files = Directory.GetFiles(path)
+                    .Where(f =>
+                    {
+                        var fn = Path.GetFileName(f).ToLowerInvariant();
+                        if (string.IsNullOrEmpty(fn)) return false;
+                        if (fn.StartsWith(".")) return false;                  // 系統檔 .DS_Store
+                        if (fn == "thumbs.db" || fn == "desktop.ini") return false;
+                        // 跳 cover.* / banner.*
+                        var stem = Path.GetFileNameWithoutExtension(fn);
+                        if (stem == "cover" || stem.StartsWith("banner") || stem.StartsWith("thumb")) return false;
+                        // 過濾單純圖檔 (Author dir 直接放的圖通常是 cover/banner)
+                        var ext = Path.GetExtension(fn);
+                        if (ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".webp" || ext == ".bmp" || ext == ".gif")
+                            return false;
+                        return true;
+                    })
                     .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
                     .Take(MaxEntriesPerLevel);
             }
             catch { return; }
 
-            foreach (var f in archives) Walk(f, detector, depth + 1, stats);
+            foreach (var f in files) Walk(f, detector, depth + 1, stats);
         }
     }
 
