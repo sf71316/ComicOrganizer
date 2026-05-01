@@ -28,7 +28,7 @@ partial class ComicCardControl
         //
         // lbl
         //
-        lbl.BackColor = Color.Transparent;   // 透明讓 hover 時 UserControl Secondary 從文字下方透出
+        lbl.BackColor = Color.White;   // 不透明 → scroll 走 BitBlt；hover 時 SetHoverState 改色
         lbl.Cursor = Cursors.Hand;
         lbl.Dock = DockStyle.Fill;
         lbl.Font = new Font("Microsoft JhengHei UI", 12F);

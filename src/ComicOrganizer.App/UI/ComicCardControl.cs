@@ -242,6 +242,7 @@ public partial class ComicCardControl : UserControl
             typeStrip.BringToFront();
             hoverToolbar.BringToFront();
             _currentBgColor = ComicOrganizer.App.Core.ThemeColors.Secondary;
+            lbl.BackColor = _currentBgColor;   // lbl 不透明，需手動同步 hover 色
             Invalidate();
 
             if (!_tooltipShown && !_tooltipDelayTimer.Enabled)
@@ -257,6 +258,7 @@ public partial class ComicCardControl : UserControl
                 if (typeStrip != null) typeStrip.Visible = false;
                 if (hoverToolbar != null) hoverToolbar.Visible = false;
                 _currentBgColor = Color.White;
+                lbl.BackColor = Color.White;
                 Invalidate();
                 _tooltipDelayTimer.Stop();
                 _tooltipShown = false;
