@@ -113,4 +113,5 @@
   <data name="MenuOpenInExplorer" xml:space="preserve"><value>檔案總管開啟</value></data>
   <data name="MenuOpenInCurrentTab" xml:space="preserve"><value>目前頁籤開啟</value></data>
   <data name="MenuOpenInNewTab" xml:space="preserve"><value>另開新頁籤</value></data>
+  <data name="SettingsThumbCacheMax" xml:space="preserve"><value>縮圖快取上限 (超過會 LRU 淘汰最舊)</value></data>
 </root>

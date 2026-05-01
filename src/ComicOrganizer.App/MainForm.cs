@@ -40,7 +40,7 @@ public partial class MainForm : Window, IThemedControl
         var baseDir = AppDomain.CurrentDomain.BaseDirectory;
         _metaStore = new SqliteAssetMetaStore(Path.Combine(baseDir, "cache.db"));
         _thumbStore = new FileSystemThumbStore(Path.Combine(baseDir, "thumbs"));
-        _cacheWriter = new CacheWriter(_metaStore, _thumbStore);
+        _cacheWriter = new CacheWriter(_metaStore, _thumbStore, _config);
         _coverManager.AttachCache(_metaStore, _thumbStore, _cacheWriter);
         _rebuildService = new CacheRebuildService(_config, _coverManager, _metaStore, _thumbStore);
 

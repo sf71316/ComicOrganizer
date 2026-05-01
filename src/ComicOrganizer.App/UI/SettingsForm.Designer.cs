@@ -46,6 +46,9 @@ partial class SettingsForm
     private AntdUI.Label labelCoverSizeTilde;
     private AntdUI.InputNumber numMaxCoverSize;
     private AntdUI.Select selectMaxCoverUnit;
+    private AntdUI.Label labelThumbCacheMax;
+    private AntdUI.InputNumber numThumbCacheMax;
+    private AntdUI.Select selectThumbCacheUnit;
 
     // Footer 按鈕
     private AntdUI.Button btnSave;
@@ -94,6 +97,9 @@ partial class SettingsForm
         labelCoverSizeTilde = new AntdUI.Label();
         numMaxCoverSize = new InputNumber();
         selectMaxCoverUnit = new AntdUI.Select();
+        labelThumbCacheMax = new AntdUI.Label();
+        numThumbCacheMax = new InputNumber();
+        selectThumbCacheUnit = new AntdUI.Select();
         btnSave = new AntdUI.Button();
         btnCancel = new AntdUI.Button();
 
@@ -229,6 +235,9 @@ partial class SettingsForm
         // libraryPanel
         //
         libraryPanel.BackColor = Color.Transparent;
+        libraryPanel.Controls.Add(selectThumbCacheUnit);
+        libraryPanel.Controls.Add(numThumbCacheMax);
+        libraryPanel.Controls.Add(labelThumbCacheMax);
         libraryPanel.Controls.Add(selectMaxCoverUnit);
         libraryPanel.Controls.Add(numMaxCoverSize);
         libraryPanel.Controls.Add(labelCoverSizeTilde);
@@ -256,7 +265,7 @@ partial class SettingsForm
         libraryPanel.TabIndex = 1;
         libraryPanel.Visible = false;
         libraryPanel.AutoScroll = true;
-        libraryPanel.AutoScrollMinSize = new Size(0, 620);  // 內容超出 panel 高時垂直 scroll
+        libraryPanel.AutoScrollMinSize = new Size(0, 720);  // 內容超出 panel 高時垂直 scroll
         //
         // label1
         //
@@ -432,6 +441,35 @@ partial class SettingsForm
         selectMaxCoverUnit.Name = "selectMaxCoverUnit";
         selectMaxCoverUnit.Size = new Size(80, 45);
         selectMaxCoverUnit.TabIndex = 18;
+        //
+        // labelThumbCacheMax
+        //
+        labelThumbCacheMax.BackColor = Color.Transparent;
+        labelThumbCacheMax.Location = new Point(40, 620);
+        labelThumbCacheMax.Name = "labelThumbCacheMax";
+        labelThumbCacheMax.Size = new Size(420, 30);
+        labelThumbCacheMax.TabIndex = 19;
+        labelThumbCacheMax.Text = "縮圖快取上限 (超過會 LRU 淘汰最舊)";
+        //
+        // numThumbCacheMax
+        //
+        numThumbCacheMax.Location = new Point(40, 655);
+        numThumbCacheMax.Name = "numThumbCacheMax";
+        numThumbCacheMax.Minimum = 0;
+        numThumbCacheMax.Maximum = 9999;
+        numThumbCacheMax.Value = 1;
+        numThumbCacheMax.Size = new Size(100, 45);
+        numThumbCacheMax.TabIndex = 20;
+        //
+        // selectThumbCacheUnit
+        //
+        selectThumbCacheUnit.Items.Add("MB");
+        selectThumbCacheUnit.Items.Add("GB");
+        selectThumbCacheUnit.SelectedIndex = 1;
+        selectThumbCacheUnit.Location = new Point(150, 655);
+        selectThumbCacheUnit.Name = "selectThumbCacheUnit";
+        selectThumbCacheUnit.Size = new Size(80, 45);
+        selectThumbCacheUnit.TabIndex = 21;
         //
         // footer
         //

@@ -48,6 +48,7 @@ public partial class SettingsForm : Window, IThemedControl
         numMaxScanDepth.Value = Config.MaxScanDepth;
         LoadSizeWithUnit(Config.MinCoverFileSizeBytes, numMinCoverSize, selectMinCoverUnit);
         LoadSizeWithUnit(Config.MaxCoverFileSizeBytes, numMaxCoverSize, selectMaxCoverUnit);
+        LoadSizeWithUnit_MB_GB(Config.ThumbCacheMaxBytes, numThumbCacheMax, selectThumbCacheUnit);
 
         // Theme selector - 簡化 Items 避免轉型錯誤
         selectTheme.Items.Clear();
@@ -123,6 +124,7 @@ public partial class SettingsForm : Window, IThemedControl
         // 漫畫庫管理 - 搜尋層數 + 封面大小過濾
         labelMaxScanDepth.Text = LocalizationManager.GetString("SettingsMaxScanDepth") ?? "搜尋層數限制 (封面遞迴)";
         labelCoverSizeRange.Text = LocalizationManager.GetString("SettingsCoverSizeRange") ?? "封面取樣檔案大小範圍";
+        labelThumbCacheMax.Text = LocalizationManager.GetString("SettingsThumbCacheMax") ?? "縮圖快取上限 (超過會 LRU 淘汰最舊)";
     }
 
     /// <summary>
@@ -151,6 +153,29 @@ public partial class SettingsForm : Window, IThemedControl
     private static long SaveSizeWithUnit(AntdUI.InputNumber num, AntdUI.Select unit)
     {
         long multiplier = unit.SelectedIndex == 1 ? 1024L * 1024 : 1024L;
+        return (long)num.Value * multiplier;
+    }
+
+    /// <summary>同上但單位用 MB / GB（縮圖快取上限通常以 GB 為單位）。</summary>
+    private static void LoadSizeWithUnit_MB_GB(long bytes, AntdUI.InputNumber num, AntdUI.Select unit)
+    {
+        const long OneGB = 1024L * 1024 * 1024;
+        const long OneMB = 1024L * 1024;
+        if (bytes >= OneGB && bytes % OneGB == 0)
+        {
+            unit.SelectedIndex = 1;        // GB
+            num.Value = bytes / OneGB;
+        }
+        else
+        {
+            unit.SelectedIndex = 0;        // MB
+            num.Value = bytes / OneMB;
+        }
+    }
+
+    private static long SaveSizeWithUnit_MB_GB(AntdUI.InputNumber num, AntdUI.Select unit)
+    {
+        long multiplier = unit.SelectedIndex == 1 ? 1024L * 1024 * 1024 : 1024L * 1024;
         return (long)num.Value * multiplier;
     }
 
@@ -190,6 +215,7 @@ public partial class SettingsForm : Window, IThemedControl
         Config.MaxScanDepth = (int)numMaxScanDepth.Value;
         Config.MinCoverFileSizeBytes = SaveSizeWithUnit(numMinCoverSize, selectMinCoverUnit);
         Config.MaxCoverFileSizeBytes = SaveSizeWithUnit(numMaxCoverSize, selectMaxCoverUnit);
+        Config.ThumbCacheMaxBytes = SaveSizeWithUnit_MB_GB(numThumbCacheMax, selectThumbCacheUnit);
 
         // 修正轉型問題：使用 Index 而非直接轉型對象
         if (selectTheme.SelectedIndex >= 0)

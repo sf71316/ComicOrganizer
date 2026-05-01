@@ -113,4 +113,5 @@
   <data name="MenuOpenInExplorer" xml:space="preserve"><value>Open in Explorer</value></data>
   <data name="MenuOpenInCurrentTab" xml:space="preserve"><value>Open in Current Tab</value></data>
   <data name="MenuOpenInNewTab" xml:space="preserve"><value>Open in New Tab</value></data>
+  <data name="SettingsThumbCacheMax" xml:space="preserve"><value>Thumb cache size limit (LRU eviction)</value></data>
 </root>

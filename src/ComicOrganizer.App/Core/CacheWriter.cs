@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using ComicOrganizer.App.Models;
 
 namespace ComicOrganizer.App.Core;
 
@@ -28,13 +29,19 @@ public class CacheWriter : IDisposable
     private readonly Thread _worker;
     private readonly IAssetMetaStore _metaStore;
     private readonly IThumbStore _thumbStore;
+    private readonly AppConfig _config;
     private const int MaxBatchSize = 100;
     private const int BatchWindowMs = 100;
 
-    public CacheWriter(IAssetMetaStore metaStore, IThumbStore thumbStore)
+    // LRU eviction：每 N 個批次或 N 秒檢查一次 cache 大小，超過 limit 才掃一次淘汰
+    private int _batchesSinceLastEvictionCheck;
+    private const int EvictionCheckEveryBatches = 20;
+
+    public CacheWriter(IAssetMetaStore metaStore, IThumbStore thumbStore, AppConfig config)
     {
         _metaStore = metaStore;
         _thumbStore = thumbStore;
+        _config = config;
         _worker = new Thread(WorkerLoop)
         {
             IsBackground = true,
@@ -86,6 +93,13 @@ public class CacheWriter : IDisposable
 
                 FlushBatch(batch);
                 batch.Clear();
+
+                // 每 N 個批次檢查一次 cache 大小，超過 limit 才 evict
+                if (++_batchesSinceLastEvictionCheck >= EvictionCheckEveryBatches)
+                {
+                    _batchesSinceLastEvictionCheck = 0;
+                    MaybeEvict();
+                }
             }
 
             // queue 已 complete，drain 剩餘 ops
@@ -104,6 +118,66 @@ public class CacheWriter : IDisposable
         {
             Debug.WriteLine($"[CacheWriter] worker crashed: {ex}");
         }
+    }
+
+    /// <summary>
+    /// LRU eviction：算 thumbs/ 總大小，若超過 ThumbCacheMaxBytes 就分批刪最舊的 cache。
+    /// 設定值為 0 視為不限制。
+    /// </summary>
+    private void MaybeEvict()
+    {
+        long limit = _config.ThumbCacheMaxBytes;
+        if (limit <= 0) return;
+
+        long totalSize;
+        try { totalSize = _thumbStore.TotalSizeBytes(); }
+        catch { return; }
+
+        if (totalSize <= limit) return;
+
+        Debug.WriteLine($"[CacheWriter] cache size {totalSize / 1024 / 1024}MB > {limit / 1024 / 1024}MB → evict");
+
+        const int BatchEvictCount = 100;
+        long evictedBytes = 0;
+        int evictedCount = 0;
+        int safetyMaxIterations = 20;   // 最多刪 20 batch (~2000 entries) 避免無限 loop
+
+        try
+        {
+            using var tx = _metaStore.BeginTransaction();
+            while (totalSize > limit && safetyMaxIterations-- > 0)
+            {
+                var victims = _metaStore.ListLruVictims(BatchEvictCount).ToList();
+                if (victims.Count == 0) break;
+
+                foreach (var v in victims)
+                {
+                    if (v.CoverThumbKey != null)
+                    {
+                        // 估 thumb 檔大小（用 file_size 近似不準，但比每次 stat 快）；最後再算 totalSize
+                        try
+                        {
+                            using var stream = _thumbStore.OpenRead(v.CoverThumbKey);
+                            evictedBytes += stream?.Length ?? 0;
+                        }
+                        catch { }
+                        _thumbStore.Delete(v.CoverThumbKey);
+                    }
+                    _metaStore.Delete(v.Path);
+                    evictedCount++;
+                }
+
+                // 重算 total（每 batch 算一次）
+                totalSize = _thumbStore.TotalSizeBytes();
+            }
+            tx.Commit();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[CacheWriter] eviction failed: {ex.Message}");
+        }
+
+        Debug.WriteLine($"[CacheWriter] evicted {evictedCount} entries (~{evictedBytes / 1024}KB), now {totalSize / 1024 / 1024}MB");
     }
 
     private void FlushBatch(List<CacheWriteOp> batch)

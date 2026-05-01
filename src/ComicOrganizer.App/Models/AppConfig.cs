@@ -36,6 +36,12 @@ public class AppConfig
     /// </summary>
     public long MaxCoverFileSizeBytes { get; set; } = 5 * 1024 * 1024;
 
+    /// <summary>
+    /// Thumbnail cache 容量 soft limit (bytes)。超過會 LRU 淘汰最舊的縮圖。
+    /// 預設 1GB。設 0 視為不限制。
+    /// </summary>
+    public long ThumbCacheMaxBytes { get; set; } = 1024L * 1024 * 1024;
+
     // UI 偏好設定
     public AppTheme Theme { get; set; } = AppTheme.System;
     public string Language { get; set; } = "zh-TW";
