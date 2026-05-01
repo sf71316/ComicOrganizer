@@ -43,7 +43,7 @@ public partial class MainForm : Window, IThemedControl
         _thumbStore = new FileSystemThumbStore(Path.Combine(baseDir, "thumbs"));
         _cacheWriter = new CacheWriter(_metaStore, _thumbStore, _config);
         _coverManager.AttachCache(_metaStore, _thumbStore, _cacheWriter);
-        _rebuildTracker = new RebuildProgressTracker();
+        _rebuildTracker = new RebuildProgressTracker(_metaStore);
         _rebuildService = new CacheRebuildService(_config, _coverManager, _metaStore, _thumbStore, _rebuildTracker);
         // Tracker 改變時，statusBar 自動同步顯示（背景任務全域可見）
         _rebuildTracker.StateChanged += (s, e) => UpdateStatusFromTracker();

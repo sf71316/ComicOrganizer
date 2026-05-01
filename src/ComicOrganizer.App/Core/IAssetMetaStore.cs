@@ -33,4 +33,10 @@ public interface IAssetMetaStore : IDisposable
     /// 持鎖整段 action 期間，避免多執行緒對同一 connection 開 nested transaction。
     /// </summary>
     void RunInTransaction(Action action);
+
+    /// <summary>取通用 key/value (app_state 表)。沒值時回 null。</summary>
+    string? GetState(string key);
+
+    /// <summary>寫通用 key/value。null value 視為刪除。</summary>
+    void SetState(string key, string? value);
 }

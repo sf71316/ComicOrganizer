@@ -55,6 +55,12 @@ CREATE TABLE IF NOT EXISTS folder_role (
     template TEXT,
     learned_at INTEGER
 );
+
+-- 通用 key/value：rebuild 進行中旗標、階段名稱等跨 session 持久化
+CREATE TABLE IF NOT EXISTS app_state (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
 ";
             cmd.ExecuteNonQuery();
         }
@@ -216,6 +222,38 @@ ON CONFLICT(path) DO UPDATE SET
     {
         // file_size 是原檔大小，不是 thumb 大小；thumb 真實大小由 IThumbStore.TotalSizeBytes() 算 fs
         return 0;
+    }
+
+    public string? GetState(string key)
+    {
+        lock (_lock)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "SELECT value FROM app_state WHERE key = $k LIMIT 1;";
+            cmd.Parameters.AddWithValue("$k", key);
+            var result = cmd.ExecuteScalar();
+            return result == null || result == DBNull.Value ? null : result.ToString();
+        }
+    }
+
+    public void SetState(string key, string? value)
+    {
+        lock (_lock)
+        {
+            using var cmd = _conn.CreateCommand();
+            if (value == null)
+            {
+                cmd.CommandText = "DELETE FROM app_state WHERE key = $k;";
+                cmd.Parameters.AddWithValue("$k", key);
+            }
+            else
+            {
+                cmd.CommandText = "INSERT INTO app_state (key, value) VALUES ($k, $v) ON CONFLICT(key) DO UPDATE SET value = excluded.value;";
+                cmd.Parameters.AddWithValue("$k", key);
+                cmd.Parameters.AddWithValue("$v", value);
+            }
+            cmd.ExecuteNonQuery();
+        }
     }
 
     public void RunInTransaction(Action action)

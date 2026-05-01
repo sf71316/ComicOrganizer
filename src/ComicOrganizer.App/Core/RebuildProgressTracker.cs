@@ -4,23 +4,45 @@ namespace ComicOrganizer.App.Core;
 /// 重建索引資料庫的「執行中狀態」共用追蹤器。
 /// 解耦 CacheRebuildService 與 UI，讓使用者可關掉重建視窗、任務照常背景跑、
 /// 重新開啟視窗看得到進度。statusBar 也訂閱即時顯示。
+///
+/// 跨 session 持久化：透過 IAssetMetaStore.app_state 寫旗標。App 啟動時若上次
+/// 為「正在重建中」(crash 或刻意中斷)，自動標 WasInterrupted=true 顯示「繼續」按鈕。
 /// </summary>
 public class RebuildProgressTracker
 {
     private readonly object _lock = new();
+    private readonly IAssetMetaStore? _metaStore;
+
+    private const string KeyInProgress = "rebuild_in_progress";    // "true" / null
+    private const string KeyPhase = "rebuild_phase";
 
     public bool IsRunning { get; private set; }
     public CacheRebuildService.Progress Current { get; private set; } = new();
-    public string Phase { get; private set; } = "";        // "完整重建中" / "掃描中" / 等
-    public bool WasInterrupted { get; private set; }       // 上次跑被取消 / 異常中止
+    public string Phase { get; private set; } = "";
+    public bool WasInterrupted { get; private set; }
 
-    /// <summary>單一全域 CTS。任務啟動時建立、由 Cancel() / NotifyEnd 清空。</summary>
     public CancellationTokenSource? Cts { get; private set; }
 
-    /// <summary>進度 / 階段 / 狀態任何變化都觸發。UI 訂閱此事件刷新。</summary>
     public event EventHandler? StateChanged;
 
-    /// <summary>啟動：建立 CTS 並 fire 事件。回傳 token 給 service 用。</summary>
+    public RebuildProgressTracker(IAssetMetaStore? metaStore = null)
+    {
+        _metaStore = metaStore;
+
+        // App 啟動：讀 DB，若上次為 in_progress（包含 crash / 強關 App / cancelled），
+        // 把 WasInterrupted 標起來
+        if (_metaStore != null)
+        {
+            var inProg = _metaStore.GetState(KeyInProgress);
+            if (inProg == "true")
+            {
+                WasInterrupted = true;
+                Phase = _metaStore.GetState(KeyPhase) ?? "";
+            }
+        }
+    }
+
+    /// <summary>啟動：建立 CTS、寫 DB 旗標、fire 事件。回傳 token 給 service 用。</summary>
     public CancellationToken Start(string phase)
     {
         lock (_lock)
@@ -31,6 +53,8 @@ public class RebuildProgressTracker
             Phase = phase;
             WasInterrupted = false;
             Current = new CacheRebuildService.Progress();
+            _metaStore?.SetState(KeyInProgress, "true");
+            _metaStore?.SetState(KeyPhase, phase);
         }
         OnChanged();
         return Cts.Token;
@@ -42,19 +66,31 @@ public class RebuildProgressTracker
         OnChanged();
     }
 
-    /// <summary>結束：cancelled=true 表示中途取消、可作為「繼續未完成」依據。</summary>
+    /// <summary>結束：
+    ///   cancelled=false (success) → 清 DB 旗標，下次 App 啟動不會 prompt 繼續
+    ///   cancelled=true → 保留 DB 旗標（in_progress 仍 = true），下次 App 啟動仍提示繼續
+    /// </summary>
     public void NotifyEnd(bool cancelled)
     {
         lock (_lock)
         {
             IsRunning = false;
             WasInterrupted = cancelled;
-            // CTS 留著 Cts 不 Dispose，避免 race；下次 Start 時才清舊
+            if (cancelled)
+            {
+                // 留著旗標讓重啟也能繼續
+                _metaStore?.SetState(KeyInProgress, "true");
+            }
+            else
+            {
+                // 完成 → 清旗標
+                _metaStore?.SetState(KeyInProgress, null);
+                _metaStore?.SetState(KeyPhase, null);
+            }
         }
         OnChanged();
     }
 
-    /// <summary>外部觸發取消（按鈕）。</summary>
     public void Cancel()
     {
         Cts?.Cancel();
