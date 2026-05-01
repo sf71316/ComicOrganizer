@@ -330,6 +330,20 @@ public class FolderRoleDetectorTests : IDisposable
         Assert.Equal(FolderRole.Category, d.Detect(s2));
     }
 
+    // ========== 名字含「総集編」但底下是 chapter pages → Work (不應誤判 Category) ==========
+    [Fact]
+    public void Work_With_SeriesName_But_Direct_Pages_Is_Work()
+    {
+        var lib = Mk();
+        var author = Mk("[ciaociao]");
+        // 名字含「総集編」(Anthology) 但底下沒子目錄 / 沒 zip / 只有 chapter 頁
+        var work = Mk("[ciaociao]", "[ciaociao] ちょっとした日常 (女体化 総集編) [中国翻訳]");
+        for (int i = 1; i <= 30; i++) Touch(work, $"{i:D3}.jpg");
+
+        var d = new FolderRoleDetector(lib);
+        Assert.Equal(FolderRole.Work, d.Detect(work));   // 名字含 Series 信號但實際是 leaf → Work
+    }
+
     // ========== Cache 重複呼叫不重新計算 ==========
     [Fact]
     public void Detect_Caches_Result()
