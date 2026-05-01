@@ -73,54 +73,71 @@ public partial class MainForm : Window, IThemedControl
     }
 
     private CancellationTokenSource? _statusCts;
+    private int _hideStatusToken;     // 防止舊 hide task 蓋掉新 ShowStatus
 
     /// <summary>
-    /// 部分重建：dialog 收到 user 選 subtree 後委派給此方法，跑背景非同步、進度顯示在 statusBar，
+    /// 通用狀態列訊息：顯示一段文字在底部 statusBar。autoHideMs > 0 時 N 毫秒後自動隱藏。
+    /// 任何背景任務（重建 cache、未來其他長時間操作）都可呼叫這個方法。
+    /// </summary>
+    public void ShowStatus(string message, int autoHideMs = 0)
+    {
+        if (statusBar.InvokeRequired)
+        {
+            statusBar.BeginInvoke(new Action(() => ShowStatus(message, autoHideMs)));
+            return;
+        }
+        statusBar.Visible = true;
+        statusLabel.Text = message;
+        int myToken = ++_hideStatusToken;
+        if (autoHideMs > 0) _ = HideStatusAfter(autoHideMs, myToken);
+    }
+
+    public void HideStatus()
+    {
+        if (statusBar.InvokeRequired)
+        {
+            statusBar.BeginInvoke(new Action(HideStatus));
+            return;
+        }
+        statusBar.Visible = false;
+    }
+
+    private async Task HideStatusAfter(int ms, int myToken)
+    {
+        await Task.Delay(ms);
+        // 期間若有新 ShowStatus 進來，token 改變 → 不隱藏
+        if (_hideStatusToken == myToken) HideStatus();
+    }
+
+    /// <summary>
+    /// 部分重建：dialog 收到 user 選 subtree 後委派給此方法，跑背景非同步、用 ShowStatus 顯示進度，
     /// User 仍可繼續操作 gallery。
     /// </summary>
     private async Task RunPartialRebuildBackground(string subtreePath)
     {
-        // 取消前一次未結束的背景任務
         _statusCts?.Cancel();
         _statusCts = new CancellationTokenSource();
         var ct = _statusCts.Token;
 
-        statusBar.Visible = true;
-        statusProgress.Value = 0f;
-        statusLabel.Text = "重建中...";
-        statusCancel.Click -= StatusCancelClickHandler;
-        statusCancel.Click += StatusCancelClickHandler;
-
+        ShowStatus("重建中...");
         var progress = new Progress<Core.CacheRebuildService.Progress>(p =>
         {
-            statusProgress.Value = p.Total > 0 ? (float)p.Done / p.Total : 0f;
-            statusLabel.Text = $"重建中 ({p.Done}/{p.Total})";
+            ShowStatus($"重建中 ({p.Done}/{p.Total})");
         });
 
         try
         {
             await _rebuildService.PartialRebuildAsync(subtreePath, progress, ct);
-            statusLabel.Text = $"重建完成";
+            ShowStatus("重建完成", autoHideMs: 5000);
         }
         catch (OperationCanceledException)
         {
-            statusLabel.Text = "已取消";
+            ShowStatus("已取消", autoHideMs: 3000);
         }
         catch (Exception ex)
         {
-            statusLabel.Text = "失敗: " + ex.Message;
+            ShowStatus("失敗: " + ex.Message, autoHideMs: 5000);
         }
-        finally
-        {
-            // 5 秒後自動隱藏
-            try { await Task.Delay(5000, CancellationToken.None); } catch { }
-            statusBar.Visible = false;
-        }
-    }
-
-    private void StatusCancelClickHandler(object? sender, EventArgs e)
-    {
-        _statusCts?.Cancel();
     }
 
     protected override void OnMouseDown(MouseEventArgs e)

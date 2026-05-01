@@ -10,11 +10,9 @@ partial class MainForm
     private System.Windows.Forms.MenuStrip menuStrip1;
     private System.Windows.Forms.Panel contentHost;
 
-    // Statusbar (背景非同步任務的進度顯示，例如部分重建 cache)
+    // 通用狀態列 (背景任務、操作完成提示等都共用，由 ShowStatus(msg) 觸發)
     private AntdUI.Panel statusBar;
     private AntdUI.Label statusLabel;
-    private AntdUI.Progress statusProgress;
-    private AntdUI.Button statusCancel;
 
     private UI.GalleryControl galleryControl;
     private UI.ArchiveControl archiveControl;
@@ -68,8 +66,6 @@ partial class MainForm
         contentHost = new System.Windows.Forms.Panel();
         statusBar = new AntdUI.Panel();
         statusLabel = new AntdUI.Label();
-        statusProgress = new AntdUI.Progress();
-        statusCancel = new AntdUI.Button();
         archiveControl = new ComicOrganizer.App.UI.ArchiveControl();
         galleryControl = new ComicOrganizer.App.UI.GalleryControl();
         menuStrip1.SuspendLayout();
@@ -209,41 +205,23 @@ partial class MainForm
         contentHost.Size = new Size(1280, 642);
         contentHost.TabIndex = 2;
         //
-        // statusBar (背景任務進度，預設隱藏)
+        // statusBar (通用狀態列，預設隱藏；由 ShowStatus(msg) 顯示)
         //
         statusBar.Dock = DockStyle.Bottom;
-        statusBar.Size = new Size(1280, 32);
+        statusBar.Size = new Size(1280, 28);
         statusBar.BackColor = Color.Transparent;
         statusBar.Back = Core.ThemeColors.Surface;
-        statusBar.Padding = new Padding(8, 4, 8, 4);
+        statusBar.Padding = new Padding(12, 4, 12, 4);
         statusBar.Visible = false;
         statusBar.Name = "statusBar";
-        statusBar.Controls.Add(statusCancel);
-        statusBar.Controls.Add(statusProgress);
         statusBar.Controls.Add(statusLabel);
         //
         // statusLabel
         //
-        statusLabel.Dock = DockStyle.Left;
-        statusLabel.Width = 380;
+        statusLabel.Dock = DockStyle.Fill;
         statusLabel.Text = "";
         statusLabel.BackColor = Color.Transparent;
         statusLabel.Name = "statusLabel";
-        //
-        // statusProgress
-        //
-        statusProgress.Dock = DockStyle.Fill;
-        statusProgress.Value = 0f;
-        statusProgress.Padding = new Padding(8, 6, 8, 6);
-        statusProgress.Name = "statusProgress";
-        //
-        // statusCancel
-        //
-        statusCancel.Dock = DockStyle.Right;
-        statusCancel.Width = 70;
-        statusCancel.Text = "取消";
-        statusCancel.Type = AntdUI.TTypeMini.Default;
-        statusCancel.Name = "statusCancel";
         // 
         // archiveControl
         // 
