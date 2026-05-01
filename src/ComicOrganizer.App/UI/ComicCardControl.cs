@@ -66,27 +66,27 @@ public partial class ComicCardControl : UserControl
         if (Width <= 0 || Height <= 0) return;
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
-        g.PixelOffsetMode = PixelOffsetMode.Half;
 
         // 圓角填滿（hover 時為 Secondary 紫）
-        using (var fillPath = GetRoundedPath(new Rectangle(0, 0, Width, Height), CornerRadius))
+        using (var fillPath = GetRoundedPathF(new RectangleF(0, 0, Width, Height), CornerRadius))
         using (var brush = new SolidBrush(_currentBgColor))
         {
             g.FillPath(brush, fillPath);
         }
 
-        // 1px 圓角框線 (inset 半 px 讓 1px stroke 完整落在可見區)
-        using (var strokePath = GetRoundedPath(new Rectangle(0, 0, Width - 1, Height - 1), CornerRadius))
+        // 1px 圓角框線：path 偏移 0.5px 讓 1px stroke 中心對齊 pixel 中心 →
+        // 各邊厚度均勻不糊；用 RectangleF 走 float arc，AA 才順
+        using (var strokePath = GetRoundedPathF(new RectangleF(0.5f, 0.5f, Width - 1, Height - 1), CornerRadius))
         using (var pen = new Pen(ComicOrganizer.App.Core.ThemeColors.Border, 1))
         {
             g.DrawPath(pen, strokePath);
         }
     }
 
-    private static GraphicsPath GetRoundedPath(Rectangle rect, int radius)
+    private static GraphicsPath GetRoundedPathF(RectangleF rect, float radius)
     {
         var path = new GraphicsPath();
-        int d = radius * 2;
+        float d = radius * 2;
         path.AddArc(rect.X, rect.Y, d, d, 180, 90);
         path.AddArc(rect.Right - d, rect.Y, d, d, 270, 90);
         path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
