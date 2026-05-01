@@ -30,7 +30,7 @@ public class FolderRoleDetector
     private static readonly HashSet<string> ImageExts = new(StringComparer.OrdinalIgnoreCase)
         { ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif" };
     private static readonly HashSet<string> ArchiveExts = new(StringComparer.OrdinalIgnoreCase)
-        { ".zip", ".cbz" };
+        { ".zip", ".cbz", ".rar", ".cbr", ".7z" };
 
     /// <summary>取樣子目錄上限 — 取前 N 個 detect 角色推父節點，避免大目錄全掃。</summary>
     private const int SampleChildCount = 5;
