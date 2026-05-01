@@ -42,11 +42,12 @@ partial class ComicCardControl
         // 
         // pic
         // 
-        pic.BackColor = Color.White;  // letterbox 區域用白色，與 UserControl 預設 White 一致；hover 時 Secondary 從 padding 邊緣顯示
+        pic.BackColor = Color.Transparent;  // 不走 Forms 的方角矩形 BackColor (會蓋過 Radius 圓角)
+        pic.Back = Color.White;             // 走 AntdUI 自繪背景：letterbox 白色，跟著 Radius 走圓角
         pic.Cursor = Cursors.Hand;
         pic.Dock = DockStyle.Top;
         pic.Duration = 0;
-        pic.ImageFit = AntdUI.TFit.Contain;
+        pic.ImageFit = AntdUI.TFit.Fill;
         pic.Location = new Point(10, 10);
         pic.Name = "pic";
         pic.Radius = 8;
