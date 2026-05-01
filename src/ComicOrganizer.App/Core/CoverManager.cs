@@ -116,16 +116,22 @@ public class CoverManager
                 return LoadAndResizeImage(coverFile, maxWidth);
             }
 
-            // 2. 字典序第一張圖檔
+            // 2. 字典序第一張圖檔（過濾極端大小：< MinCoverFileSizeBytes 視為縮圖/banner，
+            //    > MaxCoverFileSizeBytes 視為拚版/插畫合輯，都不是真封面）
             var firstImage = files.OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
-                .FirstOrDefault(f => ImageExtensions.Contains(Path.GetExtension(f).ToLower()));
+                .FirstOrDefault(f =>
+                {
+                    if (!ImageExtensions.Contains(Path.GetExtension(f).ToLower())) return false;
+                    long size = new FileInfo(f).Length;
+                    return size >= _config.MinCoverFileSizeBytes && size <= _config.MaxCoverFileSizeBytes;
+                });
             if (firstImage != null)
             {
-                Log($"  rule=FIRST_IMAGE picked '{Short(firstImage)}'");
+                Log($"  rule=FIRST_IMAGE picked '{Short(firstImage)}' ({new FileInfo(firstImage).Length / 1024}KB)");
                 return LoadAndResizeImage(firstImage, maxWidth);
             }
 
-            // 3. 字典序第一個 zip/cbz
+            // 3. 字典序第一個 zip/cbz (zip 不過濾大小 — entry 內部過濾)
             var firstArchive = files.OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
                 .FirstOrDefault(f =>
                 {
@@ -165,8 +171,10 @@ public class CoverManager
             using (var archive = ZipFile.OpenRead(zipPath))
             {
                 swOpen.Stop();
+                // entry 也套大小過濾：跳過 banner / 拚版插畫
                 var entry = archive.Entries
                     .Where(e => ImageExtensions.Contains(Path.GetExtension(e.FullName).ToLower()))
+                    .Where(e => e.Length >= _config.MinCoverFileSizeBytes && e.Length <= _config.MaxCoverFileSizeBytes)
                     .OrderBy(e => e.FullName)
                     .FirstOrDefault();
 

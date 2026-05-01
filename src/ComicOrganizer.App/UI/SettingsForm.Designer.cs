@@ -40,6 +40,10 @@ partial class SettingsForm
     private AntdUI.Button btnBrowseViewer;
     private AntdUI.Label labelMaxScanDepth;
     private AntdUI.InputNumber numMaxScanDepth;
+    private AntdUI.Label labelMinCoverSize;
+    private AntdUI.InputNumber numMinCoverSize;
+    private AntdUI.Label labelMaxCoverSize;
+    private AntdUI.InputNumber numMaxCoverSize;
 
     // Footer 按鈕
     private AntdUI.Button btnSave;
@@ -82,6 +86,10 @@ partial class SettingsForm
         btnBrowseViewer = new AntdUI.Button();
         labelMaxScanDepth = new AntdUI.Label();
         numMaxScanDepth = new InputNumber();
+        labelMinCoverSize = new AntdUI.Label();
+        numMinCoverSize = new InputNumber();
+        labelMaxCoverSize = new AntdUI.Label();
+        numMaxCoverSize = new InputNumber();
         btnSave = new AntdUI.Button();
         btnCancel = new AntdUI.Button();
 
@@ -217,6 +225,10 @@ partial class SettingsForm
         // libraryPanel
         //
         libraryPanel.BackColor = Color.Transparent;
+        libraryPanel.Controls.Add(numMaxCoverSize);
+        libraryPanel.Controls.Add(labelMaxCoverSize);
+        libraryPanel.Controls.Add(numMinCoverSize);
+        libraryPanel.Controls.Add(labelMinCoverSize);
         libraryPanel.Controls.Add(numMaxScanDepth);
         libraryPanel.Controls.Add(labelMaxScanDepth);
         libraryPanel.Controls.Add(btnBrowseViewer);
@@ -355,6 +367,44 @@ partial class SettingsForm
         numMaxScanDepth.Value = 3;
         numMaxScanDepth.Size = new Size(150, 45);
         numMaxScanDepth.TabIndex = 12;
+        //
+        // labelMinCoverSize
+        //
+        labelMinCoverSize.BackColor = Color.Transparent;
+        labelMinCoverSize.Location = new Point(40, 520);
+        labelMinCoverSize.Name = "labelMinCoverSize";
+        labelMinCoverSize.Size = new Size(360, 30);
+        labelMinCoverSize.TabIndex = 13;
+        labelMinCoverSize.Text = "封面最小檔案大小 (KB) — 過濾縮圖/banner";
+        //
+        // numMinCoverSize
+        //
+        numMinCoverSize.Location = new Point(40, 555);
+        numMinCoverSize.Name = "numMinCoverSize";
+        numMinCoverSize.Minimum = 0;
+        numMinCoverSize.Maximum = 10000;
+        numMinCoverSize.Value = 100;
+        numMinCoverSize.Size = new Size(150, 45);
+        numMinCoverSize.TabIndex = 14;
+        //
+        // labelMaxCoverSize
+        //
+        labelMaxCoverSize.BackColor = Color.Transparent;
+        labelMaxCoverSize.Location = new Point(220, 520);
+        labelMaxCoverSize.Name = "labelMaxCoverSize";
+        labelMaxCoverSize.Size = new Size(360, 30);
+        labelMaxCoverSize.TabIndex = 15;
+        labelMaxCoverSize.Text = "封面最大檔案大小 (KB) — 過濾拚版/插畫";
+        //
+        // numMaxCoverSize
+        //
+        numMaxCoverSize.Location = new Point(220, 555);
+        numMaxCoverSize.Name = "numMaxCoverSize";
+        numMaxCoverSize.Minimum = 100;
+        numMaxCoverSize.Maximum = 100000;
+        numMaxCoverSize.Value = 5120;
+        numMaxCoverSize.Size = new Size(150, 45);
+        numMaxCoverSize.TabIndex = 16;
         //
         // footer
         //

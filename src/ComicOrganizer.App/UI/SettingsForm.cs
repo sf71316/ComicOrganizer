@@ -46,6 +46,8 @@ public partial class SettingsForm : Window, IThemedControl
         txtImageViewerArgs.Text = Config.ImageViewerArgs;
         cbDebug.Checked = Config.DebugMode;
         numMaxScanDepth.Value = Config.MaxScanDepth;
+        numMinCoverSize.Value = Math.Max(0, Config.MinCoverFileSizeBytes / 1024);
+        numMaxCoverSize.Value = Math.Max(100, Config.MaxCoverFileSizeBytes / 1024);
 
         // Theme selector - 簡化 Items 避免轉型錯誤
         selectTheme.Items.Clear();
@@ -118,8 +120,10 @@ public partial class SettingsForm : Window, IThemedControl
         btnMenuGeneral.Text = LocalizationManager.GetString("SettingsMenuGeneral") ?? "一般設定";
         btnMenuLibrary.Text = LocalizationManager.GetString("SettingsMenuLibrary") ?? "漫畫庫管理";
 
-        // 漫畫庫管理 - 搜尋層數
+        // 漫畫庫管理 - 搜尋層數 + 封面大小過濾
         labelMaxScanDepth.Text = LocalizationManager.GetString("SettingsMaxScanDepth") ?? "搜尋層數限制 (封面遞迴)";
+        labelMinCoverSize.Text = LocalizationManager.GetString("SettingsMinCoverSize") ?? "封面最小檔案大小 (KB) — 過濾縮圖/banner";
+        labelMaxCoverSize.Text = LocalizationManager.GetString("SettingsMaxCoverSize") ?? "封面最大檔案大小 (KB) — 過濾拚版/插畫";
     }
 
     protected override void OnMouseDown(MouseEventArgs e)
@@ -156,6 +160,8 @@ public partial class SettingsForm : Window, IThemedControl
         Config.ImageViewerArgs = string.IsNullOrWhiteSpace(txtImageViewerArgs.Text) ? "\"{path}\"" : txtImageViewerArgs.Text;
         Config.DebugMode = cbDebug.Checked;
         Config.MaxScanDepth = (int)numMaxScanDepth.Value;
+        Config.MinCoverFileSizeBytes = (long)numMinCoverSize.Value * 1024;
+        Config.MaxCoverFileSizeBytes = (long)numMaxCoverSize.Value * 1024;
 
         // 修正轉型問題：使用 Index 而非直接轉型對象
         if (selectTheme.SelectedIndex >= 0)

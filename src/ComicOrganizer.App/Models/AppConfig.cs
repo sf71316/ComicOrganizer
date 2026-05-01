@@ -21,6 +21,20 @@ public class AppConfig
     /// </summary>
     public int MaxScanDepth { get; set; } = 3;
 
+    /// <summary>
+    /// CoverManager 選擇 FIRST_IMAGE / FIRST_ZIP entry 時的最小檔案大小 (bytes)。
+    /// 跳過小於此值的檔案（縮圖、banner、小圖示）。預設 100KB。
+    /// 注意：cover.* 命名檔不受此限制（使用者明確指定）。
+    /// </summary>
+    public long MinCoverFileSizeBytes { get; set; } = 100 * 1024;
+
+    /// <summary>
+    /// CoverManager 選擇 FIRST_IMAGE / FIRST_ZIP entry 時的最大檔案大小 (bytes)。
+    /// 跳過大於此值的檔案（拚版、超解析掃圖、插畫合輯）— 既慢又通常不是真正的封面。
+    /// 預設 5MB。注意：cover.* 命名檔不受此限制。
+    /// </summary>
+    public long MaxCoverFileSizeBytes { get; set; } = 5 * 1024 * 1024;
+
     // UI 偏好設定
     public AppTheme Theme { get; set; } = AppTheme.System;
     public string Language { get; set; } = "zh-TW";
