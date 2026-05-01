@@ -91,21 +91,33 @@ public class FolderRoleAnalysisTest
 
         if (!Directory.Exists(path)) return;
 
-        IEnumerable<string> children;
+        // 列子目錄
+        IEnumerable<string> subdirs;
         try
         {
-            children = Directory.GetDirectories(path)
+            subdirs = Directory.GetDirectories(path)
                 .OrderBy(d => d, StringComparer.OrdinalIgnoreCase)
                 .Take(MaxEntriesPerLevel);
         }
-        catch
-        {
-            return;
-        }
+        catch { return; }
 
-        foreach (var child in children)
+        foreach (var sub in subdirs) Walk(sub, detector, depth + 1, stats);
+
+        // Author 目錄要額外列直接放的 zip/cbz/pdf 檔（每個 = 一個 Work）
+        if (role == FolderRole.Author)
         {
-            Walk(child, detector, depth + 1, stats);
+            string[] archiveExts = { ".zip", ".cbz", ".pdf" };
+            IEnumerable<string> archives;
+            try
+            {
+                archives = Directory.GetFiles(path)
+                    .Where(f => archiveExts.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
+                    .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+                    .Take(MaxEntriesPerLevel);
+            }
+            catch { return; }
+
+            foreach (var f in archives) Walk(f, detector, depth + 1, stats);
         }
     }
 
