@@ -11,7 +11,7 @@ namespace ComicOrganizer.Tests;
 public class FolderRoleAnalysisTest
 {
     // ★ 改成你的庫路徑
-    private const string LibraryRoot = @"E:\Project\ComicOrganizer\TestData\Library";
+    private const string LibraryRoot = @"E:\H\Comic\";
 
     /// <summary>tree 最大深度，避免過深掃描。</summary>
     private const int MaxDepth = 5;

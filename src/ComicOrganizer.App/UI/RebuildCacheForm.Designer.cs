@@ -39,8 +39,8 @@ partial class RebuildCacheForm
         btnPartialRebuild = new AntdUI.Button();
         lblFullDesc = new AntdUI.Label();
         btnFullRebuild = new AntdUI.Button();
-        btnResume = new AntdUI.Button();
         lblResumeDesc = new AntdUI.Label();
+        btnResume = new AntdUI.Button();
         content.SuspendLayout();
         SuspendLayout();
         // 
@@ -76,12 +76,12 @@ partial class RebuildCacheForm
         content.Margin = new Padding(5);
         content.Name = "content";
         content.Padding = new Padding(47, 46, 47, 46);
-        content.Size = new Size(849, 456);
+        content.Size = new Size(849, 504);
         content.TabIndex = 0;
         // 
         // btnClose
         // 
-        btnClose.Location = new Point(663, 376);
+        btnClose.Location = new Point(663, 405);
         btnClose.Margin = new Padding(5);
         btnClose.Name = "btnClose";
         btnClose.Size = new Size(134, 54);
@@ -91,7 +91,7 @@ partial class RebuildCacheForm
         // 
         // btnCancel
         // 
-        btnCancel.Location = new Point(514, 376);
+        btnCancel.Location = new Point(514, 405);
         btnCancel.Margin = new Padding(5);
         btnCancel.Name = "btnCancel";
         btnCancel.Size = new Size(134, 54);
@@ -102,7 +102,7 @@ partial class RebuildCacheForm
         // lblCurrent
         // 
         lblCurrent.BackColor = Color.Transparent;
-        lblCurrent.Location = new Point(42, 294);
+        lblCurrent.Location = new Point(42, 323);
         lblCurrent.Margin = new Padding(5);
         lblCurrent.Name = "lblCurrent";
         lblCurrent.Size = new Size(754, 38);
@@ -112,7 +112,7 @@ partial class RebuildCacheForm
         // lblStatus
         // 
         lblStatus.BackColor = Color.Transparent;
-        lblStatus.Location = new Point(42, 339);
+        lblStatus.Location = new Point(42, 368);
         lblStatus.Margin = new Padding(5);
         lblStatus.Name = "lblStatus";
         lblStatus.Size = new Size(314, 38);
@@ -121,7 +121,7 @@ partial class RebuildCacheForm
         // 
         // progressBar
         // 
-        progressBar.Location = new Point(42, 253);
+        progressBar.Location = new Point(42, 282);
         progressBar.Margin = new Padding(5);
         progressBar.Name = "progressBar";
         progressBar.Size = new Size(754, 38);
@@ -130,7 +130,7 @@ partial class RebuildCacheForm
         // 
         // divider
         // 
-        divider.Location = new Point(42, 228);
+        divider.Location = new Point(42, 265);
         divider.Margin = new Padding(5);
         divider.Name = "divider";
         divider.Size = new Size(754, 31);
@@ -139,7 +139,7 @@ partial class RebuildCacheForm
         // lblPartialDesc
         // 
         lblPartialDesc.BackColor = Color.Transparent;
-        lblPartialDesc.Location = new Point(341, 143);
+        lblPartialDesc.Location = new Point(341, 125);
         lblPartialDesc.Margin = new Padding(5);
         lblPartialDesc.Name = "lblPartialDesc";
         lblPartialDesc.Size = new Size(456, 46);
@@ -148,12 +148,13 @@ partial class RebuildCacheForm
         // 
         // btnPartialRebuild
         // 
-        btnPartialRebuild.Location = new Point(42, 136);
+        btnPartialRebuild.Location = new Point(42, 118);
         btnPartialRebuild.Margin = new Padding(5);
         btnPartialRebuild.Name = "btnPartialRebuild";
         btnPartialRebuild.Size = new Size(283, 61);
         btnPartialRebuild.TabIndex = 7;
         btnPartialRebuild.Text = "部分重建...";
+        btnPartialRebuild.Type = AntdUI.TTypeMini.Success;
         // 
         // lblFullDesc
         // 
@@ -174,29 +175,31 @@ partial class RebuildCacheForm
         btnFullRebuild.TabIndex = 9;
         btnFullRebuild.Text = "完整重建";
         btnFullRebuild.Type = AntdUI.TTypeMini.Primary;
-        //
-        // btnResume (只在 tracker.WasInterrupted 時顯示)
-        //
-        btnResume.Location = new Point(42, 195);
-        btnResume.Name = "btnResume";
-        btnResume.Size = new Size(283, 61);
-        btnResume.Text = "繼續未完成的掃描";
-        btnResume.Type = AntdUI.TTypeMini.Primary;
-        btnResume.Visible = false;
-        //
+        // 
         // lblResumeDesc
-        //
+        // 
         lblResumeDesc.BackColor = Color.Transparent;
         lblResumeDesc.Location = new Point(341, 200);
         lblResumeDesc.Name = "lblResumeDesc";
-        lblResumeDesc.Size = new Size(456, 46);
+        lblResumeDesc.Size = new Size(307, 46);
+        lblResumeDesc.TabIndex = 10;
         lblResumeDesc.Text = "上次掃描被中斷，繼續未完成的部分（已 cache 的會 skip）";
-        //
+        // 
+        // btnResume
+        // 
+        btnResume.Location = new Point(42, 195);
+        btnResume.Name = "btnResume";
+        btnResume.Size = new Size(283, 61);
+        btnResume.TabIndex = 11;
+        btnResume.Text = "繼續未完成的掃描";
+        btnResume.Type = AntdUI.TTypeMini.Primary;
+        btnResume.Visible = false;
+        // 
         // RebuildCacheForm
         // 
         AutoScaleDimensions = new SizeF(11F, 23F);
         AutoScaleMode = AutoScaleMode.Font;
-        ClientSize = new Size(849, 533);
+        ClientSize = new Size(849, 581);
         Controls.Add(content);
         Controls.Add(windowBar);
         Margin = new Padding(5);
