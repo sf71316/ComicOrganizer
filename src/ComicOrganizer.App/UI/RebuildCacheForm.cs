@@ -6,13 +6,20 @@ namespace ComicOrganizer.App.UI;
 public partial class RebuildCacheForm : Window
 {
     private readonly CacheRebuildService _service;
+    private readonly Func<string, Task>? _partialBackgroundHandler;
     private readonly AntdUI.FolderBrowserDialog _folderDlg = new();
     private CancellationTokenSource? _cts;
 
-    public RebuildCacheForm(CacheRebuildService service)
+    /// <summary>
+    /// </summary>
+    /// <param name="service">重建服務</param>
+    /// <param name="partialBackgroundHandler">非 null 時，部分重建會委派出去由 caller 在 statusBar 跑背景。
+    /// null 時部分重建留在 dialog 內當 modal 跑。</param>
+    public RebuildCacheForm(CacheRebuildService service, Func<string, Task>? partialBackgroundHandler = null)
     {
         InitializeComponent();
         _service = service;
+        _partialBackgroundHandler = partialBackgroundHandler;
         ApplyLocalization();
         WireEvents();
     }
@@ -36,7 +43,17 @@ public partial class RebuildCacheForm : Window
             if (_folderDlg.ShowDialog() != DialogResult.OK) return;
             var sel = _folderDlg.DirectoryPath;
             if (string.IsNullOrEmpty(sel)) return;
-            await DoRebuild(isFull: false, subtree: sel);
+
+            if (_partialBackgroundHandler != null)
+            {
+                // 委派 caller (MainForm) 在 statusBar 跑背景；dialog 直接關閉
+                Close();
+                _ = _partialBackgroundHandler(sel);
+            }
+            else
+            {
+                await DoRebuild(isFull: false, subtree: sel);
+            }
         };
         btnCancel.Click += (s, e) => _cts?.Cancel();
         btnClose.Click += (s, e) => Close();

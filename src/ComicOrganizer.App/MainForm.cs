@@ -68,8 +68,59 @@ public partial class MainForm : Window, IThemedControl
 
     private void OpenRebuildCacheDialog()
     {
-        using var form = new UI.RebuildCacheForm(_rebuildService);
+        using var form = new UI.RebuildCacheForm(_rebuildService, RunPartialRebuildBackground);
         form.ShowDialog(this);
+    }
+
+    private CancellationTokenSource? _statusCts;
+
+    /// <summary>
+    /// 部分重建：dialog 收到 user 選 subtree 後委派給此方法，跑背景非同步、進度顯示在 statusBar，
+    /// User 仍可繼續操作 gallery。
+    /// </summary>
+    private async Task RunPartialRebuildBackground(string subtreePath)
+    {
+        // 取消前一次未結束的背景任務
+        _statusCts?.Cancel();
+        _statusCts = new CancellationTokenSource();
+        var ct = _statusCts.Token;
+
+        statusBar.Visible = true;
+        statusProgress.Value = 0f;
+        statusLabel.Text = "重建中...";
+        statusCancel.Click -= StatusCancelClickHandler;
+        statusCancel.Click += StatusCancelClickHandler;
+
+        var progress = new Progress<Core.CacheRebuildService.Progress>(p =>
+        {
+            statusProgress.Value = p.Total > 0 ? (float)p.Done / p.Total : 0f;
+            statusLabel.Text = $"重建中 ({p.Done}/{p.Total})";
+        });
+
+        try
+        {
+            await _rebuildService.PartialRebuildAsync(subtreePath, progress, ct);
+            statusLabel.Text = $"重建完成";
+        }
+        catch (OperationCanceledException)
+        {
+            statusLabel.Text = "已取消";
+        }
+        catch (Exception ex)
+        {
+            statusLabel.Text = "失敗: " + ex.Message;
+        }
+        finally
+        {
+            // 5 秒後自動隱藏
+            try { await Task.Delay(5000, CancellationToken.None); } catch { }
+            statusBar.Visible = false;
+        }
+    }
+
+    private void StatusCancelClickHandler(object? sender, EventArgs e)
+    {
+        _statusCts?.Cancel();
     }
 
     protected override void OnMouseDown(MouseEventArgs e)
