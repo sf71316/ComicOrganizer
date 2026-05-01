@@ -18,6 +18,21 @@ public partial class GalleryControl : UserControl, IThemedControl
     // 代價：每張 bitmap 多 ~250KB，100 張多 ~25MB，可接受。
     private const int MaxCardCoverWidth = 330;
 
+    // Gallery 顯示的檔案副檔名 (目錄一律顯示)：圖片 + 壓縮檔 + pdf
+    private static readonly HashSet<string> GalleryAllowedExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif",
+        ".zip", ".cbz",
+        ".pdf",
+    };
+
+    private static bool ShouldShowInGallery(FileSystemInfo fi)
+    {
+        if ((fi.Attributes & FileAttributes.Hidden) != 0) return false;
+        if (fi is DirectoryInfo) return true;
+        return GalleryAllowedExtensions.Contains(fi.Extension);
+    }
+
     /// <summary>
     /// 每個 tab 自己的 view mode（per-tab 獨立）。
     /// 新 tab 預設 Medium；tab close 時 entry 會清掉避免 dispose 後 reference 殘留。
@@ -761,7 +776,7 @@ public partial class GalleryControl : UserControl, IThemedControl
             // ===== Phase 1: 檔案掃描 + 列表 binding (Spin 遮蔽期間) =====
             var fsInfos = await Task.Run(() =>
                 new DirectoryInfo(path).GetFileSystemInfos()
-                    .Where(i => (i.Attributes & FileAttributes.Hidden) == 0)
+                    .Where(ShouldShowInGallery)
                     .OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
                     .ToList());
 
@@ -861,7 +876,7 @@ public partial class GalleryControl : UserControl, IThemedControl
         {
             var items = await Task.Run(() =>
                 new DirectoryInfo(path).GetFileSystemInfos()
-                    .Where(i => (i.Attributes & FileAttributes.Hidden) == 0)
+                    .Where(ShouldShowInGallery)
                     .OrderBy(i => i is DirectoryInfo ? 0 : 1)
                     .ThenBy(i => i.Name)
                     .ToList());
