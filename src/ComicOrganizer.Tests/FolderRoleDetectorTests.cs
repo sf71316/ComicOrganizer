@@ -177,6 +177,64 @@ public class FolderRoleDetectorTests : IDisposable
         Assert.Equal(FolderRole.Work, d.Detect(zipPath));
     }
 
+    // ========== Author 含 cover.jpg + subdir works → 仍是 Author ==========
+    [Fact]
+    public void Author_With_CoverImage_And_SubdirWorks()
+    {
+        var lib = Mk();
+        var author = Mk("[Flugel]");
+        Touch(author, "cover.jpg");          // banner / cover 不算 work
+        var workA = Mk("[Flugel]", "作品A");
+        var workB = Mk("[Flugel]", "作品B");
+        for (int i = 1; i <= 10; i++) Touch(workA, $"{i:D2}.jpg");
+        for (int i = 1; i <= 10; i++) Touch(workB, $"{i:D2}.jpg");
+
+        var d = new FolderRoleDetector(lib);
+        Assert.Equal(FolderRole.Work, d.Detect(workA));
+        Assert.Equal(FolderRole.Work, d.Detect(workB));
+        Assert.Equal(FolderRole.Author, d.Detect(author));   // 不再被 cover 誤判
+    }
+
+    // ========== Author 含 cover.jpg + zip 作品 → Author ==========
+    [Fact]
+    public void Author_With_CoverImage_And_ZipWorks()
+    {
+        var lib = Mk();
+        var author = Mk("[Author]");
+        Touch(author, "cover.jpg");
+        Touch(author, "作品A.zip");
+        Touch(author, "作品B.zip");
+
+        var d = new FolderRoleDetector(lib);
+        Assert.Equal(FolderRole.Author, d.Detect(author));
+    }
+
+    // ========== Work 含足夠頁面 (numeric naming) → 仍是 Work ==========
+    [Fact]
+    public void Work_With_Many_Numbered_Pages()
+    {
+        var lib = Mk();
+        var author = Mk("作者");
+        var work = Mk("作者", "作品");
+        for (int i = 1; i <= 30; i++) Touch(work, $"{i:D3}.jpg");
+
+        var d = new FolderRoleDetector(lib);
+        Assert.Equal(FolderRole.Work, d.Detect(work));
+        Assert.Equal(FolderRole.Author, d.Detect(author));
+    }
+
+    // ========== Work 只有 1 張圖 (極短/單頁) → 仍是 Work ==========
+    [Fact]
+    public void Work_With_Single_Image()
+    {
+        var lib = Mk();
+        var work = Mk("作品");
+        Touch(work, "image.jpg");
+
+        var d = new FolderRoleDetector(lib);
+        Assert.Equal(FolderRole.Work, d.Detect(work));
+    }
+
     // ========== Cache 重複呼叫不重新計算 ==========
     [Fact]
     public void Detect_Caches_Result()

@@ -33,6 +33,9 @@ public class FolderRoleDetector
     /// <summary>取樣子目錄上限 — 取前 N 個 detect 角色推父節點，避免大目錄全掃。</summary>
     private const int SampleChildCount = 5;
 
+    /// <summary>含 N 張以上 image 才視為 leaf（chapter / 純圖作品）；少於此數可能是 cover.jpg 不算 leaf。</summary>
+    private const int LeafImageThreshold = 5;
+
     public FolderRoleDetector(string libraryRoot)
     {
         _libraryRoot = Normalize(libraryRoot);
@@ -78,40 +81,62 @@ public class FolderRoleDetector
             return FolderRole.Unknown;
         }
 
-        bool hasImages = files.Any(f => ImageExts.Contains(Path.GetExtension(f)));
-        bool hasArchives = files.Any(f => ArchiveExts.Contains(Path.GetExtension(f)));
+        var imageFiles = files.Where(f => ImageExts.Contains(Path.GetExtension(f))).ToList();
+        var archiveFiles = files.Where(f => ArchiveExts.Contains(Path.GetExtension(f))).ToList();
+        int imageCount = imageFiles.Count;
+        int archiveCount = archiveFiles.Count;
+        int subdirCount = subdirs.Length;
 
-        // === Leaf 判定 ===
-        // 含直接 images → 自己是 Work (chapter folder 或 single work folder)
-        if (hasImages) return FolderRole.Work;
+        // === Leaf 判定（嚴格）===
+        // (a) 大量 image (≥5) 且看起來像章節頁 → Work
+        // (b) 少量 image 但沒其他子目錄/壓縮檔 → Work (single short)
+        // 否則 → 不是 leaf，看 children 推
+        bool looksLikeChapter = imageCount >= LeafImageThreshold && LooksLikeNumberedPages(imageFiles);
+        bool isPureImageLeaf = imageCount > 0 && subdirCount == 0 && archiveCount == 0;
+
+        if (looksLikeChapter || isPureImageLeaf) return FolderRole.Work;
 
         // === 含 archive 的特殊處理 ===
-        // 全是壓縮檔（每個 zip = 一個 Work）→ 自己是 Author
-        if (hasArchives && subdirs.Length == 0) return FolderRole.Author;
+        // archive 不論有沒有 image (cover.jpg) 也算 Author 的 work 容器
+        if (archiveCount > 0 && subdirCount == 0) return FolderRole.Author;
 
-        // === 純子目錄（含 mixed archive + subdir）→ 看子節點推 ===
-        if (subdirs.Length == 0)
-        {
-            // 沒 images / 沒 archives / 沒子目錄 → 空目錄
-            return FolderRole.Unknown;
-        }
+        // === 沒 images 沒 archives 沒 subdirs → 空目錄 ===
+        if (subdirCount == 0 && archiveCount == 0 && imageCount == 0) return FolderRole.Unknown;
 
-        // 取樣子目錄角色
+        // === 取樣子目錄角色 ===
         var childRoles = subdirs.Take(SampleChildCount).Select(Detect).ToList();
-        // 加 archive 子節點也是 Work，計入 sample
-        if (hasArchives) childRoles.Add(FolderRole.Work);
+        if (archiveCount > 0) childRoles.Add(FolderRole.Work);  // 含 archive 也是 Work child
 
-        // 多數決：
+        if (childRoles.Count == 0) return FolderRole.Unknown;
+
         // 子全是 Work → 自己是 Author
         if (childRoles.All(r => r == FolderRole.Work)) return FolderRole.Author;
         // 子全是 Author → 自己是 Category
         if (childRoles.All(r => r == FolderRole.Author)) return FolderRole.Category;
         // 子含 Category → 自己也是 Category（多層分類）
         if (childRoles.Any(r => r == FolderRole.Category)) return FolderRole.Category;
-        // 混合 Work/Author → 偏 Author（單一作者的 page 與 章節 zip 並存）
+        // 混合 Work/Author → 偏 Author
         if (childRoles.All(r => r == FolderRole.Work || r == FolderRole.Author)) return FolderRole.Author;
 
         return FolderRole.Unknown;
+    }
+
+    /// <summary>
+    /// 判斷一組 image 檔名是否看起來像「章節頁面」(01.jpg, 02.jpg, page_001.jpg)。
+    /// 多數命名是純數字 / 含數字後綴 → 章節頁；多數含奇怪字母 (cover, banner) → 不是。
+    /// </summary>
+    private static bool LooksLikeNumberedPages(List<string> imageFiles)
+    {
+        if (imageFiles.Count == 0) return false;
+        int numericLike = imageFiles.Count(f =>
+        {
+            var name = Path.GetFileNameWithoutExtension(f);
+            // 純數字 / 含主要為數字 (e.g. p001, 01_a)
+            return name.Length > 0 && name.Any(char.IsDigit) &&
+                   !name.Equals("cover", StringComparison.OrdinalIgnoreCase) &&
+                   !name.StartsWith("banner", StringComparison.OrdinalIgnoreCase);
+        });
+        return numericLike >= imageFiles.Count / 2;   // 過半像數字 → 是 chapter
     }
 
     private static string Normalize(string p) =>
