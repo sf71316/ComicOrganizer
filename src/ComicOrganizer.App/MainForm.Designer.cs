@@ -1,4 +1,5 @@
 using AntdUI;
+using ComicOrganizer.App.Core;
 using System.Windows.Forms;
 
 namespace ComicOrganizer.App;
@@ -64,17 +65,18 @@ partial class MainForm
         mnuViewModeLarge = new ToolStripMenuItem();
         mnuViewModeList = new ToolStripMenuItem();
         contentHost = new System.Windows.Forms.Panel();
+        galleryControl = new ComicOrganizer.App.UI.GalleryControl();
+        archiveControl = new ComicOrganizer.App.UI.ArchiveControl();
         statusBar = new AntdUI.Panel();
         statusLabel = new AntdUI.Label();
-        archiveControl = new ComicOrganizer.App.UI.ArchiveControl();
-        galleryControl = new ComicOrganizer.App.UI.GalleryControl();
         menuStrip1.SuspendLayout();
         contentHost.SuspendLayout();
+        statusBar.SuspendLayout();
         SuspendLayout();
         // 
         // windowBar
         // 
-        windowBar.BackColor = Core.ThemeColors.Primary;
+        windowBar.BackColor = Color.FromArgb(60, 60, 60);
         windowBar.Dock = DockStyle.Top;
         windowBar.Font = new Font("Microsoft JhengHei UI", 10F);
         windowBar.ForeColor = Color.White;
@@ -92,9 +94,9 @@ partial class MainForm
         // 
         // menuStrip1
         // 
-        menuStrip1.BackColor = Core.ThemeColors.Background;
+        menuStrip1.BackColor = Color.FromArgb(30, 30, 30);
         menuStrip1.Font = new Font("Microsoft JhengHei UI", 10F);
-        menuStrip1.ForeColor = Core.ThemeColors.Text;
+        menuStrip1.ForeColor = Color.FromArgb(220, 220, 220);
         menuStrip1.Items.AddRange(new ToolStripItem[] { mnuFile });
         menuStrip1.Location = new Point(0, 48);
         menuStrip1.Name = "menuStrip1";
@@ -113,46 +115,46 @@ partial class MainForm
         // mnuFileGallery
         // 
         mnuFileGallery.Name = "mnuFileGallery";
-        mnuFileGallery.Size = new Size(164, 22);
+        mnuFileGallery.Size = new Size(200, 22);
         mnuFileGallery.Text = "漫畫庫管理(&G)";
         // 
         // mnuFileArchive
         // 
         mnuFileArchive.Name = "mnuFileArchive";
-        mnuFileArchive.Size = new Size(164, 22);
+        mnuFileArchive.Size = new Size(200, 22);
         mnuFileArchive.Text = "自動歸檔(&A)";
         // 
         // mnuFileSep1
         // 
         mnuFileSep1.Name = "mnuFileSep1";
-        mnuFileSep1.Size = new Size(161, 6);
+        mnuFileSep1.Size = new Size(197, 6);
         // 
         // mnuFileSettings
         // 
         mnuFileSettings.Name = "mnuFileSettings";
-        mnuFileSettings.Size = new Size(164, 22);
+        mnuFileSettings.Size = new Size(200, 22);
         mnuFileSettings.Text = "系統設定(&S)...";
-        //
+        // 
         // mnuFileSepCache
-        //
+        // 
         mnuFileSepCache.Name = "mnuFileSepCache";
-        mnuFileSepCache.Size = new Size(161, 6);
-        //
+        mnuFileSepCache.Size = new Size(197, 6);
+        // 
         // mnuFileRebuildCache
-        //
+        // 
         mnuFileRebuildCache.Name = "mnuFileRebuildCache";
-        mnuFileRebuildCache.Size = new Size(164, 22);
+        mnuFileRebuildCache.Size = new Size(200, 22);
         mnuFileRebuildCache.Text = "重建索引資料庫(&R)...";
-        //
+        // 
         // mnuFileSep2
         // 
         mnuFileSep2.Name = "mnuFileSep2";
-        mnuFileSep2.Size = new Size(161, 6);
+        mnuFileSep2.Size = new Size(197, 6);
         // 
         // mnuFileExit
         // 
         mnuFileExit.Name = "mnuFileExit";
-        mnuFileExit.Size = new Size(164, 22);
+        mnuFileExit.Size = new Size(200, 22);
         mnuFileExit.Text = "結束(&X)";
         // 
         // mnuView
@@ -166,13 +168,13 @@ partial class MainForm
         // 
         mnuViewMode.DropDownItems.AddRange(new ToolStripItem[] { mnuViewModeSmall, mnuViewModeMedium, mnuViewModeLarge, mnuViewModeList });
         mnuViewMode.Name = "mnuViewMode";
-        mnuViewMode.Size = new Size(154, 22);
+        mnuViewMode.Size = new Size(142, 22);
         mnuViewMode.Text = "檢視模式(&M)";
         // 
         // mnuViewModeSmall
         // 
         mnuViewModeSmall.Name = "mnuViewModeSmall";
-        mnuViewModeSmall.Size = new Size(130, 22);
+        mnuViewModeSmall.Size = new Size(121, 22);
         mnuViewModeSmall.Text = "縮圖 (小)";
         // 
         // mnuViewModeMedium
@@ -180,66 +182,72 @@ partial class MainForm
         mnuViewModeMedium.Checked = true;
         mnuViewModeMedium.CheckState = CheckState.Checked;
         mnuViewModeMedium.Name = "mnuViewModeMedium";
-        mnuViewModeMedium.Size = new Size(130, 22);
+        mnuViewModeMedium.Size = new Size(121, 22);
         mnuViewModeMedium.Text = "縮圖 (中)";
         // 
         // mnuViewModeLarge
         // 
         mnuViewModeLarge.Name = "mnuViewModeLarge";
-        mnuViewModeLarge.Size = new Size(130, 22);
+        mnuViewModeLarge.Size = new Size(121, 22);
         mnuViewModeLarge.Text = "縮圖 (大)";
         // 
         // mnuViewModeList
         // 
         mnuViewModeList.Name = "mnuViewModeList";
-        mnuViewModeList.Size = new Size(130, 22);
+        mnuViewModeList.Size = new Size(121, 22);
         mnuViewModeList.Text = "列表";
-        //
+        // 
         // contentHost
-        //
+        // 
         contentHost.Controls.Add(galleryControl);
         contentHost.Controls.Add(archiveControl);
         contentHost.Dock = DockStyle.Fill;
         contentHost.Location = new Point(0, 78);
         contentHost.Name = "contentHost";
-        contentHost.Size = new Size(1280, 642);
+        contentHost.Size = new Size(1280, 614);
         contentHost.TabIndex = 2;
-        //
-        // statusBar (通用狀態列，預設隱藏；由 ShowStatus(msg) 顯示)
-        //
-        statusBar.Dock = DockStyle.Bottom;
-        statusBar.Size = new Size(1280, 28);
-        statusBar.BackColor = Color.Transparent;
-        statusBar.Back = Core.ThemeColors.StatusBar;
-        statusBar.Padding = new Padding(12, 4, 12, 4);
-        statusBar.Visible = true;     // 常駐顯示，由 ShowStatus 更新文字
-        statusBar.Name = "statusBar";
-        statusBar.Controls.Add(statusLabel);
-        //
-        // statusLabel
-        //
-        statusLabel.Dock = DockStyle.Fill;
-        statusLabel.Text = "";
-        statusLabel.BackColor = Color.Transparent;
-        statusLabel.ForeColor = Color.White;        // 紫灰底，白字較易讀
-        statusLabel.Name = "statusLabel";
-        // 
-        // archiveControl
-        // 
-        archiveControl.Dock = DockStyle.Fill;
-        archiveControl.Location = new Point(0, 0);
-        archiveControl.Name = "archiveControl";
-        archiveControl.Size = new Size(1280, 642);
-        archiveControl.TabIndex = 1;
-        archiveControl.Visible = false;
         // 
         // galleryControl
         // 
         galleryControl.Dock = DockStyle.Fill;
         galleryControl.Location = new Point(0, 0);
         galleryControl.Name = "galleryControl";
-        galleryControl.Size = new Size(1280, 642);
+        galleryControl.Size = new Size(1280, 614);
         galleryControl.TabIndex = 0;
+        // 
+        // archiveControl
+        // 
+        archiveControl.BackColor = Color.FromArgb(30, 30, 30);
+        archiveControl.Dock = DockStyle.Fill;
+        archiveControl.Location = new Point(0, 0);
+        archiveControl.Name = "archiveControl";
+        archiveControl.Size = new Size(1280, 614);
+        archiveControl.TabIndex = 1;
+        archiveControl.Visible = false;
+        // 
+        // statusBar
+        // 
+        statusBar.Back = ThemeColors.StatusBar;
+        statusBar.Controls.Add(statusLabel);
+        statusBar.Dock = DockStyle.Bottom;
+        statusBar.Location = new Point(0, 692);
+        statusBar.Name = "statusBar";
+        statusBar.Padding = new Padding(12, 1, 12, 1);
+        statusBar.Radius = 0;
+        statusBar.Size = new Size(1280, 22);
+        statusBar.TabIndex = 3;
+        // 
+        // statusLabel
+        // 
+        statusLabel.BackColor = Color.Transparent;
+        statusLabel.Dock = DockStyle.Fill;
+        statusLabel.Font = new Font("Microsoft JhengHei UI", 9F);
+        statusLabel.ForeColor = Color.White;
+        statusLabel.Location = new Point(12, 1);
+        statusLabel.Name = "statusLabel";
+        statusLabel.Size = new Size(1256, 20);
+        statusLabel.TabIndex = 0;
+        statusLabel.Text = "";
         // 
         // MainForm
         // 
@@ -255,6 +263,7 @@ partial class MainForm
         menuStrip1.ResumeLayout(false);
         menuStrip1.PerformLayout();
         contentHost.ResumeLayout(false);
+        statusBar.ResumeLayout(false);
         ResumeLayout(false);
         PerformLayout();
     }
