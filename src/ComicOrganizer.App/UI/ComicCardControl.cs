@@ -12,8 +12,7 @@ public partial class ComicCardControl : UserControl
     public event Action<string>? RequestOpenViewer;
     public event Action<string, bool>? RequestNewTab;
     public event Action<string>? RequestExplorer;
-    private Bitmap _cacheBitmap; // 儲存預先繪製好的圓角圖案
-    private int _cornerRadius = 20;
+    private const int CornerRadius = 8; // 與 pic.Radius 一致
     // 手動觸發 AntdUI.Tooltip.open + 自管 delay：
     // TooltipComponent.SetTip 對 AntdUI.Panel 不可靠（AntdUI 自繪 control 的 hover events 不一定走 IExtenderProvider），
     // 改用 hover→Timer→Tooltip.open 模式：1 秒內 leave 取消，不顯示；stay 1s+ 才顯示
@@ -33,11 +32,7 @@ public partial class ComicCardControl : UserControl
     public ComicCardControl()
     {
         InitializeComponent();
-        this.SetStyle(ControlStyles.AllPaintingInWmPaint |
-                  ControlStyles.UserPaint |
-                  ControlStyles.DoubleBuffer |
-                  ControlStyles.OptimizedDoubleBuffer |
-                  ControlStyles.ResizeRedraw, true);
+        // BackColor / hover 色靠 default WM_PAINT 畫；圓角靠 Region（OnResize 設定）
         // tooltip delay timer：到時才開 tooltip，期間若 leave 已 Stop 取消
         _tooltipDelayTimer.Tick += (s, e) =>
         {
@@ -50,57 +45,23 @@ public partial class ComicCardControl : UserControl
         };
         WireUp();
     }
-    // 當尺寸改變時，清除快取，強制下次重繪時重新生成圖片
+    // 圓角靠 Region 裁切，BackColor / hover 色由 default WM_PAINT 自動畫。
+    // 不用 cache bitmap：UserControl 自己要畫的內容只有純色背景，FillPath 成本可忽略，
+    // 且 hover 時 BackColor 切換會讓 cache 必須失效，cache hit 率極低。
     protected override void OnResize(EventArgs e)
     {
         base.OnResize(e);
-        _cacheBitmap?.Dispose();
-        _cacheBitmap = null;
+        if (Width <= 0 || Height <= 0) return;
+        var oldRegion = Region;
+        using var path = GetRoundedPath(new Rectangle(0, 0, Width, Height), CornerRadius);
+        Region = new Region(path);
+        oldRegion?.Dispose();
     }
 
-    protected override void OnPaint(PaintEventArgs e)
+    private static GraphicsPath GetRoundedPath(Rectangle rect, int radius)
     {
-        // 2. 如果快取不存在，先繪製一張快照
-        if (_cacheBitmap == null && this.Width > 0 && this.Height > 0)
-        {
-            UpdateCache();
-        }
-
-        // 3. 僅繪製快照圖片，效能極高
-        if (_cacheBitmap != null)
-        {
-            e.Graphics.DrawImage(_cacheBitmap, 0, 0);
-        }
-    }
-    private void UpdateCache()
-    {
-        _cacheBitmap = new Bitmap(this.Width, this.Height);
-        using (Graphics g = Graphics.FromImage(_cacheBitmap))
-        {
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.Clear(Color.Transparent); // 這裡填寫父容器背景色或透明
-            int radius = 20; // 圓角半徑
-            Rectangle rect = new Rectangle(0, 0, this.Width, this.Height);
-            GraphicsPath path = new GraphicsPath();
-
-            // 繪製圓角路徑
-            path.AddArc(rect.X, rect.Y, radius, radius, 180, 90);
-            path.AddArc(rect.Width - radius, rect.Y, radius, radius, 270, 90);
-            path.AddArc(rect.Width - radius, rect.Height - radius, radius, radius, 0, 90);
-            path.AddArc(rect.X, rect.Height - radius, radius, radius, 90, 90);
-            path.CloseAllFigures();
-
-            // 設置區域和抗鋸齒
-            this.Region = new Region(path);
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.DrawPath(Pens.Transparent, path);
-        }
-    }
- 
-    private GraphicsPath GetRoundedPath(Rectangle rect, int radius)
-    {
-        GraphicsPath path = new GraphicsPath();
-        float d = radius * 2;
+        var path = new GraphicsPath();
+        int d = radius * 2;
         path.AddArc(rect.X, rect.Y, d, d, 180, 90);
         path.AddArc(rect.Right - d, rect.Y, d, d, 270, 90);
         path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
