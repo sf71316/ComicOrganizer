@@ -102,6 +102,7 @@ src/
 - [ ] **封面 / 元資料快取庫**（SQLite + thumbnail files）大幅縮短重複進入目錄的載入時間
 - [ ] **FileSystemWatcher 增量更新**，不必整 lib 重掃
 - [ ] **作者階層識別**（多種庫結構模板 + FolderRoleLearner 學習庫）
+- [ ] **封面預繪 letterbox canvas**：載入後先繪到帶 letterbox bg 的固定尺寸 Bitmap，typeStrip overlay 完全融入背景；視覺最完整但實作較複雜
 
 ## 授權
 

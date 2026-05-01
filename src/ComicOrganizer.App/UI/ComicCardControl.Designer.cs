@@ -42,7 +42,7 @@ partial class ComicCardControl
         // 
         // pic
         // 
-        pic.BackColor = Color.Transparent;
+        pic.BackColor = Color.White;  // letterbox 區域用白色，與 UserControl 預設 White 一致；hover 時 Secondary 從 padding 邊緣顯示
         pic.Cursor = Cursors.Hand;
         pic.Dock = DockStyle.Top;
         pic.Duration = 0;
