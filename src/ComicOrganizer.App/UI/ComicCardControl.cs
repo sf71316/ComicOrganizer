@@ -12,7 +12,8 @@ public partial class ComicCardControl : UserControl
     public event Action<string>? RequestOpenViewer;
     public event Action<string, bool>? RequestNewTab;
     public event Action<string>? RequestExplorer;
-    // 圓角 / 邊框 / 底色都交給 borderPanel (AntdUI.Panel) 處理 — 比自己 OnPaint 穩定。
+    private const int CornerRadius = 8;
+    private Color _currentBgColor = Color.White;
     // 手動觸發 AntdUI.Tooltip.open + 自管 delay：
     // TooltipComponent.SetTip 對 AntdUI.Panel 不可靠（AntdUI 自繪 control 的 hover events 不一定走 IExtenderProvider），
     // 改用 hover→Timer→Tooltip.open 模式：1 秒內 leave 取消，不顯示；stay 1s+ 才顯示
@@ -32,6 +33,8 @@ public partial class ComicCardControl : UserControl
     public ComicCardControl()
     {
         InitializeComponent();
+        SetStyle(ControlStyles.SupportsTransparentBackColor | ControlStyles.OptimizedDoubleBuffer, true);
+
         // tooltip delay timer：到時才開 tooltip，期間若 leave 已 Stop 取消
         _tooltipDelayTimer.Tick += (s, e) =>
         {
@@ -44,6 +47,60 @@ public partial class ComicCardControl : UserControl
         };
         WireUp();
     }
+
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+        Invalidate();
+    }
+
+    /// <summary>
+    /// 二段法畫圓角邊框：圓角弧線走 AA、4 個直邊用 FillRectangle 走 pixel-perfect。
+    /// 之前共用一條 AA path 的 stroke 方式對 right/bottom 邊有 GDI+ AA 對齊誤差。
+    /// 直線改 FillRectangle 各邊保證精確 1px。
+    /// </summary>
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
+        if (Width <= 0 || Height <= 0) return;
+        var g = e.Graphics;
+        int r = CornerRadius;
+        int d = r * 2;
+
+        // === 步驟 1：圓角 bg fill (AA) ===
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        using (var bgPath = new GraphicsPath())
+        {
+            bgPath.AddArc(0, 0, d, d, 180, 90);
+            bgPath.AddArc(Width - d, 0, d, d, 270, 90);
+            bgPath.AddArc(Width - d, Height - d, d, d, 0, 90);
+            bgPath.AddArc(0, Height - d, d, d, 90, 90);
+            bgPath.CloseFigure();
+            using var bgBrush = new SolidBrush(_currentBgColor);
+            g.FillPath(bgBrush, bgPath);
+        }
+
+        // === 步驟 2：4 個圓角弧 stroke (AA，1px) ===
+        var borderColor = ComicOrganizer.App.Core.ThemeColors.Border;
+        using (var pen = new Pen(borderColor, 1))
+        {
+            g.DrawArc(pen, 0, 0, d, d, 180, 90);                         // top-left
+            g.DrawArc(pen, Width - d - 1, 0, d, d, 270, 90);              // top-right
+            g.DrawArc(pen, Width - d - 1, Height - d - 1, d, d, 0, 90);   // bottom-right
+            g.DrawArc(pen, 0, Height - d - 1, d, d, 90, 90);              // bottom-left
+        }
+
+        // === 步驟 3：4 條直邊 (NO AA, pixel-perfect 1px) ===
+        g.SmoothingMode = SmoothingMode.None;
+        using (var brush = new SolidBrush(borderColor))
+        {
+            g.FillRectangle(brush, r, 0, Width - d, 1);                   // top
+            g.FillRectangle(brush, r, Height - 1, Width - d, 1);          // bottom
+            g.FillRectangle(brush, 0, r, 1, Height - d);                  // left
+            g.FillRectangle(brush, Width - 1, r, 1, Height - d);          // right
+        }
+    }
+
     /// <summary>
     /// 首次 hover 才建立 typeStrip + hoverToolbar + 內部 buttons。
     /// 之前在 ctor 建會讓每張卡 Controls.Add 進 container 時實體化 9 個 HWND（含此 5 個）。
@@ -179,7 +236,8 @@ public partial class ComicCardControl : UserControl
             hoverToolbar!.Visible = true;
             typeStrip.BringToFront();
             hoverToolbar.BringToFront();
-            borderPanel.Back = ComicOrganizer.App.Core.ThemeColors.Secondary;
+            _currentBgColor = ComicOrganizer.App.Core.ThemeColors.Secondary;
+            Invalidate();
 
             if (!_tooltipShown && !_tooltipDelayTimer.Enabled)
             {
@@ -193,7 +251,8 @@ public partial class ComicCardControl : UserControl
             {
                 if (typeStrip != null) typeStrip.Visible = false;
                 if (hoverToolbar != null) hoverToolbar.Visible = false;
-                borderPanel.Back = Color.White;
+                _currentBgColor = Color.White;
+                Invalidate();
                 _tooltipDelayTimer.Stop();
                 _tooltipShown = false;
             }
@@ -202,10 +261,9 @@ public partial class ComicCardControl : UserControl
 
     private void WireUp()
     {
-        // 平常 hook hover：this / borderPanel (新加 wrapper) / pic / lbl
-        // borderPanel padding 區也要監聽 leave，否則 mouse: pic → padding → 卡外 中間少一段 leave
+        // 平常 hook hover：this / pic / lbl
+        // hoverToolbar / btnRead / btnExplorer 的 hover 事件在 EnsureHoverControls 內補綁
         HookHover(this);
-        HookHover(borderPanel);
         HookHover(pic);
         HookHover(lbl);
 
@@ -217,7 +275,6 @@ public partial class ComicCardControl : UserControl
         };
         pic.MouseClick += clickHandler;
         lbl.MouseClick += clickHandler;
-        borderPanel.MouseClick += clickHandler;
         this.MouseClick += clickHandler;
     }
 

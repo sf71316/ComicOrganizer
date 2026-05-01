@@ -4,11 +4,10 @@ partial class ComicCardControl
 {
     private System.ComponentModel.IContainer components = null;
 
-    // borderPanel = AntdUI.Panel 包整張卡，靠它畫圓角 + 1px 邊框 (BorderWidth + BorderColor)
-    // 跟自己 OnPaint 比多 1 HWND/卡，但 GDI+ AA 邊框對齊問題交給 AntdUI 處理穩定。
-    // pic + lbl 移進 borderPanel，UserControl 只當 sizing/events host。
-    // hoverToolbar / btnRead / btnExplorer / typeStrip / typeIconLbl 仍 lazy 建立 (首次 hover 才創 HWND)
-    private AntdUI.Panel borderPanel;
+    // pic + lbl 直接掛 UserControl 自己 (不再包 borderPanel)，少 1 HWND/卡，
+    // 大量卡片 fast scroll 時 WM_PAINT 數降回，避免捲動扭曲。
+    // 圓角 + 1px 邊框 + bg 由 UserControl.OnPaint 自繪 (見 ComicCardControl.cs)。
+    // hoverToolbar / btnRead / btnExplorer / typeStrip / typeIconLbl 仍 lazy 建立。
     private AntdUI.Image3D pic;
     private System.Windows.Forms.Label lbl;
 
@@ -23,10 +22,8 @@ partial class ComicCardControl
 
     private void InitializeComponent()
     {
-        borderPanel = new AntdUI.Panel();
         lbl = new Label();
         pic = new AntdUI.Image3D();
-        borderPanel.SuspendLayout();
         SuspendLayout();
         //
         // lbl
@@ -53,28 +50,15 @@ partial class ComicCardControl
         pic.Size = new Size(140, 200);
         pic.TabIndex = 1;
         //
-        // borderPanel — 圓角 + 1px 邊框；pic + lbl 都在這層
-        //
-        borderPanel.BackColor = Color.Transparent;
-        borderPanel.Back = Color.White;     // 卡片底色，hover 時動態切 Secondary
-        borderPanel.Radius = 8;
-        borderPanel.BorderWidth = 1;
-        borderPanel.BorderColor = ComicOrganizer.App.Core.ThemeColors.Border;
-        borderPanel.Dock = DockStyle.Fill;
-        borderPanel.Padding = new Padding(10);   // pic + lbl 與框線之間留 10px 內距 (恢復重構前的視覺)
-        borderPanel.Name = "borderPanel";
-        borderPanel.Controls.Add(lbl);
-        borderPanel.Controls.Add(pic);
-        //
         // ComicCardControl
         //
-        BackColor = Color.Transparent;
-        Controls.Add(borderPanel);
+        BackColor = Color.Transparent;     // 配合 SupportsTransparentBackColor — parent 透出
+        Controls.Add(lbl);
+        Controls.Add(pic);
         DoubleBuffered = true;
         Name = "ComicCardControl";
-        Padding = new Padding(0);
+        Padding = new Padding(10);          // 內距 — 卡邊到 pic/lbl
         Size = new Size(160, 259);
-        borderPanel.ResumeLayout(false);
         ResumeLayout(false);
     }
 }
