@@ -292,6 +292,44 @@ public class FolderRoleDetectorTests : IDisposable
         Assert.Equal(FolderRole.Author, d.Detect(author));
     }
 
+    // ========== Series 名字 "X集全" → Category (合集) ==========
+    [Fact]
+    public void Series_With_VolumesComplete_Is_Category()
+    {
+        var lib = Mk();
+        var author = Mk("Cuvie");
+        // Series folder: "(0681)[Cuvie] NIGHTMARE MAKER 6集全[中文]" 含 6 個 vol
+        var series = Mk("Cuvie", "(0681)[Cuvie] NIGHTMARE MAKER 6集全[中文]");
+        for (int v = 1; v <= 6; v++)
+        {
+            var vol = Mk("Cuvie", "(0681)[Cuvie] NIGHTMARE MAKER 6集全[中文]", $"Vol{v}");
+            for (int i = 1; i <= 10; i++) Touch(vol, $"{i:D2}.jpg");
+        }
+
+        var d = new FolderRoleDetector(lib);
+        Assert.Equal(FolderRole.Category, d.Detect(series));   // "6集全" → Series → Category
+        Assert.Equal(FolderRole.Author, d.Detect(author));
+    }
+
+    // ========== Series 「全X巻」 / 「完結」變體 → Category ==========
+    [Fact]
+    public void Series_With_AllVolumes_Or_Completed_Is_Category()
+    {
+        var lib = Mk();
+        var s1 = Mk("Author", "全12巻");
+        var s2 = Mk("Author", "作品名 完結");
+        for (int v = 1; v <= 3; v++)
+        {
+            var sub1 = Mk("Author", "全12巻", $"Vol{v}");
+            var sub2 = Mk("Author", "作品名 完結", $"Vol{v}");
+            for (int i = 1; i <= 10; i++) { Touch(sub1, $"{i:D2}.jpg"); Touch(sub2, $"{i:D2}.jpg"); }
+        }
+
+        var d = new FolderRoleDetector(lib);
+        Assert.Equal(FolderRole.Category, d.Detect(s1));
+        Assert.Equal(FolderRole.Category, d.Detect(s2));
+    }
+
     // ========== Cache 重複呼叫不重新計算 ==========
     [Fact]
     public void Detect_Caches_Result()

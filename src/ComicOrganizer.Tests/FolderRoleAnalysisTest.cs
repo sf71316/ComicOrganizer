@@ -137,32 +137,57 @@ public class FolderRoleAnalysisTest
     }
 
     /// <summary>
-    /// 從 author folder name 抽出作者名（簡單規則）：
-    ///   "[Flugel]" → "Flugel"
-    ///   "[小林優子]" → "小林優子"
-    ///   "Flugel" → "Flugel" (沒括號就原樣)
-    ///   "[Group (Author)]" → "Author" (社團/作者格式)
+    /// 從 author folder name 抽出主名 + 別名（雙語名常見：日文+羅馬拼音）：
+    ///   "タイガー[Tiger Roman]"   → main="タイガー",        alias="Tiger Roman"
+    ///   "Digital Lover (なかじまゆか)" → main="Digital Lover", alias="なかじまゆか"
+    ///   "[Group (Author)]"        → main="Group",          alias="Author"
+    ///   "[Flugel]"                → main="Flugel",         alias=null
+    ///   "[小林優子]"               → main="小林優子",        alias=null
+    ///   "Flugel"                  → main="Flugel",         alias=null
+    /// 顯示用 "main / alias" 字串：tracker / parser 後續可拆兩欄存 DB
     /// </summary>
     private static string ExtractAuthorName(string folderName)
     {
-        if (string.IsNullOrEmpty(folderName)) return folderName;
+        var (main, alias) = ExtractAuthorMainAndAlias(folderName);
+        return alias != null ? $"{main} / {alias}" : main;
+    }
 
-        // 抓最外層 [...]
-        int lb = folderName.IndexOf('[');
-        int rb = folderName.IndexOf(']');
-        if (lb >= 0 && rb > lb)
+    private static (string Main, string? Alias) ExtractAuthorMainAndAlias(string folderName)
+    {
+        if (string.IsNullOrEmpty(folderName)) return (folderName, null);
+        var s = folderName.Trim();
+
+        // 1. "前綴 [後綴]" — 雙語名典型
+        var m1 = System.Text.RegularExpressions.Regex.Match(s, @"^(.+?)\s*\[([^\]]+)\]\s*$");
+        if (m1.Success)
         {
-            var inside = folderName.Substring(lb + 1, rb - lb - 1).Trim();
-            // 含小括號 → 取括號內 (Author)
-            int p1 = inside.IndexOf('(');
-            int p2 = inside.IndexOf(')');
+            var prefix = m1.Groups[1].Value.Trim();
+            var bracket = m1.Groups[2].Value.Trim();
+            // bracket 內含 (xxx) 視為 group 內 author
+            var p1 = bracket.IndexOf('(');
+            var p2 = bracket.LastIndexOf(')');
             if (p1 >= 0 && p2 > p1)
             {
-                return inside.Substring(p1 + 1, p2 - p1 - 1).Trim();
+                bracket = bracket.Substring(p1 + 1, p2 - p1 - 1).Trim();
             }
-            return inside;
+            // prefix 是空 → 純 [xxx] 格式 (沒前綴)
+            if (string.IsNullOrEmpty(prefix)) return (bracket, null);
+            return (prefix, bracket);
         }
-        return folderName;
+
+        // 2. "Group (Author)" 純小括號格式
+        var m2 = System.Text.RegularExpressions.Regex.Match(s, @"^(.+?)\s*\(([^()]+)\)\s*$");
+        if (m2.Success)
+        {
+            return (m2.Groups[1].Value.Trim(), m2.Groups[2].Value.Trim());
+        }
+
+        // 3. 純 [Single]
+        var m3 = System.Text.RegularExpressions.Regex.Match(s, @"^\[([^\]]+)\]$");
+        if (m3.Success) return (m3.Groups[1].Value.Trim(), null);
+
+        // 4. 純名稱
+        return (s, null);
     }
 
     /// <summary>
