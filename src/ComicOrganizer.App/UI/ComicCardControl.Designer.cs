@@ -61,7 +61,7 @@ partial class ComicCardControl
         borderPanel.BorderWidth = 1;
         borderPanel.BorderColor = ComicOrganizer.App.Core.ThemeColors.Border;
         borderPanel.Dock = DockStyle.Fill;
-        borderPanel.Padding = new Padding(0);
+        borderPanel.Padding = new Padding(10);   // pic + lbl 與框線之間留 10px 內距 (恢復重構前的視覺)
         borderPanel.Name = "borderPanel";
         borderPanel.Controls.Add(lbl);
         borderPanel.Controls.Add(pic);
