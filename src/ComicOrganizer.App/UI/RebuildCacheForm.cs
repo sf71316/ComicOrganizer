@@ -32,7 +32,7 @@ public partial class RebuildCacheForm : Window
         lblFullDesc.Text = ComicOrganizer.App.Core.LocalizationManager.GetString("RebuildFullDesc") ?? "清空所有 cache，從根目錄重新掃描";
         btnPartialRebuild.Text = ComicOrganizer.App.Core.LocalizationManager.GetString("RebuildPartial") ?? "部分重建...";
         lblPartialDesc.Text = ComicOrganizer.App.Core.LocalizationManager.GetString("RebuildPartialDesc") ?? "選擇子目錄重新掃描";
-        lblStatus.Text = ComicOrganizer.App.Core.LocalizationManager.GetString("RebuildIdle") ?? "等待中";
+        // lblStatus / lblCurrent 初始空白，按下重建後才由 progress callback 填入正在處理的項目
     }
 
     private void WireEvents()
@@ -63,6 +63,11 @@ public partial class RebuildCacheForm : Window
     {
         SetRunning(true);
         _cts = new CancellationTokenSource();
+
+        // CollectPaths 階段沒 progress callback (可能跑數秒)，先顯示準備中讓使用者知道有反應
+        lblStatus.Text = "準備中...";
+        lblCurrent.Text = "";
+
         var progress = new Progress<CacheRebuildService.Progress>(p =>
         {
             // Progress 已自動 marshal 到 UI thread (Progress<T> SynchronizationContext)

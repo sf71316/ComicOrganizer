@@ -104,7 +104,7 @@ partial class RebuildCacheForm
         lblStatus.Name = "lblStatus";
         lblStatus.Size = new Size(200, 25);
         lblStatus.TabIndex = 3;
-        lblStatus.Text = "等待中";
+        lblStatus.Text = "";
         // 
         // progressBar
         // 
