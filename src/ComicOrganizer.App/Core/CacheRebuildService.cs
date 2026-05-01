@@ -16,6 +16,7 @@ public class CacheRebuildService
     private readonly CoverManager _coverManager;
     private readonly IAssetMetaStore _metaStore;
     private readonly IThumbStore _thumbStore;
+    private readonly RebuildProgressTracker _tracker;
     private static readonly string[] AllowedExtensions =
         { ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".zip", ".cbz", ".pdf" };
 
@@ -27,41 +28,84 @@ public class CacheRebuildService
     }
 
     public CacheRebuildService(AppConfig config, CoverManager coverManager,
-        IAssetMetaStore metaStore, IThumbStore thumbStore)
+        IAssetMetaStore metaStore, IThumbStore thumbStore, RebuildProgressTracker tracker)
     {
         _config = config;
         _coverManager = coverManager;
         _metaStore = metaStore;
         _thumbStore = thumbStore;
+        _tracker = tracker;
     }
 
-    public Task FullRebuildAsync(IProgress<Progress>? progress, CancellationToken ct)
+    /// <summary>完整重建：清空 DB + thumbs/ → 從 RootDirectory 重新掃描。可被取消，
+    /// 取消後 cache 部分已寫入；下次呼叫 ResumeScanAsync 可繼續未完成的部分。</summary>
+    public Task FullRebuildAsync()
     {
         if (string.IsNullOrEmpty(_config.RootDirectory) || !Directory.Exists(_config.RootDirectory))
             return Task.CompletedTask;
 
+        var ct = _tracker.Start("完整重建中");
         return Task.Run(async () =>
         {
-            _metaStore.Clear();
-            _thumbStore.Clear();
-            await ScanAsync(_config.RootDirectory, progress, ct);
-        }, ct);
+            try
+            {
+                _metaStore.Clear();
+                _thumbStore.Clear();
+                await ScanAsync(_config.RootDirectory, ct);
+                _tracker.NotifyEnd(cancelled: false);
+            }
+            catch (OperationCanceledException)
+            {
+                _tracker.NotifyEnd(cancelled: true);
+            }
+        });
     }
 
-    public Task PartialRebuildAsync(string subtreePath, IProgress<Progress>? progress, CancellationToken ct)
+    /// <summary>部分重建：清空指定 subtree → 重新掃描該子樹。</summary>
+    public Task PartialRebuildAsync(string subtreePath)
     {
         if (string.IsNullOrEmpty(subtreePath) || !Directory.Exists(subtreePath))
             return Task.CompletedTask;
 
+        var ct = _tracker.Start("部分重建中");
         return Task.Run(async () =>
         {
-            _metaStore.DeleteSubtree(subtreePath);
-            // ThumbStore 不掃 subtree（需 path map），留給 LRU 自然淘汰
-            await ScanAsync(subtreePath, progress, ct);
-        }, ct);
+            try
+            {
+                _metaStore.DeleteSubtree(subtreePath);
+                await ScanAsync(subtreePath, ct);
+                _tracker.NotifyEnd(cancelled: false);
+            }
+            catch (OperationCanceledException)
+            {
+                _tracker.NotifyEnd(cancelled: true);
+            }
+        });
     }
 
-    private async Task ScanAsync(string root, IProgress<Progress>? progress, CancellationToken ct)
+    /// <summary>掃描更新：不清空 DB / thumbs，從 RootDirectory 掃描；已 cache 的會 hit 直接 skip
+    /// 未 cache 的會寫入。適合「繼續未完成的重建」與一般增量同步。</summary>
+    public Task ResumeScanAsync()
+    {
+        if (string.IsNullOrEmpty(_config.RootDirectory) || !Directory.Exists(_config.RootDirectory))
+            return Task.CompletedTask;
+
+        var ct = _tracker.Start("掃描更新中");
+        return Task.Run(async () =>
+        {
+            try
+            {
+                await ScanAsync(_config.RootDirectory, ct);
+                _tracker.NotifyEnd(cancelled: false);
+            }
+            catch (OperationCanceledException)
+            {
+                _tracker.NotifyEnd(cancelled: true);
+            }
+        });
+    }
+
+    private async Task ScanAsync(string root, CancellationToken ct)
     {
         // Phase 1: 列出所有候選 path（folder + 支援副檔名）
         var paths = new List<string>();
@@ -69,10 +113,10 @@ public class CacheRebuildService
         {
             CollectPaths(root, paths, ct);
         }
-        catch (OperationCanceledException) { return; }
+        catch (OperationCanceledException) { throw; }
 
         var p = new Progress { Total = paths.Count };
-        progress?.Report(p);
+        _tracker.Update(p);
 
         // Phase 2: 逐項呼叫 GetCoverAsync (cache miss → 寫 cache)
         for (int i = 0; i < paths.Count; i++)
@@ -82,13 +126,12 @@ public class CacheRebuildService
             try
             {
                 using var img = await _coverManager.GetCoverAsync(path, CoverManager.ThumbWidth);
-                // img 立即釋放，CacheWriter 已經有 jpeg bytes 在 queue 內
             }
             catch { /* 單筆失敗不中斷整體 */ }
 
             p.Done = i + 1;
             p.CurrentPath = path;
-            progress?.Report(p);
+            _tracker.Update(p);
         }
     }
 

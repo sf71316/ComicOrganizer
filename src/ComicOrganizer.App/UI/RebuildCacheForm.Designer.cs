@@ -10,6 +10,8 @@ partial class RebuildCacheForm
     private AntdUI.Label lblFullDesc;
     private AntdUI.Button btnPartialRebuild;
     private AntdUI.Label lblPartialDesc;
+    private AntdUI.Button btnResume;
+    private AntdUI.Label lblResumeDesc;
     private AntdUI.Divider divider;
     private AntdUI.Progress progressBar;
     private AntdUI.Label lblStatus;
@@ -37,6 +39,8 @@ partial class RebuildCacheForm
         btnPartialRebuild = new AntdUI.Button();
         lblFullDesc = new AntdUI.Label();
         btnFullRebuild = new AntdUI.Button();
+        btnResume = new AntdUI.Button();
+        lblResumeDesc = new AntdUI.Label();
         content.SuspendLayout();
         SuspendLayout();
         // 
@@ -65,6 +69,8 @@ partial class RebuildCacheForm
         content.Controls.Add(btnPartialRebuild);
         content.Controls.Add(lblFullDesc);
         content.Controls.Add(btnFullRebuild);
+        content.Controls.Add(lblResumeDesc);
+        content.Controls.Add(btnResume);
         content.Dock = DockStyle.Fill;
         content.Location = new Point(0, 77);
         content.Margin = new Padding(5);
@@ -168,7 +174,24 @@ partial class RebuildCacheForm
         btnFullRebuild.TabIndex = 9;
         btnFullRebuild.Text = "完整重建";
         btnFullRebuild.Type = AntdUI.TTypeMini.Primary;
-        // 
+        //
+        // btnResume (只在 tracker.WasInterrupted 時顯示)
+        //
+        btnResume.Location = new Point(42, 195);
+        btnResume.Name = "btnResume";
+        btnResume.Size = new Size(283, 61);
+        btnResume.Text = "繼續未完成的掃描";
+        btnResume.Type = AntdUI.TTypeMini.Primary;
+        btnResume.Visible = false;
+        //
+        // lblResumeDesc
+        //
+        lblResumeDesc.BackColor = Color.Transparent;
+        lblResumeDesc.Location = new Point(341, 200);
+        lblResumeDesc.Name = "lblResumeDesc";
+        lblResumeDesc.Size = new Size(456, 46);
+        lblResumeDesc.Text = "上次掃描被中斷，繼續未完成的部分（已 cache 的會 skip）";
+        //
         // RebuildCacheForm
         // 
         AutoScaleDimensions = new SizeF(11F, 23F);

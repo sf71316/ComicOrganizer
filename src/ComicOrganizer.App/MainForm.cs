@@ -18,6 +18,7 @@ public partial class MainForm : Window, IThemedControl
     private readonly IThumbStore _thumbStore;
     private readonly CacheWriter _cacheWriter;
     private readonly CacheRebuildService _rebuildService;
+    private readonly RebuildProgressTracker _rebuildTracker;
 
     public MainForm()
     {
@@ -42,7 +43,10 @@ public partial class MainForm : Window, IThemedControl
         _thumbStore = new FileSystemThumbStore(Path.Combine(baseDir, "thumbs"));
         _cacheWriter = new CacheWriter(_metaStore, _thumbStore, _config);
         _coverManager.AttachCache(_metaStore, _thumbStore, _cacheWriter);
-        _rebuildService = new CacheRebuildService(_config, _coverManager, _metaStore, _thumbStore);
+        _rebuildTracker = new RebuildProgressTracker();
+        _rebuildService = new CacheRebuildService(_config, _coverManager, _metaStore, _thumbStore, _rebuildTracker);
+        // Tracker 改變時，statusBar 自動同步顯示（背景任務全域可見）
+        _rebuildTracker.StateChanged += (s, e) => UpdateStatusFromTracker();
 
         // 等 Form Load 後 Initialize（此時 handle 已建立、Invoke 才能用）
         this.Load += (s, e) =>
@@ -68,15 +72,41 @@ public partial class MainForm : Window, IThemedControl
 
     private void OpenRebuildCacheDialog()
     {
-        using var form = new UI.RebuildCacheForm(_rebuildService, RunPartialRebuildBackground);
-        form.ShowDialog(this);
+        // 用 Show（非 ShowDialog）讓使用者可關 form 繼續用 App，任務在背景跑
+        var form = new UI.RebuildCacheForm(_rebuildService, _rebuildTracker);
+        form.Show(this);
     }
 
-    private CancellationTokenSource? _statusCts;
+    /// <summary>tracker StateChanged → 把進度反映到底部 statusBar。</summary>
+    private void UpdateStatusFromTracker()
+    {
+        if (statusBar.InvokeRequired)
+        {
+            statusBar.BeginInvoke(new Action(UpdateStatusFromTracker));
+            return;
+        }
+
+        if (_rebuildTracker.IsRunning)
+        {
+            var p = _rebuildTracker.Current;
+            if (p.Total > 0)
+                statusLabel.Text = $"{_rebuildTracker.Phase} ({p.Done}/{p.Total})";
+            else
+                statusLabel.Text = _rebuildTracker.Phase;
+        }
+        else if (_rebuildTracker.WasInterrupted)
+        {
+            statusLabel.Text = "重建已取消";
+        }
+        else if (!string.IsNullOrEmpty(_rebuildTracker.Phase))
+        {
+            statusLabel.Text = "重建完成";
+        }
+    }
 
     /// <summary>
-    /// 通用狀態列訊息：把文字顯示在底部 statusBar。statusBar 常駐顯示，
-    /// 每次呼叫直接覆蓋上次訊息。任何背景任務都能呼叫這個方法。
+    /// 通用狀態列訊息。重建任務的訊息由 UpdateStatusFromTracker 自動處理；
+    /// 這個 API 留給其他臨時通知用。
     /// </summary>
     public void ShowStatus(string message)
     {
@@ -86,34 +116,6 @@ public partial class MainForm : Window, IThemedControl
             return;
         }
         statusLabel.Text = message;
-    }
-
-    /// <summary>部分重建：背景非同步、進度顯示在 statusBar，使用者可繼續操作。</summary>
-    private async Task RunPartialRebuildBackground(string subtreePath)
-    {
-        _statusCts?.Cancel();
-        _statusCts = new CancellationTokenSource();
-        var ct = _statusCts.Token;
-
-        ShowStatus("重建中...");
-        var progress = new Progress<Core.CacheRebuildService.Progress>(p =>
-        {
-            ShowStatus($"重建中 ({p.Done}/{p.Total})");
-        });
-
-        try
-        {
-            await _rebuildService.PartialRebuildAsync(subtreePath, progress, ct);
-            ShowStatus("重建完成");
-        }
-        catch (OperationCanceledException)
-        {
-            ShowStatus("已取消");
-        }
-        catch (Exception ex)
-        {
-            ShowStatus("失敗: " + ex.Message);
-        }
     }
 
     protected override void OnMouseDown(MouseEventArgs e)
