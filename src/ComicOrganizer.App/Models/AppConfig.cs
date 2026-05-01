@@ -23,10 +23,11 @@ public class AppConfig
 
     /// <summary>
     /// CoverManager 選擇 FIRST_IMAGE / FIRST_ZIP entry 時的最小檔案大小 (bytes)。
-    /// 跳過小於此值的檔案（縮圖、banner、小圖示）。預設 100KB。
+    /// 跳過小於此值的檔案（縮圖、banner、小圖示）。預設 50KB。
+    /// 600x800 JPEG 壓縮約 80~120KB 屬正常頁面；50KB 以下幾乎都是 banner/icon。
     /// 注意：cover.* 命名檔不受此限制（使用者明確指定）。
     /// </summary>
-    public long MinCoverFileSizeBytes { get; set; } = 100 * 1024;
+    public long MinCoverFileSizeBytes { get; set; } = 50 * 1024;
 
     /// <summary>
     /// CoverManager 選擇 FIRST_IMAGE / FIRST_ZIP entry 時的最大檔案大小 (bytes)。

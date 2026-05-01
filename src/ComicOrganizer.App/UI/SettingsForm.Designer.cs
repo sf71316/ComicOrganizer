@@ -390,7 +390,7 @@ partial class SettingsForm
         numMinCoverSize.Name = "numMinCoverSize";
         numMinCoverSize.Minimum = 0;
         numMinCoverSize.Maximum = 9999;
-        numMinCoverSize.Value = 100;
+        numMinCoverSize.Value = 50;
         numMinCoverSize.Size = new Size(100, 45);
         numMinCoverSize.TabIndex = 14;
         //
