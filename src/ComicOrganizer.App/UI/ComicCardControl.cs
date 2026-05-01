@@ -67,19 +67,20 @@ public partial class ComicCardControl : UserControl
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
 
+        // 一條 path 共用：fill + stroke 完全對齊，AA 邊緣連貫沒雙重 blend
+        using var path = GetRoundedPathF(new RectangleF(0, 0, Width, Height), CornerRadius);
+
         // 圓角填滿（hover 時為 Secondary 紫）
-        using (var fillPath = GetRoundedPathF(new RectangleF(0, 0, Width, Height), CornerRadius))
         using (var brush = new SolidBrush(_currentBgColor))
         {
-            g.FillPath(brush, fillPath);
+            g.FillPath(brush, path);
         }
 
-        // 1px 圓角框線：path 偏移 0.5px 讓 1px stroke 中心對齊 pixel 中心 →
-        // 各邊厚度均勻不糊；用 RectangleF 走 float arc，AA 才順
-        using (var strokePath = GetRoundedPathF(new RectangleF(0.5f, 0.5f, Width - 1, Height - 1), CornerRadius))
-        using (var pen = new Pen(ComicOrganizer.App.Core.ThemeColors.Border, 1))
+        // 1px 框線 — Pen.Alignment=Inset 把 stroke 壓在 path 內側 1px，
+        // 跟 fill edge 同 path 對齊，避免 Center alignment 對各邊產生 0.5px 內外不對稱
+        using (var pen = new Pen(ComicOrganizer.App.Core.ThemeColors.Border, 1) { Alignment = PenAlignment.Inset })
         {
-            g.DrawPath(pen, strokePath);
+            g.DrawPath(pen, path);
         }
     }
 
