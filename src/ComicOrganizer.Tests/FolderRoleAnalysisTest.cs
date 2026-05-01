@@ -141,14 +141,24 @@ public class FolderRoleAnalysisTest
     /// <summary>
     /// 從 work folder name 抽出作品名（簡單規則 — 移除前置 [作者] 與後綴 tags）：
     ///   "[Flugel] くぎづけはーと [中文] [DL版]" → "くぎづけはーと"
+    ///   "(C75) [Digital Lover] D.L.action 45 (xxx)" → "D.L.action 45"
     ///   "作品1" → "作品1"
     /// </summary>
     private static string ExtractWorkTitle(string folderName)
     {
         if (string.IsNullOrEmpty(folderName)) return folderName;
 
-        // 砍 .zip / .cbz 副檔名
-        var name = Path.GetFileNameWithoutExtension(folderName);
+        // 砍 .zip / .cbz / .pdf 副檔名 (不能用 Path.GetFileNameWithoutExtension —
+        // 它會把 "D.L.action" 的最後一個 . 當副檔名分隔，砍掉 .action)
+        var name = folderName;
+        foreach (var ext in new[] { ".zip", ".cbz", ".pdf" })
+        {
+            if (name.EndsWith(ext, StringComparison.OrdinalIgnoreCase))
+            {
+                name = name[..^ext.Length];
+                break;
+            }
+        }
 
         // 去 (Comic Market 編號) 之類
         name = System.Text.RegularExpressions.Regex.Replace(name, @"\(C\d{2,3}\)", "").Trim();

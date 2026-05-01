@@ -68,6 +68,12 @@ public class FolderRoleDetector
 
         if (!Directory.Exists(path)) return FolderRole.Unknown;
 
+        // === 資料夾名 pattern 判定 ===
+        // (C\d+) Comic Market 編號 / (同人誌) / 多個 [] = 強信號 Work
+        // 即使含 chapter 子目錄 (單章節作品) 也應視為 Work，不該被推成 Author
+        var folderName = Path.GetFileName(path);
+        if (LooksLikeWorkTitle(folderName)) return FolderRole.Work;
+
         // 列 children
         string[] files;
         string[] subdirs;
@@ -119,6 +125,40 @@ public class FolderRoleDetector
         if (childRoles.All(r => r == FolderRole.Work || r == FolderRole.Author)) return FolderRole.Author;
 
         return FolderRole.Unknown;
+    }
+
+    /// <summary>
+    /// 從資料夾命名 pattern 判斷是不是 Work title。
+    /// Author 命名通常短 (`Flugel` / `[小林優子]` / `Group (Author)`)；
+    /// Work title 命名通常含 Comic Market 編號 / (同人誌) tag / 多個 `[]`。
+    /// </summary>
+    private static bool LooksLikeWorkTitle(string folderName)
+    {
+        if (string.IsNullOrEmpty(folderName)) return false;
+
+        // 含 (C76) Comic Market 編號 → 強信號
+        if (System.Text.RegularExpressions.Regex.IsMatch(folderName, @"\(C\d{2,3}\)"))
+            return true;
+        // 含「同人誌」/「成年コミック」/「商業誌」/「漢化組」標記 → Work
+        if (folderName.Contains("(同人誌)") ||
+            folderName.Contains("(成年コミック)") ||
+            folderName.Contains("(商業誌)") ||
+            folderName.Contains("漢化") ||
+            folderName.Contains("中国翻訳") ||
+            folderName.Contains("中譯") ||
+            folderName.Contains("DL版"))
+            return true;
+        // 含日期格式 (yyyymmdd / 第 N 話 / Vol.N / Ch.N)
+        if (System.Text.RegularExpressions.Regex.IsMatch(folderName, @"\d{6,8}") ||
+            System.Text.RegularExpressions.Regex.IsMatch(folderName, @"第\d+話") ||
+            System.Text.RegularExpressions.Regex.IsMatch(folderName, @"Vol\.\d+", System.Text.RegularExpressions.RegexOptions.IgnoreCase) ||
+            System.Text.RegularExpressions.Regex.IsMatch(folderName, @"Ch\.\d+", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            return true;
+        // 多個 [] (≥2)：Author folder 通常只 1 個 (含作者)，2+ 通常是 Work title 結構
+        int bracketCount = System.Text.RegularExpressions.Regex.Matches(folderName, @"\[[^\]]*\]").Count;
+        if (bracketCount >= 2) return true;
+
+        return false;
     }
 
     /// <summary>

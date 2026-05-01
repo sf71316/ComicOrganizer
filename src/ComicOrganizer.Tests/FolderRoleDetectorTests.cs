@@ -235,6 +235,63 @@ public class FolderRoleDetectorTests : IDisposable
         Assert.Equal(FolderRole.Work, d.Detect(work));
     }
 
+    // ========== Work 含 Comic Market 編號 (即使有 chapter 子目錄) → 仍是 Work ==========
+    [Fact]
+    public void Work_With_CommentMarket_Number_Despite_Subdir()
+    {
+        var lib = Mk();
+        var author = Mk("KOKIKKO");
+        // 此 work folder 內含 chapter 子目錄
+        var work = Mk("KOKIKKO", "[萌の空漢化社] (C76) (同人誌) [KOKIKKO] ATHENS");
+        var chapter = Mk("KOKIKKO", "[萌の空漢化社] (C76) (同人誌) [KOKIKKO] ATHENS", "ATHENS");
+        for (int i = 1; i <= 20; i++) Touch(chapter, $"{i:D2}.jpg");
+
+        var d = new FolderRoleDetector(lib);
+        Assert.Equal(FolderRole.Work, d.Detect(chapter));
+        Assert.Equal(FolderRole.Work, d.Detect(work));     // (C76) + (同人誌) → 確定 Work
+        Assert.Equal(FolderRole.Author, d.Detect(author));
+    }
+
+    // ========== Work 含「同人誌」標記 → Work ==========
+    [Fact]
+    public void Work_With_Doujinshi_Tag()
+    {
+        var lib = Mk();
+        var work = Mk("[作者] 作品 (同人誌)");
+        var sub = Mk("[作者] 作品 (同人誌)", "ch1");
+        for (int i = 1; i <= 10; i++) Touch(sub, $"{i:D2}.jpg");
+
+        var d = new FolderRoleDetector(lib);
+        Assert.Equal(FolderRole.Work, d.Detect(work));
+    }
+
+    // ========== Work 含多個 [] (≥2) → Work ==========
+    [Fact]
+    public void Work_With_Multiple_Brackets()
+    {
+        var lib = Mk();
+        var work = Mk("[Group] [Author] 作品 [中文]");
+        var sub = Mk("[Group] [Author] 作品 [中文]", "ch1");
+        for (int i = 1; i <= 10; i++) Touch(sub, $"{i:D2}.jpg");
+
+        var d = new FolderRoleDetector(lib);
+        Assert.Equal(FolderRole.Work, d.Detect(work));
+    }
+
+    // ========== Author 命名只有 1 個 [] 不會誤判為 Work ==========
+    [Fact]
+    public void Author_With_SingleBracket_Not_Misclassified()
+    {
+        var lib = Mk();
+        var author = Mk("[Flugel]");
+        var workA = Mk("[Flugel]", "作品A");
+        var workB = Mk("[Flugel]", "作品B");
+        for (int i = 1; i <= 10; i++) { Touch(workA, $"{i:D2}.jpg"); Touch(workB, $"{i:D2}.jpg"); }
+
+        var d = new FolderRoleDetector(lib);
+        Assert.Equal(FolderRole.Author, d.Detect(author));
+    }
+
     // ========== Cache 重複呼叫不重新計算 ==========
     [Fact]
     public void Detect_Caches_Result()
