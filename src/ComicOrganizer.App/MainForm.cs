@@ -73,46 +73,22 @@ public partial class MainForm : Window, IThemedControl
     }
 
     private CancellationTokenSource? _statusCts;
-    private int _hideStatusToken;     // 防止舊 hide task 蓋掉新 ShowStatus
 
     /// <summary>
-    /// 通用狀態列訊息：顯示一段文字在底部 statusBar。autoHideMs > 0 時 N 毫秒後自動隱藏。
-    /// 任何背景任務（重建 cache、未來其他長時間操作）都可呼叫這個方法。
+    /// 通用狀態列訊息：把文字顯示在底部 statusBar。statusBar 常駐顯示，
+    /// 每次呼叫直接覆蓋上次訊息。任何背景任務都能呼叫這個方法。
     /// </summary>
-    public void ShowStatus(string message, int autoHideMs = 0)
+    public void ShowStatus(string message)
     {
         if (statusBar.InvokeRequired)
         {
-            statusBar.BeginInvoke(new Action(() => ShowStatus(message, autoHideMs)));
+            statusBar.BeginInvoke(new Action(() => ShowStatus(message)));
             return;
         }
-        statusBar.Visible = true;
         statusLabel.Text = message;
-        int myToken = ++_hideStatusToken;
-        if (autoHideMs > 0) _ = HideStatusAfter(autoHideMs, myToken);
     }
 
-    public void HideStatus()
-    {
-        if (statusBar.InvokeRequired)
-        {
-            statusBar.BeginInvoke(new Action(HideStatus));
-            return;
-        }
-        statusBar.Visible = false;
-    }
-
-    private async Task HideStatusAfter(int ms, int myToken)
-    {
-        await Task.Delay(ms);
-        // 期間若有新 ShowStatus 進來，token 改變 → 不隱藏
-        if (_hideStatusToken == myToken) HideStatus();
-    }
-
-    /// <summary>
-    /// 部分重建：dialog 收到 user 選 subtree 後委派給此方法，跑背景非同步、用 ShowStatus 顯示進度，
-    /// User 仍可繼續操作 gallery。
-    /// </summary>
+    /// <summary>部分重建：背景非同步、進度顯示在 statusBar，使用者可繼續操作。</summary>
     private async Task RunPartialRebuildBackground(string subtreePath)
     {
         _statusCts?.Cancel();
@@ -128,15 +104,15 @@ public partial class MainForm : Window, IThemedControl
         try
         {
             await _rebuildService.PartialRebuildAsync(subtreePath, progress, ct);
-            ShowStatus("重建完成", autoHideMs: 5000);
+            ShowStatus("重建完成");
         }
         catch (OperationCanceledException)
         {
-            ShowStatus("已取消", autoHideMs: 3000);
+            ShowStatus("已取消");
         }
         catch (Exception ex)
         {
-            ShowStatus("失敗: " + ex.Message, autoHideMs: 5000);
+            ShowStatus("失敗: " + ex.Message);
         }
     }
 

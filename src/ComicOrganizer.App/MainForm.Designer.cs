@@ -212,7 +212,7 @@ partial class MainForm
         statusBar.BackColor = Color.Transparent;
         statusBar.Back = Core.ThemeColors.Surface;
         statusBar.Padding = new Padding(12, 4, 12, 4);
-        statusBar.Visible = false;
+        statusBar.Visible = true;     // 常駐顯示，由 ShowStatus 更新文字
         statusBar.Name = "statusBar";
         statusBar.Controls.Add(statusLabel);
         //
