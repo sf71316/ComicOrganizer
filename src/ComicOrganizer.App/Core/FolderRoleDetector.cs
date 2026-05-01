@@ -72,9 +72,9 @@ public class FolderRoleDetector
 
         var folderName = Path.GetFileName(path);
 
-        // === Series 名字判定優先（合集 / 完結 / Vol.1-N 等）===
-        // 即使有 [作者] Comic Market 等 Work 信號，「6集全」這類就是 Category (Series)
-        if (LooksLikeSeries(folderName)) return FolderRole.Category;
+        // 注意：LooksLikeSeries / LooksLikeWorkTitle 都是 tie-breaker，
+        // 不在此處直接 return — 必須等子目錄分析完才能判斷。
+        // (e.g. "[作者] 総集編" 名字含 Series 信號但底下只有頁圖 → 仍是 Work)
 
         // 列 children
         string[] files;
@@ -120,14 +120,20 @@ public class FolderRoleDetector
         // 子全是 Work → 看資料夾名 + 子數量決定是 Work / Author / Category
         if (childRoles.All(r => r == FolderRole.Work))
         {
-            // (a) 單一 chapter 子目錄 + 名字像 Work title (Comic Market / 同人誌 / 多 [])
-            //     → 自己是 Work (含一個 chapter folder)
-            if (subdirCount + (archiveCount > 0 ? 1 : 0) == 1 && LooksLikeWorkTitle(folderName))
-                return FolderRole.Work;
-            // (b) 多個 Work children + 名字像 Work title
-            //     → 偏 Category (可能 Series 沒被 SeriesNameRules 抓到)
+            int childWorkCount = subdirCount + (archiveCount > 0 ? 1 : 0);
+
+            // (a) 單一 Work child (1 chapter sub 或 1 zip)
+            //     → 名字像 Work → 自己是 Work (含 1 chapter)；否則 Author with single work
+            if (childWorkCount <= 1)
+            {
+                return LooksLikeWorkTitle(folderName) ? FolderRole.Work : FolderRole.Author;
+            }
+            // (b) 多個 Work children
+            //     → 名字像 Series (X集全 / 全X巻) → Category
+            //     → 名字像 Work title (Comic Market) → Category (可能 Series 沒被 Rules 抓)
+            //     → 否則 Author with multiple works
+            if (LooksLikeSeries(folderName)) return FolderRole.Category;
             if (LooksLikeWorkTitle(folderName)) return FolderRole.Category;
-            // (c) 預設：Author with multiple works
             return FolderRole.Author;
         }
         // 子全是 Author → 自己是 Category (e.g., "不常看")
