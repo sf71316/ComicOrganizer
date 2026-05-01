@@ -100,4 +100,6 @@
   <data name="SettingsMenuGeneral" xml:space="preserve"><value>General</value></data>
   <data name="SettingsMenuLibrary" xml:space="preserve"><value>Library</value></data>
   <data name="SettingsMaxScanDepth" xml:space="preserve"><value>Max Scan Depth (cover recursion)</value></data>
+  <data name="SettingsMinCoverSize" xml:space="preserve"><value>Min cover file size (skip thumbnails/banners)</value></data>
+  <data name="SettingsMaxCoverSize" xml:space="preserve"><value>Max cover file size (skip spreads/illustrations)</value></data>
 </root>

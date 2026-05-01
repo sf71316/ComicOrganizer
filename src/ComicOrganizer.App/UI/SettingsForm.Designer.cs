@@ -17,7 +17,7 @@ partial class SettingsForm
 
     // 內容區兩個 sub-panel（toggle Visible 切換）
     private AntdUI.Panel generalPanel;
-    private AntdUI.Panel libraryPanel;
+    private System.Windows.Forms.Panel libraryPanel;  // 用 Forms.Panel 才有 AutoScroll
 
     // generalPanel 控件
     private AntdUI.Label labelTheme;
@@ -42,8 +42,10 @@ partial class SettingsForm
     private AntdUI.InputNumber numMaxScanDepth;
     private AntdUI.Label labelMinCoverSize;
     private AntdUI.InputNumber numMinCoverSize;
+    private AntdUI.Select selectMinCoverUnit;
     private AntdUI.Label labelMaxCoverSize;
     private AntdUI.InputNumber numMaxCoverSize;
+    private AntdUI.Select selectMaxCoverUnit;
 
     // Footer 按鈕
     private AntdUI.Button btnSave;
@@ -67,7 +69,7 @@ partial class SettingsForm
         btnMenuGeneral = new AntdUI.Button();
         btnMenuLibrary = new AntdUI.Button();
         generalPanel = new AntdUI.Panel();
-        libraryPanel = new AntdUI.Panel();
+        libraryPanel = new System.Windows.Forms.Panel();
         labelTheme = new AntdUI.Label();
         selectTheme = new Select();
         labelLang = new AntdUI.Label();
@@ -88,8 +90,10 @@ partial class SettingsForm
         numMaxScanDepth = new InputNumber();
         labelMinCoverSize = new AntdUI.Label();
         numMinCoverSize = new InputNumber();
+        selectMinCoverUnit = new AntdUI.Select();
         labelMaxCoverSize = new AntdUI.Label();
         numMaxCoverSize = new InputNumber();
+        selectMaxCoverUnit = new AntdUI.Select();
         btnSave = new AntdUI.Button();
         btnCancel = new AntdUI.Button();
 
@@ -225,8 +229,10 @@ partial class SettingsForm
         // libraryPanel
         //
         libraryPanel.BackColor = Color.Transparent;
+        libraryPanel.Controls.Add(selectMaxCoverUnit);
         libraryPanel.Controls.Add(numMaxCoverSize);
         libraryPanel.Controls.Add(labelMaxCoverSize);
+        libraryPanel.Controls.Add(selectMinCoverUnit);
         libraryPanel.Controls.Add(numMinCoverSize);
         libraryPanel.Controls.Add(labelMinCoverSize);
         libraryPanel.Controls.Add(numMaxScanDepth);
@@ -246,10 +252,11 @@ partial class SettingsForm
         libraryPanel.Location = new Point(0, 0);
         libraryPanel.Name = "libraryPanel";
         libraryPanel.Padding = new Padding(40, 30, 40, 30);
-        libraryPanel.Radius = 0;
         libraryPanel.Size = new Size(720, 562);
         libraryPanel.TabIndex = 1;
         libraryPanel.Visible = false;
+        libraryPanel.AutoScroll = true;
+        libraryPanel.AutoScrollMinSize = new Size(0, 720);  // 內容超出 panel 高時垂直 scroll
         //
         // label1
         //
@@ -371,40 +378,60 @@ partial class SettingsForm
         // labelMinCoverSize
         //
         labelMinCoverSize.BackColor = Color.Transparent;
-        labelMinCoverSize.Location = new Point(40, 520);
+        labelMinCoverSize.Location = new Point(40, 525);
         labelMinCoverSize.Name = "labelMinCoverSize";
-        labelMinCoverSize.Size = new Size(360, 30);
+        labelMinCoverSize.Size = new Size(420, 30);
         labelMinCoverSize.TabIndex = 13;
-        labelMinCoverSize.Text = "封面最小檔案大小 (KB) — 過濾縮圖/banner";
+        labelMinCoverSize.Text = "封面最小檔案大小 (過濾縮圖/banner)";
         //
         // numMinCoverSize
         //
-        numMinCoverSize.Location = new Point(40, 555);
+        numMinCoverSize.Location = new Point(40, 560);
         numMinCoverSize.Name = "numMinCoverSize";
         numMinCoverSize.Minimum = 0;
-        numMinCoverSize.Maximum = 10000;
+        numMinCoverSize.Maximum = 999999;
         numMinCoverSize.Value = 100;
-        numMinCoverSize.Size = new Size(150, 45);
+        numMinCoverSize.Size = new Size(140, 45);
         numMinCoverSize.TabIndex = 14;
+        //
+        // selectMinCoverUnit
+        //
+        selectMinCoverUnit.Items.Add("KB");
+        selectMinCoverUnit.Items.Add("MB");
+        selectMinCoverUnit.SelectedIndex = 0;
+        selectMinCoverUnit.Location = new Point(190, 560);
+        selectMinCoverUnit.Name = "selectMinCoverUnit";
+        selectMinCoverUnit.Size = new Size(80, 45);
+        selectMinCoverUnit.TabIndex = 15;
         //
         // labelMaxCoverSize
         //
         labelMaxCoverSize.BackColor = Color.Transparent;
-        labelMaxCoverSize.Location = new Point(220, 520);
+        labelMaxCoverSize.Location = new Point(40, 620);
         labelMaxCoverSize.Name = "labelMaxCoverSize";
-        labelMaxCoverSize.Size = new Size(360, 30);
-        labelMaxCoverSize.TabIndex = 15;
-        labelMaxCoverSize.Text = "封面最大檔案大小 (KB) — 過濾拚版/插畫";
+        labelMaxCoverSize.Size = new Size(420, 30);
+        labelMaxCoverSize.TabIndex = 16;
+        labelMaxCoverSize.Text = "封面最大檔案大小 (過濾拚版/插畫)";
         //
         // numMaxCoverSize
         //
-        numMaxCoverSize.Location = new Point(220, 555);
+        numMaxCoverSize.Location = new Point(40, 655);
         numMaxCoverSize.Name = "numMaxCoverSize";
-        numMaxCoverSize.Minimum = 100;
-        numMaxCoverSize.Maximum = 100000;
-        numMaxCoverSize.Value = 5120;
-        numMaxCoverSize.Size = new Size(150, 45);
-        numMaxCoverSize.TabIndex = 16;
+        numMaxCoverSize.Minimum = 1;
+        numMaxCoverSize.Maximum = 999999;
+        numMaxCoverSize.Value = 5;
+        numMaxCoverSize.Size = new Size(140, 45);
+        numMaxCoverSize.TabIndex = 17;
+        //
+        // selectMaxCoverUnit
+        //
+        selectMaxCoverUnit.Items.Add("KB");
+        selectMaxCoverUnit.Items.Add("MB");
+        selectMaxCoverUnit.SelectedIndex = 1;
+        selectMaxCoverUnit.Location = new Point(190, 655);
+        selectMaxCoverUnit.Name = "selectMaxCoverUnit";
+        selectMaxCoverUnit.Size = new Size(80, 45);
+        selectMaxCoverUnit.TabIndex = 18;
         //
         // footer
         //

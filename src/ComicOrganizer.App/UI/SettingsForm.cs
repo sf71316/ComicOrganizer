@@ -46,8 +46,8 @@ public partial class SettingsForm : Window, IThemedControl
         txtImageViewerArgs.Text = Config.ImageViewerArgs;
         cbDebug.Checked = Config.DebugMode;
         numMaxScanDepth.Value = Config.MaxScanDepth;
-        numMinCoverSize.Value = Math.Max(0, Config.MinCoverFileSizeBytes / 1024);
-        numMaxCoverSize.Value = Math.Max(100, Config.MaxCoverFileSizeBytes / 1024);
+        LoadSizeWithUnit(Config.MinCoverFileSizeBytes, numMinCoverSize, selectMinCoverUnit);
+        LoadSizeWithUnit(Config.MaxCoverFileSizeBytes, numMaxCoverSize, selectMaxCoverUnit);
 
         // Theme selector - 簡化 Items 避免轉型錯誤
         selectTheme.Items.Clear();
@@ -122,8 +122,37 @@ public partial class SettingsForm : Window, IThemedControl
 
         // 漫畫庫管理 - 搜尋層數 + 封面大小過濾
         labelMaxScanDepth.Text = LocalizationManager.GetString("SettingsMaxScanDepth") ?? "搜尋層數限制 (封面遞迴)";
-        labelMinCoverSize.Text = LocalizationManager.GetString("SettingsMinCoverSize") ?? "封面最小檔案大小 (KB) — 過濾縮圖/banner";
-        labelMaxCoverSize.Text = LocalizationManager.GetString("SettingsMaxCoverSize") ?? "封面最大檔案大小 (KB) — 過濾拚版/插畫";
+        labelMinCoverSize.Text = LocalizationManager.GetString("SettingsMinCoverSize") ?? "封面最小檔案大小 (過濾縮圖/banner)";
+        labelMaxCoverSize.Text = LocalizationManager.GetString("SettingsMaxCoverSize") ?? "封面最大檔案大小 (過濾拚版/插畫)";
+    }
+
+    /// <summary>
+    /// 把 bytes 轉成最易讀的 KB 或 MB 顯示。≥ 1MB 顯示 MB，否則 KB。
+    /// </summary>
+    private static void LoadSizeWithUnit(long bytes, AntdUI.InputNumber num, AntdUI.Select unit)
+    {
+        const long OneMB = 1024 * 1024;
+        if (bytes >= OneMB && bytes % OneMB == 0)
+        {
+            unit.SelectedIndex = 1;        // MB
+            num.Value = bytes / OneMB;
+        }
+        else if (bytes >= OneMB)
+        {
+            unit.SelectedIndex = 1;        // MB (有餘數仍用 MB 但會 round)
+            num.Value = bytes / OneMB;
+        }
+        else
+        {
+            unit.SelectedIndex = 0;        // KB
+            num.Value = bytes / 1024;
+        }
+    }
+
+    private static long SaveSizeWithUnit(AntdUI.InputNumber num, AntdUI.Select unit)
+    {
+        long multiplier = unit.SelectedIndex == 1 ? 1024L * 1024 : 1024L;
+        return (long)num.Value * multiplier;
     }
 
     protected override void OnMouseDown(MouseEventArgs e)
@@ -160,8 +189,8 @@ public partial class SettingsForm : Window, IThemedControl
         Config.ImageViewerArgs = string.IsNullOrWhiteSpace(txtImageViewerArgs.Text) ? "\"{path}\"" : txtImageViewerArgs.Text;
         Config.DebugMode = cbDebug.Checked;
         Config.MaxScanDepth = (int)numMaxScanDepth.Value;
-        Config.MinCoverFileSizeBytes = (long)numMinCoverSize.Value * 1024;
-        Config.MaxCoverFileSizeBytes = (long)numMaxCoverSize.Value * 1024;
+        Config.MinCoverFileSizeBytes = SaveSizeWithUnit(numMinCoverSize, selectMinCoverUnit);
+        Config.MaxCoverFileSizeBytes = SaveSizeWithUnit(numMaxCoverSize, selectMaxCoverUnit);
 
         // 修正轉型問題：使用 Index 而非直接轉型對象
         if (selectTheme.SelectedIndex >= 0)
