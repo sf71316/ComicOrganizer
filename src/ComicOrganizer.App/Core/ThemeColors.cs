@@ -16,7 +16,7 @@ public static class ThemeColors
     private static readonly Color LightSurface = Color.FromArgb(241, 233, 249);
     private static readonly Color LightBorder = Color.FromArgb(154, 124, 194);
     private static readonly Color LightTabHeader = Color.FromArgb(0xE8, 0xD7, 0xFA);  // #e8d7fa 比 Surface 沉一點
-    private static readonly Color LightStatusBar = Color.FromArgb(0x84, 0x77, 0x9D);  // #84779d 紫灰，深於 Primary
+    private static readonly Color LightStatusBar = Color.FromArgb(132, 119, 157);  // #84779d 紫灰，深於 Primary
     private static readonly Color LightRowAlternateBg = Color.FromArgb(219, 217, 255);
     private static readonly Color LightTreeViewSurface = Color.FromArgb(241, 233, 249);
 
