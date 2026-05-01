@@ -1,9 +1,12 @@
 using ComicOrganizer.App.Models;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
 using SixLabors.ImageSharp.PixelFormats;
 
 namespace ComicOrganizer.App.Core;
@@ -12,6 +15,15 @@ public class CoverManager
 {
     private readonly AppConfig _config;
     private static readonly string[] ImageExtensions = { ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif" };
+
+    // Cache 服務（optional — 沒接 cache 時 GetCoverAsync 走純 decode 路徑，與舊版相容）
+    private IAssetMetaStore? _metaStore;
+    private IThumbStore? _thumbStore;
+    private CacheWriter? _cacheWriter;
+
+    /// <summary>thumb 縮圖固定寬度，跟 GalleryControl Large card 寬一致。</summary>
+    public const int ThumbWidth = 330;
+    private const long JpegQuality = 80L;
 
     // 開啟後 GetCoverAsync 會在 Debug Output 印分階段時序，方便在不同儲存介質
     // (HDD vs SSD) 上觀察 zip vs subdir 解析路徑的成本。
@@ -30,11 +42,84 @@ public class CoverManager
         _config = config;
     }
 
+    /// <summary>注入 cache 服務（MainForm 啟動時呼叫）。沒注入時 GetCoverAsync 走純 decode 路徑。</summary>
+    public void AttachCache(IAssetMetaStore metaStore, IThumbStore thumbStore, CacheWriter cacheWriter)
+    {
+        _metaStore = metaStore;
+        _thumbStore = thumbStore;
+        _cacheWriter = cacheWriter;
+    }
+
+    /// <summary>SHA1(path)[0:40] 作為 thumb 檔名 hash。</summary>
+    private static string ComputeThumbKey(string path)
+    {
+        using var sha = SHA1.Create();
+        var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(path));
+        var sb = new StringBuilder(40);
+        foreach (var b in bytes) sb.Append(b.ToString("x2"));
+        return sb.ToString();   // 40 字元 hex
+    }
+
+    private static long GetMtimeUnix(string path)
+    {
+        try
+        {
+            DateTime t = Directory.Exists(path)
+                ? Directory.GetLastWriteTimeUtc(path)
+                : File.GetLastWriteTimeUtc(path);
+            return new DateTimeOffset(t, TimeSpan.Zero).ToUnixTimeSeconds();
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static long NowUnix() => DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+    private static byte[] EncodeJpeg(Image img, long quality)
+    {
+        var encoder = ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
+        using var ms = new MemoryStream();
+        var p = new EncoderParameters(1);
+        p.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, quality);
+        img.Save(ms, encoder, p);
+        return ms.ToArray();
+    }
+
     /// <summary>
-    /// 非同步取得指定路徑的封面圖片
+    /// 非同步取得指定路徑的封面圖片。
+    /// 有接 cache (AttachCache 呼叫過) 時優先讀 cache hit；miss 才走 decode 並背景寫 cache。
     /// </summary>
     public async Task<Image?> GetCoverAsync(string path, int maxWidth = 200)
     {
+        // ===== Cache hit fast path =====
+        if (_metaStore != null && _thumbStore != null && _cacheWriter != null)
+        {
+            var swCache = Stopwatch.StartNew();
+            var meta = _metaStore.Get(path);
+            if (meta?.CoverThumbKey != null && meta.Mtime == GetMtimeUnix(path))
+            {
+                using var stream = _thumbStore.OpenRead(meta.CoverThumbKey);
+                if (stream != null)
+                {
+                    try
+                    {
+                        var img = Image.FromStream(stream);
+                        _cacheWriter.EnqueueTouch(path);   // 非同步更新 last_accessed
+                        swCache.Stop();
+                        Log($"CACHE-HIT    '{Short(path)}' → {img.Width}x{img.Height,-12} total={swCache.ElapsedMilliseconds}ms");
+                        return img;
+                    }
+                    catch
+                    {
+                        // thumb 檔損壞 → fall through 走 decode + 重寫
+                    }
+                }
+            }
+        }
+
+        // ===== Cache miss → 既有 decode 路徑 =====
         return await Task.Run(() =>
         {
             var swTotal = Stopwatch.StartNew();
@@ -78,8 +163,63 @@ public class CoverManager
             }
             swTotal.Stop();
             Log($"{kind,-12} '{Short(path)}' → {(result != null ? $"{result.Width}x{result.Height}" : "null"),-12} total={swTotal.ElapsedMilliseconds}ms");
+
+            // 寫 cache (背景 queue) — 只在有接 cache 且 decode 成功時才寫
+            if (result != null && _cacheWriter != null)
+            {
+                EnqueueCacheWrite(path, result);
+            }
+
             return result;
         });
+    }
+
+    /// <summary>把已 decode 的 image 縮成 thumb 尺寸 → JPEG → 入 CacheWriter queue。</summary>
+    private void EnqueueCacheWrite(string path, Image decoded)
+    {
+        try
+        {
+            // 縮成 ThumbWidth (330) — 已小於就不縮
+            Image thumb = decoded.Width > ThumbWidth
+                ? ResizeImage(decoded, ThumbWidth)
+                : new Bitmap(decoded);
+            try
+            {
+                var jpeg = EncodeJpeg(thumb, JpegQuality);
+                var thumbKey = ComputeThumbKey(path);
+                bool isFolder = Directory.Exists(path);
+                long? fileSize = null;
+                try { if (!isFolder) fileSize = new FileInfo(path).Length; } catch { }
+
+                var meta = new AssetMeta
+                {
+                    Path = path,
+                    Name = Path.GetFileName(path),
+                    IsFolder = isFolder,
+                    FileSize = fileSize,
+                    Mtime = GetMtimeUnix(path),
+                    CoverThumbKey = thumbKey,
+                    CoverWidth = thumb.Width,
+                    CoverHeight = thumb.Height,
+                    LastScanned = NowUnix(),
+                    LastAccessed = NowUnix(),
+                };
+                _cacheWriter!.Enqueue(new CacheWriteOp
+                {
+                    Meta = meta,
+                    ThumbKey = thumbKey,
+                    JpegBytes = jpeg,
+                });
+            }
+            finally
+            {
+                if (!ReferenceEquals(thumb, decoded)) thumb.Dispose();
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"  cache write enqueue failed: {ex.Message}");
+        }
     }
 
     private Image? GetFolderCover(string folderPath, int maxWidth)
