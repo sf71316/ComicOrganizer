@@ -33,7 +33,12 @@ public partial class ComicCardControl : UserControl
     public ComicCardControl()
     {
         InitializeComponent();
-        SetStyle(ControlStyles.SupportsTransparentBackColor | ControlStyles.OptimizedDoubleBuffer, true);
+        // 不開 SupportsTransparentBackColor (BackColor=Transparent) — 那會讓 WinForms 在
+        // parent scroll 時強制 invalidate 所有透明子控件，BitBlt 快路徑被取消，scroll 卡頓。
+        // 改成 BackColor = parent (FlowLayoutPanel) 的 Surface 色：WM_ERASEBKGND 直接填 Surface，
+        // OnPaint 在中央畫圓角白底；圓角外的「四角」剛好就是 Surface 色 = 視覺上跟 parent 連續。
+        SetStyle(ControlStyles.OptimizedDoubleBuffer, true);
+        BackColor = ComicOrganizer.App.Core.ThemeColors.Surface;
 
         // tooltip delay timer：到時才開 tooltip，期間若 leave 已 Stop 取消
         _tooltipDelayTimer.Tick += (s, e) =>

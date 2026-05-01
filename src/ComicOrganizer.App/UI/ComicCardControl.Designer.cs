@@ -52,7 +52,7 @@ partial class ComicCardControl
         //
         // ComicCardControl
         //
-        BackColor = Color.Transparent;     // 配合 SupportsTransparentBackColor — parent 透出
+        // BackColor 在 ctor 設成 ThemeColors.Surface 配合 parent；不在 Designer 寫死避免多餘賦值
         Controls.Add(lbl);
         Controls.Add(pic);
         DoubleBuffered = true;
