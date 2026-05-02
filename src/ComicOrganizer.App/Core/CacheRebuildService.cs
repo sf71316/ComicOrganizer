@@ -257,7 +257,7 @@ public class CacheRebuildService
             // metadata enrichment：同步 queue 給 CacheWriter，不阻塞 UI
             if (_cacheWriter != null)
             {
-                var metaOp = ProduceMetadataOp(path, detector);
+                var metaOp = ProduceMetadataOp(path, detector, _config.RootDirectory);
                 if (metaOp != null) _cacheWriter.Enqueue(metaOp);
             }
 
@@ -272,7 +272,7 @@ public class CacheRebuildService
     /// Author folder → 只 upsert author。Work file/folder → 寫 asset_meta + tags。
     /// 其他 role（Library / Category / Unknown）→ 不產生 op。
     /// </summary>
-    private static CacheWriteOp? ProduceMetadataOp(string path, FolderRoleDetector detector)
+    private static CacheWriteOp? ProduceMetadataOp(string path, FolderRoleDetector detector, string libraryRoot)
     {
         var role = detector.Detect(path);
         var name = Path.GetFileName(path);
@@ -296,18 +296,8 @@ public class CacheRebuildService
 
         if (role == FolderRole.Work)
         {
-            // 父目錄若為 Author，把作者 main_name 覆寫進 ParsedMetadata
-            string? authorFromParent = null;
-            var parent = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(parent))
-            {
-                var parentRole = detector.Detect(parent);
-                if (parentRole == FolderRole.Author)
-                {
-                    var (mainP, _) = FilenameMetadataParser.ParseAuthorFolderName(Path.GetFileName(parent));
-                    if (!string.IsNullOrEmpty(mainP)) authorFromParent = mainP;
-                }
-            }
+            // 往上找最近的 Author 祖先（跨過中間的 Category / Series 層）
+            string? authorFromParent = FindAncestorAuthor(path, detector, libraryRoot);
 
             var parsed = FilenameMetadataParser.ParseWorkName(name, authorFromParent);
             return new CacheWriteOp
@@ -318,6 +308,33 @@ public class CacheRebuildService
             };
         }
 
+        return null;
+    }
+
+    /// <summary>
+    /// 從 path 往上走，找最近的 Author 祖先目錄。跨過 Category / Series 等中間層。
+    /// 到 Library root 或 Library 角色 / 無 parent 為止。最多 10 層保險。
+    /// </summary>
+    private static string? FindAncestorAuthor(string path, FolderRoleDetector detector, string libraryRoot)
+    {
+        var libRootNorm = libraryRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var current = path;
+        for (int depth = 0; depth < 10; depth++)
+        {
+            var parent = Path.GetDirectoryName(current);
+            if (string.IsNullOrEmpty(parent)) return null;
+            var parentNorm = parent.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (parentNorm.Equals(libRootNorm, StringComparison.OrdinalIgnoreCase)) return null;
+
+            var parentRole = detector.Detect(parent);
+            if (parentRole == FolderRole.Author)
+            {
+                var (mainP, _) = FilenameMetadataParser.ParseAuthorFolderName(Path.GetFileName(parent));
+                return string.IsNullOrEmpty(mainP) ? null : mainP;
+            }
+            if (parentRole == FolderRole.Library) return null;
+            current = parent;
+        }
         return null;
     }
 
