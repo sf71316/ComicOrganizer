@@ -164,14 +164,45 @@ public class CoverManager
             swTotal.Stop();
             Log($"{kind,-12} '{Short(path)}' → {(result != null ? $"{result.Width}x{result.Height}" : "null"),-12} total={swTotal.ElapsedMilliseconds}ms");
 
-            // 寫 cache (背景 queue) — 只在有接 cache 且 decode 成功時才寫
-            if (result != null && _cacheWriter != null)
+            // 寫 cache (背景 queue):
+            // - decode 成功 → 寫 catalog + thumb
+            // - decode 失敗 / 無 cover (例：Author folder 純含 zip) → 仍寫 catalog，讓 metadata 寫入有 asset_id 可參照
+            if (_cacheWriter != null)
             {
-                EnqueueCacheWrite(path, result);
+                if (result != null) EnqueueCacheWrite(path, result);
+                else EnqueueCatalogOnly(path);
             }
 
             return result;
         });
+    }
+
+    /// <summary>無 cover 時的 catalog-only 寫入。確保 fs 看得到的 path 都進 DB。</summary>
+    private void EnqueueCatalogOnly(string path)
+    {
+        try
+        {
+            bool isFolder = Directory.Exists(path);
+            if (!isFolder && !File.Exists(path)) return;
+
+            long? size = null;
+            if (!isFolder)
+            {
+                try { size = new FileInfo(path).Length; } catch { }
+            }
+            var meta = new AssetMeta
+            {
+                Path = path,
+                Name = Path.GetFileName(path),
+                IsFolder = isFolder,
+                FileSize = size,
+                Mtime = GetMtimeUnix(path),
+                LastScanned = NowUnix(),
+                LastAccessed = NowUnix(),
+            };
+            _cacheWriter!.Enqueue(new CacheWriteOp { Meta = meta });
+        }
+        catch { /* path 可能在 race 中消失，忽略 */ }
     }
 
     /// <summary>把已 decode 的 image 縮成 thumb 尺寸 → JPEG → 入 CacheWriter queue。</summary>

@@ -5,8 +5,11 @@ using ComicOrganizer.App.Models;
 namespace ComicOrganizer.App.Core;
 
 /// <summary>
-/// 一筆 cache 寫入操作。Upsert + thumb 寫入綁在同一筆 op，要嘛兩個都成、要嘛 transaction rollback。
-/// TouchOnly 用於 cache hit 路徑 — 只更新 last_accessed，不寫 thumb。
+/// 一筆 cache 寫入操作。多種模式由不同欄位組合表示：
+///   1. 縮圖寫入：Meta + ThumbKey + JpegBytes
+///   2. Touch (cache hit)：TouchOnly = path
+///   3. metadata 寫入：PathForMetadata + Parsed（可選 IsAuthorFolder / AuthorFolderPath）
+/// 同一個 op 可同時帶縮圖+metadata；同一個 batch transaction 內 op 順序保留 → 先寫 catalog 再寫 metadata 不會找不到 asset_id。
 /// </summary>
 public class CacheWriteOp
 {
@@ -16,6 +19,18 @@ public class CacheWriteOp
 
     /// <summary>非 null 時表示這是 touch 操作：更新該 path 的 last_accessed。</summary>
     public string? TouchOnly { get; set; }
+
+    /// <summary>metadata 寫入目標 path（用於查 asset_id）。配合 Parsed 使用。</summary>
+    public string? PathForMetadata { get; set; }
+
+    /// <summary>從 FilenameMetadataParser 解析出的 metadata 內容。</summary>
+    public ParsedMetadata? Parsed { get; set; }
+
+    /// <summary>true 時跳過 asset_meta 寫入、只 upsert author（適用 Author 資料夾本身）。</summary>
+    public bool IsAuthorFolder { get; set; }
+
+    /// <summary>Author 表的 folder_path 欄位值（IsAuthorFolder=true 時使用）。</summary>
+    public string? AuthorFolderPath { get; set; }
 }
 
 /// <summary>
@@ -201,14 +216,27 @@ public class CacheWriter : IDisposable
                 {
                     try
                     {
+                        // 1. Touch (cache hit 路徑)
                         if (op.TouchOnly != null)
                         {
                             _metaStore.TouchLastAccessed(op.TouchOnly, NowUnix());
                         }
+                        // 2. 縮圖 + catalog 寫入
                         else if (op.Meta != null && op.ThumbKey != null && op.JpegBytes != null)
                         {
                             _thumbStore.Write(op.ThumbKey, op.JpegBytes);
                             _metaStore.Upsert(op.Meta);
+                        }
+                        // 2b. catalog-only（cover 失敗 / 沒 cover 的目錄也要進 catalog）
+                        else if (op.Meta != null)
+                        {
+                            _metaStore.UpsertCatalogOnly(op.Meta);
+                        }
+
+                        // 3. metadata 寫入（catalog 必須已存在 — 同 batch 內前面的 Meta op 會建好）
+                        if (op.Parsed != null && op.PathForMetadata != null)
+                        {
+                            WriteMetadata(op);
                         }
                     }
                     catch (Exception innerEx)
@@ -222,6 +250,51 @@ public class CacheWriter : IDisposable
         catch (Exception ex)
         {
             Debug.WriteLine($"[CacheWriter] FlushBatch failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 寫 metadata 到 author / asset_meta / tag / asset_tag 表。在 FlushBatch transaction 內呼叫。
+    /// 找不到 asset_id 就 skip — 下次掃描會 retry（catalog 還沒寫，可能因為 race 或 op 順序）。
+    /// </summary>
+    private void WriteMetadata(CacheWriteOp op)
+    {
+        var assetId = _metaStore.GetAssetId(op.PathForMetadata!);
+        if (assetId == null) return;
+
+        var parsed = op.Parsed!;
+        long? authorId = null;
+
+        // Upsert author + alias（main_name 為 null 不寫，例：filename 沒帶 author）
+        if (!string.IsNullOrEmpty(parsed.AuthorMainName))
+        {
+            authorId = _metaStore.UpsertAuthor(parsed.AuthorMainName, op.AuthorFolderPath);
+            if (!string.IsNullOrEmpty(parsed.AuthorAlias))
+            {
+                _metaStore.AddAuthorAlias(authorId.Value, parsed.AuthorAlias);
+            }
+        }
+
+        // Author 資料夾本身：只 upsert author，不寫 asset_meta（資料夾不是「漫畫」）
+        if (op.IsAuthorFolder) return;
+
+        // 寫 asset_meta（即使所有欄位都 null 也寫 row 標記「已 parse」）
+        _metaStore.UpsertMetadata(new AssetMetadata
+        {
+            AssetId = assetId.Value,
+            AuthorId = authorId,
+            Title = parsed.Title,
+            ChapterNo = parsed.ChapterNo,
+            Language = parsed.Language,
+            TranslationGroup = parsed.TranslationGroup,
+            ParsedAt = NowUnix(),
+        });
+
+        // tags
+        foreach (var tag in parsed.Tags)
+        {
+            var tagId = _metaStore.UpsertTag(tag.Name, tag.Category);
+            _metaStore.AssociateTag(assetId.Value, tagId);
         }
     }
 
