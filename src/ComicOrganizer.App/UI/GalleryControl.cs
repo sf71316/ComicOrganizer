@@ -1026,11 +1026,12 @@ public partial class GalleryControl : UserControl, IThemedControl
                         // 良好整理過的庫從左側 tree 就知道 author，副標冗餘。metadata 留給未來
                         // 「平鋪虛擬庫」/「搜尋結果」等沒明確 hierarchy 的場景再用 SetMetadata。
                         card.ApplyViewMode(mode);
-                        card.RequestOpenFolder += p => OpenFolderTab(p, false);
-                        card.RequestOpenViewer += p => OpenWithExternalViewer(p);
-                        card.RequestNewTab += (p, forceNew) => OpenFolderTab(p, forceNew);
+                        card.RequestOpenFolder += p => { _metaStore?.RecordRead(p); OpenFolderTab(p, false); };
+                        card.RequestOpenViewer += p => { _metaStore?.RecordRead(p); OpenWithExternalViewer(p); };
+                        card.RequestNewTab += (p, forceNew) => { _metaStore?.RecordRead(p); OpenFolderTab(p, forceNew); };
                         card.RequestExplorer += p => OpenInExplorer(p);
                         card.RequestAuthorInfo += p => ShowAuthorInfo(p);
+                        card.RequestSetReadStatus += (p, status) => _metaStore?.SetReadStatus(p, status);
                         container.Controls.Add(card);
 
                         // 目錄與檔案都試著載封面：CoverManager 對目錄會遞迴往下找首張圖檔（受 MaxScanDepth 限制）

@@ -204,4 +204,72 @@ public class AuthorAggregationTests : IDisposable
         var info = _store.GetAuthorInfo(999999);
         Assert.Null(info);
     }
+
+    // ===== RecordRead / SetReadStatus =====
+
+    [Fact]
+    public void RecordRead_IncrementsCount_UpdatesLastRead_PromotesUnreadToReading()
+    {
+        // work1 (Apple) 預設 Unread / count=0 / last_read=null
+        _store.RecordRead(_workPaths[0]);
+
+        var assetId = GetAssetId(_workPaths[0]);
+        var meta = _store.GetMetadata(assetId);
+        Assert.NotNull(meta);
+        Assert.Equal(1, meta!.ReadCount);
+        Assert.NotNull(meta.LastRead);
+        Assert.Equal(ReadStatus.Reading, meta.ReadStatus);   // Unread → Reading
+
+        // 再讀一次 — count++ 但 status 維持 Reading
+        _store.RecordRead(_workPaths[0]);
+        meta = _store.GetMetadata(assetId);
+        Assert.Equal(2, meta!.ReadCount);
+        Assert.Equal(ReadStatus.Reading, meta.ReadStatus);
+    }
+
+    [Fact]
+    public void RecordRead_OnCompleted_KeepsCompleted_StillIncrementsCount()
+    {
+        // work4 (Date) 預設 Completed
+        _store.RecordRead(_workPaths[3]);
+        var meta = _store.GetMetadata(GetAssetId(_workPaths[3]));
+        Assert.Equal(ReadStatus.Completed, meta!.ReadStatus);   // 不退階
+        Assert.Equal(6, meta.ReadCount);   // 5 + 1
+    }
+
+    [Fact]
+    public void RecordRead_OnPathWithoutAssetMeta_NoOp()
+    {
+        // 不存在的 path — 不該 throw
+        _store.RecordRead(@"C:\NonExistent\Path.zip");
+        // 也不該影響別的 row
+        var info = _store.GetAuthorInfo(_authorId)!;
+        Assert.Equal(5, info.TotalWorks);
+    }
+
+    [Fact]
+    public void SetReadStatus_ChangesStatus()
+    {
+        _store.SetReadStatus(_workPaths[0], ReadStatus.Completed);
+        var meta = _store.GetMetadata(GetAssetId(_workPaths[0]));
+        Assert.Equal(ReadStatus.Completed, meta!.ReadStatus);
+
+        _store.SetReadStatus(_workPaths[0], ReadStatus.Dropped);
+        meta = _store.GetMetadata(GetAssetId(_workPaths[0]));
+        Assert.Equal(ReadStatus.Dropped, meta!.ReadStatus);
+
+        _store.SetReadStatus(_workPaths[0], ReadStatus.Unread);
+        meta = _store.GetMetadata(GetAssetId(_workPaths[0]));
+        Assert.Equal(ReadStatus.Unread, meta!.ReadStatus);
+    }
+
+    private long GetAssetId(string path)
+    {
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath};");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT id FROM asset WHERE path = $p;";
+        cmd.Parameters.AddWithValue("$p", path);
+        return Convert.ToInt64(cmd.ExecuteScalar()!);
+    }
 }

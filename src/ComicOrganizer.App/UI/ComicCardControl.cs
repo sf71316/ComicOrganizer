@@ -14,6 +14,7 @@ public partial class ComicCardControl : UserControl
     public event Action<string, bool>? RequestNewTab;
     public event Action<string>? RequestExplorer;
     public event Action<string>? RequestAuthorInfo;
+    public event Action<string, ReadStatus>? RequestSetReadStatus;
     private const int CornerRadius = 8;
     private Color _currentBgColor = Color.White;
     // 手動觸發 AntdUI.Tooltip.open + 自管 delay：
@@ -387,24 +388,42 @@ public partial class ComicCardControl : UserControl
         menuItems.Add(new AntdUI.ContextMenuStripItemDivider());
         menuItems.Add(new AntdUI.ContextMenuStripItem("📂 在檔案總管中開啟"));
         menuItems.Add(new AntdUI.ContextMenuStripItem("👤 作者資訊"));
+        menuItems.Add(new AntdUI.ContextMenuStripItemDivider());
+        menuItems.Add(new AntdUI.ContextMenuStripItem("✅ 標為已完成"));
+        menuItems.Add(new AntdUI.ContextMenuStripItem("⏹ 標為放棄"));
+        menuItems.Add(new AntdUI.ContextMenuStripItem("↺ 重置為未讀"));
 
         AntdUI.ContextMenuStrip.open(this, menuItem =>
         {
-            if (menuItem.Text != null && (menuItem.Text.Contains("進入") || menuItem.Text.Contains("閱讀")))
+            var t = menuItem.Text;
+            if (t == null) return;
+            if (t.Contains("進入") || t.Contains("閱讀"))
             {
                 OpenPrimary();
             }
-            else if (menuItem.Text == "另開頁籤")
+            else if (t == "另開頁籤")
             {
                 RequestNewTab?.Invoke(ItemPath, true);
             }
-            else if (menuItem.Text != null && menuItem.Text.Contains("檔案總管"))
+            else if (t.Contains("檔案總管"))
             {
                 RequestExplorer?.Invoke(ItemPath);
             }
-            else if (menuItem.Text != null && (menuItem.Text.Contains("作者") || menuItem.Text.Contains("Author")))
+            else if (t.Contains("作者") || t.Contains("Author"))
             {
                 RequestAuthorInfo?.Invoke(ItemPath);
+            }
+            else if (t.Contains("已完成") || t.Contains("Completed"))
+            {
+                RequestSetReadStatus?.Invoke(ItemPath, ReadStatus.Completed);
+            }
+            else if (t.Contains("放棄") || t.Contains("Dropped"))
+            {
+                RequestSetReadStatus?.Invoke(ItemPath, ReadStatus.Dropped);
+            }
+            else if (t.Contains("未讀") || t.Contains("Unread"))
+            {
+                RequestSetReadStatus?.Invoke(ItemPath, ReadStatus.Unread);
             }
         }, menuItems.ToArray());
     }

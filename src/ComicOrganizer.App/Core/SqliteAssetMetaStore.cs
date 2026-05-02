@@ -635,6 +635,39 @@ LIMIT 1;";
         }
     }
 
+    public void RecordRead(string path)
+    {
+        lock (_lock)
+        {
+            using var cmd = _conn.CreateCommand();
+            // 一條 SQL 完成：count++ / last_read 更新 / Unread (=0) 升級到 Reading (=1)
+            cmd.CommandText = @"
+UPDATE asset_meta SET
+    read_count = read_count + 1,
+    last_read = $now,
+    read_status = CASE WHEN read_status = 0 THEN 1 ELSE read_status END
+WHERE asset_id = (SELECT id FROM asset WHERE path = $p);";
+            cmd.Parameters.AddWithValue("$now", NowUnix());
+            cmd.Parameters.AddWithValue("$p", path);
+            cmd.ExecuteNonQuery();
+            // affected=0 是 OK 的 — 該 path 沒 asset_meta 紀錄（Author/Library folder）
+        }
+    }
+
+    public void SetReadStatus(string path, ReadStatus status)
+    {
+        lock (_lock)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+UPDATE asset_meta SET read_status = $s
+WHERE asset_id = (SELECT id FROM asset WHERE path = $p);";
+            cmd.Parameters.AddWithValue("$s", (int)status);
+            cmd.Parameters.AddWithValue("$p", path);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
     public void DeleteMetadata(long assetId)
     {
         lock (_lock)
