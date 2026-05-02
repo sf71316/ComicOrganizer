@@ -60,6 +60,9 @@ public partial class GalleryControl : UserControl, IThemedControl
     /// <summary>當前開著的 Drawer Form ref；ShowAuthorInfo / ShowWorkDetail 時 open，CloseRequested 時 Close。</summary>
     private Form? _detailDrawerForm;
 
+    /// <summary>當前 drawer 的點擊外部偵測 filter（drawer 開時 Add，關時 Remove）。</summary>
+    private DrawerOutsideClickFilter? _drawerClickFilter;
+
     public GalleryControl()
     {
         InitializeComponent();
@@ -67,43 +70,7 @@ public partial class GalleryControl : UserControl, IThemedControl
         // GalleryControl 自己開 DoubleBuffer：tabsContent 切換 / resize 時減抖
         DoubleBuffered = true;
 
-        // X 按下（兩個 panel 都會觸發）→ 關掉 Drawer (drawer Form Close)
-        detailDrawerHost.AuthorPanel.CloseRequested += () => _detailDrawerForm?.Close();
-        detailDrawerHost.WorkPanel.CloseRequested += () => _detailDrawerForm?.Close();
-
-        // 點 RecentlyRead / AllWorks 行 → 等同卡片「閱讀」按鈕：RecordRead + 開外部 viewer
-        // 開完重 call ShowAuthorInfo 讓 panel read_count / last_read 即時更新
-        detailDrawerHost.AuthorPanel.RequestOpenWork += path =>
-        {
-            _metaStore?.RecordRead(path);
-            OpenWithExternalViewer(path);
-            ShowAuthorInfo(path);
-            // 同步當前 gallery 卡片 icon（如該作品正在當前 tab）
-            RefreshCardReadStatusByPath(path);
-        };
-
-        // WorkDetailPanel 的 Author 連結 → 切到 AuthorInfoPanel
-        detailDrawerHost.WorkPanel.RequestOpenAuthor += authorId =>
-        {
-            if (_metaStore == null) return;
-            var info = _metaStore.GetAuthorInfo(authorId);
-            if (info == null)
-                detailDrawerHost.ShowAuthorEmpty(LocalizationManager.GetString("AuthorInfoNoData") ?? "作者資料缺失");
-            else
-                detailDrawerHost.ShowAuthor(info);
-        };
-
-        // WorkDetailPanel 的「閱讀」按鈕 + cover 點擊 → RecordRead + 外部 viewer + 刷面板
-        detailDrawerHost.WorkPanel.RequestOpenViewer += path =>
-        {
-            _metaStore?.RecordRead(path);
-            OpenWithExternalViewer(path);
-            ShowWorkDetail(path);
-            RefreshCardReadStatusByPath(path);
-        };
-
-        // WorkDetailPanel 的「開啟位置」 → Explorer
-        detailDrawerHost.WorkPanel.RequestExplorer += path => OpenInExplorer(path);
+        WireDrawerEvents();
 
         // 設定內容頁籤樣式
         if (tabsContent.Style is AntdUI.Tabs.StyleCard style)
@@ -313,6 +280,52 @@ public partial class GalleryControl : UserControl, IThemedControl
     }
 
     /// <summary>
+    /// detailDrawerHost 內兩個 panel 的事件統一接：CloseRequested / 點作品 / Author 連結 / Explorer。
+    /// 從 ctor 抽出避免 ctor 過長。
+    /// </summary>
+    private void WireDrawerEvents()
+    {
+        // 兩個 panel 的 X 鈕都關掉 drawer
+        detailDrawerHost.AuthorPanel.CloseRequested += () => _detailDrawerForm?.Close();
+        detailDrawerHost.WorkPanel.CloseRequested += () => _detailDrawerForm?.Close();
+
+        // 點 AuthorInfoPanel 的 RecentlyRead / AllWorks 行 → 等同卡片「閱讀」
+        detailDrawerHost.AuthorPanel.RequestOpenWork += path =>
+            RecordReadAndOpenViewer(path, refreshAuthorPanel: true);
+
+        // WorkDetailPanel 的 Author 連結 → 切回 AuthorInfoPanel
+        detailDrawerHost.WorkPanel.RequestOpenAuthor += authorId =>
+        {
+            if (_metaStore == null) return;
+            var info = _metaStore.GetAuthorInfo(authorId);
+            if (info == null)
+                detailDrawerHost.ShowAuthorEmpty(LocalizationManager.GetString("AuthorInfoNoData") ?? "作者資料缺失");
+            else
+                detailDrawerHost.ShowAuthor(info);
+        };
+
+        // WorkDetailPanel 的「閱讀」按鈕 + cover 點擊
+        detailDrawerHost.WorkPanel.RequestOpenViewer += path =>
+            RecordReadAndOpenViewer(path, refreshAuthorPanel: false);
+
+        // WorkDetailPanel 的「開啟位置」 → Explorer
+        detailDrawerHost.WorkPanel.RequestExplorer += path => OpenInExplorer(path);
+    }
+
+    /// <summary>
+    /// 共用：紀錄一次「讀過」+ 開外部 viewer + 刷對應 panel + 同步卡片 icon。
+    /// AuthorInfoPanel 與 WorkDetailPanel 點作品的行為共用此 helper。
+    /// </summary>
+    private void RecordReadAndOpenViewer(string path, bool refreshAuthorPanel)
+    {
+        _metaStore?.RecordRead(path);
+        OpenWithExternalViewer(path);
+        if (refreshAuthorPanel) ShowAuthorInfo(path);
+        else ShowWorkDetail(path);
+        RefreshCardReadStatusByPath(path);
+    }
+
+    /// <summary>
     /// Tree 節點右鍵 → 四項選單（檔案總管 / 目前頁籤 / 另開頁籤 / 作者資訊），各帶 SVG icon。
     /// </summary>
     private void ShowTreeNodeContextMenu(string path)
@@ -342,7 +355,7 @@ public partial class GalleryControl : UserControl, IThemedControl
 
     /// <summary>
     /// 解析 path 對應的 author，用 AntdUI.Drawer 從右邊滑出顯示。
-    /// Drawer 自帶 Mask（半透明遮罩蓋在 tabsContent 上）+ slide-in 動畫 + click-mask-close。
+    /// Mask=false（不遮主畫面），點 drawer 外由 DrawerOutsideClickFilter 自動關閉。
     /// </summary>
     private void ShowAuthorInfo(string path)
     {
@@ -432,9 +445,25 @@ public partial class GalleryControl : UserControl, IThemedControl
             Mask = false,
             Padding = 0,
             Dispose = false,
+            OnClose = () =>
+            {
+                if (_drawerClickFilter != null)
+                {
+                    Application.RemoveMessageFilter(_drawerClickFilter);
+                    _drawerClickFilter = null;
+                }
+                _detailDrawerForm = null;
+            },
         };
 
         _detailDrawerForm = AntdUI.Drawer.open(config);
+
+        // 點 drawer 以外區域 → 自動關閉（IMessageFilter 攔截 WM_LBUTTONDOWN）
+        if (_detailDrawerForm != null)
+        {
+            _drawerClickFilter = new DrawerOutsideClickFilter(_detailDrawerForm);
+            Application.AddMessageFilter(_drawerClickFilter);
+        }
     }
 
     /// <summary>
