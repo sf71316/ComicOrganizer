@@ -1026,12 +1026,19 @@ public partial class GalleryControl : UserControl, IThemedControl
                         // 良好整理過的庫從左側 tree 就知道 author，副標冗餘。metadata 留給未來
                         // 「平鋪虛擬庫」/「搜尋結果」等沒明確 hierarchy 的場景再用 SetMetadata。
                         card.ApplyViewMode(mode);
-                        card.RequestOpenFolder += p => { _metaStore?.RecordRead(p); OpenFolderTab(p, false); };
-                        card.RequestOpenViewer += p => { _metaStore?.RecordRead(p); OpenWithExternalViewer(p); };
-                        card.RequestNewTab += (p, forceNew) => { _metaStore?.RecordRead(p); OpenFolderTab(p, forceNew); };
+                        // 卡片用此 provider 查當前 read_status（icon 顯示 + menu disable）
+                        card.ReadStatusProvider = p => _metaStore?.GetReadStatus(p);
+                        var c = card;   // 給 lambda capture 用，避免 foreach var closure 疑慮
+                        card.RequestOpenFolder += p => { _metaStore?.RecordRead(p); c.RefreshReadStatusIcon(); OpenFolderTab(p, false); };
+                        card.RequestOpenViewer += p => { _metaStore?.RecordRead(p); c.RefreshReadStatusIcon(); OpenWithExternalViewer(p); };
+                        card.RequestNewTab += (p, forceNew) => { _metaStore?.RecordRead(p); c.RefreshReadStatusIcon(); OpenFolderTab(p, forceNew); };
                         card.RequestExplorer += p => OpenInExplorer(p);
                         card.RequestAuthorInfo += p => ShowAuthorInfo(p);
-                        card.RequestSetReadStatus += (p, status) => _metaStore?.SetReadStatus(p, status);
+                        card.RequestSetReadStatus += (p, status) =>
+                        {
+                            _metaStore?.SetReadStatus(p, status);
+                            c.RefreshReadStatusIcon();
+                        };
                         container.Controls.Add(card);
 
                         // 目錄與檔案都試著載封面：CoverManager 對目錄會遞迴往下找首張圖檔（受 MaxScanDepth 限制）

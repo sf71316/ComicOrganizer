@@ -32,7 +32,11 @@ public partial class ComicCardControl : UserControl
     private AntdUI.Button? btnExplorer;
     private AntdUI.Panel? typeStrip;
     private System.Windows.Forms.Label? typeIconLbl;
+    private System.Windows.Forms.Label? readStatusLbl;   // typeStrip 右側的閱讀狀態 icon
     private bool _hoverControlsCreated = false;
+
+    /// <summary>查詢卡片當前 read_status 的 callback（由 GalleryControl 注入）。</summary>
+    public Func<string, ReadStatus?>? ReadStatusProvider { get; set; }
     public ComicCardControl()
     {
         InitializeComponent();
@@ -139,7 +143,19 @@ public partial class ComicCardControl : UserControl
             BackColor = Color.Transparent,
             ForeColor = Color.White,
         };
+        readStatusLbl = new System.Windows.Forms.Label
+        {
+            Dock = DockStyle.Right,
+            Width = 28,
+            Text = "",   // 由 RefreshReadStatusIcon 填
+            Font = new Font("Segoe UI Emoji", 11F),
+            TextAlign = ContentAlignment.MiddleCenter,
+            BackColor = Color.Transparent,
+            ForeColor = Color.White,
+        };
+        typeStrip.Controls.Add(readStatusLbl);
         typeStrip.Controls.Add(typeIconLbl);
+        RefreshReadStatusIcon();
 
         hoverToolbar = new AntdUI.Panel
         {
@@ -207,6 +223,20 @@ public partial class ComicCardControl : UserControl
     {
         c.MouseEnter += (s, e) => SetHoverState(true);
         c.MouseLeave += (s, e) => SetHoverState(false);
+    }
+
+    /// <summary>讀 ReadStatusProvider 結果，更新 typeStrip 右側 status icon。GalleryControl 設完 status 後也呼叫一次。</summary>
+    public void RefreshReadStatusIcon()
+    {
+        if (readStatusLbl == null) return;
+        var status = ReadStatusProvider?.Invoke(ItemPath);
+        readStatusLbl.Text = status switch
+        {
+            ReadStatus.Reading => "📖",
+            ReadStatus.Completed => "✅",
+            ReadStatus.Dropped => "⏹",
+            _ => "",   // Unread / null：不顯示 icon
+        };
     }
 
     /// <summary>
@@ -391,10 +421,12 @@ public partial class ComicCardControl : UserControl
         // 閱讀狀態三項只對 Work 顯示（壓縮檔 / pdf / 純圖檔資料夾≥2張無子目錄）
         if (IsWorkAsset(ItemPath))
         {
+            // 當前 status 對應的選項要 disable（已是該狀態，不能重複設定）
+            var current = ReadStatusProvider?.Invoke(ItemPath);
             menuItems.Add(new AntdUI.ContextMenuStripItemDivider());
-            menuItems.Add(new AntdUI.ContextMenuStripItem("✅ 標為已完成"));
-            menuItems.Add(new AntdUI.ContextMenuStripItem("⏹ 標為放棄"));
-            menuItems.Add(new AntdUI.ContextMenuStripItem("↺ 重置為未讀"));
+            menuItems.Add(new AntdUI.ContextMenuStripItem("✅ 標為已完成") { Enabled = current != ReadStatus.Completed });
+            menuItems.Add(new AntdUI.ContextMenuStripItem("⏹ 標為放棄") { Enabled = current != ReadStatus.Dropped });
+            menuItems.Add(new AntdUI.ContextMenuStripItem("↺ 重置為未讀") { Enabled = current != ReadStatus.Unread && current != null });
         }
 
         AntdUI.ContextMenuStrip.open(this, menuItem =>

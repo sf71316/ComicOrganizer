@@ -668,6 +668,22 @@ WHERE asset_id = (SELECT id FROM asset WHERE path = $p);";
         }
     }
 
+    public ReadStatus? GetReadStatus(string path)
+    {
+        lock (_lock)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+SELECT am.read_status FROM asset_meta am
+JOIN asset a ON a.id = am.asset_id
+WHERE a.path = $p LIMIT 1;";
+            cmd.Parameters.AddWithValue("$p", path);
+            var result = cmd.ExecuteScalar();
+            if (result == null || result == DBNull.Value) return null;
+            return (ReadStatus)Convert.ToInt32(result);
+        }
+    }
+
     public void DeleteMetadata(long assetId)
     {
         lock (_lock)
