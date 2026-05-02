@@ -127,6 +127,23 @@ public static class FilenameMetadataParser
     }
 
     /// <summary>
+    /// 判斷一個 bracket 內容是否就是 author 名（用來跳過重複 / dedupe）。
+    /// 命中條件：完全相等 OR 以 author 名開頭後跟空格/小括號（例：「Cuvie (Cuvie)」）。
+    /// </summary>
+    private static bool IsAuthorBracket(string content, string author)
+    {
+        if (string.IsNullOrEmpty(author)) return false;
+        if (content.Equals(author, StringComparison.OrdinalIgnoreCase)) return true;
+        if (content.Length > author.Length &&
+            content.StartsWith(author, StringComparison.OrdinalIgnoreCase) &&
+            (content[author.Length] == ' ' || content[author.Length] == '('))
+        {
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// 解析「作品檔名 / 資料夾名」抽 metadata。
     /// </summary>
     /// <param name="name">原始檔名或目錄名（可含副檔名）</param>
@@ -173,9 +190,14 @@ public static class FilenameMetadataParser
         }
         else
         {
+            // 父目錄已給 author。filename 開頭的 [...] 僅當「跟 authorFromParent 同名」才砍
+            // 不能無腦砍：開頭可能是 [中文]、[DL版] 之類非 author bracket
             result.AuthorMainName = authorFromParent;
-            // 跳過 filename 開頭的 [Author]（避免重複）
-            s = FirstBracketRegex.Replace(s, "").Trim();
+            var ab = FirstBracketRegex.Match(s);
+            if (ab.Success && IsAuthorBracket(ab.Groups[1].Value.Trim(), authorFromParent))
+            {
+                s = s.Substring(ab.Length).Trim();
+            }
         }
 
         // 4. 抽章節編號（Vol.3 / 第5話 / Ch.10）— 不從 s 移除，留在 title
@@ -186,6 +208,11 @@ public static class FilenameMetadataParser
         foreach (Match m in AnyBracketRegex.Matches(s))
         {
             var content = m.Groups[1].Value.Trim();
+            // 跟 author 同名的 bracket 跳過 — 避免 author 又被當 generic tag
+            if (!string.IsNullOrEmpty(result.AuthorMainName) && IsAuthorBracket(content, result.AuthorMainName))
+            {
+                continue;
+            }
             if (LanguageMap.TryGetValue(content, out var lang))
             {
                 result.Language = lang;

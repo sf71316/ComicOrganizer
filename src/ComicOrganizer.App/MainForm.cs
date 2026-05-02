@@ -53,7 +53,7 @@ public partial class MainForm : Window, IThemedControl
         // 等 Form Load 後 Initialize（此時 handle 已建立、Invoke 才能用）
         this.Load += (s, e) =>
         {
-            galleryControl.Initialize(_config, _coverManager);
+            galleryControl.Initialize(_config, _coverManager, _metaStore);
             archiveControl.Initialize(_config, _intelligence, _organizer);
             ShowGallery();
         };

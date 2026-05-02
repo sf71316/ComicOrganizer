@@ -180,4 +180,49 @@ public class FilenameMetadataParserTests
         Assert.Null(p.Title);
         Assert.Null(p.AuthorMainName);
     }
+
+    [Fact]
+    public void Work_AuthorFromParent_LeadingLanguageBracketNotStripped()
+    {
+        // Case 2 from real library: parent author = "Cuvie", filename starts with [中文]
+        // [中文] 不應被當作 author bracket 砍掉，應該當 language 解析
+        var p = FilenameMetadataParser.ParseWorkName(
+            "[中文][Cuvie]NIGHTMARE MAKER 5 夢魘製造機5",
+            authorFromParent: "Cuvie");
+
+        Assert.Equal("Cuvie", p.AuthorMainName);
+        Assert.Equal("zh", p.Language);
+        Assert.Equal("NIGHTMARE MAKER 5 夢魘製造機5", p.Title);
+        // [Cuvie] 跟 author 同名應跳過、不變成 generic tag
+        Assert.DoesNotContain(p.Tags, t => t.Name == "Cuvie");
+    }
+
+    [Fact]
+    public void Work_AuthorFromParent_AuthorBracketDeduped()
+    {
+        // 父 author = "Flugel", filename `[Flugel] Title.zip`
+        // [Flugel] 應被識別為 author dedupe，跳過、不變 tag
+        var p = FilenameMetadataParser.ParseWorkName(
+            "[Flugel] Title [DL版].zip",
+            authorFromParent: "Flugel");
+
+        Assert.Equal("Flugel", p.AuthorMainName);
+        Assert.Equal("Title", p.Title);
+        Assert.DoesNotContain(p.Tags, t => t.Name == "Flugel");
+        Assert.Contains(p.Tags, t => t.Name == "DL版");
+    }
+
+    [Fact]
+    public void Work_AuthorFromParent_GroupArtistBracketDeduped()
+    {
+        // 父 author = "Group", filename `[Group (Artist)] Title`
+        // [Group (Artist)] 跟 "Group" 開頭一致 + ' ' 後綴 → 視為 author 重複
+        var p = FilenameMetadataParser.ParseWorkName(
+            "[Group (Artist)] Title.zip",
+            authorFromParent: "Group");
+
+        Assert.Equal("Group", p.AuthorMainName);
+        Assert.Equal("Title", p.Title);
+        Assert.DoesNotContain(p.Tags, t => t.Name.Contains("Group"));
+    }
 }

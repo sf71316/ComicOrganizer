@@ -46,3 +46,18 @@ public class AssetMetadata
     /// <summary>parser 跑的時間（Unix ts）。重 parse 時更新。</summary>
     public long ParsedAt { get; set; }
 }
+
+/// <summary>
+/// 顯示用的合併視圖：JOIN asset + asset_meta + author。一次查詢取齊 UI 卡片需要的欄位。
+/// 沒 metadata 紀錄時回 null（caller 改 fallback 到檔名顯示）。
+/// </summary>
+public class AssetMetadataView
+{
+    public string Path { get; set; } = "";
+    public string? Title { get; set; }
+    public string? AuthorMainName { get; set; }
+    public string? Language { get; set; }
+    public string? TranslationGroup { get; set; }
+    public int? PageCount { get; set; }
+}
+
