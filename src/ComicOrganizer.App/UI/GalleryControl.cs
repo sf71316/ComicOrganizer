@@ -340,9 +340,17 @@ public partial class GalleryControl : UserControl, IThemedControl
             Mask = false,           // 不要遮罩 — 主畫面保持正常亮度，drawer 純滑入面板
             Padding = 0,            // drawer 內部無多餘 padding，panel 填滿到邊
             Dispose = false,        // 關閉時別 dispose authorInfoPanel，下次開重用
-            OnClose = () => _authorDrawerForm = null,
+           // OnClose = () => _authorDrawerForm = null,
         };
+        
         _authorDrawerForm = AntdUI.Drawer.open(config);
+
+        // Drawer 是 Form → 用 Form.Opacity (Win32 layered window) 整個 drawer 半透明
+        // 看穿到下面的卡片（panel 內文字也會跟著半透明，trade-off）
+        if (_authorDrawerForm != null)
+        {
+            _authorDrawerForm.Opacity = 0.85;
+        }
     }
 
     /// <summary>
