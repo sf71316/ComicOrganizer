@@ -20,8 +20,14 @@ public interface IAssetMetaStore : IDisposable
     /// <summary>取 path 對應的 catalog + thumb 合併視圖。沒紀錄回 null。</summary>
     AssetMeta? Get(string path);
 
+    /// <summary>取 path 對應 asset.id（metadata write 需要 FK target）。沒紀錄回 null。</summary>
+    long? GetAssetId(string path);
+
     /// <summary>寫入或更新 catalog 與 thumb（依 meta 的欄位是否有值決定 thumb row 是否寫入）。</summary>
     void Upsert(AssetMeta meta);
+
+    /// <summary>只寫 catalog (asset 表)，不動 asset_thumb。Author 資料夾無 cover 時用。</summary>
+    void UpsertCatalogOnly(AssetMeta meta);
 
     /// <summary>cache hit 路徑用：更新 last_accessed（asset_thumb 表）。</summary>
     void TouchLastAccessed(string path, long now);

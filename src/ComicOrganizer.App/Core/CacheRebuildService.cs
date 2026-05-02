@@ -224,7 +224,11 @@ public class CacheRebuildService
         var p = new Progress { Total = paths.Count };
         _tracker.Update(p);
 
+        // 每次 scan 用獨立的 detector instance（內部 cache，避免跨 scan 殘留）
+        var detector = new FolderRoleDetector(_config.RootDirectory);
+
         // Phase 2: cache hit 直接 skip（快速 DB 查詢），cache miss 才真的 decode + 寫 cache
+        // 不論 hit/miss 都 enqueue metadata op — UPSERT 冪等，新 schema 部署後也能 backfill 既有 catalog
         for (int i = 0; i < paths.Count; i++)
         {
             ct.ThrowIfCancellationRequested();
@@ -246,10 +250,71 @@ public class CacheRebuildService
                 }
             }
 
+            // metadata enrichment：同步 queue 給 CacheWriter，不阻塞 UI
+            if (_cacheWriter != null)
+            {
+                var metaOp = ProduceMetadataOp(path, detector);
+                if (metaOp != null) _cacheWriter.Enqueue(metaOp);
+            }
+
             p.Done = i + 1;
             p.CurrentPath = path;
             _tracker.Update(p);
         }
+    }
+
+    /// <summary>
+    /// 對 path 跑 FolderRoleDetector + FilenameMetadataParser，產生 metadata write op。
+    /// Author folder → 只 upsert author。Work file/folder → 寫 asset_meta + tags。
+    /// 其他 role（Library / Category / Unknown）→ 不產生 op。
+    /// </summary>
+    private static CacheWriteOp? ProduceMetadataOp(string path, FolderRoleDetector detector)
+    {
+        var role = detector.Detect(path);
+        var name = Path.GetFileName(path);
+
+        if (role == FolderRole.Author)
+        {
+            var (main, alias) = FilenameMetadataParser.ParseAuthorFolderName(name);
+            if (string.IsNullOrEmpty(main)) return null;
+            return new CacheWriteOp
+            {
+                PathForMetadata = path,
+                IsAuthorFolder = true,
+                AuthorFolderPath = path,
+                Parsed = new ParsedMetadata
+                {
+                    AuthorMainName = main,
+                    AuthorAlias = alias,
+                },
+            };
+        }
+
+        if (role == FolderRole.Work)
+        {
+            // 父目錄若為 Author，把作者 main_name 覆寫進 ParsedMetadata
+            string? authorFromParent = null;
+            var parent = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(parent))
+            {
+                var parentRole = detector.Detect(parent);
+                if (parentRole == FolderRole.Author)
+                {
+                    var (mainP, _) = FilenameMetadataParser.ParseAuthorFolderName(Path.GetFileName(parent));
+                    if (!string.IsNullOrEmpty(mainP)) authorFromParent = mainP;
+                }
+            }
+
+            var parsed = FilenameMetadataParser.ParseWorkName(name, authorFromParent);
+            return new CacheWriteOp
+            {
+                PathForMetadata = path,
+                IsAuthorFolder = false,
+                Parsed = parsed,
+            };
+        }
+
+        return null;
     }
 
     /// <summary>

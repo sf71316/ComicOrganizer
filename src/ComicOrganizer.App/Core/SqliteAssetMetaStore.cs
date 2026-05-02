@@ -246,6 +246,19 @@ WHERE cover_thumb_key IS NOT NULL;";
     // Catalog + Thumb (joined view) — AssetMeta DTO
     // ============================================================
 
+    public long? GetAssetId(string path)
+    {
+        lock (_lock)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "SELECT id FROM asset WHERE path = $p LIMIT 1;";
+            cmd.Parameters.AddWithValue("$p", path);
+            var result = cmd.ExecuteScalar();
+            if (result == null || result == DBNull.Value) return null;
+            return Convert.ToInt64(result);
+        }
+    }
+
     public AssetMeta? Get(string path)
     {
         lock (_lock)
@@ -305,6 +318,14 @@ ON CONFLICT(asset_id) DO UPDATE SET
                 cmd.Parameters.AddWithValue("$id", assetId);
                 cmd.ExecuteNonQuery();
             }
+        }
+    }
+
+    public void UpsertCatalogOnly(AssetMeta meta)
+    {
+        lock (_lock)
+        {
+            UpsertCatalogInternal(meta);
         }
     }
 
