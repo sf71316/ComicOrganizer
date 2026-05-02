@@ -388,10 +388,14 @@ public partial class ComicCardControl : UserControl
         menuItems.Add(new AntdUI.ContextMenuStripItemDivider());
         menuItems.Add(new AntdUI.ContextMenuStripItem("📂 在檔案總管中開啟"));
         menuItems.Add(new AntdUI.ContextMenuStripItem("👤 作者資訊"));
-        menuItems.Add(new AntdUI.ContextMenuStripItemDivider());
-        menuItems.Add(new AntdUI.ContextMenuStripItem("✅ 標為已完成"));
-        menuItems.Add(new AntdUI.ContextMenuStripItem("⏹ 標為放棄"));
-        menuItems.Add(new AntdUI.ContextMenuStripItem("↺ 重置為未讀"));
+        // 閱讀狀態三項只對 Work 顯示（壓縮檔 / pdf / 純圖檔資料夾≥2張無子目錄）
+        if (IsWorkAsset(ItemPath))
+        {
+            menuItems.Add(new AntdUI.ContextMenuStripItemDivider());
+            menuItems.Add(new AntdUI.ContextMenuStripItem("✅ 標為已完成"));
+            menuItems.Add(new AntdUI.ContextMenuStripItem("⏹ 標為放棄"));
+            menuItems.Add(new AntdUI.ContextMenuStripItem("↺ 重置為未讀"));
+        }
 
         AntdUI.ContextMenuStrip.open(this, menuItem =>
         {
@@ -426,5 +430,41 @@ public partial class ComicCardControl : UserControl
                 RequestSetReadStatus?.Invoke(ItemPath, ReadStatus.Unread);
             }
         }, menuItems.ToArray());
+    }
+
+    /// <summary>
+    /// 是否為「Work」asset（可被閱讀、可被標 read_status）。判定條件：
+    /// (1) 檔案副檔名為 archive/pdf：.zip/.cbz/.cbr/.rar/.7z/.pdf
+    /// (2) 目錄無子目錄且含 ≥2 張圖檔
+    /// 其他（Author folder / Library / Category / 純空目錄）→ false
+    /// </summary>
+    private static bool IsWorkAsset(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return false;
+        try
+        {
+            if (File.Exists(path))
+            {
+                var ext = Path.GetExtension(path).ToLowerInvariant();
+                return ext is ".zip" or ".cbz" or ".cbr" or ".rar" or ".7z" or ".pdf";
+            }
+            if (Directory.Exists(path))
+            {
+                // 含子目錄 → 不是 Work（章節集 / 作者夾）
+                if (Directory.EnumerateDirectories(path).Any()) return false;
+                int imgCount = 0;
+                foreach (var f in Directory.EnumerateFiles(path))
+                {
+                    var ext = Path.GetExtension(f).ToLowerInvariant();
+                    if (ext is ".jpg" or ".jpeg" or ".png" or ".webp" or ".bmp" or ".gif")
+                    {
+                        if (++imgCount >= 2) return true;   // 達標早退
+                    }
+                }
+                return false;
+            }
+        }
+        catch { /* 路徑被刪、權限不足等 */ }
+        return false;
     }
 }
