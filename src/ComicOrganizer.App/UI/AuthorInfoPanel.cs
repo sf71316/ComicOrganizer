@@ -21,9 +21,21 @@ public partial class AuthorInfoPanel : UserControl
         contentPanel.BackColor = ThemeColors.Surface;
         lblAliases.ForeColor = ThemeColors.Border;   // 次要色（用 Border 接近灰）
 
+        // resize 時要重畫外框
+        SetStyle(ControlStyles.ResizeRedraw, true);
+
         btnClose.Click += (s, e) => CloseRequested?.Invoke();
 
         ApplyLocalization();
+    }
+
+    /// <summary>外框線：ThemeColors.Border @ 75% alpha，1px。</summary>
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
+        var borderColor = Color.FromArgb(191, ThemeColors.Border);   // 191/255 ≈ 75%
+        using var pen = new Pen(borderColor, 1);
+        e.Graphics.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
     }
 
     private void ApplyLocalization()
