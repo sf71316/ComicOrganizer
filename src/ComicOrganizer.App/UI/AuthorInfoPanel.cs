@@ -15,18 +15,43 @@ public partial class AuthorInfoPanel : UserControl
     {
         InitializeComponent();
 
-        BackColor = ThemeColors.Surface;
+        // 啟用 WinForms 透明 — BackColor=Transparent + SupportsTransparentBackColor
+        // → OnPaintBackground 內 base 會先繪出 parent 的內容（tabsContent / cards）
+        // → 我們再 overlay 一層半透明 Surface 色
+        SetStyle(ControlStyles.SupportsTransparentBackColor
+               | ControlStyles.OptimizedDoubleBuffer
+               | ControlStyles.ResizeRedraw, true);
+        BackColor = Color.Transparent;
         ForeColor = ThemeColors.Text;
-        headerPanel.BackColor = ThemeColors.TabHeader;
-        contentPanel.BackColor = ThemeColors.Surface;
-        lblAliases.ForeColor = ThemeColors.Border;   // 次要色（用 Border 接近灰）
 
-        // resize 時要重畫外框
-        SetStyle(ControlStyles.ResizeRedraw, true);
+        // 子 Panel 也要透明（標準 Forms.Panel 預設不支援，用反射打開 SupportsTransparentBackColor）
+        EnableTransparent(headerPanel);
+        EnableTransparent(contentPanel);
+        headerPanel.BackColor = Color.Transparent;
+        contentPanel.BackColor = Color.Transparent;
+
+        lblAliases.ForeColor = ThemeColors.Border;   // 次要色
 
         btnClose.Click += (s, e) => CloseRequested?.Invoke();
 
         ApplyLocalization();
+    }
+
+    /// <summary>透過反射呼叫 protected SetStyle 把 SupportsTransparentBackColor 打開。</summary>
+    private static void EnableTransparent(Control c)
+    {
+        var setStyle = typeof(Control).GetMethod("SetStyle",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        setStyle?.Invoke(c, new object[] { ControlStyles.SupportsTransparentBackColor, true });
+    }
+
+    /// <summary>背景半透明：OnPaintBackground base 先讓 parent 繪出來，再 overlay 75% Surface。</summary>
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        base.OnPaintBackground(e);   // BackColor=Transparent → parent 透出來
+        var fillColor = Color.FromArgb(191, ThemeColors.Surface);   // 75% alpha
+        using var brush = new SolidBrush(fillColor);
+        e.Graphics.FillRectangle(brush, ClientRectangle);
     }
 
     /// <summary>外框線：ThemeColors.Border @ 75% alpha，1px。
