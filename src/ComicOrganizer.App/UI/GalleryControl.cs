@@ -313,12 +313,7 @@ public partial class GalleryControl : UserControl, IThemedControl
                     authorInfoPanel.ShowInfo(info);
             }
         }
-        // 浮動定位：右側對齊 splitter2.Panel2，全高，覆蓋在 tabsContent 之上
-        var p2 = splitter2.Panel2;
-        int width = authorInfoPanel.Width;   // 280
-        authorInfoPanel.SetBounds(p2.ClientSize.Width - width, 0, width, p2.ClientSize.Height);
         authorInfoPanel.Visible = true;
-        authorInfoPanel.BringToFront();
     }
 
     /// <summary>
