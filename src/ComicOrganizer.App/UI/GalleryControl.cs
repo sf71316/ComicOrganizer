@@ -957,16 +957,9 @@ public partial class GalleryControl : UserControl, IThemedControl
                         bool isFolderNode = item is DirectoryInfo;
                         var card = new ComicCardControl();
                         card.SetData(item, isFolderNode);
-                        // #47 metadata 副標：DB 有 title / author 就覆寫 card 顯示
-                        if (_metaStore != null)
-                        {
-                            try
-                            {
-                                var view = _metaStore.GetMetadataView(item.FullName);
-                                if (view != null) card.SetMetadata(view);
-                            }
-                            catch { /* DB 失敗不阻塞 card 顯示 */ }
-                        }
+                        // 註：Phase 3-A 嘗試在卡片下方加 "— Author" 副標但被回退 —
+                        // 良好整理過的庫從左側 tree 就知道 author，副標冗餘。metadata 留給未來
+                        // 「平鋪虛擬庫」/「搜尋結果」等沒明確 hierarchy 的場景再用 SetMetadata。
                         card.ApplyViewMode(mode);
                         card.RequestOpenFolder += p => OpenFolderTab(p, false);
                         card.RequestOpenViewer += p => OpenWithExternalViewer(p);
