@@ -329,8 +329,10 @@ public partial class GalleryControl : UserControl, IThemedControl
         var ownerForm = this.FindForm();
         if (ownerForm == null) return;
 
-        // 確保 panel 填滿 drawer 內部（drawer 不會自動 Dock.Fill 內容）
-        authorInfoPanel.Dock = DockStyle.Fill;
+        // Drawer 量 Content.Size 決定 drawer 大小。若 panel 上次被 Dock.Fill 撐大，
+        // 下次開 drawer 會用那個大尺寸 → 越開越大。每次強制 reset 成 320 × formHeight
+        authorInfoPanel.Dock = DockStyle.None;
+        authorInfoPanel.Size = new Size(320, ownerForm.ClientSize.Height);
 
         var config = new AntdUI.Drawer.Config(ownerForm, authorInfoPanel)
         {
