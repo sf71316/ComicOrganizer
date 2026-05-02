@@ -105,8 +105,10 @@
   <data name="RebuildCacheTitle" xml:space="preserve"><value>重建索引資料庫</value></data>
   <data name="RebuildFull" xml:space="preserve"><value>完整重建</value></data>
   <data name="RebuildFullDesc" xml:space="preserve"><value>清空所有 cache，從根目錄重新掃描</value></data>
-  <data name="RebuildPartial" xml:space="preserve"><value>部分重建...</value></data>
-  <data name="RebuildPartialDesc" xml:space="preserve"><value>選擇子目錄重新掃描</value></data>
+  <data name="RebuildUpdateIndex" xml:space="preserve"><value>更新索引資料庫</value></data>
+  <data name="RebuildUpdateIndexDesc" xml:space="preserve"><value>更新漫畫庫最新資料與刪除舊有資料</value></data>
+  <data name="RebuildClearCache" xml:space="preserve"><value>清除快取資料</value></data>
+  <data name="RebuildClearCacheDesc" xml:space="preserve"><value>選擇要清除的快取資料範圍（縮圖 / 完整）</value></data>
   <data name="RebuildIdle" xml:space="preserve"><value>等待中</value></data>
   <data name="RebuildDone" xml:space="preserve"><value>完成</value></data>
   <data name="RebuildCancelled" xml:space="preserve"><value>已取消</value></data>

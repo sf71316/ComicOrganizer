@@ -160,6 +160,20 @@ ON CONFLICT(path) DO UPDATE SET
         }
     }
 
+    public IEnumerable<AssetMeta> ListAll()
+    {
+        // 避免持鎖過久：先讀完整 list 再回 — 整性檢查通常一次性大批 walk
+        lock (_lock)
+        {
+            var list = new List<AssetMeta>();
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "SELECT path, name, is_folder, file_size, mtime, cover_origin, cover_thumb_key, cover_width, cover_height, last_scanned, last_accessed FROM asset;";
+            using var rdr = cmd.ExecuteReader();
+            while (rdr.Read()) list.Add(ReadMeta(rdr));
+            return list;
+        }
+    }
+
     public IReadOnlyList<AssetMeta> ListLruVictims(int count)
     {
         lock (_lock)
@@ -208,12 +222,32 @@ ON CONFLICT(path) DO UPDATE SET
         }
     }
 
+    public void ClearThumbFields()
+    {
+        lock (_lock)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "UPDATE asset SET cover_thumb_key = NULL, cover_width = NULL, cover_height = NULL WHERE cover_thumb_key IS NOT NULL;";
+            cmd.ExecuteNonQuery();
+        }
+    }
+
     public long TotalAssetCount()
     {
         lock (_lock)
         {
             using var cmd = _conn.CreateCommand();
             cmd.CommandText = "SELECT COUNT(*) FROM asset;";
+            return Convert.ToInt64(cmd.ExecuteScalar());
+        }
+    }
+
+    public long TotalCachedCount()
+    {
+        lock (_lock)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*) FROM asset WHERE cover_thumb_key IS NOT NULL;";
             return Convert.ToInt64(cmd.ExecuteScalar());
         }
     }

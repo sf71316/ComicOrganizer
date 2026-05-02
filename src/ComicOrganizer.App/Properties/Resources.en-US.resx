@@ -105,8 +105,10 @@
   <data name="RebuildCacheTitle" xml:space="preserve"><value>Rebuild Cache Database</value></data>
   <data name="RebuildFull" xml:space="preserve"><value>Full Rebuild</value></data>
   <data name="RebuildFullDesc" xml:space="preserve"><value>Clear all cache, rescan from root directory</value></data>
-  <data name="RebuildPartial" xml:space="preserve"><value>Partial Rebuild...</value></data>
-  <data name="RebuildPartialDesc" xml:space="preserve"><value>Select a subtree to rescan</value></data>
+  <data name="RebuildUpdateIndex" xml:space="preserve"><value>Update Index Database</value></data>
+  <data name="RebuildUpdateIndexDesc" xml:space="preserve"><value>Update latest library data and remove obsolete records</value></data>
+  <data name="RebuildClearCache" xml:space="preserve"><value>Clear Cache</value></data>
+  <data name="RebuildClearCacheDesc" xml:space="preserve"><value>Choose what to clear (thumbnails / all)</value></data>
   <data name="RebuildIdle" xml:space="preserve"><value>Idle</value></data>
   <data name="RebuildDone" xml:space="preserve"><value>Done</value></data>
   <data name="RebuildCancelled" xml:space="preserve"><value>Cancelled</value></data>

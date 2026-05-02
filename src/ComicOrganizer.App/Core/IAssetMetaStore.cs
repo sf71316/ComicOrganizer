@@ -12,6 +12,9 @@ public interface IAssetMetaStore : IDisposable
 
     IReadOnlyList<AssetMeta> ListChildren(string folderPath);
 
+    /// <summary>列舉所有 asset（整性檢查用，可能很大 → 用 IEnumerable 邊讀邊處理）。</summary>
+    IEnumerable<AssetMeta> ListAll();
+
     /// <summary>取出 lastAccessed 最舊的 N 筆（用於 LRU eviction）。</summary>
     IReadOnlyList<AssetMeta> ListLruVictims(int count);
 
@@ -20,10 +23,17 @@ public interface IAssetMetaStore : IDisposable
     /// <summary>刪除 path 下所有 asset（含自己）。部分重建用。</summary>
     void DeleteSubtree(string folderPath);
 
-    /// <summary>清空整個 asset 表。完整重建用。</summary>
+    /// <summary>清空整個 asset 表。完整清除用。</summary>
     void Clear();
 
+    /// <summary>清空所有 row 的縮圖欄位（cover_thumb_key/width/height），保留 row 本身。
+    /// 「清除縮圖快取」用 — 刪檔不刪 catalog。</summary>
+    void ClearThumbFields();
+
     long TotalAssetCount();
+
+    /// <summary>含縮圖紀錄的 row 數（cover_thumb_key IS NOT NULL）。用於 confirm 對話框。</summary>
+    long TotalCachedCount();
 
     /// <summary>cache asset 加總 file_size（folder 不計），用於 LRU 大小判斷。</summary>
     long TotalThumbBytes();
