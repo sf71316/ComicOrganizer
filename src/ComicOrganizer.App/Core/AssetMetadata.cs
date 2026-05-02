@@ -61,3 +61,34 @@ public class AssetMetadataView
     public int? PageCount { get; set; }
 }
 
+/// <summary>
+/// 作品詳細資訊聚合視圖 — 一次撈完 catalog + metadata + author + tags。
+/// 給 WorkDetailPanel 顯示用。
+/// </summary>
+public class WorkDetail
+{
+    public long AssetId { get; set; }
+    public string Path { get; set; } = "";
+    public string Name { get; set; } = "";
+    public bool IsFolder { get; set; }
+    public long FileSize { get; set; }
+    public long Mtime { get; set; }
+
+    public string? Title { get; set; }
+    public long? AuthorId { get; set; }
+    public string? AuthorMainName { get; set; }
+    public string? Series { get; set; }
+    public string? ChapterNo { get; set; }
+    public string? Language { get; set; }
+    public string? TranslationGroup { get; set; }
+    public int? PageCount { get; set; }
+    public int? Rating { get; set; }
+    public ReadStatus ReadStatus { get; set; } = ReadStatus.Unread;
+    public int ReadCount { get; set; }
+    public long? LastRead { get; set; }
+    public string? ExternalId { get; set; }
+    public long? ParsedAt { get; set; }
+
+    public List<Tag> Tags { get; set; } = new();
+}
+

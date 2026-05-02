@@ -128,4 +128,15 @@
   <data name="AuthorInfoRecentRead" xml:space="preserve"><value>最近閱讀</value></data>
   <data name="AuthorInfoReadCount" xml:space="preserve"><value>讀 {0} 次</value></data>
   <data name="AuthorInfoNoData" xml:space="preserve"><value>無法解析此路徑的作者資訊</value></data>
+  <data name="AuthorInfoTotalReads" xml:space="preserve"><value>累計閱讀</value></data>
+  <data name="AuthorInfoAllWorks" xml:space="preserve"><value>全部作品</value></data>
+  <data name="WorkDetailTitle" xml:space="preserve"><value>作品詳細資訊</value></data>
+  <data name="WorkDetailAuthor" xml:space="preserve"><value>作者</value></data>
+  <data name="WorkDetailReadStats" xml:space="preserve"><value>閱讀記錄</value></data>
+  <data name="WorkDetailTags" xml:space="preserve"><value>標籤</value></data>
+  <data name="WorkDetailFileInfo" xml:space="preserve"><value>檔案資訊</value></data>
+  <data name="WorkDetailRead" xml:space="preserve"><value>閱讀</value></data>
+  <data name="WorkDetailExplorer" xml:space="preserve"><value>開啟位置</value></data>
+  <data name="WorkDetailNoData" xml:space="preserve"><value>找不到此作品的詳細資訊</value></data>
+  <data name="MenuWorkDetail" xml:space="preserve"><value>詳細資訊</value></data>
 </root>

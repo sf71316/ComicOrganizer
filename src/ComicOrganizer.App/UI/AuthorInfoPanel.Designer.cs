@@ -13,6 +13,7 @@ partial class AuthorInfoPanel
     private System.Windows.Forms.Panel contentPanel;
     private System.Windows.Forms.TableLayoutPanel layout;
     private System.Windows.Forms.Label lblMainName;
+    private System.Windows.Forms.Label lblFolderPath;
     private System.Windows.Forms.Label lblAliases;
     private AntdUI.Divider divider1;
     private System.Windows.Forms.Label lblStats;
@@ -22,6 +23,9 @@ partial class AuthorInfoPanel
     private AntdUI.Divider divider3;
     private System.Windows.Forms.Label lblRecentHeader;
     private System.Windows.Forms.FlowLayoutPanel flowRecent;
+    private AntdUI.Divider divider4;
+    private System.Windows.Forms.Label lblAllWorksHeader;
+    private System.Windows.Forms.FlowLayoutPanel flowAllWorks;
 
     // ShowEmpty 訊息
     private System.Windows.Forms.Label lblEmpty;
@@ -40,6 +44,7 @@ partial class AuthorInfoPanel
         contentPanel = new System.Windows.Forms.Panel();
         layout = new System.Windows.Forms.TableLayoutPanel();
         lblMainName = new System.Windows.Forms.Label();
+        lblFolderPath = new System.Windows.Forms.Label();
         lblAliases = new System.Windows.Forms.Label();
         divider1 = new AntdUI.Divider();
         lblStats = new System.Windows.Forms.Label();
@@ -49,6 +54,9 @@ partial class AuthorInfoPanel
         divider3 = new AntdUI.Divider();
         lblRecentHeader = new System.Windows.Forms.Label();
         flowRecent = new System.Windows.Forms.FlowLayoutPanel();
+        divider4 = new AntdUI.Divider();
+        lblAllWorksHeader = new System.Windows.Forms.Label();
+        flowAllWorks = new System.Windows.Forms.FlowLayoutPanel();
         lblEmpty = new System.Windows.Forms.Label();
 
         SuspendLayout();
@@ -99,27 +107,41 @@ partial class AuthorInfoPanel
         layout.ColumnCount = 1;
         layout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
         layout.Dock = System.Windows.Forms.DockStyle.Top;
-        // 9 行：MainName, Aliases, divider1, Stats, divider2, TagsHeader, flowTags, divider3, RecentHeader, flowRecent
-        for (int i = 0; i < 10; i++) layout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
+        // 13 行：MainName, FolderPath, Aliases, divider1, Stats, divider2, TagsHeader, flowTags,
+        //         divider3, RecentHeader, flowRecent, divider4, AllWorksHeader, flowAllWorks
+        for (int i = 0; i < 14; i++) layout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
         layout.Controls.Add(lblMainName, 0, 0);
-        layout.Controls.Add(lblAliases, 0, 1);
-        layout.Controls.Add(divider1, 0, 2);
-        layout.Controls.Add(lblStats, 0, 3);
-        layout.Controls.Add(divider2, 0, 4);
-        layout.Controls.Add(lblTagsHeader, 0, 5);
-        layout.Controls.Add(flowTags, 0, 6);
-        layout.Controls.Add(divider3, 0, 7);
-        layout.Controls.Add(lblRecentHeader, 0, 8);
-        layout.Controls.Add(flowRecent, 0, 9);
+        layout.Controls.Add(lblFolderPath, 0, 1);
+        layout.Controls.Add(lblAliases, 0, 2);
+        layout.Controls.Add(divider1, 0, 3);
+        layout.Controls.Add(lblStats, 0, 4);
+        layout.Controls.Add(divider2, 0, 5);
+        layout.Controls.Add(lblTagsHeader, 0, 6);
+        layout.Controls.Add(flowTags, 0, 7);
+        layout.Controls.Add(divider3, 0, 8);
+        layout.Controls.Add(lblRecentHeader, 0, 9);
+        layout.Controls.Add(flowRecent, 0, 10);
+        layout.Controls.Add(divider4, 0, 11);
+        layout.Controls.Add(lblAllWorksHeader, 0, 12);
+        layout.Controls.Add(flowAllWorks, 0, 13);
 
         //
         // lblMainName
         //
         lblMainName.AutoSize = true;
         lblMainName.Font = new System.Drawing.Font("Microsoft JhengHei UI", 14F, System.Drawing.FontStyle.Bold);
-        lblMainName.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
+        lblMainName.Margin = new System.Windows.Forms.Padding(0, 0, 0, 2);
         lblMainName.Name = "lblMainName";
         lblMainName.Text = "(Author)";
+        //
+        // lblFolderPath
+        //
+        lblFolderPath.AutoSize = true;
+        lblFolderPath.MaximumSize = new System.Drawing.Size(280, 0);
+        lblFolderPath.Font = new System.Drawing.Font("Microsoft JhengHei UI", 8F);
+        lblFolderPath.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
+        lblFolderPath.Name = "lblFolderPath";
+        lblFolderPath.Text = "";
         //
         // lblAliases
         //
@@ -130,7 +152,7 @@ partial class AuthorInfoPanel
         lblAliases.Text = "";
 
         //
-        // divider1 / divider2 / divider3
+        // divider1 / divider2 / divider3 / divider4
         //
         divider1.Dock = System.Windows.Forms.DockStyle.Fill;
         divider1.Height = 8;
@@ -144,6 +166,10 @@ partial class AuthorInfoPanel
         divider3.Height = 8;
         divider3.Margin = new System.Windows.Forms.Padding(0, 4, 0, 4);
         divider3.Name = "divider3";
+        divider4.Dock = System.Windows.Forms.DockStyle.Fill;
+        divider4.Height = 8;
+        divider4.Margin = new System.Windows.Forms.Padding(0, 4, 0, 4);
+        divider4.Name = "divider4";
 
         //
         // lblStats
@@ -191,6 +217,25 @@ partial class AuthorInfoPanel
         flowRecent.Margin = new System.Windows.Forms.Padding(0);
         flowRecent.Name = "flowRecent";
         flowRecent.WrapContents = false;
+
+        //
+        // lblAllWorksHeader
+        //
+        lblAllWorksHeader.AutoSize = true;
+        lblAllWorksHeader.Font = new System.Drawing.Font("Microsoft JhengHei UI", 10F, System.Drawing.FontStyle.Bold);
+        lblAllWorksHeader.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
+        lblAllWorksHeader.Name = "lblAllWorksHeader";
+        lblAllWorksHeader.Text = "全部作品";
+        //
+        // flowAllWorks
+        //
+        flowAllWorks.AutoSize = true;
+        flowAllWorks.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+        flowAllWorks.Dock = System.Windows.Forms.DockStyle.Fill;
+        flowAllWorks.FlowDirection = System.Windows.Forms.FlowDirection.TopDown;
+        flowAllWorks.Margin = new System.Windows.Forms.Padding(0);
+        flowAllWorks.Name = "flowAllWorks";
+        flowAllWorks.WrapContents = false;
 
         //
         // lblEmpty (ShowEmpty 時顯示)

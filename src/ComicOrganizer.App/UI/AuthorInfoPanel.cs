@@ -11,6 +11,9 @@ public partial class AuthorInfoPanel : UserControl
 {
     public event Action? CloseRequested;
 
+    /// <summary>使用者在 RecentlyRead / AllWorks 清單按下某個作品 — string 為 work path。</summary>
+    public event Action<string>? RequestOpenWork;
+
     public AuthorInfoPanel()
     {
         InitializeComponent();
@@ -19,7 +22,8 @@ public partial class AuthorInfoPanel : UserControl
         ForeColor = ThemeColors.Text;
         headerPanel.BackColor = ThemeColors.TabHeader;
         contentPanel.BackColor = ThemeColors.Surface;
-        lblAliases.ForeColor = ThemeColors.Border;   // 次要色
+        lblAliases.ForeColor = ThemeColors.Border;     // 次要色
+        lblFolderPath.ForeColor = ThemeColors.Border;  // 次要色
 
         btnClose.Click += (s, e) => CloseRequested?.Invoke();
 
@@ -31,6 +35,7 @@ public partial class AuthorInfoPanel : UserControl
         lblTitle.Text = LocalizationManager.GetString("AuthorInfoTitle") ?? "作者資訊";
         lblTagsHeader.Text = LocalizationManager.GetString("AuthorInfoTopTags") ?? "主要標籤";
         lblRecentHeader.Text = LocalizationManager.GetString("AuthorInfoRecentRead") ?? "最近閱讀";
+        lblAllWorksHeader.Text = LocalizationManager.GetString("AuthorInfoAllWorks") ?? "全部作品";
     }
 
     /// <summary>套用聚合資料 — 顯示完整 panel 內容。</summary>
@@ -42,10 +47,23 @@ public partial class AuthorInfoPanel : UserControl
 
         lblMainName.Text = info.Author.MainName;
 
+        if (!string.IsNullOrWhiteSpace(info.Author.FolderPath))
+        {
+            lblFolderPath.Text = "📁 " + info.Author.FolderPath;
+            lblFolderPath.Visible = true;
+        }
+        else
+        {
+            lblFolderPath.Text = "";
+            lblFolderPath.Visible = false;
+        }
+
         if (info.Aliases.Count > 0)
         {
             var aliasLabel = LocalizationManager.GetString("AuthorInfoAlias") ?? "別名";
-            lblAliases.Text = $"{aliasLabel}: " + string.Join(", ", info.Aliases.Select(a => a.Name));
+            var aliasParts = info.Aliases.Select(a =>
+                string.IsNullOrWhiteSpace(a.Lang) ? a.Name : $"{a.Name} ({a.Lang})");
+            lblAliases.Text = $"{aliasLabel}: " + string.Join(", ", aliasParts);
             lblAliases.Visible = true;
         }
         else
@@ -93,6 +111,29 @@ public partial class AuthorInfoPanel : UserControl
             }
         }
         flowRecent.ResumeLayout(true);
+
+        // all works
+        flowAllWorks.SuspendLayout();
+        flowAllWorks.Controls.Clear();
+        if (info.AllWorks.Count == 0)
+        {
+            var empty = new Label
+            {
+                AutoSize = true,
+                Text = "(無)",
+                ForeColor = ThemeColors.Border,
+                Font = new Font("Microsoft JhengHei UI", 9F, FontStyle.Italic),
+            };
+            flowAllWorks.Controls.Add(empty);
+        }
+        else
+        {
+            foreach (var w in info.AllWorks)
+            {
+                flowAllWorks.Controls.Add(BuildAllWorkItem(w));
+            }
+        }
+        flowAllWorks.ResumeLayout(true);
     }
 
     /// <summary>顯示「無資料」訊息（path 解析不到 author / GetAuthorInfo 回 null）。</summary>
@@ -114,8 +155,9 @@ public partial class AuthorInfoPanel : UserControl
         var reading = LocalizationManager.GetString("AuthorInfoReading") ?? "進行中";
         var completed = LocalizationManager.GetString("AuthorInfoCompleted") ?? "已完成";
         var dropped = LocalizationManager.GetString("AuthorInfoDropped") ?? "放棄";
+        var totalReads = LocalizationManager.GetString("AuthorInfoTotalReads") ?? "累計閱讀";
         return
-            $"{workCount}: {info.TotalWorks}\n" +
+            $"{workCount}: {info.TotalWorks}    {totalReads}: {info.TotalReadCount}\n" +
             $"{unread}: {info.UnreadCount}    {reading}: {info.ReadingCount}\n" +
             $"{completed}: {info.CompletedCount}    {dropped}: {info.DroppedCount}";
     }
@@ -126,7 +168,7 @@ public partial class AuthorInfoPanel : UserControl
         var readCountFmt = LocalizationManager.GetString("AuthorInfoReadCount") ?? "讀 {0} 次";
         var readCountStr = string.Format(readCountFmt, rr.ReadCount);
         var timeStr = FormatRelativeTime(rr.LastRead);
-        return new Label
+        var lbl = new Label
         {
             AutoSize = true,
             MaximumSize = new Size(240, 0),
@@ -134,6 +176,40 @@ public partial class AuthorInfoPanel : UserControl
             Margin = new Padding(0, 0, 0, 4),
             Text = $"• {displayTitle}\n  {readCountStr}  ({timeStr})",
         };
+        AttachClickToOpen(lbl, rr.Path);
+        return lbl;
+    }
+
+    private Label BuildAllWorkItem(AssetMetadataView w)
+    {
+        var displayTitle = !string.IsNullOrWhiteSpace(w.Title) ? w.Title : Path.GetFileName(w.Path);
+        // 副資訊：language / translation_group / page_count（有什麼顯什麼）
+        var hints = new List<string>();
+        if (!string.IsNullOrWhiteSpace(w.Language)) hints.Add(w.Language);
+        if (!string.IsNullOrWhiteSpace(w.TranslationGroup)) hints.Add(w.TranslationGroup);
+        if (w.PageCount.HasValue) hints.Add($"{w.PageCount}p");
+        var hintStr = hints.Count > 0 ? "  " + string.Join(" · ", hints) : "";
+        var lbl = new Label
+        {
+            AutoSize = true,
+            MaximumSize = new Size(280, 0),
+            Font = new Font("Microsoft JhengHei UI", 9F),
+            Margin = new Padding(0, 0, 0, 2),
+            Text = $"• {displayTitle}{hintStr}",
+        };
+        AttachClickToOpen(lbl, w.Path);
+        return lbl;
+    }
+
+    private void AttachClickToOpen(Label lbl, string path)
+    {
+        var defaultColor = ForeColor;
+        var hoverColor = ThemeColors.Primary;
+        lbl.Cursor = Cursors.Hand;
+        lbl.ForeColor = defaultColor;
+        lbl.MouseEnter += (s, e) => lbl.ForeColor = hoverColor;
+        lbl.MouseLeave += (s, e) => lbl.ForeColor = defaultColor;
+        lbl.Click += (s, e) => RequestOpenWork?.Invoke(path);
     }
 
     private static string FormatRelativeTime(long? unixTs)
