@@ -1,3 +1,4 @@
+using Dapper;
 using Microsoft.Data.Sqlite;
 
 namespace ComicOrganizer.App.Core;
@@ -5,12 +6,20 @@ namespace ComicOrganizer.App.Core;
 /// <summary>
 /// SQLite-backed metadata store。schema v2：catalog / thumb / metadata 拆三表 + author / tag。
 /// SqliteConnection 不是 thread-safe，所有方法都用 _lock 序列化。
+/// 查詢層用 Dapper：snake_case ↔ PascalCase 自動對映、NULL → null 自動處理。
 /// </summary>
 public class SqliteAssetMetaStore : IAssetMetaStore
 {
     private readonly SqliteConnection _conn;
     private readonly object _lock = new();
+    private SqliteTransaction? _currentTx;
     private const int CurrentSchemaVersion = 2;
+
+    static SqliteAssetMetaStore()
+    {
+        // 全域開啟「snake_case 欄位 → PascalCase 屬性」自動對映
+        DefaultTypeMap.MatchNamesWithUnderscores = true;
+    }
 
     public SqliteAssetMetaStore(string dbPath)
     {
@@ -21,31 +30,15 @@ public class SqliteAssetMetaStore : IAssetMetaStore
         _conn.Open();
 
         // 開啟外鍵約束（SQLite 預設關閉）
-        using (var pragma = _conn.CreateCommand())
-        {
-            pragma.CommandText = "PRAGMA foreign_keys = ON;";
-            pragma.ExecuteNonQuery();
-        }
+        _conn.Execute("PRAGMA foreign_keys = ON;");
 
         EnsureSchema();
     }
 
     private void EnsureSchema()
     {
-        // 第一次啟動：schema_version 表還沒建
-        long currentVersion = 0;
-        using (var cmd = _conn.CreateCommand())
-        {
-            cmd.CommandText = "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY);";
-            cmd.ExecuteNonQuery();
-        }
-        using (var cmd = _conn.CreateCommand())
-        {
-            cmd.CommandText = "SELECT version FROM schema_version LIMIT 1;";
-            var existing = cmd.ExecuteScalar();
-            if (existing != null && existing != DBNull.Value)
-                currentVersion = Convert.ToInt64(existing);
-        }
+        _conn.Execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY);");
+        var currentVersion = _conn.ExecuteScalar<long?>("SELECT version FROM schema_version LIMIT 1;") ?? 0;
 
         // v0：什麼都沒有 → 直接建 v2
         // v1：舊 schema → migrate 到 v2
@@ -53,10 +46,7 @@ public class SqliteAssetMetaStore : IAssetMetaStore
         if (currentVersion == 0)
         {
             CreateSchemaV2();
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = "INSERT INTO schema_version (version) VALUES ($v);";
-            cmd.Parameters.AddWithValue("$v", CurrentSchemaVersion);
-            cmd.ExecuteNonQuery();
+            _conn.Execute("INSERT INTO schema_version (version) VALUES (@v);", new { v = CurrentSchemaVersion });
         }
         else if (currentVersion == 1)
         {
@@ -65,13 +55,10 @@ public class SqliteAssetMetaStore : IAssetMetaStore
         // currentVersion >= 2 → 已是最新，no-op
     }
 
-    /// <summary>
-    /// 直接建立 v2 schema（首次啟動或測試用）。
-    /// </summary>
+    /// <summary>直接建立 v2 schema（首次啟動或測試用）。</summary>
     private void CreateSchemaV2()
     {
-        using var cmd = _conn.CreateCommand();
-        cmd.CommandText = @"
+        _conn.Execute(@"
 -- catalog：目錄結構，永久保留
 CREATE TABLE IF NOT EXISTS asset (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -167,8 +154,7 @@ CREATE TABLE IF NOT EXISTS app_state (
     key TEXT PRIMARY KEY,
     value TEXT
 );
-";
-        cmd.ExecuteNonQuery();
+");
     }
 
     /// <summary>v1 → v2 migration：把舊 asset 表分流到 asset + asset_thumb，metadata 留空等 parser 填。</summary>
@@ -178,56 +164,88 @@ CREATE TABLE IF NOT EXISTS app_state (
         using var tx = _conn.BeginTransaction();
         try
         {
-            // 1. rename 舊表避開衝突
-            using (var cmd = _conn.CreateCommand())
-            {
-                cmd.CommandText = "ALTER TABLE asset RENAME TO asset_v1;";
-                cmd.ExecuteNonQuery();
-            }
+            _conn.Execute("ALTER TABLE asset RENAME TO asset_v1;", transaction: tx);
 
-            // 2. 建 v2 schema
-            CreateSchemaV2();
+            // CreateSchemaV2 不能傳 tx（內部單獨 Execute），但 DDL 在 SQLite 是 auto-commit-friendly
+            // 改用 inline DDL 並帶 tx：
+            _conn.Execute(@"
+CREATE TABLE IF NOT EXISTS asset (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    path TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    is_folder INTEGER NOT NULL,
+    file_size INTEGER,
+    mtime INTEGER NOT NULL,
+    added_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_asset_path ON asset(path);
+CREATE TABLE IF NOT EXISTS asset_thumb (
+    asset_id INTEGER PRIMARY KEY,
+    cover_origin TEXT,
+    cover_thumb_key TEXT,
+    cover_width INTEGER,
+    cover_height INTEGER,
+    last_scanned INTEGER NOT NULL,
+    last_accessed INTEGER NOT NULL,
+    FOREIGN KEY (asset_id) REFERENCES asset(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_asset_thumb_last_accessed ON asset_thumb(last_accessed);
+CREATE TABLE IF NOT EXISTS asset_meta (
+    asset_id INTEGER PRIMARY KEY,
+    author_id INTEGER,
+    title TEXT, series TEXT, chapter_no TEXT, language TEXT, translation_group TEXT,
+    page_count INTEGER, rating INTEGER,
+    read_status INTEGER NOT NULL DEFAULT 0,
+    read_count INTEGER NOT NULL DEFAULT 0,
+    last_read INTEGER, external_id TEXT, parsed_at INTEGER NOT NULL,
+    FOREIGN KEY (asset_id) REFERENCES asset(id) ON DELETE CASCADE,
+    FOREIGN KEY (author_id) REFERENCES author(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_asset_meta_author_id ON asset_meta(author_id);
+CREATE TABLE IF NOT EXISTS author (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    main_name TEXT NOT NULL UNIQUE, folder_path TEXT, learned_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS author_alias (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    author_id INTEGER NOT NULL, name TEXT NOT NULL, lang TEXT,
+    FOREIGN KEY (author_id) REFERENCES author(id) ON DELETE CASCADE,
+    UNIQUE(author_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_author_alias_name ON author_alias(name);
+CREATE TABLE IF NOT EXISTS tag (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, category TEXT
+);
+CREATE TABLE IF NOT EXISTS asset_tag (
+    asset_id INTEGER NOT NULL, tag_id INTEGER NOT NULL,
+    PRIMARY KEY (asset_id, tag_id),
+    FOREIGN KEY (asset_id) REFERENCES asset(id) ON DELETE CASCADE,
+    FOREIGN KEY (tag_id) REFERENCES tag(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_asset_tag_tag_id ON asset_tag(tag_id);
+CREATE TABLE IF NOT EXISTS folder_role (
+    path TEXT PRIMARY KEY, role TEXT NOT NULL,
+    confidence REAL, template TEXT, learned_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS app_state (key TEXT PRIMARY KEY, value TEXT);
+", transaction: tx);
 
             long now = NowUnix();
 
-            // 3. 搬 catalog 部分（保留 id）
-            long catalogRows;
-            using (var cmd = _conn.CreateCommand())
-            {
-                cmd.CommandText = @"
+            var catalogRows = _conn.Execute(@"
 INSERT INTO asset (id, path, name, is_folder, file_size, mtime, added_at)
-SELECT id, path, name, is_folder, file_size, mtime, COALESCE(last_scanned, $now)
-FROM asset_v1;";
-                cmd.Parameters.AddWithValue("$now", now);
-                catalogRows = cmd.ExecuteNonQuery();
-            }
+SELECT id, path, name, is_folder, file_size, mtime, COALESCE(last_scanned, @now)
+FROM asset_v1;", new { now }, tx);
 
-            // 4. 搬 thumb 部分（只搬有 cover_thumb_key 的 row）
-            long thumbRows;
-            using (var cmd = _conn.CreateCommand())
-            {
-                cmd.CommandText = @"
+            var thumbRows = _conn.Execute(@"
 INSERT INTO asset_thumb (asset_id, cover_origin, cover_thumb_key, cover_width, cover_height, last_scanned, last_accessed)
 SELECT id, cover_origin, cover_thumb_key, cover_width, cover_height, last_scanned, last_accessed
 FROM asset_v1
-WHERE cover_thumb_key IS NOT NULL;";
-                thumbRows = cmd.ExecuteNonQuery();
-            }
+WHERE cover_thumb_key IS NOT NULL;", transaction: tx);
 
-            // 5. drop 舊表
-            using (var cmd = _conn.CreateCommand())
-            {
-                cmd.CommandText = "DROP TABLE asset_v1;";
-                cmd.ExecuteNonQuery();
-            }
-
-            // 6. bump version
-            using (var cmd = _conn.CreateCommand())
-            {
-                cmd.CommandText = "DELETE FROM schema_version; INSERT INTO schema_version (version) VALUES ($v);";
-                cmd.Parameters.AddWithValue("$v", CurrentSchemaVersion);
-                cmd.ExecuteNonQuery();
-            }
+            _conn.Execute("DROP TABLE asset_v1;", transaction: tx);
+            _conn.Execute("DELETE FROM schema_version; INSERT INTO schema_version (version) VALUES (@v);",
+                new { v = CurrentSchemaVersion }, tx);
 
             tx.Commit();
             System.Diagnostics.Debug.WriteLine($"[SqliteStore] migration v1→v2 done: {catalogRows} catalog rows, {thumbRows} thumb rows");
@@ -249,168 +267,130 @@ WHERE cover_thumb_key IS NOT NULL;";
     public long? GetAssetId(string path)
     {
         lock (_lock)
-        {
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = "SELECT id FROM asset WHERE path = $p LIMIT 1;";
-            cmd.Parameters.AddWithValue("$p", path);
-            var result = cmd.ExecuteScalar();
-            if (result == null || result == DBNull.Value) return null;
-            return Convert.ToInt64(result);
-        }
+            return _conn.ExecuteScalar<long?>(
+                "SELECT id FROM asset WHERE path = @path LIMIT 1;",
+                new { path }, _currentTx);
     }
 
     public AssetMeta? Get(string path)
     {
         lock (_lock)
-        {
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = @"
+            return _conn.QueryFirstOrDefault<AssetMeta>(@"
 SELECT a.path, a.name, a.is_folder, a.file_size, a.mtime,
        t.cover_origin, t.cover_thumb_key, t.cover_width, t.cover_height,
        COALESCE(t.last_scanned, a.added_at) AS last_scanned,
        COALESCE(t.last_accessed, a.added_at) AS last_accessed
 FROM asset a
 LEFT JOIN asset_thumb t ON t.asset_id = a.id
-WHERE a.path = $p
-LIMIT 1;";
-            cmd.Parameters.AddWithValue("$p", path);
-            using var rdr = cmd.ExecuteReader();
-            if (!rdr.Read()) return null;
-            return ReadMeta(rdr);
-        }
+WHERE a.path = @path
+LIMIT 1;", new { path }, _currentTx);
     }
 
     public void Upsert(AssetMeta meta)
     {
         lock (_lock)
         {
-            // 1. catalog upsert（取 id）
             long assetId = UpsertCatalogInternal(meta);
 
-            // 2. 有 thumb 資料才寫 asset_thumb；否則確保不存在
             if (meta.CoverThumbKey != null)
             {
-                using var cmd = _conn.CreateCommand();
-                cmd.CommandText = @"
+                _conn.Execute(@"
 INSERT INTO asset_thumb (asset_id, cover_origin, cover_thumb_key, cover_width, cover_height, last_scanned, last_accessed)
-VALUES ($id, $origin, $key, $w, $h, $scanned, $accessed)
+VALUES (@id, @origin, @key, @w, @h, @scanned, @accessed)
 ON CONFLICT(asset_id) DO UPDATE SET
     cover_origin = excluded.cover_origin,
     cover_thumb_key = excluded.cover_thumb_key,
     cover_width = excluded.cover_width,
     cover_height = excluded.cover_height,
     last_scanned = excluded.last_scanned,
-    last_accessed = excluded.last_accessed;";
-                cmd.Parameters.AddWithValue("$id", assetId);
-                cmd.Parameters.AddWithValue("$origin", (object?)meta.CoverOrigin ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("$key", meta.CoverThumbKey);
-                cmd.Parameters.AddWithValue("$w", (object?)meta.CoverWidth ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("$h", (object?)meta.CoverHeight ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("$scanned", meta.LastScanned);
-                cmd.Parameters.AddWithValue("$accessed", meta.LastAccessed);
-                cmd.ExecuteNonQuery();
+    last_accessed = excluded.last_accessed;",
+                    new
+                    {
+                        id = assetId,
+                        origin = meta.CoverOrigin,
+                        key = meta.CoverThumbKey,
+                        w = meta.CoverWidth,
+                        h = meta.CoverHeight,
+                        scanned = meta.LastScanned,
+                        accessed = meta.LastAccessed,
+                    }, _currentTx);
             }
             else
             {
                 // CoverThumbKey 為 null：刪 thumb row（LRU 淘汰、整性 fix 路徑）
-                using var cmd = _conn.CreateCommand();
-                cmd.CommandText = "DELETE FROM asset_thumb WHERE asset_id = $id;";
-                cmd.Parameters.AddWithValue("$id", assetId);
-                cmd.ExecuteNonQuery();
+                _conn.Execute("DELETE FROM asset_thumb WHERE asset_id = @id;",
+                    new { id = assetId }, _currentTx);
             }
         }
     }
 
     public void UpsertCatalogOnly(AssetMeta meta)
     {
-        lock (_lock)
-        {
-            UpsertCatalogInternal(meta);
-        }
+        lock (_lock) UpsertCatalogInternal(meta);
     }
 
     private long UpsertCatalogInternal(AssetMeta meta)
     {
-        // 試圖 INSERT；衝突時 UPDATE。RETURNING id 拿回主鍵。
-        using var cmd = _conn.CreateCommand();
-        cmd.CommandText = @"
+        return _conn.ExecuteScalar<long>(@"
 INSERT INTO asset (path, name, is_folder, file_size, mtime, added_at)
-VALUES ($path, $name, $isFolder, $fileSize, $mtime, $addedAt)
+VALUES (@path, @name, @isFolder, @fileSize, @mtime, @addedAt)
 ON CONFLICT(path) DO UPDATE SET
     name = excluded.name,
     is_folder = excluded.is_folder,
     file_size = excluded.file_size,
     mtime = excluded.mtime
-RETURNING id;";
-        cmd.Parameters.AddWithValue("$path", meta.Path);
-        cmd.Parameters.AddWithValue("$name", meta.Name);
-        cmd.Parameters.AddWithValue("$isFolder", meta.IsFolder ? 1 : 0);
-        cmd.Parameters.AddWithValue("$fileSize", (object?)meta.FileSize ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$mtime", meta.Mtime);
-        cmd.Parameters.AddWithValue("$addedAt", meta.LastScanned > 0 ? meta.LastScanned : NowUnix());
-        return Convert.ToInt64(cmd.ExecuteScalar()!);
+RETURNING id;",
+            new
+            {
+                path = meta.Path,
+                name = meta.Name,
+                isFolder = meta.IsFolder ? 1 : 0,
+                fileSize = meta.FileSize,
+                mtime = meta.Mtime,
+                addedAt = meta.LastScanned > 0 ? meta.LastScanned : NowUnix(),
+            }, _currentTx);
     }
 
     public void TouchLastAccessed(string path, long now)
     {
         lock (_lock)
-        {
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = @"
-UPDATE asset_thumb SET last_accessed = $now
-WHERE asset_id = (SELECT id FROM asset WHERE path = $p);";
-            cmd.Parameters.AddWithValue("$now", now);
-            cmd.Parameters.AddWithValue("$p", path);
-            cmd.ExecuteNonQuery();
-        }
+            _conn.Execute(@"
+UPDATE asset_thumb SET last_accessed = @now
+WHERE asset_id = (SELECT id FROM asset WHERE path = @path);",
+                new { now, path }, _currentTx);
     }
 
     public IReadOnlyList<AssetMeta> ListChildren(string folderPath)
     {
         var prefix = folderPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         lock (_lock)
-        {
-            var list = new List<AssetMeta>();
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = @"
+            return _conn.Query<AssetMeta>(@"
 SELECT a.path, a.name, a.is_folder, a.file_size, a.mtime,
        t.cover_origin, t.cover_thumb_key, t.cover_width, t.cover_height,
-       COALESCE(t.last_scanned, a.added_at), COALESCE(t.last_accessed, a.added_at)
+       COALESCE(t.last_scanned, a.added_at) AS last_scanned,
+       COALESCE(t.last_accessed, a.added_at) AS last_accessed
 FROM asset a
 LEFT JOIN asset_thumb t ON t.asset_id = a.id
-WHERE a.path LIKE $prefix;";
-            cmd.Parameters.AddWithValue("$prefix", prefix + "%");
-            using var rdr = cmd.ExecuteReader();
-            while (rdr.Read()) list.Add(ReadMeta(rdr));
-            return list;
-        }
+WHERE a.path LIKE @prefix;",
+                new { prefix = prefix + "%" }, _currentTx).AsList();
     }
 
     public IEnumerable<AssetMeta> ListAll()
     {
         lock (_lock)
-        {
-            var list = new List<AssetMeta>();
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = @"
+            return _conn.Query<AssetMeta>(@"
 SELECT a.path, a.name, a.is_folder, a.file_size, a.mtime,
        t.cover_origin, t.cover_thumb_key, t.cover_width, t.cover_height,
-       COALESCE(t.last_scanned, a.added_at), COALESCE(t.last_accessed, a.added_at)
+       COALESCE(t.last_scanned, a.added_at) AS last_scanned,
+       COALESCE(t.last_accessed, a.added_at) AS last_accessed
 FROM asset a
-LEFT JOIN asset_thumb t ON t.asset_id = a.id;";
-            using var rdr = cmd.ExecuteReader();
-            while (rdr.Read()) list.Add(ReadMeta(rdr));
-            return list;
-        }
+LEFT JOIN asset_thumb t ON t.asset_id = a.id;", transaction: _currentTx).AsList();
     }
 
     public IReadOnlyList<AssetMeta> ListLruVictims(int count)
     {
         lock (_lock)
-        {
-            var list = new List<AssetMeta>(count);
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = @"
+            return _conn.Query<AssetMeta>(@"
 SELECT a.path, a.name, a.is_folder, a.file_size, a.mtime,
        t.cover_origin, t.cover_thumb_key, t.cover_width, t.cover_height,
        t.last_scanned, t.last_accessed
@@ -418,76 +398,43 @@ FROM asset_thumb t
 JOIN asset a ON a.id = t.asset_id
 WHERE t.cover_thumb_key IS NOT NULL
 ORDER BY t.last_accessed ASC
-LIMIT $n;";
-            cmd.Parameters.AddWithValue("$n", count);
-            using var rdr = cmd.ExecuteReader();
-            while (rdr.Read()) list.Add(ReadMeta(rdr));
-            return list;
-        }
+LIMIT @n;", new { n = count }, _currentTx).AsList();
     }
 
     public void Delete(string path)
     {
         lock (_lock)
-        {
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = "DELETE FROM asset WHERE path = $p;";   // ON DELETE CASCADE 連帶 thumb/meta/tag
-            cmd.Parameters.AddWithValue("$p", path);
-            cmd.ExecuteNonQuery();
-        }
+            // ON DELETE CASCADE 連帶 thumb/meta/tag
+            _conn.Execute("DELETE FROM asset WHERE path = @path;", new { path }, _currentTx);
     }
 
     public void DeleteSubtree(string folderPath)
     {
         var prefix = folderPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         lock (_lock)
-        {
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = "DELETE FROM asset WHERE path = $exact OR path LIKE $prefix;";
-            cmd.Parameters.AddWithValue("$exact", folderPath);
-            cmd.Parameters.AddWithValue("$prefix", prefix + "%");
-            cmd.ExecuteNonQuery();
-        }
+            _conn.Execute("DELETE FROM asset WHERE path = @exact OR path LIKE @prefix;",
+                new { exact = folderPath, prefix = prefix + "%" }, _currentTx);
     }
 
     public void Clear()
     {
-        lock (_lock)
-        {
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = "DELETE FROM asset;";   // CASCADE 連帶 thumb/meta/tag
-            cmd.ExecuteNonQuery();
-        }
+        lock (_lock) _conn.Execute("DELETE FROM asset;", transaction: _currentTx);
     }
 
     public void ClearThumbFields()
     {
-        lock (_lock)
-        {
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = "DELETE FROM asset_thumb;";
-            cmd.ExecuteNonQuery();
-        }
+        lock (_lock) _conn.Execute("DELETE FROM asset_thumb;", transaction: _currentTx);
     }
 
     public long TotalAssetCount()
     {
-        lock (_lock)
-        {
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = "SELECT COUNT(*) FROM asset;";
-            return Convert.ToInt64(cmd.ExecuteScalar());
-        }
+        lock (_lock) return _conn.ExecuteScalar<long>("SELECT COUNT(*) FROM asset;", transaction: _currentTx);
     }
 
     public long TotalCachedCount()
     {
-        lock (_lock)
-        {
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = "SELECT COUNT(*) FROM asset_thumb WHERE cover_thumb_key IS NOT NULL;";
-            return Convert.ToInt64(cmd.ExecuteScalar());
-        }
+        lock (_lock) return _conn.ExecuteScalar<long>(
+            "SELECT COUNT(*) FROM asset_thumb WHERE cover_thumb_key IS NOT NULL;", transaction: _currentTx);
     }
 
     public long TotalThumbBytes()
@@ -499,32 +446,22 @@ LIMIT $n;";
     public string? GetState(string key)
     {
         lock (_lock)
-        {
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = "SELECT value FROM app_state WHERE key = $k LIMIT 1;";
-            cmd.Parameters.AddWithValue("$k", key);
-            var result = cmd.ExecuteScalar();
-            return result == null || result == DBNull.Value ? null : result.ToString();
-        }
+            return _conn.ExecuteScalar<string?>(
+                "SELECT value FROM app_state WHERE key = @key LIMIT 1;",
+                new { key }, _currentTx);
     }
 
     public void SetState(string key, string? value)
     {
         lock (_lock)
         {
-            using var cmd = _conn.CreateCommand();
             if (value == null)
-            {
-                cmd.CommandText = "DELETE FROM app_state WHERE key = $k;";
-                cmd.Parameters.AddWithValue("$k", key);
-            }
+                _conn.Execute("DELETE FROM app_state WHERE key = @key;", new { key }, _currentTx);
             else
-            {
-                cmd.CommandText = "INSERT INTO app_state (key, value) VALUES ($k, $v) ON CONFLICT(key) DO UPDATE SET value = excluded.value;";
-                cmd.Parameters.AddWithValue("$k", key);
-                cmd.Parameters.AddWithValue("$v", value);
-            }
-            cmd.ExecuteNonQuery();
+                _conn.Execute(@"
+INSERT INTO app_state (key, value) VALUES (@key, @value)
+ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+                    new { key, value }, _currentTx);
         }
     }
 
@@ -533,6 +470,7 @@ LIMIT $n;";
         lock (_lock)
         {
             using var tx = _conn.BeginTransaction();
+            _currentTx = tx;
             try
             {
                 action();
@@ -542,6 +480,10 @@ LIMIT $n;";
             {
                 tx.Rollback();
                 throw;
+            }
+            finally
+            {
+                _currentTx = null;
             }
         }
     }
@@ -553,29 +495,21 @@ LIMIT $n;";
     public AssetMetadata? GetMetadata(long assetId)
     {
         lock (_lock)
-        {
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = @"
+            return _conn.QueryFirstOrDefault<AssetMetadata>(@"
 SELECT asset_id, author_id, title, series, chapter_no, language, translation_group,
        page_count, rating, read_status, read_count, last_read, external_id, parsed_at
-FROM asset_meta WHERE asset_id = $id LIMIT 1;";
-            cmd.Parameters.AddWithValue("$id", assetId);
-            using var rdr = cmd.ExecuteReader();
-            if (!rdr.Read()) return null;
-            return ReadMetadata(rdr);
-        }
+FROM asset_meta WHERE asset_id = @id LIMIT 1;",
+                new { id = assetId }, _currentTx);
     }
 
     public void UpsertMetadata(AssetMetadata meta)
     {
         lock (_lock)
-        {
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = @"
+            _conn.Execute(@"
 INSERT INTO asset_meta (asset_id, author_id, title, series, chapter_no, language, translation_group,
                         page_count, rating, read_status, read_count, last_read, external_id, parsed_at)
-VALUES ($id, $author, $title, $series, $chapter, $lang, $tgroup, $pages, $rating,
-        $rstatus, $rcount, $lread, $extId, $parsedAt)
+VALUES (@AssetId, @AuthorId, @Title, @Series, @ChapterNo, @Language, @TranslationGroup,
+        @PageCount, @Rating, @ReadStatus, @ReadCount, @LastRead, @ExternalId, @ParsedAt)
 ON CONFLICT(asset_id) DO UPDATE SET
     author_id = excluded.author_id,
     title = excluded.title,
@@ -589,120 +523,113 @@ ON CONFLICT(asset_id) DO UPDATE SET
     read_count = excluded.read_count,
     last_read = excluded.last_read,
     external_id = excluded.external_id,
-    parsed_at = excluded.parsed_at;";
-            cmd.Parameters.AddWithValue("$id", meta.AssetId);
-            cmd.Parameters.AddWithValue("$author", (object?)meta.AuthorId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$title", (object?)meta.Title ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$series", (object?)meta.Series ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$chapter", (object?)meta.ChapterNo ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$lang", (object?)meta.Language ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$tgroup", (object?)meta.TranslationGroup ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$pages", (object?)meta.PageCount ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$rating", (object?)meta.Rating ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$rstatus", (int)meta.ReadStatus);
-            cmd.Parameters.AddWithValue("$rcount", meta.ReadCount);
-            cmd.Parameters.AddWithValue("$lread", (object?)meta.LastRead ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$extId", (object?)meta.ExternalId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$parsedAt", meta.ParsedAt > 0 ? meta.ParsedAt : NowUnix());
-            cmd.ExecuteNonQuery();
-        }
+    parsed_at = excluded.parsed_at;",
+                new
+                {
+                    meta.AssetId,
+                    meta.AuthorId,
+                    meta.Title,
+                    meta.Series,
+                    meta.ChapterNo,
+                    meta.Language,
+                    meta.TranslationGroup,
+                    meta.PageCount,
+                    meta.Rating,
+                    ReadStatus = (int)meta.ReadStatus,
+                    meta.ReadCount,
+                    meta.LastRead,
+                    meta.ExternalId,
+                    ParsedAt = meta.ParsedAt > 0 ? meta.ParsedAt : NowUnix(),
+                }, _currentTx);
     }
 
     public AssetMetadataView? GetMetadataView(string path)
     {
         lock (_lock)
-        {
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = @"
-SELECT a.path, am.title, au.main_name, am.language, am.translation_group, am.page_count
+            return _conn.QueryFirstOrDefault<AssetMetadataView>(@"
+SELECT a.path, am.title, au.main_name AS AuthorMainName,
+       am.language, am.translation_group, am.page_count
 FROM asset a
 LEFT JOIN asset_meta am ON am.asset_id = a.id
 LEFT JOIN author au ON au.id = am.author_id
-WHERE a.path = $p
-LIMIT 1;";
-            cmd.Parameters.AddWithValue("$p", path);
-            using var rdr = cmd.ExecuteReader();
-            if (!rdr.Read()) return null;
-            return new AssetMetadataView
-            {
-                Path = rdr.GetString(0),
-                Title = rdr.IsDBNull(1) ? null : rdr.GetString(1),
-                AuthorMainName = rdr.IsDBNull(2) ? null : rdr.GetString(2),
-                Language = rdr.IsDBNull(3) ? null : rdr.GetString(3),
-                TranslationGroup = rdr.IsDBNull(4) ? null : rdr.GetString(4),
-                PageCount = rdr.IsDBNull(5) ? null : rdr.GetInt32(5),
-            };
+WHERE a.path = @path
+LIMIT 1;", new { path }, _currentTx);
+    }
+
+    public WorkDetail? GetWorkDetail(string path)
+    {
+        lock (_lock)
+        {
+            var detail = _conn.QueryFirstOrDefault<WorkDetail>(@"
+SELECT a.id AS AssetId, a.path, a.name, a.is_folder, a.file_size, a.mtime,
+       am.title, am.author_id, au.main_name AS AuthorMainName,
+       am.series, am.chapter_no, am.language, am.translation_group,
+       am.page_count, am.rating,
+       am.read_status, am.read_count, am.last_read,
+       am.external_id, am.parsed_at
+FROM asset a
+LEFT JOIN asset_meta am ON am.asset_id = a.id
+LEFT JOIN author au ON au.id = am.author_id
+WHERE a.path = @path
+LIMIT 1;", new { path }, _currentTx);
+            if (detail == null) return null;
+
+            detail.Tags = _conn.Query<Tag>(@"
+SELECT t.id, t.name, t.category
+FROM tag t
+JOIN asset_tag at ON at.tag_id = t.id
+WHERE at.asset_id = @assetId
+ORDER BY t.name;", new { assetId = detail.AssetId }, _currentTx).AsList();
+
+            return detail;
         }
     }
 
     public void RecordRead(string path)
     {
         lock (_lock)
-        {
-            using var cmd = _conn.CreateCommand();
             // 一條 SQL 完成：count++ / last_read 更新 / Unread (=0) 升級到 Reading (=1)
-            cmd.CommandText = @"
+            // affected=0 是 OK 的 — 該 path 沒 asset_meta 紀錄（Author/Library folder）
+            _conn.Execute(@"
 UPDATE asset_meta SET
     read_count = read_count + 1,
-    last_read = $now,
+    last_read = @now,
     read_status = CASE WHEN read_status = 0 THEN 1 ELSE read_status END
-WHERE asset_id = (SELECT id FROM asset WHERE path = $p);";
-            cmd.Parameters.AddWithValue("$now", NowUnix());
-            cmd.Parameters.AddWithValue("$p", path);
-            cmd.ExecuteNonQuery();
-            // affected=0 是 OK 的 — 該 path 沒 asset_meta 紀錄（Author/Library folder）
-        }
+WHERE asset_id = (SELECT id FROM asset WHERE path = @path);",
+                new { now = NowUnix(), path }, _currentTx);
     }
 
     public void SetReadStatus(string path, ReadStatus status)
     {
         lock (_lock)
-        {
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = @"
-UPDATE asset_meta SET read_status = $s
-WHERE asset_id = (SELECT id FROM asset WHERE path = $p);";
-            cmd.Parameters.AddWithValue("$s", (int)status);
-            cmd.Parameters.AddWithValue("$p", path);
-            cmd.ExecuteNonQuery();
-        }
+            _conn.Execute(@"
+UPDATE asset_meta SET read_status = @status
+WHERE asset_id = (SELECT id FROM asset WHERE path = @path);",
+                new { status = (int)status, path }, _currentTx);
     }
 
     public ReadStatus? GetReadStatus(string path)
     {
         lock (_lock)
         {
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = @"
+            var v = _conn.ExecuteScalar<int?>(@"
 SELECT am.read_status FROM asset_meta am
 JOIN asset a ON a.id = am.asset_id
-WHERE a.path = $p LIMIT 1;";
-            cmd.Parameters.AddWithValue("$p", path);
-            var result = cmd.ExecuteScalar();
-            if (result == null || result == DBNull.Value) return null;
-            return (ReadStatus)Convert.ToInt32(result);
+WHERE a.path = @path LIMIT 1;", new { path }, _currentTx);
+            return v.HasValue ? (ReadStatus)v.Value : null;
         }
     }
 
     public void DeleteMetadata(long assetId)
     {
         lock (_lock)
-        {
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = "DELETE FROM asset_meta WHERE asset_id = $id;";
-            cmd.Parameters.AddWithValue("$id", assetId);
-            cmd.ExecuteNonQuery();
-        }
+            _conn.Execute("DELETE FROM asset_meta WHERE asset_id = @id;",
+                new { id = assetId }, _currentTx);
     }
 
     public void ClearAllMetadata()
     {
-        lock (_lock)
-        {
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = "DELETE FROM asset_meta;";
-            cmd.ExecuteNonQuery();
-        }
+        lock (_lock) _conn.Execute("DELETE FROM asset_meta;", transaction: _currentTx);
     }
 
     // ============================================================
@@ -712,74 +639,37 @@ WHERE a.path = $p LIMIT 1;";
     public Author? FindAuthorByMainName(string mainName)
     {
         lock (_lock)
-        {
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = "SELECT id, main_name, folder_path, learned_at FROM author WHERE main_name = $n LIMIT 1;";
-            cmd.Parameters.AddWithValue("$n", mainName);
-            using var rdr = cmd.ExecuteReader();
-            if (!rdr.Read()) return null;
-            return new Author
-            {
-                Id = rdr.GetInt64(0),
-                MainName = rdr.GetString(1),
-                FolderPath = rdr.IsDBNull(2) ? null : rdr.GetString(2),
-                LearnedAt = rdr.GetInt64(3),
-            };
-        }
+            return _conn.QueryFirstOrDefault<Author>(
+                "SELECT id, main_name, folder_path, learned_at FROM author WHERE main_name = @mainName LIMIT 1;",
+                new { mainName }, _currentTx);
     }
 
     public long UpsertAuthor(string mainName, string? folderPath = null)
     {
         lock (_lock)
-        {
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = @"
+            return _conn.ExecuteScalar<long>(@"
 INSERT INTO author (main_name, folder_path, learned_at)
-VALUES ($n, $fp, $now)
+VALUES (@mainName, @folderPath, @now)
 ON CONFLICT(main_name) DO UPDATE SET
     folder_path = COALESCE(excluded.folder_path, author.folder_path)
-RETURNING id;";
-            cmd.Parameters.AddWithValue("$n", mainName);
-            cmd.Parameters.AddWithValue("$fp", (object?)folderPath ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$now", NowUnix());
-            return Convert.ToInt64(cmd.ExecuteScalar()!);
-        }
+RETURNING id;",
+                new { mainName, folderPath, now = NowUnix() }, _currentTx);
     }
 
     public void AddAuthorAlias(long authorId, string aliasName, string? lang = null)
     {
         lock (_lock)
-        {
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = "INSERT OR IGNORE INTO author_alias (author_id, name, lang) VALUES ($a, $n, $l);";
-            cmd.Parameters.AddWithValue("$a", authorId);
-            cmd.Parameters.AddWithValue("$n", aliasName);
-            cmd.Parameters.AddWithValue("$l", (object?)lang ?? DBNull.Value);
-            cmd.ExecuteNonQuery();
-        }
+            _conn.Execute(@"
+INSERT OR IGNORE INTO author_alias (author_id, name, lang) VALUES (@authorId, @aliasName, @lang);",
+                new { authorId, aliasName, lang }, _currentTx);
     }
 
     public IReadOnlyList<AuthorAlias> ListAuthorAliases(long authorId)
     {
         lock (_lock)
-        {
-            var list = new List<AuthorAlias>();
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = "SELECT id, author_id, name, lang FROM author_alias WHERE author_id = $a;";
-            cmd.Parameters.AddWithValue("$a", authorId);
-            using var rdr = cmd.ExecuteReader();
-            while (rdr.Read())
-            {
-                list.Add(new AuthorAlias
-                {
-                    Id = rdr.GetInt64(0),
-                    AuthorId = rdr.GetInt64(1),
-                    Name = rdr.GetString(2),
-                    Lang = rdr.IsDBNull(3) ? null : rdr.GetString(3),
-                });
-            }
-            return list;
-        }
+            return _conn.Query<AuthorAlias>(
+                "SELECT id, author_id, name, lang FROM author_alias WHERE author_id = @authorId;",
+                new { authorId }, _currentTx).AsList();
     }
 
     public long? ResolveAuthorIdByPath(string path)
@@ -787,29 +677,18 @@ RETURNING id;";
         lock (_lock)
         {
             // 1. Work path → asset_meta.author_id
-            using (var cmd = _conn.CreateCommand())
-            {
-                cmd.CommandText = @"
+            var fromMeta = _conn.ExecuteScalar<long?>(@"
 SELECT am.author_id
 FROM asset a
 JOIN asset_meta am ON am.asset_id = a.id
-WHERE a.path = $p AND am.author_id IS NOT NULL
-LIMIT 1;";
-                cmd.Parameters.AddWithValue("$p", path);
-                var result = cmd.ExecuteScalar();
-                if (result != null && result != DBNull.Value) return Convert.ToInt64(result);
-            }
+WHERE a.path = @path AND am.author_id IS NOT NULL
+LIMIT 1;", new { path }, _currentTx);
+            if (fromMeta.HasValue) return fromMeta;
 
             // 2. Author folder path → author.folder_path 比對
-            using (var cmd = _conn.CreateCommand())
-            {
-                cmd.CommandText = "SELECT id FROM author WHERE folder_path = $p LIMIT 1;";
-                cmd.Parameters.AddWithValue("$p", path);
-                var result = cmd.ExecuteScalar();
-                if (result != null && result != DBNull.Value) return Convert.ToInt64(result);
-            }
-
-            return null;
+            return _conn.ExecuteScalar<long?>(
+                "SELECT id FROM author WHERE folder_path = @path LIMIT 1;",
+                new { path }, _currentTx);
         }
     }
 
@@ -818,141 +697,68 @@ LIMIT 1;";
         lock (_lock)
         {
             // 1. Author 基本資料
-            Author? author = null;
-            using (var cmd = _conn.CreateCommand())
-            {
-                cmd.CommandText = "SELECT id, main_name, folder_path, learned_at FROM author WHERE id = $a LIMIT 1;";
-                cmd.Parameters.AddWithValue("$a", authorId);
-                using var rdr = cmd.ExecuteReader();
-                if (rdr.Read())
-                {
-                    author = new Author
-                    {
-                        Id = rdr.GetInt64(0),
-                        MainName = rdr.GetString(1),
-                        FolderPath = rdr.IsDBNull(2) ? null : rdr.GetString(2),
-                        LearnedAt = rdr.GetInt64(3),
-                    };
-                }
-            }
+            var author = _conn.QueryFirstOrDefault<Author>(
+                "SELECT id, main_name, folder_path, learned_at FROM author WHERE id = @id LIMIT 1;",
+                new { id = authorId }, _currentTx);
             if (author == null) return null;
 
             var info = new AuthorInfo { Author = author };
 
             // 2. 別名
-            using (var cmd = _conn.CreateCommand())
-            {
-                cmd.CommandText = "SELECT id, author_id, name, lang FROM author_alias WHERE author_id = $a;";
-                cmd.Parameters.AddWithValue("$a", authorId);
-                using var rdr = cmd.ExecuteReader();
-                while (rdr.Read())
-                {
-                    info.Aliases.Add(new AuthorAlias
-                    {
-                        Id = rdr.GetInt64(0),
-                        AuthorId = rdr.GetInt64(1),
-                        Name = rdr.GetString(2),
-                        Lang = rdr.IsDBNull(3) ? null : rdr.GetString(3),
-                    });
-                }
-            }
+            info.Aliases = _conn.Query<AuthorAlias>(
+                "SELECT id, author_id, name, lang FROM author_alias WHERE author_id = @authorId;",
+                new { authorId }, _currentTx).AsList();
 
             // 3. read_status 計數（GROUP BY read_status）+ TotalWorks（同次掃）
-            using (var cmd = _conn.CreateCommand())
+            var statusCounts = _conn.Query<(int ReadStatus, int Count)>(
+                "SELECT read_status, COUNT(*) AS count FROM asset_meta WHERE author_id = @authorId GROUP BY read_status;",
+                new { authorId }, _currentTx);
+            foreach (var (status, count) in statusCounts)
             {
-                cmd.CommandText = "SELECT read_status, COUNT(*) FROM asset_meta WHERE author_id = $a GROUP BY read_status;";
-                cmd.Parameters.AddWithValue("$a", authorId);
-                using var rdr = cmd.ExecuteReader();
-                while (rdr.Read())
+                info.TotalWorks += count;
+                switch ((ReadStatus)status)
                 {
-                    var status = (ReadStatus)rdr.GetInt32(0);
-                    var count = rdr.GetInt32(1);
-                    info.TotalWorks += count;
-                    switch (status)
-                    {
-                        case ReadStatus.Unread: info.UnreadCount = count; break;
-                        case ReadStatus.Reading: info.ReadingCount = count; break;
-                        case ReadStatus.Completed: info.CompletedCount = count; break;
-                        case ReadStatus.Dropped: info.DroppedCount = count; break;
-                    }
+                    case ReadStatus.Unread: info.UnreadCount = count; break;
+                    case ReadStatus.Reading: info.ReadingCount = count; break;
+                    case ReadStatus.Completed: info.CompletedCount = count; break;
+                    case ReadStatus.Dropped: info.DroppedCount = count; break;
                 }
             }
 
             // 3.5 全作品累計閱讀次數
-            using (var cmd = _conn.CreateCommand())
-            {
-                cmd.CommandText = "SELECT COALESCE(SUM(read_count), 0) FROM asset_meta WHERE author_id = $a;";
-                cmd.Parameters.AddWithValue("$a", authorId);
-                info.TotalReadCount = Convert.ToInt32(cmd.ExecuteScalar() ?? 0);
-            }
+            info.TotalReadCount = _conn.ExecuteScalar<int>(
+                "SELECT COALESCE(SUM(read_count), 0) FROM asset_meta WHERE author_id = @authorId;",
+                new { authorId }, _currentTx);
 
             // 4. Top 10 tags（依該作者作品的 tag 命中次數降序）
-            using (var cmd = _conn.CreateCommand())
-            {
-                cmd.CommandText = @"
-SELECT t.name, COUNT(*) AS cnt
+            info.TopTags = _conn.Query<TagFreq>(@"
+SELECT t.name, COUNT(*) AS count
 FROM tag t
 JOIN asset_tag at ON at.tag_id = t.id
 JOIN asset_meta am ON am.asset_id = at.asset_id
-WHERE am.author_id = $a
+WHERE am.author_id = @authorId
 GROUP BY t.name
-ORDER BY cnt DESC
-LIMIT 10;";
-                cmd.Parameters.AddWithValue("$a", authorId);
-                using var rdr = cmd.ExecuteReader();
-                while (rdr.Read())
-                {
-                    info.TopTags.Add(new TagFreq(rdr.GetString(0), rdr.GetInt32(1)));
-                }
-            }
+ORDER BY count DESC
+LIMIT 10;", new { authorId }, _currentTx).AsList();
 
             // 5. AllWorks — 全部作品依 title 排序（NULL 排最後）
-            using (var cmd = _conn.CreateCommand())
-            {
-                cmd.CommandText = @"
-SELECT a.path, am.title, $authorMainName, am.language, am.translation_group, am.page_count
+            info.AllWorks = _conn.Query<AssetMetadataView>(@"
+SELECT a.path, am.title, am.language, am.translation_group, am.page_count
 FROM asset a
 JOIN asset_meta am ON am.asset_id = a.id
-WHERE am.author_id = $a
-ORDER BY am.title IS NULL, am.title;";
-                cmd.Parameters.AddWithValue("$a", authorId);
-                cmd.Parameters.AddWithValue("$authorMainName", author.MainName);
-                using var rdr = cmd.ExecuteReader();
-                while (rdr.Read())
-                {
-                    info.AllWorks.Add(new AssetMetadataView
-                    {
-                        Path = rdr.GetString(0),
-                        Title = rdr.IsDBNull(1) ? null : rdr.GetString(1),
-                        AuthorMainName = rdr.IsDBNull(2) ? null : rdr.GetString(2),
-                        Language = rdr.IsDBNull(3) ? null : rdr.GetString(3),
-                        TranslationGroup = rdr.IsDBNull(4) ? null : rdr.GetString(4),
-                        PageCount = rdr.IsDBNull(5) ? null : rdr.GetInt32(5),
-                    });
-                }
-            }
+WHERE am.author_id = @authorId
+ORDER BY am.title IS NULL, am.title;", new { authorId }, _currentTx).AsList();
+            // AuthorMainName 在 SQL 中沒撈（避免 parameter as column），統一在 C# 補
+            foreach (var w in info.AllWorks) w.AuthorMainName = author.MainName;
 
             // 6. RecentlyRead — 最近 5 筆（last_read DESC，含 read_count）
-            using (var cmd = _conn.CreateCommand())
-            {
-                cmd.CommandText = @"
-SELECT a.path, am.title, am.last_read, am.read_count
+            info.RecentlyRead = _conn.Query<RecentRead>(@"
+SELECT a.path, am.title, am.last_read AS LastRead, am.read_count AS ReadCount
 FROM asset a
 JOIN asset_meta am ON am.asset_id = a.id
-WHERE am.author_id = $a AND am.last_read IS NOT NULL
+WHERE am.author_id = @authorId AND am.last_read IS NOT NULL
 ORDER BY am.last_read DESC
-LIMIT 5;";
-                cmd.Parameters.AddWithValue("$a", authorId);
-                using var rdr = cmd.ExecuteReader();
-                while (rdr.Read())
-                {
-                    info.RecentlyRead.Add(new RecentRead(
-                        rdr.GetString(0),
-                        rdr.IsDBNull(1) ? null : rdr.GetString(1),
-                        rdr.IsDBNull(2) ? null : rdr.GetInt64(2),
-                        rdr.GetInt32(3)));
-                }
-            }
+LIMIT 5;", new { authorId }, _currentTx).AsList();
 
             return info;
         }
@@ -965,105 +771,33 @@ LIMIT 5;";
     public long UpsertTag(string name, string? category = null)
     {
         lock (_lock)
-        {
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = @"
-INSERT INTO tag (name, category) VALUES ($n, $c)
+            return _conn.ExecuteScalar<long>(@"
+INSERT INTO tag (name, category) VALUES (@name, @category)
 ON CONFLICT(name) DO UPDATE SET
     category = COALESCE(excluded.category, tag.category)
-RETURNING id;";
-            cmd.Parameters.AddWithValue("$n", name);
-            cmd.Parameters.AddWithValue("$c", (object?)category ?? DBNull.Value);
-            return Convert.ToInt64(cmd.ExecuteScalar()!);
-        }
+RETURNING id;",
+                new { name, category }, _currentTx);
     }
 
     public void AssociateTag(long assetId, long tagId)
     {
         lock (_lock)
-        {
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = "INSERT OR IGNORE INTO asset_tag (asset_id, tag_id) VALUES ($a, $t);";
-            cmd.Parameters.AddWithValue("$a", assetId);
-            cmd.Parameters.AddWithValue("$t", tagId);
-            cmd.ExecuteNonQuery();
-        }
+            _conn.Execute("INSERT OR IGNORE INTO asset_tag (asset_id, tag_id) VALUES (@assetId, @tagId);",
+                new { assetId, tagId }, _currentTx);
     }
 
     public IReadOnlyList<Tag> ListTagsForAsset(long assetId)
     {
         lock (_lock)
-        {
-            var list = new List<Tag>();
-            using var cmd = _conn.CreateCommand();
-            cmd.CommandText = @"
+            return _conn.Query<Tag>(@"
 SELECT t.id, t.name, t.category
 FROM tag t
 JOIN asset_tag at ON at.tag_id = t.id
-WHERE at.asset_id = $a;";
-            cmd.Parameters.AddWithValue("$a", assetId);
-            using var rdr = cmd.ExecuteReader();
-            while (rdr.Read())
-            {
-                list.Add(new Tag
-                {
-                    Id = rdr.GetInt64(0),
-                    Name = rdr.GetString(1),
-                    Category = rdr.IsDBNull(2) ? null : rdr.GetString(2),
-                });
-            }
-            return list;
-        }
+WHERE at.asset_id = @assetId;", new { assetId }, _currentTx).AsList();
     }
 
     public void Dispose()
     {
-        lock (_lock)
-        {
-            _conn.Dispose();
-        }
-    }
-
-    // ============================================================
-    // Helpers
-    // ============================================================
-
-    private static AssetMeta ReadMeta(SqliteDataReader r)
-    {
-        return new AssetMeta
-        {
-            Path = r.GetString(0),
-            Name = r.GetString(1),
-            IsFolder = r.GetInt64(2) != 0,
-            FileSize = r.IsDBNull(3) ? null : r.GetInt64(3),
-            Mtime = r.GetInt64(4),
-            CoverOrigin = r.IsDBNull(5) ? null : r.GetString(5),
-            CoverThumbKey = r.IsDBNull(6) ? null : r.GetString(6),
-            CoverWidth = r.IsDBNull(7) ? null : r.GetInt32(7),
-            CoverHeight = r.IsDBNull(8) ? null : r.GetInt32(8),
-            LastScanned = r.GetInt64(9),
-            LastAccessed = r.GetInt64(10),
-        };
-    }
-
-    private static AssetMetadata ReadMetadata(SqliteDataReader r)
-    {
-        return new AssetMetadata
-        {
-            AssetId = r.GetInt64(0),
-            AuthorId = r.IsDBNull(1) ? null : r.GetInt64(1),
-            Title = r.IsDBNull(2) ? null : r.GetString(2),
-            Series = r.IsDBNull(3) ? null : r.GetString(3),
-            ChapterNo = r.IsDBNull(4) ? null : r.GetString(4),
-            Language = r.IsDBNull(5) ? null : r.GetString(5),
-            TranslationGroup = r.IsDBNull(6) ? null : r.GetString(6),
-            PageCount = r.IsDBNull(7) ? null : r.GetInt32(7),
-            Rating = r.IsDBNull(8) ? null : r.GetInt32(8),
-            ReadStatus = (ReadStatus)r.GetInt32(9),
-            ReadCount = r.GetInt32(10),
-            LastRead = r.IsDBNull(11) ? null : r.GetInt64(11),
-            ExternalId = r.IsDBNull(12) ? null : r.GetString(12),
-            ParsedAt = r.GetInt64(13),
-        };
+        lock (_lock) _conn.Dispose();
     }
 }

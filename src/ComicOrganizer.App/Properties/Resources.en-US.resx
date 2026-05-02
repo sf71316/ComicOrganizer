@@ -130,4 +130,13 @@
   <data name="AuthorInfoNoData" xml:space="preserve"><value>No author info available</value></data>
   <data name="AuthorInfoTotalReads" xml:space="preserve"><value>Total Reads</value></data>
   <data name="AuthorInfoAllWorks" xml:space="preserve"><value>All Works</value></data>
+  <data name="WorkDetailTitle" xml:space="preserve"><value>Work Detail</value></data>
+  <data name="WorkDetailAuthor" xml:space="preserve"><value>Author</value></data>
+  <data name="WorkDetailReadStats" xml:space="preserve"><value>Read Stats</value></data>
+  <data name="WorkDetailTags" xml:space="preserve"><value>Tags</value></data>
+  <data name="WorkDetailFileInfo" xml:space="preserve"><value>File Info</value></data>
+  <data name="WorkDetailRead" xml:space="preserve"><value>Read</value></data>
+  <data name="WorkDetailExplorer" xml:space="preserve"><value>Open Location</value></data>
+  <data name="WorkDetailNoData" xml:space="preserve"><value>No work detail available</value></data>
+  <data name="MenuWorkDetail" xml:space="preserve"><value>Detail</value></data>
 </root>

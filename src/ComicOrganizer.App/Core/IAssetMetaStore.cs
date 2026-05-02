@@ -79,6 +79,9 @@ public interface IAssetMetaStore : IDisposable
     /// <summary>顯示用合併視圖：JOIN asset + asset_meta + author。沒 asset 紀錄回 null。</summary>
     AssetMetadataView? GetMetadataView(string path);
 
+    /// <summary>取作品詳細資訊（catalog + metadata + author + tags）。沒 asset 紀錄回 null。</summary>
+    WorkDetail? GetWorkDetail(string path);
+
     /// <summary>寫入或更新 metadata（PK = asset_id，1:1 關係）。</summary>
     void UpsertMetadata(AssetMetadata meta);
 

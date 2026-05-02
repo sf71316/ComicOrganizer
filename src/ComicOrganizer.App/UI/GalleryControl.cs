@@ -57,8 +57,8 @@ public partial class GalleryControl : UserControl, IThemedControl
         return _tabViewModes.TryGetValue(page, out var mode) ? mode : GalleryViewMode.Medium;
     }
 
-    /// <summary>當前開著的 Drawer Form ref；ShowAuthorInfo 時 open，CloseRequested 時 Close。</summary>
-    private Form? _authorDrawerForm;
+    /// <summary>當前開著的 Drawer Form ref；ShowAuthorInfo / ShowWorkDetail 時 open，CloseRequested 時 Close。</summary>
+    private Form? _detailDrawerForm;
 
     public GalleryControl()
     {
@@ -67,12 +67,13 @@ public partial class GalleryControl : UserControl, IThemedControl
         // GalleryControl 自己開 DoubleBuffer：tabsContent 切換 / resize 時減抖
         DoubleBuffered = true;
 
-        // X 按下 → 關掉 Drawer (drawer Form Close)
-        authorInfoPanel.CloseRequested += () => _authorDrawerForm?.Close();
+        // X 按下（兩個 panel 都會觸發）→ 關掉 Drawer (drawer Form Close)
+        detailDrawerHost.AuthorPanel.CloseRequested += () => _detailDrawerForm?.Close();
+        detailDrawerHost.WorkPanel.CloseRequested += () => _detailDrawerForm?.Close();
 
         // 點 RecentlyRead / AllWorks 行 → 等同卡片「閱讀」按鈕：RecordRead + 開外部 viewer
         // 開完重 call ShowAuthorInfo 讓 panel read_count / last_read 即時更新
-        authorInfoPanel.RequestOpenWork += path =>
+        detailDrawerHost.AuthorPanel.RequestOpenWork += path =>
         {
             _metaStore?.RecordRead(path);
             OpenWithExternalViewer(path);
@@ -80,6 +81,29 @@ public partial class GalleryControl : UserControl, IThemedControl
             // 同步當前 gallery 卡片 icon（如該作品正在當前 tab）
             RefreshCardReadStatusByPath(path);
         };
+
+        // WorkDetailPanel 的 Author 連結 → 切到 AuthorInfoPanel
+        detailDrawerHost.WorkPanel.RequestOpenAuthor += authorId =>
+        {
+            if (_metaStore == null) return;
+            var info = _metaStore.GetAuthorInfo(authorId);
+            if (info == null)
+                detailDrawerHost.ShowAuthorEmpty(LocalizationManager.GetString("AuthorInfoNoData") ?? "作者資料缺失");
+            else
+                detailDrawerHost.ShowAuthor(info);
+        };
+
+        // WorkDetailPanel 的「閱讀」按鈕 + cover 點擊 → RecordRead + 外部 viewer + 刷面板
+        detailDrawerHost.WorkPanel.RequestOpenViewer += path =>
+        {
+            _metaStore?.RecordRead(path);
+            OpenWithExternalViewer(path);
+            ShowWorkDetail(path);
+            RefreshCardReadStatusByPath(path);
+        };
+
+        // WorkDetailPanel 的「開啟位置」 → Explorer
+        detailDrawerHost.WorkPanel.RequestExplorer += path => OpenInExplorer(path);
 
         // 設定內容頁籤樣式
         if (tabsContent.Style is AntdUI.Tabs.StyleCard style)
@@ -322,54 +346,95 @@ public partial class GalleryControl : UserControl, IThemedControl
     /// </summary>
     private void ShowAuthorInfo(string path)
     {
-        // 1. 套資料到 authorInfoPanel
         if (_metaStore == null)
         {
-            authorInfoPanel.ShowEmpty(LocalizationManager.GetString("AuthorInfoNoData") ?? "無法解析此路徑的作者資訊");
+            detailDrawerHost.ShowAuthorEmpty(LocalizationManager.GetString("AuthorInfoNoData") ?? "無法解析此路徑的作者資訊");
         }
         else
         {
             var authorId = _metaStore.ResolveAuthorIdByPath(path);
             if (authorId == null)
             {
-                authorInfoPanel.ShowEmpty(LocalizationManager.GetString("AuthorInfoNoData") ?? "無法解析此路徑的作者資訊");
+                detailDrawerHost.ShowAuthorEmpty(LocalizationManager.GetString("AuthorInfoNoData") ?? "無法解析此路徑的作者資訊");
             }
             else
             {
                 var info = _metaStore.GetAuthorInfo(authorId.Value);
                 if (info == null)
-                    authorInfoPanel.ShowEmpty(LocalizationManager.GetString("AuthorInfoNoData") ?? "作者資料缺失");
+                    detailDrawerHost.ShowAuthorEmpty(LocalizationManager.GetString("AuthorInfoNoData") ?? "作者資料缺失");
                 else
-                    authorInfoPanel.ShowInfo(info);
+                    detailDrawerHost.ShowAuthor(info);
             }
         }
+        EnsureDetailDrawerOpen();
+    }
 
-        // 2. 已經開著就只更新內容、不重開
-        if (_authorDrawerForm != null && !_authorDrawerForm.IsDisposed)
+    /// <summary>
+    /// 解析 path 對應的作品詳細資料，用 AntdUI.Drawer 從右邊滑出顯示。
+    /// 先以 null cover 開啟 drawer 避免閃爍，async 補上 cover image。
+    /// </summary>
+    private void ShowWorkDetail(string path)
+    {
+        if (_metaStore == null)
         {
-            _authorDrawerForm.Activate();
+            detailDrawerHost.ShowWorkEmpty(LocalizationManager.GetString("WorkDetailNoData") ?? "找不到此作品的詳細資訊");
+            EnsureDetailDrawerOpen();
+            return;
+        }
+        var detail = _metaStore.GetWorkDetail(path);
+        if (detail == null)
+        {
+            detailDrawerHost.ShowWorkEmpty(LocalizationManager.GetString("WorkDetailNoData") ?? "找不到此作品的詳細資訊");
+            EnsureDetailDrawerOpen();
+            return;
+        }
+        detailDrawerHost.ShowWork(detail, null);
+        EnsureDetailDrawerOpen();
+        _ = LoadWorkCoverAsync(path);
+    }
+
+    /// <summary>非同步載 work cover 後 marshal 回 UI thread 套到 WorkDetailPanel。</summary>
+    private async Task LoadWorkCoverAsync(string path)
+    {
+        try
+        {
+            var img = await _coverManager.GetCoverAsync(path, 300);
+            if (img == null) return;
+            if (this.IsDisposed) { img.Dispose(); return; }
+            this.Invoke(() =>
+            {
+                if (!this.IsDisposed) detailDrawerHost.WorkPanel.SetCover(img);
+                else img.Dispose();
+            });
+        }
+        catch { /* cover 取不到不影響 panel */ }
+    }
+
+    /// <summary>共用 Drawer open/refresh 邏輯：已開→Activate；未開→新開 380 寬 Drawer。</summary>
+    private void EnsureDetailDrawerOpen()
+    {
+        if (_detailDrawerForm != null && !_detailDrawerForm.IsDisposed)
+        {
+            _detailDrawerForm.Activate();
             return;
         }
 
-        // 3. 開 Drawer
         var ownerForm = this.FindForm();
         if (ownerForm == null) return;
 
-        // Drawer 量 Content.Size 決定 drawer 大小。若 panel 上次被 Dock.Fill 撐大，
-        // 下次開 drawer 會用那個大尺寸 → 越開越大。每次強制 reset 成 320 × formHeight
-        authorInfoPanel.Dock = DockStyle.None;
-        authorInfoPanel.Size = new Size(320, ownerForm.ClientSize.Height);
+        // Drawer 量 Content.Size 決定 drawer 大小。每次強制 reset 成 380 × formHeight
+        detailDrawerHost.Dock = DockStyle.None;
+        detailDrawerHost.Size = new Size(380, ownerForm.ClientSize.Height);
 
-        var config = new AntdUI.Drawer.Config(ownerForm, authorInfoPanel)
+        var config = new AntdUI.Drawer.Config(ownerForm, detailDrawerHost)
         {
             Align = AntdUI.TAlignMini.Right,
-            Mask = false,           // 不要遮罩 — 主畫面保持正常亮度，drawer 純滑入面板
-            Padding = 0,            // drawer 內部無多餘 padding，panel 填滿到邊
-            Dispose = false,        // 關閉時別 dispose authorInfoPanel，下次開重用
-           // OnClose = () => _authorDrawerForm = null,
+            Mask = false,
+            Padding = 0,
+            Dispose = false,
         };
-        
-        _authorDrawerForm = AntdUI.Drawer.open(config);
+
+        _detailDrawerForm = AntdUI.Drawer.open(config);
     }
 
     /// <summary>
@@ -1060,6 +1125,7 @@ public partial class GalleryControl : UserControl, IThemedControl
                         card.RequestNewTab += (p, forceNew) => { _metaStore?.RecordRead(p); c.RefreshReadStatusIcon(); OpenFolderTab(p, forceNew); };
                         card.RequestExplorer += p => OpenInExplorer(p);
                         card.RequestAuthorInfo += p => ShowAuthorInfo(p);
+                        card.RequestWorkDetail += p => ShowWorkDetail(p);
                         card.RequestSetReadStatus += (p, status) =>
                         {
                             _metaStore?.SetReadStatus(p, status);

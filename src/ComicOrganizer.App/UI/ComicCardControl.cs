@@ -14,6 +14,9 @@ public partial class ComicCardControl : UserControl
     public event Action<string, bool>? RequestNewTab;
     public event Action<string>? RequestExplorer;
     public event Action<string>? RequestAuthorInfo;
+
+    /// <summary>使用者按右鍵「詳細資訊」 — 觸發 WorkDetailPanel。</summary>
+    public event Action<string>? RequestWorkDetail;
     public event Action<string, ReadStatus>? RequestSetReadStatus;
     private const int CornerRadius = 8;
     private Color _currentBgColor = Color.White;
@@ -418,6 +421,11 @@ public partial class ComicCardControl : UserControl
         menuItems.Add(new AntdUI.ContextMenuStripItemDivider());
         menuItems.Add(new AntdUI.ContextMenuStripItem("📂 在檔案總管中開啟"));
         menuItems.Add(new AntdUI.ContextMenuStripItem("👤 作者資訊"));
+        // 詳細資訊只對 Work 顯示（其他層級沒 metadata 可看）
+        if (IsWorkAsset(ItemPath))
+        {
+            menuItems.Add(new AntdUI.ContextMenuStripItem("ℹ 詳細資訊"));
+        }
         // 閱讀狀態三項只對 Work 顯示（壓縮檔 / pdf / 純圖檔資料夾≥2張無子目錄）
         if (IsWorkAsset(ItemPath))
         {
@@ -448,6 +456,10 @@ public partial class ComicCardControl : UserControl
             else if (t.Contains("作者") || t.Contains("Author"))
             {
                 RequestAuthorInfo?.Invoke(ItemPath);
+            }
+            else if (t.Contains("詳細") || t.Contains("Detail"))
+            {
+                RequestWorkDetail?.Invoke(ItemPath);
             }
             else if (t.Contains("已完成") || t.Contains("Completed"))
             {

@@ -9,7 +9,7 @@ partial class GalleryControl
     private AntdUI.Splitter splitter2;
     private AntdUI.Tree treeFolders;
     private AntdUI.Tabs tabsContent;
-    private AuthorInfoPanel authorInfoPanel;
+    private DetailDrawerHost detailDrawerHost;
 
     protected override void Dispose(bool disposing)
     {
@@ -26,7 +26,7 @@ partial class GalleryControl
         splitter2 = new AntdUI.Splitter();
         treeFolders = new Tree();
         tabsContent = new Tabs();
-        authorInfoPanel = new AuthorInfoPanel();
+        detailDrawerHost = new DetailDrawerHost();
         ((System.ComponentModel.ISupportInitialize)splitter2).BeginInit();
         splitter2.Panel1.SuspendLayout();
         splitter2.Panel2.SuspendLayout();
@@ -51,7 +51,7 @@ partial class GalleryControl
         //
         splitter2.Panel2.BackColor = Core.ThemeColors.Border;
         splitter2.Panel2.Controls.Add(tabsContent);
-        // authorInfoPanel 不加進 splitter2.Panel2 — 用 AntdUI.Drawer.open 動態彈出，
+        // detailDrawerHost 不加進 splitter2.Panel2 — 用 AntdUI.Drawer.open 動態彈出，
         // Drawer 自己 host 在獨立 Form 內、有 Mask 半透明遮罩
         splitter2.Panel2.Padding = new Padding(1);
         splitter2.Size = new Size(1047, 700);
@@ -75,11 +75,12 @@ partial class GalleryControl
         treeFolders.BeforeExpand += treeFolders_BeforeExpand;
         treeFolders.NodeMouseDoubleClick += treeFolders_NodeMouseDoubleClick;
         //
-        // authorInfoPanel — 不掛在 splitter2.Panel2 內，由 AntdUI.Drawer 動態彈出
+        // detailDrawerHost — 不掛在 splitter2.Panel2 內，由 AntdUI.Drawer 動態彈出
+        // 內含 AuthorInfoPanel + WorkDetailPanel，互斥顯示
         //
-        authorInfoPanel.Width = 320;        // Drawer 寬度
-        authorInfoPanel.Visible = true;     // Drawer 內顯示時要 visible
-        authorInfoPanel.Name = "authorInfoPanel";
+        detailDrawerHost.Width = 380;        // Drawer 寬度
+        detailDrawerHost.Visible = true;
+        detailDrawerHost.Name = "detailDrawerHost";
         //
         // tabsContent
         //
