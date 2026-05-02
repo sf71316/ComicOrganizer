@@ -733,6 +733,174 @@ RETURNING id;";
         }
     }
 
+    public long? ResolveAuthorIdByPath(string path)
+    {
+        lock (_lock)
+        {
+            // 1. Work path → asset_meta.author_id
+            using (var cmd = _conn.CreateCommand())
+            {
+                cmd.CommandText = @"
+SELECT am.author_id
+FROM asset a
+JOIN asset_meta am ON am.asset_id = a.id
+WHERE a.path = $p AND am.author_id IS NOT NULL
+LIMIT 1;";
+                cmd.Parameters.AddWithValue("$p", path);
+                var result = cmd.ExecuteScalar();
+                if (result != null && result != DBNull.Value) return Convert.ToInt64(result);
+            }
+
+            // 2. Author folder path → author.folder_path 比對
+            using (var cmd = _conn.CreateCommand())
+            {
+                cmd.CommandText = "SELECT id FROM author WHERE folder_path = $p LIMIT 1;";
+                cmd.Parameters.AddWithValue("$p", path);
+                var result = cmd.ExecuteScalar();
+                if (result != null && result != DBNull.Value) return Convert.ToInt64(result);
+            }
+
+            return null;
+        }
+    }
+
+    public AuthorInfo? GetAuthorInfo(long authorId)
+    {
+        lock (_lock)
+        {
+            // 1. Author 基本資料
+            Author? author = null;
+            using (var cmd = _conn.CreateCommand())
+            {
+                cmd.CommandText = "SELECT id, main_name, folder_path, learned_at FROM author WHERE id = $a LIMIT 1;";
+                cmd.Parameters.AddWithValue("$a", authorId);
+                using var rdr = cmd.ExecuteReader();
+                if (rdr.Read())
+                {
+                    author = new Author
+                    {
+                        Id = rdr.GetInt64(0),
+                        MainName = rdr.GetString(1),
+                        FolderPath = rdr.IsDBNull(2) ? null : rdr.GetString(2),
+                        LearnedAt = rdr.GetInt64(3),
+                    };
+                }
+            }
+            if (author == null) return null;
+
+            var info = new AuthorInfo { Author = author };
+
+            // 2. 別名
+            using (var cmd = _conn.CreateCommand())
+            {
+                cmd.CommandText = "SELECT id, author_id, name, lang FROM author_alias WHERE author_id = $a;";
+                cmd.Parameters.AddWithValue("$a", authorId);
+                using var rdr = cmd.ExecuteReader();
+                while (rdr.Read())
+                {
+                    info.Aliases.Add(new AuthorAlias
+                    {
+                        Id = rdr.GetInt64(0),
+                        AuthorId = rdr.GetInt64(1),
+                        Name = rdr.GetString(2),
+                        Lang = rdr.IsDBNull(3) ? null : rdr.GetString(3),
+                    });
+                }
+            }
+
+            // 3. read_status 計數（GROUP BY read_status）+ TotalWorks（同次掃）
+            using (var cmd = _conn.CreateCommand())
+            {
+                cmd.CommandText = "SELECT read_status, COUNT(*) FROM asset_meta WHERE author_id = $a GROUP BY read_status;";
+                cmd.Parameters.AddWithValue("$a", authorId);
+                using var rdr = cmd.ExecuteReader();
+                while (rdr.Read())
+                {
+                    var status = (ReadStatus)rdr.GetInt32(0);
+                    var count = rdr.GetInt32(1);
+                    info.TotalWorks += count;
+                    switch (status)
+                    {
+                        case ReadStatus.Unread: info.UnreadCount = count; break;
+                        case ReadStatus.Reading: info.ReadingCount = count; break;
+                        case ReadStatus.Completed: info.CompletedCount = count; break;
+                        case ReadStatus.Dropped: info.DroppedCount = count; break;
+                    }
+                }
+            }
+
+            // 4. Top 10 tags（依該作者作品的 tag 命中次數降序）
+            using (var cmd = _conn.CreateCommand())
+            {
+                cmd.CommandText = @"
+SELECT t.name, COUNT(*) AS cnt
+FROM tag t
+JOIN asset_tag at ON at.tag_id = t.id
+JOIN asset_meta am ON am.asset_id = at.asset_id
+WHERE am.author_id = $a
+GROUP BY t.name
+ORDER BY cnt DESC
+LIMIT 10;";
+                cmd.Parameters.AddWithValue("$a", authorId);
+                using var rdr = cmd.ExecuteReader();
+                while (rdr.Read())
+                {
+                    info.TopTags.Add(new TagFreq(rdr.GetString(0), rdr.GetInt32(1)));
+                }
+            }
+
+            // 5. AllWorks — 全部作品依 title 排序（NULL 排最後）
+            using (var cmd = _conn.CreateCommand())
+            {
+                cmd.CommandText = @"
+SELECT a.path, am.title, $authorMainName, am.language, am.translation_group, am.page_count
+FROM asset a
+JOIN asset_meta am ON am.asset_id = a.id
+WHERE am.author_id = $a
+ORDER BY am.title IS NULL, am.title;";
+                cmd.Parameters.AddWithValue("$a", authorId);
+                cmd.Parameters.AddWithValue("$authorMainName", author.MainName);
+                using var rdr = cmd.ExecuteReader();
+                while (rdr.Read())
+                {
+                    info.AllWorks.Add(new AssetMetadataView
+                    {
+                        Path = rdr.GetString(0),
+                        Title = rdr.IsDBNull(1) ? null : rdr.GetString(1),
+                        AuthorMainName = rdr.IsDBNull(2) ? null : rdr.GetString(2),
+                        Language = rdr.IsDBNull(3) ? null : rdr.GetString(3),
+                        TranslationGroup = rdr.IsDBNull(4) ? null : rdr.GetString(4),
+                        PageCount = rdr.IsDBNull(5) ? null : rdr.GetInt32(5),
+                    });
+                }
+            }
+
+            // 6. RecentlyRead — 最近 5 筆（last_read DESC，含 read_count）
+            using (var cmd = _conn.CreateCommand())
+            {
+                cmd.CommandText = @"
+SELECT a.path, am.title, am.last_read, am.read_count
+FROM asset a
+JOIN asset_meta am ON am.asset_id = a.id
+WHERE am.author_id = $a AND am.last_read IS NOT NULL
+ORDER BY am.last_read DESC
+LIMIT 5;";
+                cmd.Parameters.AddWithValue("$a", authorId);
+                using var rdr = cmd.ExecuteReader();
+                while (rdr.Read())
+                {
+                    info.RecentlyRead.Add(new RecentRead(
+                        rdr.GetString(0),
+                        rdr.IsDBNull(1) ? null : rdr.GetString(1),
+                        rdr.IsDBNull(2) ? null : rdr.GetInt64(2),
+                        rdr.GetInt32(3)));
+                }
+            }
+
+            return info;
+        }
+    }
+
     // ============================================================
     // Tag
     // ============================================================
