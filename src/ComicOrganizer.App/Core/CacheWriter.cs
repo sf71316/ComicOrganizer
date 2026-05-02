@@ -69,16 +69,32 @@ public class CacheWriter : IDisposable
         _worker.Start();
     }
 
-    /// <summary>把寫入 op 加入 queue。queue 滿時 (極罕見) 直接丟棄不阻塞。</summary>
+    /// <summary>把寫入 op 加入 queue。queue 滿時阻塞直到 worker 消化，避免 silent drop。</summary>
     public bool Enqueue(CacheWriteOp op)
     {
-        return _queue.TryAdd(op);
+        try
+        {
+            _queue.Add(op);   // 阻塞直到 queue 有空間；CompleteAdding 後會 throw → 視為失敗
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Cache hit 路徑用：更新 last_accessed 不寫 thumb。</summary>
     public bool EnqueueTouch(string path)
     {
-        return _queue.TryAdd(new CacheWriteOp { TouchOnly = path });
+        try
+        {
+            _queue.Add(new CacheWriteOp { TouchOnly = path });
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     private void WorkerLoop()
