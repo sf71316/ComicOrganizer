@@ -15,60 +15,15 @@ public partial class AuthorInfoPanel : UserControl
     {
         InitializeComponent();
 
-        // 啟用 WinForms 透明 — BackColor=Transparent + SupportsTransparentBackColor
-        // → OnPaintBackground 內 base 會先繪出 parent 區域（panel 浮動覆蓋在 tabsContent 之上時，
-        //   parent 已將 tabsContent 區域畫到底，OnPaintBackground 透明能看到）
-        // → 我們再 overlay 一層 75% Surface 半透明
-        SetStyle(ControlStyles.SupportsTransparentBackColor
-               | ControlStyles.OptimizedDoubleBuffer
-               | ControlStyles.ResizeRedraw, true);
-        BackColor = Color.Transparent;
+        BackColor = ThemeColors.Surface;
         ForeColor = ThemeColors.Text;
-
-        // 子 Panel 也要透明（標準 Forms.Panel 預設不支援，反射打開 SupportsTransparentBackColor）
-        EnableTransparent(headerPanel);
-        EnableTransparent(contentPanel);
-        headerPanel.BackColor = Color.Transparent;
-        contentPanel.BackColor = Color.Transparent;
-
+        headerPanel.BackColor = ThemeColors.TabHeader;
+        contentPanel.BackColor = ThemeColors.Surface;
         lblAliases.ForeColor = ThemeColors.Border;   // 次要色
 
         btnClose.Click += (s, e) => CloseRequested?.Invoke();
 
         ApplyLocalization();
-    }
-
-    /// <summary>用反射呼叫 protected SetStyle 把 Forms.Panel 的 SupportsTransparentBackColor 打開。</summary>
-    private static void EnableTransparent(Control c)
-    {
-        var setStyle = typeof(Control).GetMethod("SetStyle",
-            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-        setStyle?.Invoke(c, new object[] { ControlStyles.SupportsTransparentBackColor, true });
-    }
-
-    /// <summary>背景半透明：OnPaintBackground base 先讓 parent 繪出 panel 下方內容（tabsContent / cards），
-    /// 再 overlay 75% Surface — 視覺上 panel 半透明，能看到下方卡片。</summary>
-    protected override void OnPaintBackground(PaintEventArgs e)
-    {
-        base.OnPaintBackground(e);
-        var fillColor = Color.FromArgb(191, ThemeColors.Surface);   // 75% alpha
-        using var brush = new SolidBrush(fillColor);
-        e.Graphics.FillRectangle(brush, ClientRectangle);
-    }
-
-    /// <summary>外框線：ThemeColors.Border @ 75% alpha，1px。
-    /// 用 FillRectangle 四條邊（不是 DrawRectangle 一個 path）— GDI+ Pen 在 1px 線條的 alpha
-    /// blend 不可靠，FillRectangle + SolidBrush 確實 alpha-blend 到底層 BackColor。</summary>
-    protected override void OnPaint(PaintEventArgs e)
-    {
-        base.OnPaint(e);
-        var borderColor = Color.FromArgb(191, ThemeColors.Border);   // 191/255 ≈ 75%
-        e.Graphics.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceOver;
-        using var brush = new SolidBrush(borderColor);
-        e.Graphics.FillRectangle(brush, 0, 0, Width, 1);              // top
-        e.Graphics.FillRectangle(brush, 0, Height - 1, Width, 1);     // bottom
-        e.Graphics.FillRectangle(brush, 0, 0, 1, Height);             // left
-        e.Graphics.FillRectangle(brush, Width - 1, 0, 1, Height);     // right
     }
 
     private void ApplyLocalization()

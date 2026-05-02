@@ -14,6 +14,7 @@ public partial class ComicCardControl : UserControl
     public event Action<string, bool>? RequestNewTab;
     public event Action<string>? RequestExplorer;
     public event Action<string>? RequestAuthorInfo;
+    public event Action<string, ReadStatus>? RequestSetReadStatus;
     private const int CornerRadius = 8;
     private Color _currentBgColor = Color.White;
     // 手動觸發 AntdUI.Tooltip.open + 自管 delay：
@@ -31,7 +32,11 @@ public partial class ComicCardControl : UserControl
     private AntdUI.Button? btnExplorer;
     private AntdUI.Panel? typeStrip;
     private System.Windows.Forms.Label? typeIconLbl;
+    private System.Windows.Forms.Label? readStatusLbl;   // typeStrip 右側的閱讀狀態 icon
     private bool _hoverControlsCreated = false;
+
+    /// <summary>查詢卡片當前 read_status 的 callback（由 GalleryControl 注入）。</summary>
+    public Func<string, ReadStatus?>? ReadStatusProvider { get; set; }
     public ComicCardControl()
     {
         InitializeComponent();
@@ -138,7 +143,19 @@ public partial class ComicCardControl : UserControl
             BackColor = Color.Transparent,
             ForeColor = Color.White,
         };
+        readStatusLbl = new System.Windows.Forms.Label
+        {
+            Dock = DockStyle.Right,
+            Width = 28,
+            Text = "",   // 由 RefreshReadStatusIcon 填
+            Font = new Font("Segoe UI Emoji", 11F),
+            TextAlign = ContentAlignment.MiddleCenter,
+            BackColor = Color.Transparent,
+            ForeColor = Color.White,
+        };
+        typeStrip.Controls.Add(readStatusLbl);
         typeStrip.Controls.Add(typeIconLbl);
+        RefreshReadStatusIcon();
 
         hoverToolbar = new AntdUI.Panel
         {
@@ -206,6 +223,20 @@ public partial class ComicCardControl : UserControl
     {
         c.MouseEnter += (s, e) => SetHoverState(true);
         c.MouseLeave += (s, e) => SetHoverState(false);
+    }
+
+    /// <summary>讀 ReadStatusProvider 結果，更新 typeStrip 右側 status icon。GalleryControl 設完 status 後也呼叫一次。</summary>
+    public void RefreshReadStatusIcon()
+    {
+        if (readStatusLbl == null) return;
+        var status = ReadStatusProvider?.Invoke(ItemPath);
+        readStatusLbl.Text = status switch
+        {
+            ReadStatus.Reading => "📖",
+            ReadStatus.Completed => "✅",
+            ReadStatus.Dropped => "⏹",
+            _ => "",   // Unread / null：不顯示 icon
+        };
     }
 
     /// <summary>
@@ -387,25 +418,85 @@ public partial class ComicCardControl : UserControl
         menuItems.Add(new AntdUI.ContextMenuStripItemDivider());
         menuItems.Add(new AntdUI.ContextMenuStripItem("📂 在檔案總管中開啟"));
         menuItems.Add(new AntdUI.ContextMenuStripItem("👤 作者資訊"));
+        // 閱讀狀態三項只對 Work 顯示（壓縮檔 / pdf / 純圖檔資料夾≥2張無子目錄）
+        if (IsWorkAsset(ItemPath))
+        {
+            // 當前 status 對應的選項要 disable（已是該狀態，不能重複設定）
+            var current = ReadStatusProvider?.Invoke(ItemPath);
+            menuItems.Add(new AntdUI.ContextMenuStripItemDivider());
+            menuItems.Add(new AntdUI.ContextMenuStripItem("✅ 標為已完成") { Enabled = current != ReadStatus.Completed });
+            menuItems.Add(new AntdUI.ContextMenuStripItem("⏹ 標為放棄") { Enabled = current != ReadStatus.Dropped });
+            menuItems.Add(new AntdUI.ContextMenuStripItem("↺ 重置為未讀") { Enabled = current != ReadStatus.Unread && current != null });
+        }
 
         AntdUI.ContextMenuStrip.open(this, menuItem =>
         {
-            if (menuItem.Text != null && (menuItem.Text.Contains("進入") || menuItem.Text.Contains("閱讀")))
+            var t = menuItem.Text;
+            if (t == null) return;
+            if (t.Contains("進入") || t.Contains("閱讀"))
             {
                 OpenPrimary();
             }
-            else if (menuItem.Text == "另開頁籤")
+            else if (t == "另開頁籤")
             {
                 RequestNewTab?.Invoke(ItemPath, true);
             }
-            else if (menuItem.Text != null && menuItem.Text.Contains("檔案總管"))
+            else if (t.Contains("檔案總管"))
             {
                 RequestExplorer?.Invoke(ItemPath);
             }
-            else if (menuItem.Text != null && (menuItem.Text.Contains("作者") || menuItem.Text.Contains("Author")))
+            else if (t.Contains("作者") || t.Contains("Author"))
             {
                 RequestAuthorInfo?.Invoke(ItemPath);
             }
+            else if (t.Contains("已完成") || t.Contains("Completed"))
+            {
+                RequestSetReadStatus?.Invoke(ItemPath, ReadStatus.Completed);
+            }
+            else if (t.Contains("放棄") || t.Contains("Dropped"))
+            {
+                RequestSetReadStatus?.Invoke(ItemPath, ReadStatus.Dropped);
+            }
+            else if (t.Contains("未讀") || t.Contains("Unread"))
+            {
+                RequestSetReadStatus?.Invoke(ItemPath, ReadStatus.Unread);
+            }
         }, menuItems.ToArray());
+    }
+
+    /// <summary>
+    /// 是否為「Work」asset（可被閱讀、可被標 read_status）。判定條件：
+    /// (1) 檔案副檔名為 archive/pdf：.zip/.cbz/.cbr/.rar/.7z/.pdf
+    /// (2) 目錄無子目錄且含 ≥2 張圖檔
+    /// 其他（Author folder / Library / Category / 純空目錄）→ false
+    /// </summary>
+    private static bool IsWorkAsset(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return false;
+        try
+        {
+            if (File.Exists(path))
+            {
+                var ext = Path.GetExtension(path).ToLowerInvariant();
+                return ext is ".zip" or ".cbz" or ".cbr" or ".rar" or ".7z" or ".pdf";
+            }
+            if (Directory.Exists(path))
+            {
+                // 含子目錄 → 不是 Work（章節集 / 作者夾）
+                if (Directory.EnumerateDirectories(path).Any()) return false;
+                int imgCount = 0;
+                foreach (var f in Directory.EnumerateFiles(path))
+                {
+                    var ext = Path.GetExtension(f).ToLowerInvariant();
+                    if (ext is ".jpg" or ".jpeg" or ".png" or ".webp" or ".bmp" or ".gif")
+                    {
+                        if (++imgCount >= 2) return true;   // 達標早退
+                    }
+                }
+                return false;
+            }
+        }
+        catch { /* 路徑被刪、權限不足等 */ }
+        return false;
     }
 }

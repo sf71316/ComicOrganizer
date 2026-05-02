@@ -107,6 +107,18 @@ public interface IAssetMetaStore : IDisposable
     /// <summary>聚合查詢：作者 + 別名 + 閱讀統計 + top tags + recent / all works。沒紀錄回 null。</summary>
     AuthorInfo? GetAuthorInfo(long authorId);
 
+    /// <summary>
+    /// 紀錄一次「讀過」：read_count++ / last_read=now / Unread→Reading。
+    /// 沒 asset_meta 紀錄（如 Author / Library folder）no-op。
+    /// </summary>
+    void RecordRead(string path);
+
+    /// <summary>手動設定 read_status（標已完成 / 放棄 / 重置未讀）。沒 asset_meta no-op。</summary>
+    void SetReadStatus(string path, ReadStatus status);
+
+    /// <summary>取 path 對應的 read_status（沒 asset_meta 紀錄回 null）。給卡片 icon / menu disable 用。</summary>
+    ReadStatus? GetReadStatus(string path);
+
     // ===== Tag =====
 
     /// <summary>取或建 tag（name 主鍵 reuse）。</summary>
