@@ -46,7 +46,7 @@ partial class ComicCardControl
         pic.Duration = 0;
         pic.ImageFit = AntdUI.TFit.Contain;
         pic.Name = "pic";
-        pic.Radius = 8;
+        pic.Radius = 8;                 // ← VS Designer regenerate 會還原成 4，要鎖在 8 才看得出圓角
         pic.Size = new Size(140, 200);
         pic.TabIndex = 1;
         //
@@ -57,7 +57,7 @@ partial class ComicCardControl
         Controls.Add(pic);
         DoubleBuffered = true;
         Name = "ComicCardControl";
-        Padding = new Padding(10);          // 內距 — 卡邊到 pic/lbl
+        Padding = new Padding(10);
         Size = new Size(160, 259);
         ResumeLayout(false);
     }
