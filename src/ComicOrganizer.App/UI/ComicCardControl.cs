@@ -27,6 +27,12 @@ public partial class ComicCardControl : UserControl
     private readonly System.Windows.Forms.Timer _tooltipDelayTimer = new() { Interval = 2000 };
     private bool _tooltipShown = false;
 
+    /// <summary>
+    /// hover overlay 安全網 timer。MouseLeave 在 cursor 從子控件直接跨出卡片時偶爾不觸發，
+    /// 這個 timer 在 hover 期間每 150ms polling cursor 位置，若已離開卡片則強制 hide。
+    /// </summary>
+    private readonly System.Windows.Forms.Timer _hoverPollTimer = new() { Interval = 150 };
+
     // hoverToolbar / typeStrip / btnRead / btnExplorer / typeIconLbl 全部 lazy 建立：
     // 首次 hover 才 new + Add 到 pic.Controls，HWND 才實體化。
     // 大量卡片捲動進場時，每張卡的 Controls.Add 從 ~6.5ms (9 HWNDs) 降到 ~3ms (4 HWNDs)
@@ -60,6 +66,19 @@ public partial class ComicCardControl : UserControl
                 _tooltipShown = true;
             }
         };
+
+        // hover safety net：每 150ms 檢查 cursor 是否仍在卡片內，否則 force hide overlay
+        _hoverPollTimer.Tick += (s, e) =>
+        {
+            if (IsDisposed) { _hoverPollTimer.Stop(); return; }
+            // RectangleToScreen 把 client coords 轉 screen coords，比對 Cursor.Position（screen）
+            if (!RectangleToScreen(ClientRectangle).Contains(Cursor.Position))
+            {
+                _hoverPollTimer.Stop();
+                ForceHideHoverOverlay();
+            }
+        };
+
         WireUp();
     }
 
@@ -208,9 +227,14 @@ public partial class ComicCardControl : UserControl
         ApplyHoverToolbarLayout();
 
         // 對 hover 控件本身 hook MouseEnter/Leave 維持 hover 狀態（mouse 在 toolbar 上不算 leave）
+        // 重要：所有 hover 期間「會 visible」的子控件都要 hook，否則 cursor 直接從子控件跨出卡片時
+        //      只有該子控件的 MouseLeave 觸發、其他人不會再觸發，造成 overlay 殘留
         HookHover(hoverToolbar);
         HookHover(btnRead);
         HookHover(btnExplorer);
+        HookHover(typeStrip);
+        HookHover(typeIconLbl);
+        HookHover(readStatusLbl);
 
         // 📖 「閱讀」按鈕一律呼叫 viewer（不管 folder 還是 file）：
         // viewer 對目錄會挑首張圖開啟。「進入目錄」操作交給卡片左鍵點擊 / 縮圖點擊
@@ -286,22 +310,31 @@ public partial class ComicCardControl : UserControl
             {
                 _tooltipDelayTimer.Start();
             }
+            // 啟動 polling 安全網（防 MouseLeave 漏觸發殘留 overlay）
+            if (!_hoverPollTimer.Enabled) _hoverPollTimer.Start();
         }
         else
         {
             var pos = this.PointToClient(Control.MousePosition);
             if (!this.ClientRectangle.Contains(pos))
             {
-                if (typeStrip != null) typeStrip.Visible = false;
-                if (hoverToolbar != null) hoverToolbar.Visible = false;
-                _currentBgColor = Color.White;
-                lbl.BackColor = Color.White;
-                pic.BackColor = Color.White;
-                Invalidate();
-                _tooltipDelayTimer.Stop();
-                _tooltipShown = false;
+                ForceHideHoverOverlay();
             }
         }
+    }
+
+    /// <summary>不檢查 cursor 位置，直接收掉 hover overlay。Timer 安全網與 MouseLeave 都會呼叫。</summary>
+    private void ForceHideHoverOverlay()
+    {
+        if (typeStrip != null) typeStrip.Visible = false;
+        if (hoverToolbar != null) hoverToolbar.Visible = false;
+        _currentBgColor = Color.White;
+        lbl.BackColor = Color.White;
+        pic.BackColor = Color.White;
+        Invalidate();
+        _tooltipDelayTimer.Stop();
+        _tooltipShown = false;
+        _hoverPollTimer.Stop();
     }
 
     private void WireUp()
