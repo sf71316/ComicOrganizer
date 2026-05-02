@@ -116,4 +116,16 @@
   <data name="MenuOpenInCurrentTab" xml:space="preserve"><value>目前頁籤開啟</value></data>
   <data name="MenuOpenInNewTab" xml:space="preserve"><value>另開新頁籤</value></data>
   <data name="SettingsThumbCacheMax" xml:space="preserve"><value>縮圖快取上限 (超過會 LRU 淘汰最舊)</value></data>
+  <data name="MenuAuthorInfo" xml:space="preserve"><value>作者資訊</value></data>
+  <data name="AuthorInfoTitle" xml:space="preserve"><value>作者資訊</value></data>
+  <data name="AuthorInfoAlias" xml:space="preserve"><value>別名</value></data>
+  <data name="AuthorInfoWorkCount" xml:space="preserve"><value>作品數</value></data>
+  <data name="AuthorInfoUnread" xml:space="preserve"><value>未讀</value></data>
+  <data name="AuthorInfoReading" xml:space="preserve"><value>進行中</value></data>
+  <data name="AuthorInfoCompleted" xml:space="preserve"><value>已完成</value></data>
+  <data name="AuthorInfoDropped" xml:space="preserve"><value>放棄</value></data>
+  <data name="AuthorInfoTopTags" xml:space="preserve"><value>主要標籤</value></data>
+  <data name="AuthorInfoRecentRead" xml:space="preserve"><value>最近閱讀</value></data>
+  <data name="AuthorInfoReadCount" xml:space="preserve"><value>讀 {0} 次</value></data>
+  <data name="AuthorInfoNoData" xml:space="preserve"><value>無法解析此路徑的作者資訊</value></data>
 </root>

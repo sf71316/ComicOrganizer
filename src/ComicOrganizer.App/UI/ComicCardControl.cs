@@ -13,6 +13,7 @@ public partial class ComicCardControl : UserControl
     public event Action<string>? RequestOpenViewer;
     public event Action<string, bool>? RequestNewTab;
     public event Action<string>? RequestExplorer;
+    public event Action<string>? RequestAuthorInfo;
     private const int CornerRadius = 8;
     private Color _currentBgColor = Color.White;
     // 手動觸發 AntdUI.Tooltip.open + 自管 delay：
@@ -385,6 +386,7 @@ public partial class ComicCardControl : UserControl
         menuItems.Add(new AntdUI.ContextMenuStripItem("另開頁籤"));
         menuItems.Add(new AntdUI.ContextMenuStripItemDivider());
         menuItems.Add(new AntdUI.ContextMenuStripItem("📂 在檔案總管中開啟"));
+        menuItems.Add(new AntdUI.ContextMenuStripItem("👤 作者資訊"));
 
         AntdUI.ContextMenuStrip.open(this, menuItem =>
         {
@@ -399,6 +401,10 @@ public partial class ComicCardControl : UserControl
             else if (menuItem.Text != null && menuItem.Text.Contains("檔案總管"))
             {
                 RequestExplorer?.Invoke(ItemPath);
+            }
+            else if (menuItem.Text != null && (menuItem.Text.Contains("作者") || menuItem.Text.Contains("Author")))
+            {
+                RequestAuthorInfo?.Invoke(ItemPath);
             }
         }, menuItems.ToArray());
     }

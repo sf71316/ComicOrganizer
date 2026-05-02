@@ -9,6 +9,7 @@ partial class GalleryControl
     private AntdUI.Splitter splitter2;
     private AntdUI.Tree treeFolders;
     private AntdUI.Tabs tabsContent;
+    private AuthorInfoPanel authorInfoPanel;
 
     protected override void Dispose(bool disposing)
     {
@@ -25,6 +26,7 @@ partial class GalleryControl
         splitter2 = new AntdUI.Splitter();
         treeFolders = new Tree();
         tabsContent = new Tabs();
+        authorInfoPanel = new AuthorInfoPanel();
         ((System.ComponentModel.ISupportInitialize)splitter2).BeginInit();
         splitter2.Panel1.SuspendLayout();
         splitter2.Panel2.SuspendLayout();
@@ -44,11 +46,14 @@ partial class GalleryControl
         splitter2.Panel1.Controls.Add(treeFolders);
         splitter2.Panel1.Padding = new Padding(1);
         splitter2.Panel1MinSize = 5;
-        // 
+        //
         // splitter2.Panel2
-        // 
+        //
         splitter2.Panel2.BackColor = Core.ThemeColors.Border;
+        // tabsContent 先 add（Dock.Fill 占滿）+ authorInfoPanel 後 add（浮動覆蓋在右側）
+        // panel BringToFront 蓋在 tabsContent 上、半透明可見卡片
         splitter2.Panel2.Controls.Add(tabsContent);
+        splitter2.Panel2.Controls.Add(authorInfoPanel);
         splitter2.Panel2.Padding = new Padding(1);
         splitter2.Size = new Size(1047, 700);
         splitter2.SplitterDistance = 271;
@@ -70,9 +75,16 @@ partial class GalleryControl
         treeFolders.Text = "tree1";
         treeFolders.BeforeExpand += treeFolders_BeforeExpand;
         treeFolders.NodeMouseDoubleClick += treeFolders_NodeMouseDoubleClick;
-        // 
+        //
+        // authorInfoPanel — 浮動覆蓋（不設 Anchor，bounds 由 GalleryControl 訂閱 SizeChanged 動態維護）
+        //
+        authorInfoPanel.Dock = DockStyle.None;
+        authorInfoPanel.Width = 280;
+        authorInfoPanel.Visible = false;
+        authorInfoPanel.Name = "authorInfoPanel";
+        //
         // tabsContent
-        // 
+        //
         tabsContent.CloseDisposePage = true;
         tabsContent.Dock = DockStyle.Fill;
         tabsContent.Font = new Font("Microsoft JhengHei UI", 12F);

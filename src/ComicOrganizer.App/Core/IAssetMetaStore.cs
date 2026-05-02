@@ -101,6 +101,12 @@ public interface IAssetMetaStore : IDisposable
 
     IReadOnlyList<AuthorAlias> ListAuthorAliases(long authorId);
 
+    /// <summary>從 path 解析 author_id：先查 Work 的 asset_meta.author_id；fallback Author folder 的 author.folder_path。</summary>
+    long? ResolveAuthorIdByPath(string path);
+
+    /// <summary>聚合查詢：作者 + 別名 + 閱讀統計 + top tags + recent / all works。沒紀錄回 null。</summary>
+    AuthorInfo? GetAuthorInfo(long authorId);
+
     // ===== Tag =====
 
     /// <summary>取或建 tag（name 主鍵 reuse）。</summary>

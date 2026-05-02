@@ -64,6 +64,12 @@ public partial class GalleryControl : UserControl, IThemedControl
         // GalleryControl 自己開 DoubleBuffer：tabsContent 切換 / resize 時減抖
         DoubleBuffered = true;
 
+        // X 按下 → 隱藏 panel
+        authorInfoPanel.CloseRequested += () => authorInfoPanel.Visible = false;
+        // splitter2.Panel2 size 改變時（window resize / splitter 拖動）動態維護 panel bounds
+        // 不用 Anchor — Anchor 在 design-time 紀錄錯誤的 right offset 會讓 panel 跑到中間
+        splitter2.Panel2.SizeChanged += (s, e) => UpdateAuthorPanelBounds();
+
         // 設定內容頁籤樣式
         if (tabsContent.Style is AntdUI.Tabs.StyleCard style)
         {
@@ -257,7 +263,7 @@ public partial class GalleryControl : UserControl, IThemedControl
     }
 
     /// <summary>
-    /// Tree 節點右鍵 → 三項選單（檔案總管 / 目前頁籤 / 另開頁籤），各帶 SVG icon。
+    /// Tree 節點右鍵 → 四項選單（檔案總管 / 目前頁籤 / 另開頁籤 / 作者資訊），各帶 SVG icon。
     /// </summary>
     private void ShowTreeNodeContextMenu(string path)
     {
@@ -269,6 +275,8 @@ public partial class GalleryControl : UserControl, IThemedControl
                 { IconSvg = "FileOutlined" },
             new AntdUI.ContextMenuStripItem(LocalizationManager.GetString("MenuOpenInNewTab") ?? "另開新頁籤")
                 { IconSvg = "PlusOutlined" },
+            new AntdUI.ContextMenuStripItem(LocalizationManager.GetString("MenuAuthorInfo") ?? "作者資訊")
+                { IconSvg = "UserOutlined" },
         };
 
         AntdUI.ContextMenuStrip.open(treeFolders, mi =>
@@ -278,7 +286,49 @@ public partial class GalleryControl : UserControl, IThemedControl
             if (t.Contains("檔案總管") || t.Contains("Explorer")) OpenInExplorer(path);
             else if (t.Contains("目前頁籤") || t.Contains("Current")) OpenFolderTab(path, false);
             else if (t.Contains("另開") || t.Contains("New Tab")) OpenFolderTab(path, true);
+            else if (t.Contains("作者") || t.Contains("Author")) ShowAuthorInfo(path);
         }, items);
+    }
+
+    /// <summary>
+    /// 解析 path 對應的 author（透過 _metaStore），開啟 / 更新 authorInfoPanel。
+    /// 解析失敗 → 顯示「無作者資訊」訊息但 panel 仍開啟（讓使用者按 X 關掉）。
+    /// </summary>
+    private void ShowAuthorInfo(string path)
+    {
+        if (_metaStore == null)
+        {
+            authorInfoPanel.ShowEmpty(LocalizationManager.GetString("AuthorInfoNoData") ?? "無法解析此路徑的作者資訊");
+        }
+        else
+        {
+            var authorId = _metaStore.ResolveAuthorIdByPath(path);
+            if (authorId == null)
+            {
+                authorInfoPanel.ShowEmpty(LocalizationManager.GetString("AuthorInfoNoData") ?? "無法解析此路徑的作者資訊");
+            }
+            else
+            {
+                var info = _metaStore.GetAuthorInfo(authorId.Value);
+                if (info == null)
+                    authorInfoPanel.ShowEmpty(LocalizationManager.GetString("AuthorInfoNoData") ?? "作者資料缺失");
+                else
+                    authorInfoPanel.ShowInfo(info);
+            }
+        }
+        UpdateAuthorPanelBounds();
+        authorInfoPanel.Visible = true;
+        authorInfoPanel.BringToFront();
+    }
+
+    /// <summary>把 authorInfoPanel 對齊 splitter2.Panel2 右邊緣，全高、寬度 280。</summary>
+    private void UpdateAuthorPanelBounds()
+    {
+        if (authorInfoPanel == null) return;
+        var p2 = splitter2.Panel2;
+        var disp = p2.DisplayRectangle;   // 考慮 Padding(1)
+        int w = authorInfoPanel.Width;     // 280
+        authorInfoPanel.SetBounds(disp.Right - w, disp.Top, w, disp.Height);
     }
 
     /// <summary>
@@ -957,21 +1007,15 @@ public partial class GalleryControl : UserControl, IThemedControl
                         bool isFolderNode = item is DirectoryInfo;
                         var card = new ComicCardControl();
                         card.SetData(item, isFolderNode);
-                        // #47 metadata 副標：DB 有 title / author 就覆寫 card 顯示
-                        if (_metaStore != null)
-                        {
-                            try
-                            {
-                                var view = _metaStore.GetMetadataView(item.FullName);
-                                if (view != null) card.SetMetadata(view);
-                            }
-                            catch { /* DB 失敗不阻塞 card 顯示 */ }
-                        }
+                        // 註：Phase 3-A 嘗試在卡片下方加 "— Author" 副標但被回退 —
+                        // 良好整理過的庫從左側 tree 就知道 author，副標冗餘。metadata 留給未來
+                        // 「平鋪虛擬庫」/「搜尋結果」等沒明確 hierarchy 的場景再用 SetMetadata。
                         card.ApplyViewMode(mode);
                         card.RequestOpenFolder += p => OpenFolderTab(p, false);
                         card.RequestOpenViewer += p => OpenWithExternalViewer(p);
                         card.RequestNewTab += (p, forceNew) => OpenFolderTab(p, forceNew);
                         card.RequestExplorer += p => OpenInExplorer(p);
+                        card.RequestAuthorInfo += p => ShowAuthorInfo(p);
                         container.Controls.Add(card);
 
                         // 目錄與檔案都試著載封面：CoverManager 對目錄會遞迴往下找首張圖檔（受 MaxScanDepth 限制）
