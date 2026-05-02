@@ -64,8 +64,11 @@ public partial class GalleryControl : UserControl, IThemedControl
         // GalleryControl 自己開 DoubleBuffer：tabsContent 切換 / resize 時減抖
         DoubleBuffered = true;
 
-        // X 按下 → 隱藏 panel，tabsContent Dock.Fill 自動填回
+        // X 按下 → 隱藏 panel
         authorInfoPanel.CloseRequested += () => authorInfoPanel.Visible = false;
+        // splitter2.Panel2 size 改變時（window resize / splitter 拖動）動態維護 panel bounds
+        // 不用 Anchor — Anchor 在 design-time 紀錄錯誤的 right offset 會讓 panel 跑到中間
+        splitter2.Panel2.SizeChanged += (s, e) => UpdateAuthorPanelBounds();
 
         // 設定內容頁籤樣式
         if (tabsContent.Style is AntdUI.Tabs.StyleCard style)
@@ -313,7 +316,19 @@ public partial class GalleryControl : UserControl, IThemedControl
                     authorInfoPanel.ShowInfo(info);
             }
         }
+        UpdateAuthorPanelBounds();
         authorInfoPanel.Visible = true;
+        authorInfoPanel.BringToFront();
+    }
+
+    /// <summary>把 authorInfoPanel 對齊 splitter2.Panel2 右邊緣，全高、寬度 280。</summary>
+    private void UpdateAuthorPanelBounds()
+    {
+        if (authorInfoPanel == null) return;
+        var p2 = splitter2.Panel2;
+        var disp = p2.DisplayRectangle;   // 考慮 Padding(1)
+        int w = authorInfoPanel.Width;     // 280
+        authorInfoPanel.SetBounds(disp.Right - w, disp.Top, w, disp.Height);
     }
 
     /// <summary>

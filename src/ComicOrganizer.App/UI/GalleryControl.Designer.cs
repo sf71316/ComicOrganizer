@@ -50,10 +50,10 @@ partial class GalleryControl
         // splitter2.Panel2
         //
         splitter2.Panel2.BackColor = Core.ThemeColors.Border;
-        // authorInfoPanel 先 add（Dock.Right 占右 280）+ tabsContent 後 add（Dock.Fill 取剩餘）
-        // 預設 authorInfoPanel.Visible=false → tabsContent 占滿整個 Panel2
-        splitter2.Panel2.Controls.Add(authorInfoPanel);
+        // tabsContent 先 add（Dock.Fill 占滿）+ authorInfoPanel 後 add（浮動覆蓋在右側）
+        // panel BringToFront 蓋在 tabsContent 上、半透明可見卡片
         splitter2.Panel2.Controls.Add(tabsContent);
+        splitter2.Panel2.Controls.Add(authorInfoPanel);
         splitter2.Panel2.Padding = new Padding(1);
         splitter2.Size = new Size(1047, 700);
         splitter2.SplitterDistance = 271;
@@ -76,9 +76,9 @@ partial class GalleryControl
         treeFolders.BeforeExpand += treeFolders_BeforeExpand;
         treeFolders.NodeMouseDoubleClick += treeFolders_NodeMouseDoubleClick;
         //
-        // authorInfoPanel — Dock.Right docked，占位 tabsContent 縮邊
+        // authorInfoPanel — 浮動覆蓋（不設 Anchor，bounds 由 GalleryControl 訂閱 SizeChanged 動態維護）
         //
-        authorInfoPanel.Dock = DockStyle.Right;
+        authorInfoPanel.Dock = DockStyle.None;
         authorInfoPanel.Width = 280;
         authorInfoPanel.Visible = false;
         authorInfoPanel.Name = "authorInfoPanel";
