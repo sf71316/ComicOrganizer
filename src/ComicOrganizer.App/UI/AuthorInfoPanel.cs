@@ -29,13 +29,19 @@ public partial class AuthorInfoPanel : UserControl
         ApplyLocalization();
     }
 
-    /// <summary>外框線：ThemeColors.Border @ 75% alpha，1px。</summary>
+    /// <summary>外框線：ThemeColors.Border @ 75% alpha，1px。
+    /// 用 FillRectangle 四條邊（不是 DrawRectangle 一個 path）— GDI+ Pen 在 1px 線條的 alpha
+    /// blend 不可靠，FillRectangle + SolidBrush 確實 alpha-blend 到底層 BackColor。</summary>
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
         var borderColor = Color.FromArgb(191, ThemeColors.Border);   // 191/255 ≈ 75%
-        using var pen = new Pen(borderColor, 1);
-        e.Graphics.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
+        e.Graphics.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceOver;
+        using var brush = new SolidBrush(borderColor);
+        e.Graphics.FillRectangle(brush, 0, 0, Width, 1);              // top
+        e.Graphics.FillRectangle(brush, 0, Height - 1, Width, 1);     // bottom
+        e.Graphics.FillRectangle(brush, 0, 0, 1, Height);             // left
+        e.Graphics.FillRectangle(brush, Width - 1, 0, 1, Height);     // right
     }
 
     private void ApplyLocalization()
