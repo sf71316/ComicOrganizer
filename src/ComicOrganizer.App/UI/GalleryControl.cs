@@ -329,11 +329,14 @@ public partial class GalleryControl : UserControl, IThemedControl
         var ownerForm = this.FindForm();
         if (ownerForm == null) return;
 
+        // 確保 panel 填滿 drawer 內部（drawer 不會自動 Dock.Fill 內容）
+        authorInfoPanel.Dock = DockStyle.Fill;
+
         var config = new AntdUI.Drawer.Config(ownerForm, authorInfoPanel)
         {
             Align = AntdUI.TAlignMini.Right,
-            Mask = true,            // 半透明遮罩蓋在 tabsContent 上 — 視覺「半透明」就靠這個
-            MaskClosable = true,    // 點遮罩關閉
+            Mask = false,           // 不要遮罩 — 主畫面保持正常亮度，drawer 純滑入面板
+            Padding = 0,            // drawer 內部無多餘 padding，panel 填滿到邊
             Dispose = false,        // 關閉時別 dispose authorInfoPanel，下次開重用
             OnClose = () => _authorDrawerForm = null,
         };
