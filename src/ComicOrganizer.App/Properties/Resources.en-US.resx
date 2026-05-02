@@ -116,4 +116,16 @@
   <data name="MenuOpenInCurrentTab" xml:space="preserve"><value>Open in Current Tab</value></data>
   <data name="MenuOpenInNewTab" xml:space="preserve"><value>Open in New Tab</value></data>
   <data name="SettingsThumbCacheMax" xml:space="preserve"><value>Thumb cache size limit (LRU eviction)</value></data>
+  <data name="MenuAuthorInfo" xml:space="preserve"><value>Author Info</value></data>
+  <data name="AuthorInfoTitle" xml:space="preserve"><value>Author Info</value></data>
+  <data name="AuthorInfoAlias" xml:space="preserve"><value>Alias</value></data>
+  <data name="AuthorInfoWorkCount" xml:space="preserve"><value>Works</value></data>
+  <data name="AuthorInfoUnread" xml:space="preserve"><value>Unread</value></data>
+  <data name="AuthorInfoReading" xml:space="preserve"><value>Reading</value></data>
+  <data name="AuthorInfoCompleted" xml:space="preserve"><value>Completed</value></data>
+  <data name="AuthorInfoDropped" xml:space="preserve"><value>Dropped</value></data>
+  <data name="AuthorInfoTopTags" xml:space="preserve"><value>Top Tags</value></data>
+  <data name="AuthorInfoRecentRead" xml:space="preserve"><value>Recently Read</value></data>
+  <data name="AuthorInfoReadCount" xml:space="preserve"><value>Read {0} time(s)</value></data>
+  <data name="AuthorInfoNoData" xml:space="preserve"><value>No author info available</value></data>
 </root>

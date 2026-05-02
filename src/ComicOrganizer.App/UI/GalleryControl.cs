@@ -64,6 +64,9 @@ public partial class GalleryControl : UserControl, IThemedControl
         // GalleryControl 自己開 DoubleBuffer：tabsContent 切換 / resize 時減抖
         DoubleBuffered = true;
 
+        // X 按下 → 隱藏 panel，tabsContent Dock.Fill 自動填回
+        authorInfoPanel.CloseRequested += () => authorInfoPanel.Visible = false;
+
         // 設定內容頁籤樣式
         if (tabsContent.Style is AntdUI.Tabs.StyleCard style)
         {
@@ -257,7 +260,7 @@ public partial class GalleryControl : UserControl, IThemedControl
     }
 
     /// <summary>
-    /// Tree 節點右鍵 → 三項選單（檔案總管 / 目前頁籤 / 另開頁籤），各帶 SVG icon。
+    /// Tree 節點右鍵 → 四項選單（檔案總管 / 目前頁籤 / 另開頁籤 / 作者資訊），各帶 SVG icon。
     /// </summary>
     private void ShowTreeNodeContextMenu(string path)
     {
@@ -269,6 +272,8 @@ public partial class GalleryControl : UserControl, IThemedControl
                 { IconSvg = "FileOutlined" },
             new AntdUI.ContextMenuStripItem(LocalizationManager.GetString("MenuOpenInNewTab") ?? "另開新頁籤")
                 { IconSvg = "PlusOutlined" },
+            new AntdUI.ContextMenuStripItem(LocalizationManager.GetString("MenuAuthorInfo") ?? "作者資訊")
+                { IconSvg = "UserOutlined" },
         };
 
         AntdUI.ContextMenuStrip.open(treeFolders, mi =>
@@ -278,7 +283,37 @@ public partial class GalleryControl : UserControl, IThemedControl
             if (t.Contains("檔案總管") || t.Contains("Explorer")) OpenInExplorer(path);
             else if (t.Contains("目前頁籤") || t.Contains("Current")) OpenFolderTab(path, false);
             else if (t.Contains("另開") || t.Contains("New Tab")) OpenFolderTab(path, true);
+            else if (t.Contains("作者") || t.Contains("Author")) ShowAuthorInfo(path);
         }, items);
+    }
+
+    /// <summary>
+    /// 解析 path 對應的 author（透過 _metaStore），開啟 / 更新 authorInfoPanel。
+    /// 解析失敗 → 顯示「無作者資訊」訊息但 panel 仍開啟（讓使用者按 X 關掉）。
+    /// </summary>
+    private void ShowAuthorInfo(string path)
+    {
+        if (_metaStore == null)
+        {
+            authorInfoPanel.ShowEmpty(LocalizationManager.GetString("AuthorInfoNoData") ?? "無法解析此路徑的作者資訊");
+        }
+        else
+        {
+            var authorId = _metaStore.ResolveAuthorIdByPath(path);
+            if (authorId == null)
+            {
+                authorInfoPanel.ShowEmpty(LocalizationManager.GetString("AuthorInfoNoData") ?? "無法解析此路徑的作者資訊");
+            }
+            else
+            {
+                var info = _metaStore.GetAuthorInfo(authorId.Value);
+                if (info == null)
+                    authorInfoPanel.ShowEmpty(LocalizationManager.GetString("AuthorInfoNoData") ?? "作者資料缺失");
+                else
+                    authorInfoPanel.ShowInfo(info);
+            }
+        }
+        authorInfoPanel.Visible = true;
     }
 
     /// <summary>
@@ -965,6 +1000,7 @@ public partial class GalleryControl : UserControl, IThemedControl
                         card.RequestOpenViewer += p => OpenWithExternalViewer(p);
                         card.RequestNewTab += (p, forceNew) => OpenFolderTab(p, forceNew);
                         card.RequestExplorer += p => OpenInExplorer(p);
+                        card.RequestAuthorInfo += p => ShowAuthorInfo(p);
                         container.Controls.Add(card);
 
                         // 目錄與檔案都試著載封面：CoverManager 對目錄會遞迴往下找首張圖檔（受 MaxScanDepth 限制）
