@@ -128,4 +128,6 @@
   <data name="AuthorInfoRecentRead" xml:space="preserve"><value>Recently Read</value></data>
   <data name="AuthorInfoReadCount" xml:space="preserve"><value>Read {0} time(s)</value></data>
   <data name="AuthorInfoNoData" xml:space="preserve"><value>No author info available</value></data>
+  <data name="AuthorInfoTotalReads" xml:space="preserve"><value>Total Reads</value></data>
+  <data name="AuthorInfoAllWorks" xml:space="preserve"><value>All Works</value></data>
 </root>

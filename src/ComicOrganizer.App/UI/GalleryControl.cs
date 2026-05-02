@@ -70,6 +70,17 @@ public partial class GalleryControl : UserControl, IThemedControl
         // X 按下 → 關掉 Drawer (drawer Form Close)
         authorInfoPanel.CloseRequested += () => _authorDrawerForm?.Close();
 
+        // 點 RecentlyRead / AllWorks 行 → 等同卡片「閱讀」按鈕：RecordRead + 開外部 viewer
+        // 開完重 call ShowAuthorInfo 讓 panel read_count / last_read 即時更新
+        authorInfoPanel.RequestOpenWork += path =>
+        {
+            _metaStore?.RecordRead(path);
+            OpenWithExternalViewer(path);
+            ShowAuthorInfo(path);
+            // 同步當前 gallery 卡片 icon（如該作品正在當前 tab）
+            RefreshCardReadStatusByPath(path);
+        };
+
         // 設定內容頁籤樣式
         if (tabsContent.Style is AntdUI.Tabs.StyleCard style)
         {
@@ -234,6 +245,21 @@ public partial class GalleryControl : UserControl, IThemedControl
             c.ApplyViewMode(mode);
         }
         flow.ResumeLayout(true);
+    }
+
+    /// <summary>掃所有 tab 的卡片，找 ItemPath 相符者刷 read status icon。</summary>
+    private void RefreshCardReadStatusByPath(string path)
+    {
+        foreach (AntdUI.TabPage page in tabsContent.Pages)
+        {
+            var flow = FindTabFlowLayout(page);
+            if (flow == null) continue;
+            foreach (var c in flow.Controls.OfType<ComicCardControl>())
+            {
+                if (string.Equals(c.ItemPath, path, StringComparison.OrdinalIgnoreCase))
+                    c.RefreshReadStatusIcon();
+            }
+        }
     }
 
     private void SyncTabVisibility(AntdUI.TabPage? page)

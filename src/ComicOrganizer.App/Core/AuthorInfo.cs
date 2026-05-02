@@ -18,6 +18,9 @@ public class AuthorInfo
     public int CompletedCount { get; set; }
     public int DroppedCount { get; set; }
 
+    /// <summary>該作者全作品累計閱讀次數（SUM(asset_meta.read_count)）。</summary>
+    public int TotalReadCount { get; set; }
+
     /// <summary>該作者作品命中最多的 top N 標籤（依 count desc）。預設 limit=10。</summary>
     public List<TagFreq> TopTags { get; set; } = new();
 

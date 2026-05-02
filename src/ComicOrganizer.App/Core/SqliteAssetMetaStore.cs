@@ -878,6 +878,14 @@ LIMIT 1;";
                 }
             }
 
+            // 3.5 全作品累計閱讀次數
+            using (var cmd = _conn.CreateCommand())
+            {
+                cmd.CommandText = "SELECT COALESCE(SUM(read_count), 0) FROM asset_meta WHERE author_id = $a;";
+                cmd.Parameters.AddWithValue("$a", authorId);
+                info.TotalReadCount = Convert.ToInt32(cmd.ExecuteScalar() ?? 0);
+            }
+
             // 4. Top 10 tags（依該作者作品的 tag 命中次數降序）
             using (var cmd = _conn.CreateCommand())
             {
