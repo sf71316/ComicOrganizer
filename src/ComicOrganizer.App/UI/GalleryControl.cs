@@ -10,6 +10,7 @@ public partial class GalleryControl : UserControl, IThemedControl
 
     private AppConfig _config = null!;
     private CoverManager _coverManager = null!;
+    private IAssetMetaStore? _metaStore;   // 可選 — null 時 card 走原本 filename 顯示
 
     private const string LazyPlaceholderTag = "__LAZY__";
 
@@ -184,10 +185,11 @@ public partial class GalleryControl : UserControl, IThemedControl
         }
     }
 
-    public void Initialize(AppConfig config, CoverManager coverManager)
+    public void Initialize(AppConfig config, CoverManager coverManager, IAssetMetaStore? metaStore = null)
     {
         _config = config;
         _coverManager = coverManager;
+        _metaStore = metaStore;
         _ = LoadTreeAsync();
     }
 
@@ -955,6 +957,16 @@ public partial class GalleryControl : UserControl, IThemedControl
                         bool isFolderNode = item is DirectoryInfo;
                         var card = new ComicCardControl();
                         card.SetData(item, isFolderNode);
+                        // #47 metadata 副標：DB 有 title / author 就覆寫 card 顯示
+                        if (_metaStore != null)
+                        {
+                            try
+                            {
+                                var view = _metaStore.GetMetadataView(item.FullName);
+                                if (view != null) card.SetMetadata(view);
+                            }
+                            catch { /* DB 失敗不阻塞 card 顯示 */ }
+                        }
                         card.ApplyViewMode(mode);
                         card.RequestOpenFolder += p => OpenFolderTab(p, false);
                         card.RequestOpenViewer += p => OpenWithExternalViewer(p);

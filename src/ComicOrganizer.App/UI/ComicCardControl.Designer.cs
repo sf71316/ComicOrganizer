@@ -25,34 +25,38 @@ partial class ComicCardControl
         lbl = new Label();
         pic = new AntdUI.Image3D();
         SuspendLayout();
-        //
+        // 
         // lbl
-        //
-        lbl.BackColor = Color.White;   // 不透明 → scroll 走 BitBlt；hover 時 SetHoverState 改色
+        // 
+        lbl.BackColor = Color.White;
         lbl.Cursor = Cursors.Hand;
         lbl.Dock = DockStyle.Fill;
         lbl.Font = new Font("Microsoft JhengHei UI", 12F);
+        lbl.Location = new Point(10, 210);
         lbl.Name = "lbl";
         lbl.Padding = new Padding(4);
+        lbl.Size = new Size(140, 39);
         lbl.TabIndex = 0;
         lbl.TextAlign = ContentAlignment.TopCenter;
-        //
+        // 
         // pic
-        //
-        pic.BackColor = Color.White;   // 不透明 → scroll 時 WinForms 可走 BitBlt 快路徑，不全 invalidate
-        pic.Back = Color.White;        // AntdUI 內部 fill (跟 BackColor 同色)
+        // 
+        pic.Back = Color.White;
+        pic.BackColor = Color.White;
         pic.Cursor = Cursors.Hand;
         pic.Dock = DockStyle.Top;
         pic.Duration = 0;
         pic.ImageFit = AntdUI.TFit.Contain;
+        pic.Location = new Point(10, 10);
         pic.Name = "pic";
-        pic.Radius = 8;                 // ← VS Designer regenerate 會還原成 4，要鎖在 8 才看得出圓角
+        pic.Radius = 8;
+        // pic.Round 不要設 true — 那是「強制橢圓」，不是「啟用圓角」。
+        // Image3D 的 Radius 在 Round=false 時即生效（rounded rect clip）。
         pic.Size = new Size(140, 200);
         pic.TabIndex = 1;
-        //
+        // 
         // ComicCardControl
-        //
-        // BackColor 在 ctor 設成 ThemeColors.Surface 配合 parent；不在 Designer 寫死避免多餘賦值
+        // 
         Controls.Add(lbl);
         Controls.Add(pic);
         DoubleBuffered = true;

@@ -608,6 +608,33 @@ ON CONFLICT(asset_id) DO UPDATE SET
         }
     }
 
+    public AssetMetadataView? GetMetadataView(string path)
+    {
+        lock (_lock)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = @"
+SELECT a.path, am.title, au.main_name, am.language, am.translation_group, am.page_count
+FROM asset a
+LEFT JOIN asset_meta am ON am.asset_id = a.id
+LEFT JOIN author au ON au.id = am.author_id
+WHERE a.path = $p
+LIMIT 1;";
+            cmd.Parameters.AddWithValue("$p", path);
+            using var rdr = cmd.ExecuteReader();
+            if (!rdr.Read()) return null;
+            return new AssetMetadataView
+            {
+                Path = rdr.GetString(0),
+                Title = rdr.IsDBNull(1) ? null : rdr.GetString(1),
+                AuthorMainName = rdr.IsDBNull(2) ? null : rdr.GetString(2),
+                Language = rdr.IsDBNull(3) ? null : rdr.GetString(3),
+                TranslationGroup = rdr.IsDBNull(4) ? null : rdr.GetString(4),
+                PageCount = rdr.IsDBNull(5) ? null : rdr.GetInt32(5),
+            };
+        }
+    }
+
     public void DeleteMetadata(long assetId)
     {
         lock (_lock)

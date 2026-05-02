@@ -1,4 +1,5 @@
 using AntdUI;
+using ComicOrganizer.App.Core;
 using System.Drawing.Drawing2D;
 
 namespace ComicOrganizer.App.UI;
@@ -243,6 +244,7 @@ public partial class ComicCardControl : UserControl
             hoverToolbar.BringToFront();
             _currentBgColor = ComicOrganizer.App.Core.ThemeColors.Secondary;
             lbl.BackColor = _currentBgColor;   // lbl 不透明，需手動同步 hover 色
+            pic.BackColor = _currentBgColor;   // 同上 — pic.BackColor 矩形 fill，不同步會在 hover 看到白色矩形
             Invalidate();
 
             if (!_tooltipShown && !_tooltipDelayTimer.Enabled)
@@ -259,6 +261,7 @@ public partial class ComicCardControl : UserControl
                 if (hoverToolbar != null) hoverToolbar.Visible = false;
                 _currentBgColor = Color.White;
                 lbl.BackColor = Color.White;
+                pic.BackColor = Color.White;
                 Invalidate();
                 _tooltipDelayTimer.Stop();
                 _tooltipShown = false;
@@ -296,6 +299,29 @@ public partial class ComicCardControl : UserControl
 
         // Tooltip：存檔名給 delay timer fire 時用（手動 Tooltip.open）
         _itemName = item.Name;
+    }
+
+    /// <summary>
+    /// 套用 #47 metadata（title 取代 filename、加作者副標）。view 為 null 或無資料時 fallback 到 SetData 設的檔名。
+    /// 沒解析到 title 也保留檔名；只有 author 可秀就秀 "filename / by author"。
+    /// </summary>
+    public void SetMetadata(AssetMetadataView? view)
+    {
+        if (view == null) return;
+        var displayTitle = !string.IsNullOrWhiteSpace(view.Title) ? view.Title : lbl.Text;
+        if (!string.IsNullOrEmpty(view.AuthorMainName))
+        {
+            // 兩行：title \n — Author（em-dash 視覺區隔，同字級避免增加 layout）
+            lbl.Text = $"{displayTitle}\n— {view.AuthorMainName}";
+        }
+        else if (!string.IsNullOrWhiteSpace(view.Title))
+        {
+            lbl.Text = view.Title;
+        }
+        // tooltip 用「真實 title + author」更有意義（hover delay timer fire 時用此值）
+        _itemName = !string.IsNullOrEmpty(view.AuthorMainName)
+            ? $"{displayTitle}\nby {view.AuthorMainName}"
+            : displayTitle;
     }
 
     public void SetCover(Image? cover)
