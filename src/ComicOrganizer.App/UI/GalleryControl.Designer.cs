@@ -50,10 +50,9 @@ partial class GalleryControl
         // splitter2.Panel2
         //
         splitter2.Panel2.BackColor = Core.ThemeColors.Border;
-        // tabsContent 先 add（Dock.Fill 占滿）+ authorInfoPanel 後 add（浮動覆蓋在右側）
-        // panel BringToFront 蓋在 tabsContent 上、半透明可見卡片
         splitter2.Panel2.Controls.Add(tabsContent);
-        splitter2.Panel2.Controls.Add(authorInfoPanel);
+        // authorInfoPanel 不加進 splitter2.Panel2 — 用 AntdUI.Drawer.open 動態彈出，
+        // Drawer 自己 host 在獨立 Form 內、有 Mask 半透明遮罩
         splitter2.Panel2.Padding = new Padding(1);
         splitter2.Size = new Size(1047, 700);
         splitter2.SplitterDistance = 271;
@@ -76,11 +75,10 @@ partial class GalleryControl
         treeFolders.BeforeExpand += treeFolders_BeforeExpand;
         treeFolders.NodeMouseDoubleClick += treeFolders_NodeMouseDoubleClick;
         //
-        // authorInfoPanel — 浮動覆蓋（不設 Anchor，bounds 由 GalleryControl 訂閱 SizeChanged 動態維護）
+        // authorInfoPanel — 不掛在 splitter2.Panel2 內，由 AntdUI.Drawer 動態彈出
         //
-        authorInfoPanel.Dock = DockStyle.None;
-        authorInfoPanel.Width = 280;
-        authorInfoPanel.Visible = false;
+        authorInfoPanel.Width = 320;        // Drawer 寬度
+        authorInfoPanel.Visible = true;     // Drawer 內顯示時要 visible
         authorInfoPanel.Name = "authorInfoPanel";
         //
         // tabsContent

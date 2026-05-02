@@ -57,6 +57,9 @@ public partial class GalleryControl : UserControl, IThemedControl
         return _tabViewModes.TryGetValue(page, out var mode) ? mode : GalleryViewMode.Medium;
     }
 
+    /// <summary>當前開著的 Drawer Form ref；ShowAuthorInfo 時 open，CloseRequested 時 Close。</summary>
+    private Form? _authorDrawerForm;
+
     public GalleryControl()
     {
         InitializeComponent();
@@ -64,11 +67,8 @@ public partial class GalleryControl : UserControl, IThemedControl
         // GalleryControl 自己開 DoubleBuffer：tabsContent 切換 / resize 時減抖
         DoubleBuffered = true;
 
-        // X 按下 → 隱藏 panel
-        authorInfoPanel.CloseRequested += () => authorInfoPanel.Visible = false;
-        // splitter2.Panel2 size 改變時（window resize / splitter 拖動）動態維護 panel bounds
-        // 不用 Anchor — Anchor 在 design-time 紀錄錯誤的 right offset 會讓 panel 跑到中間
-        splitter2.Panel2.SizeChanged += (s, e) => UpdateAuthorPanelBounds();
+        // X 按下 → 關掉 Drawer (drawer Form Close)
+        authorInfoPanel.CloseRequested += () => _authorDrawerForm?.Close();
 
         // 設定內容頁籤樣式
         if (tabsContent.Style is AntdUI.Tabs.StyleCard style)
@@ -291,11 +291,12 @@ public partial class GalleryControl : UserControl, IThemedControl
     }
 
     /// <summary>
-    /// 解析 path 對應的 author（透過 _metaStore），開啟 / 更新 authorInfoPanel。
-    /// 解析失敗 → 顯示「無作者資訊」訊息但 panel 仍開啟（讓使用者按 X 關掉）。
+    /// 解析 path 對應的 author，用 AntdUI.Drawer 從右邊滑出顯示。
+    /// Drawer 自帶 Mask（半透明遮罩蓋在 tabsContent 上）+ slide-in 動畫 + click-mask-close。
     /// </summary>
     private void ShowAuthorInfo(string path)
     {
+        // 1. 套資料到 authorInfoPanel
         if (_metaStore == null)
         {
             authorInfoPanel.ShowEmpty(LocalizationManager.GetString("AuthorInfoNoData") ?? "無法解析此路徑的作者資訊");
@@ -316,19 +317,27 @@ public partial class GalleryControl : UserControl, IThemedControl
                     authorInfoPanel.ShowInfo(info);
             }
         }
-        UpdateAuthorPanelBounds();
-        authorInfoPanel.Visible = true;
-        authorInfoPanel.BringToFront();
-    }
 
-    /// <summary>把 authorInfoPanel 對齊 splitter2.Panel2 右邊緣，全高、寬度 280。</summary>
-    private void UpdateAuthorPanelBounds()
-    {
-        if (authorInfoPanel == null) return;
-        var p2 = splitter2.Panel2;
-        var disp = p2.DisplayRectangle;   // 考慮 Padding(1)
-        int w = authorInfoPanel.Width;     // 280
-        authorInfoPanel.SetBounds(disp.Right - w, disp.Top, w, disp.Height);
+        // 2. 已經開著就只更新內容、不重開
+        if (_authorDrawerForm != null && !_authorDrawerForm.IsDisposed)
+        {
+            _authorDrawerForm.Activate();
+            return;
+        }
+
+        // 3. 開 Drawer
+        var ownerForm = this.FindForm();
+        if (ownerForm == null) return;
+
+        var config = new AntdUI.Drawer.Config(ownerForm, authorInfoPanel)
+        {
+            Align = AntdUI.TAlignMini.Right,
+            Mask = true,            // 半透明遮罩蓋在 tabsContent 上 — 視覺「半透明」就靠這個
+            MaskClosable = true,    // 點遮罩關閉
+            Dispose = false,        // 關閉時別 dispose authorInfoPanel，下次開重用
+            OnClose = () => _authorDrawerForm = null,
+        };
+        _authorDrawerForm = AntdUI.Drawer.open(config);
     }
 
     /// <summary>
