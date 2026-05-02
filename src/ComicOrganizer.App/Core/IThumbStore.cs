@@ -13,6 +13,9 @@ public interface IThumbStore
     /// <summary>計算 thumbs/ 整個目錄的總大小（bytes）。</summary>
     long TotalSizeBytes();
 
+    /// <summary>列舉所有實際存在的 thumb key（整性檢查用，找孤兒檔）。</summary>
+    IEnumerable<string> EnumerateAllKeys();
+
     /// <summary>清空所有 thumb 檔。完整重建用。</summary>
     void Clear();
 }

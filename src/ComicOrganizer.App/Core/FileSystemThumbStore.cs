@@ -58,6 +58,24 @@ public class FileSystemThumbStore : IThumbStore
         }
     }
 
+    public IEnumerable<string> EnumerateAllKeys()
+    {
+        if (!Directory.Exists(_rootDir)) yield break;
+        IEnumerable<string> files;
+        try
+        {
+            files = Directory.EnumerateFiles(_rootDir, "*.jpg", SearchOption.AllDirectories);
+        }
+        catch { yield break; }
+
+        foreach (var f in files)
+        {
+            // 檔名 = thumbKey + ".jpg"
+            var key = Path.GetFileNameWithoutExtension(f);
+            if (!string.IsNullOrEmpty(key)) yield return key;
+        }
+    }
+
     public long TotalSizeBytes()
     {
         if (!Directory.Exists(_rootDir)) return 0;

@@ -37,6 +37,10 @@ public class CacheWriter : IDisposable
     private int _batchesSinceLastEvictionCheck;
     private const int EvictionCheckEveryBatches = 20;
 
+    /// <summary>累計被 LRU 淘汰的 thumb 數。可被外部 snapshot 比對 delta（例如 UpdateIndex 開始/結束）。</summary>
+    private long _totalEvictedCount;
+    public long TotalEvictedCount => Interlocked.Read(ref _totalEvictedCount);
+
     public CacheWriter(IAssetMetaStore metaStore, IThumbStore thumbStore, AppConfig config)
     {
         _metaStore = metaStore;
@@ -98,7 +102,7 @@ public class CacheWriter : IDisposable
                 if (++_batchesSinceLastEvictionCheck >= EvictionCheckEveryBatches)
                 {
                     _batchesSinceLastEvictionCheck = 0;
-                    MaybeEvict();
+                    TrimToLimit();
                 }
             }
 
@@ -123,8 +127,10 @@ public class CacheWriter : IDisposable
     /// <summary>
     /// LRU eviction：算 thumbs/ 總大小，若超過 ThumbCacheMaxBytes 就分批刪最舊的 cache。
     /// 設定值為 0 視為不限制。
+    /// 由 worker thread 在 batch 寫入後自動呼叫；外部（如 UpdateIndex 結束時、設定變更時）
+    /// 也可主動呼叫做明確 trim。多執行緒下 _metaStore 用 _lock 序列化、_thumbStore 用 fs API thread-safe。
     /// </summary>
-    private void MaybeEvict()
+    public void TrimToLimit()
     {
         long limit = _config.ThumbCacheMaxBytes;
         if (limit <= 0) return;
@@ -163,8 +169,13 @@ public class CacheWriter : IDisposable
                             catch { }
                             _thumbStore.Delete(v.CoverThumbKey);
                         }
-                        _metaStore.Delete(v.Path);
+                        // 保留 DB row 當 catalog，只清 thumb 相關欄位 — 下次 ListLruVictims 不會再選到這筆
+                        v.CoverThumbKey = null;
+                        v.CoverWidth = null;
+                        v.CoverHeight = null;
+                        _metaStore.Upsert(v);
                         evictedCount++;
+                        Interlocked.Increment(ref _totalEvictedCount);
                     }
                 });
 

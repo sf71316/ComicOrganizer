@@ -18,6 +18,7 @@ public partial class MainForm : Window, IThemedControl
     private readonly IThumbStore _thumbStore;
     private readonly CacheWriter _cacheWriter;
     private readonly CacheRebuildService _rebuildService;
+    private readonly CacheIntegrityChecker _integrityChecker;
     private readonly RebuildProgressTracker _rebuildTracker;
 
     public MainForm()
@@ -44,7 +45,8 @@ public partial class MainForm : Window, IThemedControl
         _cacheWriter = new CacheWriter(_metaStore, _thumbStore, _config);
         _coverManager.AttachCache(_metaStore, _thumbStore, _cacheWriter);
         _rebuildTracker = new RebuildProgressTracker(_metaStore);
-        _rebuildService = new CacheRebuildService(_config, _coverManager, _metaStore, _thumbStore, _rebuildTracker);
+        _integrityChecker = new CacheIntegrityChecker(_metaStore, _thumbStore, _rebuildTracker);
+        _rebuildService = new CacheRebuildService(_config, _coverManager, _metaStore, _thumbStore, _integrityChecker, _rebuildTracker, _cacheWriter);
         // Tracker 改變時，statusBar 自動同步顯示（背景任務全域可見）
         _rebuildTracker.StateChanged += (s, e) => UpdateStatusFromTracker();
 
