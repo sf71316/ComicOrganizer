@@ -209,6 +209,8 @@ partial class AuthorInfoPanel
         Controls.Add(headerPanel);    // Dock.Top 先 add
         Controls.Add(lblEmpty);       // 最上層，預設隱藏；ShowEmpty 時 BringToFront
         Name = "AuthorInfoPanel";
+        // Padding=1 讓 OnPaint 畫的 1px 外框不被 headerPanel / contentPanel 蓋掉
+        Padding = new System.Windows.Forms.Padding(1);
         Size = new System.Drawing.Size(280, 600);
 
         layout.ResumeLayout(false);
