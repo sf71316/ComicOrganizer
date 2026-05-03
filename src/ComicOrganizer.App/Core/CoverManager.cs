@@ -470,22 +470,18 @@ public class CoverManager
             System.Drawing.Imaging.PixelFormat.Format32bppArgb);
         try
         {
-            int rowBytes = width * 4;
-            byte[] pixels = new byte[rowBytes * height];
-            imgSharp.CopyPixelDataTo(pixels);
-
-            if (bmpData.Stride == rowBytes)
+            unsafe
             {
-                Marshal.Copy(pixels, 0, bmpData.Scan0, pixels.Length);
-            }
-            else
-            {
-                // stride padding 對齊：逐 row 拷貝
-                for (int y = 0; y < height; y++)
+                imgSharp.ProcessPixelRows(accessor =>
                 {
-                    Marshal.Copy(pixels, y * rowBytes,
-                        IntPtr.Add(bmpData.Scan0, y * bmpData.Stride), rowBytes);
-                }
+                    for (int y = 0; y < height; y++)
+                    {
+                        var sourceRow = accessor.GetRowSpan(y);
+                        var targetRowPtr = (Bgra32*)(bmpData.Scan0 + y * bmpData.Stride);
+                        var targetRowSpan = new Span<Bgra32>(targetRowPtr, width);
+                        sourceRow.CopyTo(targetRowSpan);
+                    }
+                });
             }
         }
         finally
