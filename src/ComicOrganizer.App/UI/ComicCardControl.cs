@@ -158,25 +158,23 @@ public partial class ComicCardControl : UserControl
             RadiusAlign = AntdUI.TAlignRound.Top,
             Visible = false,
         };
+        // 改用 AntdUI 內建 SVG icon set + 各別著色（彩色 emoji 在 GDI/GDI+ 兩條 WinForms 路徑都不可靠）。
+        // 每個 icon 單色，但顏色組合（黃資料夾、綠勾、紅停）視覺上接近彩色 emoji 的差異性
         typeIconLbl = new System.Windows.Forms.Label
         {
             Dock = DockStyle.Left,
             Width = 28,
-            Text = IsFolderNode ? "📁" : "📄",
-            Font = new Font("Segoe UI Emoji", 11F),
-            TextAlign = ContentAlignment.MiddleCenter,
             BackColor = Color.Transparent,
-            ForeColor = Color.White,
+            ImageAlign = ContentAlignment.MiddleCenter,
+            Image = RenderTypeIcon(IsFolderNode),
         };
         readStatusLbl = new System.Windows.Forms.Label
         {
             Dock = DockStyle.Right,
             Width = 28,
-            Text = "",   // 由 RefreshReadStatusIcon 填
-            Font = new Font("Segoe UI Emoji", 11F),
-            TextAlign = ContentAlignment.MiddleCenter,
             BackColor = Color.Transparent,
-            ForeColor = Color.White,
+            ImageAlign = ContentAlignment.MiddleCenter,
+            // Image 由 RefreshReadStatusIcon 填
         };
         typeStrip.Controls.Add(readStatusLbl);
         typeStrip.Controls.Add(typeIconLbl);
@@ -260,13 +258,48 @@ public partial class ComicCardControl : UserControl
     {
         if (readStatusLbl == null) return;
         var status = ReadStatusProvider?.Invoke(ItemPath);
-        readStatusLbl.Text = status switch
+        var oldImg = readStatusLbl.Image;
+        readStatusLbl.Image = RenderStatusIcon(status);
+        if (oldImg != null && !ReferenceEquals(oldImg, readStatusLbl.Image)) oldImg.Dispose();
+    }
+
+    private const int IconSize = 16;
+    private const int SuperSampleFactor = 3;   // SVG 在 16×16 太小 anti-alias 不夠 → 3× 渲染再 HQ 下縮
+
+    // typeStrip 是半透明黑底（120,0,0,0），icon 顏色挑高飽和度的避免被吃進背景
+    private static Image? RenderTypeIcon(bool isFolder)
+    {
+        return isFolder
+            ? RenderSmoothSvg("FolderFilled", Color.FromArgb(255, 197, 0))      // amber 黃
+            : RenderSmoothSvg("FileFilled", Color.FromArgb(255, 255, 255));
+    }
+    private static Image? RenderStatusIcon(ReadStatus? status)
+    {
+        return status switch
         {
-            ReadStatus.Reading => "📖",
-            ReadStatus.Completed => "✅",
-            ReadStatus.Dropped => "⏹",
-            _ => "",   // Unread / null：不顯示 icon
+            ReadStatus.Reading   => RenderSmoothSvg("EyeFilled",      Color.FromArgb(166, 204, 110)),
+            ReadStatus.Completed => RenderSmoothSvg("CheckCircleFilled", Color.FromArgb(82, 196, 26)),
+            ReadStatus.Dropped   => RenderSmoothSvg("StopFilled",        Color.FromArgb(245, 34, 45)),
+            _ => null,
         };
+    }
+
+    /// <summary>
+    /// SVG → 高品質 Bitmap：先以 IconSize × SuperSampleFactor 渲染，再用 HighQualityBicubic
+    /// 縮回 IconSize 取得平滑邊緣。直接在 16×16 渲染 anti-alias 樣本太少邊緣會鋸齒。
+    /// </summary>
+    private static Bitmap? RenderSmoothSvg(string key, Color color)
+    {
+        int big = IconSize * SuperSampleFactor;
+        using var hi = AntdUI.SvgExtend.SvgToBmp(key, big, big, color);
+        if (hi == null) return null;
+        var bmp = new Bitmap(IconSize, IconSize, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using var g = Graphics.FromImage(bmp);
+        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+        g.DrawImage(hi, new Rectangle(0, 0, IconSize, IconSize));
+        return bmp;
     }
 
     /// <summary>
