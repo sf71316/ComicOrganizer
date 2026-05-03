@@ -34,6 +34,11 @@ public partial class ReaderForm : Window, IThemedControl
     private float _customZoom = 1.0f;
     private const float MinZoom = 0.1f, MaxZoom = 8.0f;
 
+    // Continuous mode 狀態（_viewMode == ContinuousScroll 時才有效）
+    private ContinuousLayout? _layout;
+    private readonly System.Windows.Forms.Timer _scrollDebounce = new() { Interval = 500 };
+    private bool IsContinuous => _viewMode == ReaderViewMode.ContinuousScroll;
+
     // 預讀 cache：頁 index → 已 decode bitmap（單頁原圖）
     private readonly Dictionary<int, Image> _cache = new();
     private readonly HashSet<int> _loading = new();
@@ -128,21 +133,52 @@ public partial class ReaderForm : Window, IThemedControl
 
     private void WireEvents()
     {
+        // sliderZoom 範圍直接引用 ContinuousLayout 的 MinZoom/MaxZoom 常數，避免兩處不同步
+        sliderZoom.SetMinMax(
+            (int)(ContinuousLayout.MinZoom * 100),
+            (int)(ContinuousLayout.MaxZoom * 100));
+        sliderZoom.Value = (sliderZoom.MinValue + sliderZoom.MaxValue) / 2;   // 預設 slider 中央
+
         btnFullscreen.Click += (s, e) => ToggleFullscreen();
         segViewMode.SelectIndexChanged += (s, e) => OnViewModeChanged(e.Value);
         segZoomMode.SelectIndexChanged += (s, e) => OnZoomModeChanged(e.Value);
+        sliderZoom.ValueChanged += (s, e) => OnSliderZoomChanged();
+        switchSeamless.CheckedChanged += (s, e) => OnSeamlessChanged();
 
         KeyDown += OnKeyDown;
         // wheel 處理：Ctrl+wheel 縮放；FitPage 模式 plain wheel 翻頁；其他模式讓 panel 處理捲動
         scrollHost.MouseWheel += OnContentMouseWheel;
         picPage.MouseWheel += OnContentMouseWheel;
 
+        // Continuous 模式：scrollHost 捲動 → 更新當前頁與 cache window
+        scrollHost.Scroll += (s, e) => { if (IsContinuous) UpdateContinuousState(); };
+        // 拖捲軸停止 500ms 後寫進度（避免每個 scroll event 都打 DB）
+        _scrollDebounce.Tick += (s, e) =>
+        {
+            _scrollDebounce.Stop();
+            if (!IsDisposed && IsContinuous) SaveProgress();
+        };
+
         FormClosing += (s, e) =>
         {
             SaveProgress();   // 關閉時保存最終頁碼
             DisposeAllPages();
         };
-        scrollHost.Resize += (s, e) => LayoutPic();
+        scrollHost.Resize += (s, e) =>
+        {
+            if (IsContinuous && _layout != null)
+            {
+                // viewport 寬變動 → page 高度全部按比例變動 → 同一 scrollY 對應的內容會偏移
+                // 先記下當前 viewport top 對應的頁，resize 後 ScrollTo 該頁頂部維持視覺位置
+                int oldScrollY = -scrollHost.AutoScrollPosition.Y;
+                int focusPage = _layout.FindPageAtY(oldScrollY);
+                LayoutPic();
+                if (focusPage >= 0) ScrollContinuousTo(_layout.GetPageY(focusPage));
+                else UpdateContinuousState();
+                return;
+            }
+            LayoutPic();
+        };
     }
 
     /// <summary>把 _currentIndex 寫進 asset_meta.last_page（僅在頁碼變動時寫入）。</summary>
@@ -201,7 +237,24 @@ public partial class ReaderForm : Window, IThemedControl
     {
         if ((Control.ModifierKeys & Keys.Control) != 0)
         {
+            // Continuous 模式 Ctrl+wheel 走 slider 而非 _customZoom
+            if (IsContinuous && _layout != null)
+            {
+                int step = e.Delta > 0 ? 5 : -5;
+                int v = Math.Clamp(sliderZoom.Value + step, sliderZoom.MinValue, sliderZoom.MaxValue);
+                sliderZoom.Value = v;
+                return;
+            }
             AdjustCustomZoom(e.Delta > 0 ? 1.1f : 1f / 1.1f);
+            return;
+        }
+        if (IsContinuous)
+        {
+            // picPage 不是 ScrollableControl，wheel 不會自動 bubble 給 scrollHost；
+            // 手動把 wheel 轉成 scrollHost 的 AutoScroll 位移，並觸發 UpdateContinuousState 預讀新頁
+            int scrollY = -scrollHost.AutoScrollPosition.Y;
+            int newY = Math.Max(0, scrollY - e.Delta);   // wheel up (Delta>0) → scrollY 減
+            ScrollContinuousTo(newY);
             return;
         }
         if (_zoomMode == ReaderZoomMode.FitPage)
@@ -235,20 +288,80 @@ public partial class ReaderForm : Window, IThemedControl
             case Keys.F11: case Keys.F: case Keys.Enter: ToggleFullscreen(); break;
             // ←/→ 翻頁只在 Single/Dual 生效；Continuous 模式留給捲動 / ↑↓ 不攔截走 scrollHost 預設
             case Keys.Left:
-                if (_viewMode == ReaderViewMode.ContinuousScroll) return;
+                if (IsContinuous) return;
                 StepSpread(_rtl ? +1 : -1);
                 break;
             case Keys.Right:
-                if (_viewMode == ReaderViewMode.ContinuousScroll) return;
+                if (IsContinuous) return;
                 StepSpread(_rtl ? -1 : +1);
                 break;
-            case Keys.PageUp: case Keys.Back: StepSpread(-1); break;
-            case Keys.PageDown: case Keys.Space: StepSpread(+1); break;
-            case Keys.Home: GoToPage(0); break;
-            case Keys.End: GoToPage(_source.PageCount - 1); break;
+            case Keys.PageUp: case Keys.Back:
+                if (IsContinuous) SmartPageUp();
+                else StepSpread(-1);
+                break;
+            case Keys.PageDown: case Keys.Space:
+                if (IsContinuous) SmartPageDown();
+                else StepSpread(+1);
+                break;
+            case Keys.Home:
+                if (IsContinuous) ScrollContinuousTo(0);
+                else GoToPage(0);
+                break;
+            case Keys.End:
+                if (IsContinuous) ScrollContinuousTo(_layout?.TotalHeight ?? 0);
+                else GoToPage(_source.PageCount - 1);
+                break;
             default: return;
         }
         e.Handled = true;
+    }
+
+    private void OnSliderZoomChanged()
+    {
+        if (_layout == null) return;
+        float zoom = sliderZoom.Value / 100f;
+        // 保存當前 viewport 中心對應的頁，zoom 後 ScrollTo 維持「視覺中心頁」不變
+        int scrollY = -scrollHost.AutoScrollPosition.Y;
+        int viewH = scrollHost.ClientSize.Height;
+        int focusPage = _layout.FindPageAtY(scrollY + viewH / 2);
+        _layout.SetZoom(zoom);
+        LayoutPic();
+        if (focusPage >= 0) ScrollContinuousTo(_layout.GetPageY(focusPage));
+        picPage.Invalidate();
+        UpdateStatusBar();
+    }
+
+    private void ScrollContinuousTo(int y)
+    {
+        // AutoScrollPosition 設值時 WinForms 會自動把它轉成負值內部存
+        y = Math.Max(0, Math.Min(y, _layout?.TotalHeight ?? y));
+        scrollHost.AutoScrollPosition = new Point(0, y);
+        UpdateContinuousState();
+    }
+
+    private void SmartPageDown()
+    {
+        if (_layout == null) return;
+        int scrollY = -scrollHost.AutoScrollPosition.Y;
+        int viewH = scrollHost.ClientSize.Height;
+        int next = _layout.NextPageBoundary(scrollY);
+        // 接近下一頁邊界（≤1.1×viewH）→ 對齊；否則滾 90% viewport（長條漫情境）
+        int target = (next - scrollY) <= (int)(viewH * 1.1)
+            ? next
+            : scrollY + (int)(viewH * 0.9);
+        ScrollContinuousTo(target);
+    }
+
+    private void SmartPageUp()
+    {
+        if (_layout == null) return;
+        int scrollY = -scrollHost.AutoScrollPosition.Y;
+        int viewH = scrollHost.ClientSize.Height;
+        int prev = _layout.PrevPageBoundary(scrollY);
+        int target = (scrollY - prev) <= (int)(viewH * 1.1)
+            ? prev
+            : Math.Max(0, scrollY - (int)(viewH * 0.9));
+        ScrollContinuousTo(target);
     }
 
     private void ResetZoom()
@@ -291,6 +404,18 @@ public partial class ReaderForm : Window, IThemedControl
     /// 自然大小取 _leftImage + _rightImage 的併排寬度；單頁時 _rightImage 為 null。</summary>
     private void LayoutPic()
     {
+        if (IsContinuous && _layout != null)
+        {
+            int contW = scrollHost.ClientSize.Width;
+            if (contW <= 0) return;
+            _layout.SetViewportWidth(contW);
+            // picPage 跨足整個 layout，AutoScroll 自動長 vertical scrollbar
+            picPage.Size = new Size(_layout.ContentWidth, Math.Max(1, _layout.TotalHeight));
+            picPage.Location = new Point(Math.Max(0, (contW - _layout.ContentWidth) / 2), 0);
+            // 注意：state 同步交給呼叫者 — 因為若 layout 剛 Recalc 但 scroll 還沒對齊，
+            // 在這裡 UpdateContinuousState 會用「舊 scrollY × 新 yOffset」算出錯誤可見範圍
+            return;
+        }
         if (_leftImage == null) return;
         if (scrollHost.ClientSize.Width <= 0 || scrollHost.ClientSize.Height <= 0) return;
 
@@ -349,17 +474,60 @@ public partial class ReaderForm : Window, IThemedControl
             _ => ReaderViewMode.SinglePage,
         };
         if (newMode == _viewMode) return;
-        if (newMode == ReaderViewMode.ContinuousScroll)
-        {
-            // Phase 1.2b 才實作 — 暫時 fallback 回上一個 mode
-            segViewMode.SelectIndex = _viewMode == ReaderViewMode.SinglePage ? 0 : 1;
-            AntdUI.Message.info(this, "連續捲動模式 Phase 1.2b 實作中");
-            return;
-        }
+
+        var prevMode = _viewMode;
         _viewMode = newMode;
-        // 切換 mode 後重新對齊 spread 起始 + 重 render
-        _currentIndex = SpreadStart(_currentIndex);
-        GoToPage(_currentIndex);
+
+        // toolbar 切換：Continuous 隱藏 segZoomMode、顯示 sliderZoom + switchSeamless；反之亦然
+        bool toContinuous = newMode == ReaderViewMode.ContinuousScroll;
+        segZoomMode.Visible = !toContinuous;
+        sliderZoom.Visible = toContinuous;
+        switchSeamless.Visible = toContinuous;
+        lblSeamless.Visible = toContinuous;
+
+        if (toContinuous)
+        {
+            // 進 Continuous：建立 layout、釋放 single/dual 的 image ref（cache 仍保留）
+            _leftImage = null;
+            _rightImage = null;
+            _layout = new ContinuousLayout(_source.PageCount, scrollHost.ClientSize.Width);
+            _layout.Gap = switchSeamless.Checked ? 0 : ContinuousLayout.PageGap;
+            // 已 cache 的頁可立即 SetMeasured
+            lock (_cacheLock)
+            {
+                foreach (var (idx2, img) in _cache) _layout.SetMeasured(idx2, img.Width, img.Height);
+            }
+            // slider 預設停在中央位置，對應 zoom = 中間值
+            int defaultVal = (sliderZoom.MinValue + sliderZoom.MaxValue) / 2;
+            sliderZoom.Value = defaultVal;
+            _layout.SetZoom(defaultVal / 100f);
+            LayoutPic();
+            // 跳到當前頁的 yOffset
+            ScrollContinuousTo(_layout.GetPageY(_currentIndex));
+            picPage.Invalidate();
+            UpdateStatusBar();
+        }
+        else
+        {
+            // 離 Continuous：丟掉 layout，回 single/dual 的 spread 對齊重 render
+            _layout = null;
+            scrollHost.AutoScrollPosition = new Point(0, 0);
+            _currentIndex = SpreadStart(_currentIndex);
+            GoToPage(_currentIndex);
+        }
+    }
+
+    private void OnSeamlessChanged()
+    {
+        if (_layout == null) return;
+        // 保存當前 viewport 中心對應頁，gap 改變後 ScrollTo 維持視覺中心
+        int scrollY = -scrollHost.AutoScrollPosition.Y;
+        int viewH = scrollHost.ClientSize.Height;
+        int focusPage = _layout.FindPageAtY(scrollY + viewH / 2);
+        _layout.Gap = switchSeamless.Checked ? 0 : ContinuousLayout.PageGap;
+        LayoutPic();
+        if (focusPage >= 0) ScrollContinuousTo(_layout.GetPageY(focusPage));
+        picPage.Invalidate();
     }
 
     /// <summary>取得 spread 的起始頁（雙頁模式對齊用）。</summary>
@@ -408,6 +576,13 @@ public partial class ReaderForm : Window, IThemedControl
     private void GoToPage(int index)
     {
         if (index < 0 || index >= _source.PageCount) return;
+        if (IsContinuous && _layout != null)
+        {
+            _currentIndex = index;
+            ScrollContinuousTo(_layout.GetPageY(index));
+            // UpdateContinuousState 會在 ScrollContinuousTo 內更新 cache 與 _currentIndex
+            return;
+        }
         _currentIndex = SpreadStart(index);
 
         UpdatePageInfo();
@@ -459,21 +634,39 @@ public partial class ReaderForm : Window, IThemedControl
 
         if (IsDisposed) { img.Dispose(); return; }
 
+        // 先把尺寸抓出來：UpdateContinuousState 可能在 BeginInvoke 之前 evict 並 Dispose 掉 img，
+        // 此時於 marshaled 回 UI thread 後再讀 img.Width 會拋 ArgumentException。
+        int natW = img.Width;
+        int natH = img.Height;
+
         lock (_cacheLock)
         {
             _loading.Remove(index);
             _cache[index] = img;
         }
 
-        // 永遠檢查：載完的頁如果屬於當前 spread 就觸發重 render
-        // （原本用 makeVisible 旗標區分 preload vs visible 載入會 race —
-        //  preload 在背景跑時若使用者翻到該頁，dedup 後不再啟新 task、
-        //  原 preload 完成卻不 fire UI，UI 卡在「讀取中」）
+        // Continuous 模式：通知 layout 真實尺寸，TotalHeight 可能變動 → 重設 picPage 大小 + Invalidate 該頁區域
         try
         {
             BeginInvoke(() =>
             {
                 if (IsDisposed) return;
+                if (IsContinuous && _layout != null)
+                {
+                    _layout.SetMeasured(index, natW, natH);
+                    // TotalHeight 改變 → resize picPage（會自動觸發 Invalidate）
+                    int newH = Math.Max(1, _layout.TotalHeight);
+                    if (picPage.Height != newH) picPage.Size = new Size(_layout.ContentWidth, newH);
+                    // SetMeasured 後 yOffset 整體位移 — 重新校準 cache window，
+                    // 否則新可見範圍的頁可能停在「讀取中」永不被觸發 LoadPageAsync
+                    UpdateContinuousState();
+                    picPage.Invalidate();
+                    return;
+                }
+                // Single/Dual：載完的頁屬於當前 spread 就觸發重 render
+                // （原本用 makeVisible 旗標區分 preload vs visible 載入會 race —
+                //  preload 在背景跑時若使用者翻到該頁，dedup 後不再啟新 task、
+                //  原 preload 完成卻不 fire UI，UI 卡在「讀取中」）
                 int start = SpreadStart(_currentIndex);
                 int size = SpreadSize(start);
                 if (index >= start && index < start + size) TryRenderCurrentSpread();
@@ -525,9 +718,15 @@ public partial class ReaderForm : Window, IThemedControl
     }
 
     /// <summary>picPage 自畫：依 _leftImage / _rightImage 直接 DrawImage 縮放，
-    /// 不需事先 composite 整張 bitmap，避免大圖每翻一頁都 alloc/dispose 數百 MB。</summary>
+    /// 不需事先 composite 整張 bitmap，避免大圖每翻一頁都 alloc/dispose 數百 MB。
+    /// Continuous 模式走 DrawContinuous 分支多頁堆疊。</summary>
     private void OnPicPagePaint(object? sender, PaintEventArgs e)
     {
+        if (IsContinuous && _layout != null)
+        {
+            DrawContinuous(e);
+            return;
+        }
         if (_leftImage == null) return;
         var g = e.Graphics;
         g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
@@ -556,6 +755,82 @@ public partial class ReaderForm : Window, IThemedControl
         g.DrawImage(_rightImage, new Rectangle(leftW + Gap, rightY, rightW, rightH));
     }
 
+    /// <summary>Continuous 模式繪製：clip 範圍內的可見頁逐張畫到對應 yOffset。</summary>
+    private void DrawContinuous(PaintEventArgs e)
+    {
+        if (_layout == null) return;
+        var g = e.Graphics;
+        g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+        var clip = e.ClipRectangle;
+        var (first, last) = _layout.GetVisibleRange(clip.Top, clip.Bottom);
+        if (first < 0) return;
+        int contentW = _layout.ContentWidth;
+        for (int i = first; i <= last; i++)
+        {
+            Image? img;
+            lock (_cacheLock) { _cache.TryGetValue(i, out img); }
+            int y = _layout.GetPageY(i);
+            int h = _layout.GetPageHeight(i);
+            if (img == null)
+            {
+                // 未 decode：畫淺色佔位 + 「載入中」字樣
+                using var brush = new SolidBrush(Color.FromArgb(80, 80, 80));
+                g.FillRectangle(brush, 0, y, contentW, h);
+                using var sf = new StringFormat
+                {
+                    Alignment = StringAlignment.Center,
+                    LineAlignment = StringAlignment.Center,
+                };
+                g.DrawString("讀取中…", lblStatus.Font, Brushes.White, new RectangleF(0, y, contentW, h), sf);
+                continue;
+            }
+            g.DrawImage(img, new Rectangle(0, y, contentW, h));
+        }
+    }
+
+    /// <summary>scroll / zoom / GoToPage 後同步狀態：更新 _currentIndex、cache window、TryRecord。</summary>
+    private void UpdateContinuousState()
+    {
+        if (_layout == null) return;
+        int scrollY = -scrollHost.AutoScrollPosition.Y;
+        int viewH = scrollHost.ClientSize.Height;
+        int center = scrollY + viewH / 2;
+        int pageIdx = _layout.FindPageAtY(center);
+        if (pageIdx >= 0 && pageIdx != _currentIndex)
+        {
+            _currentIndex = pageIdx;
+            _pagesVisited++;
+            UpdatePageInfo();
+            UpdateStatusBar();
+            TryRecordRead();
+        }
+        // visible window cache（含 ±PreloadRadius）
+        var (first, last) = _layout.GetVisibleRange(scrollY, scrollY + viewH);
+        if (first >= 0) UpdateContinuousCacheWindow(first, last);
+        // 看到末頁 → Auto Completed
+        if (last >= _source.PageCount - 1) TryAutoComplete();
+        // SaveProgress 走 debounce
+        _scrollDebounce.Stop();
+        _scrollDebounce.Start();
+    }
+
+    private void UpdateContinuousCacheWindow(int first, int last)
+    {
+        int lo = Math.Max(0, first - PreloadRadius);
+        int hi = Math.Min(_source.PageCount - 1, last + PreloadRadius);
+        List<int> toEvict;
+        lock (_cacheLock)
+        {
+            toEvict = _cache.Keys.Where(k => k < lo || k > hi).ToList();
+            foreach (var k in toEvict)
+            {
+                if (_cache.TryGetValue(k, out var img)) { img.Dispose(); _cache.Remove(k); }
+            }
+        }
+        for (int i = lo; i <= hi; i++) _ = LoadPageAsync(i);
+    }
+
     /// <summary>釋放 spread 視窗 ± PreloadRadius 之外的 cache。</summary>
     private void EvictOutsideWindow(int spreadSize)
     {
@@ -580,6 +855,8 @@ public partial class ReaderForm : Window, IThemedControl
     {
         _recordCheckTimer.Stop();
         _recordCheckTimer.Dispose();
+        _scrollDebounce.Stop();
+        _scrollDebounce.Dispose();
         _leftImage = null;
         _rightImage = null;
         lock (_cacheLock)
@@ -621,7 +898,8 @@ public partial class ReaderForm : Window, IThemedControl
     private void UpdatePageInfo()
     {
         int start = _currentIndex;
-        int size = SpreadSize(start);
+        // Continuous 永遠單頁顯示
+        int size = IsContinuous ? 1 : SpreadSize(start);
         var pageStr = size == 1
             ? $"{start + 1} / {_source.PageCount}"
             : $"{start + 1}-{start + 2} / {_source.PageCount}";
@@ -632,8 +910,6 @@ public partial class ReaderForm : Window, IThemedControl
     private void UpdateStatusBar()
     {
         var name = _source.GetPageName(_currentIndex);
-        // 顯示「主」頁尺寸（雙頁模式 = leftImg；single mode 也是 leftImg）
-        var dim = _leftImage != null ? $"{_leftImage.Width}×{_leftImage.Height}" : "-";
         var dir = _rtl ? "RTL" : "LTR";
         var mode = _viewMode switch
         {
@@ -642,6 +918,14 @@ public partial class ReaderForm : Window, IThemedControl
             ReaderViewMode.ContinuousScroll => "捲動",
             _ => "",
         };
+        if (IsContinuous)
+        {
+            var zoomPct = sliderZoom.Value;
+            lblStatus.Text = $"{name}    {dir}    {mode}    {zoomPct}%";
+            return;
+        }
+        // 顯示「主」頁尺寸（雙頁模式 = leftImg；single mode 也是 leftImg）
+        var dim = _leftImage != null ? $"{_leftImage.Width}×{_leftImage.Height}" : "-";
         var zoomLabel = _zoomMode switch
         {
             ReaderZoomMode.FitPage => "適合頁",

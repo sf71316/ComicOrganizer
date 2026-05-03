@@ -17,15 +17,16 @@ public class ContinuousLayout
     /// <summary>未量測頁的估計高 = ContentWidth × 此比例。漫畫頁常見 1.4。</summary>
     public const float DefaultAspect = 1.4f;
 
-    /// <summary>頁與頁之間的間距 (px)。</summary>
+    /// <summary>頁與頁之間的預設間距 (px)。"無隔間" 模式時切到 0。</summary>
     public const int PageGap = 8;
 
-    public const float MinZoom = 0.5f;
-    public const float MaxZoom = 2.0f;
+    public const float MinZoom =0.2f;
+    public const float MaxZoom = 1.2f;
 
     private readonly int _pageCount;
     private int _viewportW;
     private float _zoom = 1.0f;
+    private int _gap = PageGap;
 
     private readonly int[] _yOffset;
     private readonly int[] _height;
@@ -50,6 +51,19 @@ public class ContinuousLayout
     public float Zoom => _zoom;
     public int ContentWidth => Math.Max(1, (int)(_viewportW * _zoom));
     public int TotalHeight { get; private set; }
+
+    /// <summary>頁間距 (px)。0 = 無隔間（圖片緊貼）。設值會 Recalc。</summary>
+    public int Gap
+    {
+        get => _gap;
+        set
+        {
+            var v = Math.Max(0, value);
+            if (v == _gap) return;
+            _gap = v;
+            Recalc();
+        }
+    }
 
     public int GetPageY(int idx) =>
         idx < 0 || idx >= _pageCount ? 0 : _yOffset[idx];
@@ -155,9 +169,9 @@ public class ContinuousLayout
                 h = Math.Max(1, (int)(ContentWidth * DefaultAspect));
             }
             _height[i] = h;
-            y += h + PageGap;
+            y += h + _gap;
         }
         // 最後一頁不算 gap
-        TotalHeight = _pageCount > 0 ? y - PageGap : 0;
+        TotalHeight = _pageCount > 0 ? y - _gap : 0;
     }
 }

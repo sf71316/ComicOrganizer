@@ -8,6 +8,9 @@ partial class ReaderForm
     private System.Windows.Forms.Panel toolbar;
     private AntdUI.Segmented segViewMode;
     private AntdUI.Segmented segZoomMode;
+    private AntdUI.Slider sliderZoom;       // 連續捲動模式時顯示，取代 segZoomMode
+    private AntdUI.Switch switchSeamless;   // 連續捲動模式：開啟 = 圖與圖無隔間
+    private System.Windows.Forms.Label lblSeamless;
     private AntdUI.Button btnFullscreen;
     private System.Windows.Forms.Panel scrollHost;
     private System.Windows.Forms.PictureBox picPage;
@@ -32,6 +35,9 @@ partial class ReaderForm
         toolbar = new System.Windows.Forms.Panel();
         btnFullscreen = new AntdUI.Button();
         segZoomMode = new AntdUI.Segmented();
+        sliderZoom = new AntdUI.Slider();
+        switchSeamless = new AntdUI.Switch();
+        lblSeamless = new System.Windows.Forms.Label();
         segViewMode = new AntdUI.Segmented();
         scrollHost = new System.Windows.Forms.Panel();
         picPage = new System.Windows.Forms.PictureBox();
@@ -72,6 +78,9 @@ partial class ReaderForm
         // toolbar
         //
         toolbar.Controls.Add(btnFullscreen);
+        toolbar.Controls.Add(switchSeamless);
+        toolbar.Controls.Add(lblSeamless);
+        toolbar.Controls.Add(sliderZoom);
         toolbar.Controls.Add(segZoomMode);
         toolbar.Controls.Add(segViewMode);
         toolbar.Dock = System.Windows.Forms.DockStyle.Top;
@@ -98,6 +107,35 @@ partial class ReaderForm
         segZoomMode.Name = "segZoomMode";
         segZoomMode.SelectIndex = 0;
         segZoomMode.Size = new System.Drawing.Size(150, 32);
+        //
+        // sliderZoom — Continuous 模式才顯示，預設 hidden 與 segZoomMode 重疊位置
+        //
+        sliderZoom.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right;
+        sliderZoom.Location = new System.Drawing.Point(820, 4);
+        sliderZoom.Name = "sliderZoom";
+        sliderZoom.ShowValue = true;
+        sliderZoom.Size = new System.Drawing.Size(150, 32);
+        sliderZoom.Visible = false;
+        //
+        // switchSeamless — Continuous 模式才顯示
+        //
+        switchSeamless.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left;
+        switchSeamless.Location = new System.Drawing.Point(74, 6);
+        switchSeamless.Name = "switchSeamless";
+        switchSeamless.Size = new System.Drawing.Size(44, 28);
+        switchSeamless.Visible = false;
+        //
+        // lblSeamless
+        //
+        lblSeamless.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left;
+        lblSeamless.AutoSize = false;
+        lblSeamless.Font = new System.Drawing.Font("Microsoft JhengHei UI", 9F);
+        lblSeamless.Location = new System.Drawing.Point(8, 8);
+        lblSeamless.Name = "lblSeamless";
+        lblSeamless.Size = new System.Drawing.Size(64, 24);
+        lblSeamless.Text = "無隔間";
+        lblSeamless.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+        lblSeamless.Visible = false;
         //
         // segViewMode
         //

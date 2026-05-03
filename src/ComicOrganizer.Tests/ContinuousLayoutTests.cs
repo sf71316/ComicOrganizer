@@ -101,20 +101,36 @@ public class ContinuousLayoutTests
         var layout = new ContinuousLayout(2, 800);
         layout.SetMeasured(0, 1000, 1500);   // h = 1200 at zoom 1.0
 
-        layout.SetZoom(0.5f);
-        // ContentWidth = 800 × 0.5 = 400 → h = 1500 × 400/1000 = 600
-        Assert.Equal(400, layout.ContentWidth);
-        Assert.Equal(600, layout.GetPageHeight(0));
+        // zoom 1.0 = 預設 FitWidth
+        Assert.Equal(800, layout.ContentWidth);
+        Assert.Equal(1200, layout.GetPageHeight(0));
 
-        layout.SetZoom(2.0f);
-        Assert.Equal(1600, layout.ContentWidth);
-        Assert.Equal(2400, layout.GetPageHeight(0));
+        layout.SetZoom(1.5f);
+        // ContentWidth = 800 × 1.5 = 1200 → h = 1500 × 1200/1000 = 1800
+        Assert.Equal(1200, layout.ContentWidth);
+        Assert.Equal(1800, layout.GetPageHeight(0));
 
-        // 範圍 clamp
+        // 範圍 clamp 由常數決定（避免測試與 source 不同步）
         layout.SetZoom(10f);
-        Assert.Equal(2.0f, layout.Zoom);
+        Assert.Equal(ContinuousLayout.MaxZoom, layout.Zoom);
         layout.SetZoom(0.01f);
-        Assert.Equal(0.5f, layout.Zoom);
+        Assert.Equal(ContinuousLayout.MinZoom, layout.Zoom);
+    }
+
+    [Fact]
+    public void Gap_DefaultIsPageGap_AndChangeRecalcsTotalHeight()
+    {
+        var layout = new ContinuousLayout(3, 800);
+        Assert.Equal(ContinuousLayout.PageGap, layout.Gap);
+        int totalWithGap = layout.TotalHeight;
+
+        layout.Gap = 0;   // 無隔間模式
+        Assert.Equal(0, layout.Gap);
+        // TotalHeight 應減少 (pageCount-1) × gap
+        Assert.Equal(totalWithGap - ContinuousLayout.PageGap * 2, layout.TotalHeight);
+
+        // 第二頁起點應緊接第一頁結尾
+        Assert.Equal(layout.GetPageHeight(0), layout.GetPageY(1));
     }
 
     [Fact]
