@@ -9,6 +9,8 @@ public partial class MainForm : Window, IThemedControl
 {
     private readonly ConfigManager _configManager;
     private AppConfig _config;
+    private readonly UserPreferencesManager _prefsManager;
+    private UserPreferences _prefs;
     private readonly MappingIntelligence _intelligence;
     private readonly ArchiveOrganizer _organizer;
     private readonly CoverManager _coverManager;
@@ -27,8 +29,11 @@ public partial class MainForm : Window, IThemedControl
         // InitializeComponent 內 Designer 設 BackColor = ThemeColors.X 取得正確色（不會被系統 DPI 鎖到 Dark）
         _configManager = new ConfigManager();
         _config = _configManager.Load();
-        LocalizationManager.Initialize(_config.Language);
-        ThemeManager.Initialize(_config.Theme);
+        _prefsManager = new UserPreferencesManager();
+        _prefs = _prefsManager.Load();
+        MigrateLegacyPreferences();
+        LocalizationManager.Initialize(_prefs.Language);
+        ThemeManager.Initialize(_prefs.Theme);
 
         InitializeComponent();
 
@@ -149,16 +154,40 @@ public partial class MainForm : Window, IThemedControl
 
     private void OpenSettings()
     {
-        using var settings = new SettingsForm(_configManager, _config);
+        using var settings = new SettingsForm(_configManager, _config, _prefsManager, _prefs);
         if (settings.ShowDialog(this) == DialogResult.OK)
         {
             _config = settings.Config;
+            _prefs = settings.Prefs;
             archiveControl.OnConfigUpdated(_config);
             galleryControl.OnConfigUpdated(_config);
-            AntdUI.Notification.info(this, 
+            AntdUI.Notification.info(this,
                 LocalizationManager.GetString("SettingsSaved") ?? "設定已儲存",
                 "",autoClose:3,align:TAlignFrom.TR);
         }
+    }
+
+    /// <summary>
+    /// 一次性遷移：舊版的 Theme / Language 在 appsettings.json，搬到 preferences.json。
+    /// preferences.json 若已存在表示已遷移過或新環境，跳過。
+    /// </summary>
+    private void MigrateLegacyPreferences()
+    {
+        var prefsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "preferences.json");
+        if (File.Exists(prefsPath)) return;
+        var configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "appsettings.json");
+        if (!File.Exists(configPath)) return;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(configPath));
+            if (doc.RootElement.TryGetProperty("Theme", out var t)
+                && Enum.TryParse<AppTheme>(t.ToString(), out var theme))
+                _prefs.Theme = theme;
+            if (doc.RootElement.TryGetProperty("Language", out var l))
+                _prefs.Language = l.GetString() ?? _prefs.Language;
+            _prefsManager.Save(_prefs);
+        }
+        catch { /* 遷移失敗就用預設值，不致命 */ }
     }
 
     public void ApplyThemeColors()
