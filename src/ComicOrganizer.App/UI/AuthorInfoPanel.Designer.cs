@@ -7,19 +7,30 @@ partial class AuthorInfoPanel
     // Header
     private System.Windows.Forms.Panel headerPanel;
     private System.Windows.Forms.Label lblTitle;
+    private AntdUI.Button btnEdit;
     private AntdUI.Button btnClose;
 
     // 資料區（ShowEmpty 時隱藏）
     private System.Windows.Forms.Panel contentPanel;
     private System.Windows.Forms.TableLayoutPanel layout;
     private System.Windows.Forms.Label lblMainName;
+    private AntdUI.Input txtMainName;            // edit
     private System.Windows.Forms.Label lblFolderPath;
+    private AntdUI.Input txtFolderPath;          // edit
     private System.Windows.Forms.Label lblAliases;
+    private System.Windows.Forms.FlowLayoutPanel flowAliasesEdit;   // edit：每個別名 chip + 末尾 add
+    private System.Windows.Forms.FlowLayoutPanel addAliasPanel;     // edit：txtAddAliasName + lang + button
+    private AntdUI.Input txtAddAliasName;
+    private AntdUI.Input txtAddAliasLang;
+    private AntdUI.Button btnAddAlias;
     private AntdUI.Divider divider1;
     private System.Windows.Forms.Label lblStats;
     private AntdUI.Divider divider2;
     private System.Windows.Forms.Label lblTagsHeader;
     private System.Windows.Forms.FlowLayoutPanel flowTags;
+    private System.Windows.Forms.FlowLayoutPanel addTagPanel;       // edit only
+    private AntdUI.Input txtAddTag;
+    private AntdUI.Button btnAddTag;
     private AntdUI.Divider divider3;
     private System.Windows.Forms.Label lblRecentHeader;
     private System.Windows.Forms.FlowLayoutPanel flowRecent;
@@ -27,7 +38,10 @@ partial class AuthorInfoPanel
     private System.Windows.Forms.Label lblAllWorksHeader;
     private System.Windows.Forms.FlowLayoutPanel flowAllWorks;
     private AntdUI.Divider divider5;
+    private System.Windows.Forms.FlowLayoutPanel flowActions;
     private AntdUI.Button btnResetAuthorReading;
+    private AntdUI.Button btnSave;
+    private AntdUI.Button btnCancel;
 
     // ShowEmpty 訊息
     private System.Windows.Forms.Label lblEmpty;
@@ -42,17 +56,28 @@ partial class AuthorInfoPanel
     {
         headerPanel = new System.Windows.Forms.Panel();
         lblTitle = new System.Windows.Forms.Label();
+        btnEdit = new AntdUI.Button();
         btnClose = new AntdUI.Button();
         contentPanel = new System.Windows.Forms.Panel();
         layout = new System.Windows.Forms.TableLayoutPanel();
         lblMainName = new System.Windows.Forms.Label();
+        txtMainName = new AntdUI.Input();
         lblFolderPath = new System.Windows.Forms.Label();
+        txtFolderPath = new AntdUI.Input();
         lblAliases = new System.Windows.Forms.Label();
+        flowAliasesEdit = new System.Windows.Forms.FlowLayoutPanel();
+        addAliasPanel = new System.Windows.Forms.FlowLayoutPanel();
+        txtAddAliasName = new AntdUI.Input();
+        txtAddAliasLang = new AntdUI.Input();
+        btnAddAlias = new AntdUI.Button();
         divider1 = new AntdUI.Divider();
         lblStats = new System.Windows.Forms.Label();
         divider2 = new AntdUI.Divider();
         lblTagsHeader = new System.Windows.Forms.Label();
         flowTags = new System.Windows.Forms.FlowLayoutPanel();
+        addTagPanel = new System.Windows.Forms.FlowLayoutPanel();
+        txtAddTag = new AntdUI.Input();
+        btnAddTag = new AntdUI.Button();
         divider3 = new AntdUI.Divider();
         lblRecentHeader = new System.Windows.Forms.Label();
         flowRecent = new System.Windows.Forms.FlowLayoutPanel();
@@ -60,7 +85,10 @@ partial class AuthorInfoPanel
         lblAllWorksHeader = new System.Windows.Forms.Label();
         flowAllWorks = new System.Windows.Forms.FlowLayoutPanel();
         divider5 = new AntdUI.Divider();
+        flowActions = new System.Windows.Forms.FlowLayoutPanel();
         btnResetAuthorReading = new AntdUI.Button();
+        btnSave = new AntdUI.Button();
+        btnCancel = new AntdUI.Button();
         lblEmpty = new System.Windows.Forms.Label();
 
         SuspendLayout();
@@ -76,6 +104,7 @@ partial class AuthorInfoPanel
         headerPanel.Padding = new System.Windows.Forms.Padding(8, 4, 4, 4);
         headerPanel.Controls.Add(lblTitle);
         headerPanel.Controls.Add(btnClose);
+        headerPanel.Controls.Add(btnEdit);
         //
         // lblTitle
         //
@@ -94,6 +123,16 @@ partial class AuthorInfoPanel
         btnClose.Name = "btnClose";
         btnClose.Size = new System.Drawing.Size(28, 28);
         btnClose.Text = "";
+        //
+        // btnEdit
+        //
+        btnEdit.Dock = System.Windows.Forms.DockStyle.Right;
+        btnEdit.Ghost = true;
+        btnEdit.IconRatio = 0.6F;
+        btnEdit.IconSvg = "EditOutlined";
+        btnEdit.Name = "btnEdit";
+        btnEdit.Size = new System.Drawing.Size(28, 28);
+        btnEdit.Text = "";
 
         //
         // contentPanel
@@ -111,26 +150,29 @@ partial class AuthorInfoPanel
         layout.ColumnCount = 1;
         layout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
         layout.Dock = System.Windows.Forms.DockStyle.Top;
-        // 16 行：MainName, FolderPath, Aliases, divider1, Stats, divider2, TagsHeader, flowTags,
-        //         divider3, RecentHeader, flowRecent, divider4, AllWorksHeader, flowAllWorks,
-        //         divider5, btnResetAuthorReading
-        for (int i = 0; i < 16; i++) layout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
+        // 編輯模式 row 跟 view row 同層、AutoSize 隱藏時自動收掉
+        for (int i = 0; i < 22; i++) layout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
         layout.Controls.Add(lblMainName, 0, 0);
-        layout.Controls.Add(lblFolderPath, 0, 1);
-        layout.Controls.Add(lblAliases, 0, 2);
-        layout.Controls.Add(divider1, 0, 3);
-        layout.Controls.Add(lblStats, 0, 4);
-        layout.Controls.Add(divider2, 0, 5);
-        layout.Controls.Add(lblTagsHeader, 0, 6);
-        layout.Controls.Add(flowTags, 0, 7);
-        layout.Controls.Add(divider3, 0, 8);
-        layout.Controls.Add(lblRecentHeader, 0, 9);
-        layout.Controls.Add(flowRecent, 0, 10);
-        layout.Controls.Add(divider4, 0, 11);
-        layout.Controls.Add(lblAllWorksHeader, 0, 12);
-        layout.Controls.Add(flowAllWorks, 0, 13);
-        layout.Controls.Add(divider5, 0, 14);
-        layout.Controls.Add(btnResetAuthorReading, 0, 15);
+        layout.Controls.Add(txtMainName, 0, 1);          // edit
+        layout.Controls.Add(lblFolderPath, 0, 2);
+        layout.Controls.Add(txtFolderPath, 0, 3);        // edit
+        layout.Controls.Add(lblAliases, 0, 4);
+        layout.Controls.Add(flowAliasesEdit, 0, 5);      // edit：可刪別名 chips
+        layout.Controls.Add(addAliasPanel, 0, 6);         // edit：加別名輸入
+        layout.Controls.Add(divider1, 0, 7);
+        layout.Controls.Add(lblStats, 0, 8);
+        layout.Controls.Add(divider2, 0, 9);
+        layout.Controls.Add(lblTagsHeader, 0, 10);
+        layout.Controls.Add(flowTags, 0, 11);
+        layout.Controls.Add(addTagPanel, 0, 12);          // edit
+        layout.Controls.Add(divider3, 0, 13);
+        layout.Controls.Add(lblRecentHeader, 0, 14);
+        layout.Controls.Add(flowRecent, 0, 15);
+        layout.Controls.Add(divider4, 0, 16);
+        layout.Controls.Add(lblAllWorksHeader, 0, 17);
+        layout.Controls.Add(flowAllWorks, 0, 18);
+        layout.Controls.Add(divider5, 0, 19);
+        layout.Controls.Add(flowActions, 0, 20);
 
         //
         // lblMainName
@@ -141,6 +183,14 @@ partial class AuthorInfoPanel
         lblMainName.Name = "lblMainName";
         lblMainName.Text = "(Author)";
         //
+        // txtMainName (edit)
+        //
+        txtMainName.Dock = System.Windows.Forms.DockStyle.Fill;
+        txtMainName.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
+        txtMainName.Name = "txtMainName";
+        txtMainName.PlaceholderText = "作者主名";
+        txtMainName.Visible = false;
+        //
         // lblFolderPath
         //
         lblFolderPath.AutoSize = true;
@@ -150,6 +200,14 @@ partial class AuthorInfoPanel
         lblFolderPath.Name = "lblFolderPath";
         lblFolderPath.Text = "";
         //
+        // txtFolderPath (edit)
+        //
+        txtFolderPath.Dock = System.Windows.Forms.DockStyle.Fill;
+        txtFolderPath.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
+        txtFolderPath.Name = "txtFolderPath";
+        txtFolderPath.PlaceholderText = "資料夾路徑（可空）";
+        txtFolderPath.Visible = false;
+        //
         // lblAliases
         //
         lblAliases.AutoSize = true;
@@ -157,6 +215,44 @@ partial class AuthorInfoPanel
         lblAliases.Margin = new System.Windows.Forms.Padding(0, 0, 0, 8);
         lblAliases.Name = "lblAliases";
         lblAliases.Text = "";
+        //
+        // flowAliasesEdit (edit) — 顯示可刪別名 chips
+        //
+        flowAliasesEdit.AutoSize = true;
+        flowAliasesEdit.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+        flowAliasesEdit.Dock = System.Windows.Forms.DockStyle.Fill;
+        flowAliasesEdit.FlowDirection = System.Windows.Forms.FlowDirection.LeftToRight;
+        flowAliasesEdit.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
+        flowAliasesEdit.Name = "flowAliasesEdit";
+        flowAliasesEdit.WrapContents = true;
+        flowAliasesEdit.Visible = false;
+        //
+        // addAliasPanel (edit) — 新增別名 input
+        //
+        addAliasPanel.AutoSize = true;
+        addAliasPanel.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+        addAliasPanel.Dock = System.Windows.Forms.DockStyle.Fill;
+        addAliasPanel.FlowDirection = System.Windows.Forms.FlowDirection.LeftToRight;
+        addAliasPanel.Margin = new System.Windows.Forms.Padding(0, 0, 0, 8);
+        addAliasPanel.Name = "addAliasPanel";
+        addAliasPanel.WrapContents = false;
+        addAliasPanel.Controls.Add(txtAddAliasName);
+        addAliasPanel.Controls.Add(txtAddAliasLang);
+        addAliasPanel.Controls.Add(btnAddAlias);
+        addAliasPanel.Visible = false;
+        txtAddAliasName.Margin = new System.Windows.Forms.Padding(0, 0, 4, 0);
+        txtAddAliasName.Name = "txtAddAliasName";
+        txtAddAliasName.PlaceholderText = "別名";
+        txtAddAliasName.Size = new System.Drawing.Size(140, 30);
+        txtAddAliasLang.Margin = new System.Windows.Forms.Padding(0, 0, 4, 0);
+        txtAddAliasLang.Name = "txtAddAliasLang";
+        txtAddAliasLang.PlaceholderText = "lang";
+        txtAddAliasLang.Size = new System.Drawing.Size(60, 30);
+        btnAddAlias.IconSvg = "PlusOutlined";
+        btnAddAlias.Margin = new System.Windows.Forms.Padding(0);
+        btnAddAlias.Name = "btnAddAlias";
+        btnAddAlias.Size = new System.Drawing.Size(60, 30);
+        btnAddAlias.Text = "加入";
 
         //
         // divider1 / divider2 / divider3 / divider4
@@ -182,14 +278,42 @@ partial class AuthorInfoPanel
         divider5.Margin = new System.Windows.Forms.Padding(0, 8, 0, 4);
         divider5.Name = "divider5";
         //
+        // flowActions — 操作按鈕容器
+        //
+        flowActions.AutoSize = true;
+        flowActions.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+        flowActions.Dock = System.Windows.Forms.DockStyle.Fill;
+        flowActions.FlowDirection = System.Windows.Forms.FlowDirection.LeftToRight;
+        flowActions.Margin = new System.Windows.Forms.Padding(0, 4, 0, 0);
+        flowActions.Name = "flowActions";
+        flowActions.WrapContents = true;
+        flowActions.Controls.Add(btnResetAuthorReading);
+        flowActions.Controls.Add(btnSave);
+        flowActions.Controls.Add(btnCancel);
+        //
         // btnResetAuthorReading
         //
         btnResetAuthorReading.IconSvg = "UndoOutlined";
-        btnResetAuthorReading.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
+        btnResetAuthorReading.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
         btnResetAuthorReading.Name = "btnResetAuthorReading";
         btnResetAuthorReading.Size = new System.Drawing.Size(180, 30);
         btnResetAuthorReading.Text = "清除此作者閱讀記錄";
         btnResetAuthorReading.Type = AntdUI.TTypeMini.Default;
+        //
+        // btnSave / btnCancel (edit only)
+        //
+        btnSave.IconSvg = "SaveOutlined";
+        btnSave.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
+        btnSave.Name = "btnSave";
+        btnSave.Size = new System.Drawing.Size(96, 30);
+        btnSave.Text = "儲存";
+        btnSave.Type = AntdUI.TTypeMini.Primary;
+        btnSave.Visible = false;
+        btnCancel.Margin = new System.Windows.Forms.Padding(0);
+        btnCancel.Name = "btnCancel";
+        btnCancel.Size = new System.Drawing.Size(80, 30);
+        btnCancel.Text = "取消";
+        btnCancel.Visible = false;
 
         //
         // lblStats
@@ -218,6 +342,28 @@ partial class AuthorInfoPanel
         flowTags.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
         flowTags.Name = "flowTags";
         flowTags.WrapContents = true;
+        //
+        // addTagPanel (edit only) — 新增 author tag
+        //
+        addTagPanel.AutoSize = true;
+        addTagPanel.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+        addTagPanel.Dock = System.Windows.Forms.DockStyle.Fill;
+        addTagPanel.FlowDirection = System.Windows.Forms.FlowDirection.LeftToRight;
+        addTagPanel.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
+        addTagPanel.Name = "addTagPanel";
+        addTagPanel.WrapContents = false;
+        addTagPanel.Controls.Add(txtAddTag);
+        addTagPanel.Controls.Add(btnAddTag);
+        addTagPanel.Visible = false;
+        txtAddTag.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
+        txtAddTag.Name = "txtAddTag";
+        txtAddTag.PlaceholderText = "新增作者標籤（Enter 加入）";
+        txtAddTag.Size = new System.Drawing.Size(220, 30);
+        btnAddTag.IconSvg = "PlusOutlined";
+        btnAddTag.Margin = new System.Windows.Forms.Padding(0);
+        btnAddTag.Name = "btnAddTag";
+        btnAddTag.Size = new System.Drawing.Size(60, 30);
+        btnAddTag.Text = "加入";
 
         //
         // lblRecentHeader

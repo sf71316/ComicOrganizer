@@ -339,8 +339,149 @@ public partial class GalleryControl : UserControl, IThemedControl
         // 「重置閱讀記錄」：彈確認 Modal → ResetReadingRecord → 刷面板 + card icon
         detailDrawerHost.WorkPanel.RequestResetReading += path => ConfirmAndResetWorkReading(path);
 
+        // 編輯儲存：寫 metadata + 設 manually_edited + 重 set tags + 刷面板 / 卡片
+        detailDrawerHost.WorkPanel.RequestSaveEdit += data => SaveWorkEdit(data);
+
         // AuthorInfoPanel 加「清除此作者所有閱讀記錄」入口（透過 panel 暴露的 event）
         detailDrawerHost.AuthorPanel.RequestResetAuthorReading += authorId => ConfirmAndResetAuthorReading(authorId);
+
+        // AuthorInfoPanel 編輯儲存
+        detailDrawerHost.AuthorPanel.RequestSaveEdit += data => SaveAuthorEdit(data);
+    }
+
+    /// <summary>AuthorInfoPanel「儲存」事件 handler — RenameAuthor + SetAuthorFolderPath + 別名 diff 寫入 + SetAuthorTags。</summary>
+    private void SaveAuthorEdit(AuthorEditData data)
+    {
+        if (_metaStore == null) return;
+        var form = this.FindForm();
+        try
+        {
+            // 1. 主名 — 改了才呼叫；衝突時 Modal 詢問是否合併
+            var current = _metaStore.GetAuthorInfo(data.AuthorId);
+            if (current != null && !string.Equals(current.Author.MainName, data.MainName))
+            {
+                try { _metaStore.RenameAuthor(data.AuthorId, data.MainName); }
+                catch (InvalidOperationException)
+                {
+                    if (form != null)
+                    {
+                        var conflict = _metaStore.FindAuthorByMainName(data.MainName);
+                        if (conflict != null)
+                        {
+                            AntdUI.Modal.open(new AntdUI.Modal.Config(form, "作者名稱衝突",
+                                $"已存在主名為「{data.MainName}」的作者（id={conflict.Id}）。\n要把當前作者的所有作品/別名/標籤合併進去嗎？\n\n此動作不可復原。",
+                                AntdUI.TType.Warn)
+                            {
+                                OkText = "合併",
+                                CancelText = "取消",
+                                OnOk = _ =>
+                                {
+                                    try { _metaStore.MergeAuthor(data.AuthorId, conflict.Id); }
+                                    catch { return true; }
+                                    BeginInvoke(new Action(() =>
+                                    {
+                                        if (IsDisposed) return;
+                                        _detailDrawerForm?.Close();
+                                        var ignored = LoadTreeAsync();
+                                    }));
+                                    return true;
+                                }
+                            });
+                            return;   // 等使用者按 OK；合併後不繼續走下面流程
+                        }
+                    }
+                    return;
+                }
+            }
+
+            // 2. folder_path
+            _metaStore.SetAuthorFolderPath(data.AuthorId, data.FolderPath);
+
+            // 3. 別名 diff：DB 中存在但 data 沒有 = 刪；data 中 Id=0 = 新增；其他 = 改
+            var dbAliases = _metaStore.ListAuthorAliases(data.AuthorId).ToDictionary(a => a.Id);
+            var keepIds = new HashSet<long>();
+            foreach (var alias in data.Aliases)
+            {
+                if (alias.Id == 0)
+                {
+                    _metaStore.AddAuthorAlias(data.AuthorId, alias.Name, alias.Lang);
+                }
+                else
+                {
+                    keepIds.Add(alias.Id);
+                    if (dbAliases.TryGetValue(alias.Id, out var dbA) &&
+                        (dbA.Name != alias.Name || (dbA.Lang ?? "") != (alias.Lang ?? "")))
+                    {
+                        _metaStore.UpdateAuthorAlias(alias.Id, alias.Name, alias.Lang);
+                    }
+                }
+            }
+            foreach (var dbA in dbAliases.Values)
+                if (!keepIds.Contains(dbA.Id)) _metaStore.DeleteAuthorAlias(dbA.Id);
+
+            // 4. tag — 整批 reset
+            _metaStore.SetAuthorTags(data.AuthorId, data.Tags);
+
+            // 5. 刷面板
+            var fresh = _metaStore.GetAuthorInfo(data.AuthorId);
+            if (fresh != null) detailDrawerHost.ShowAuthor(fresh);
+        }
+        catch (Exception ex)
+        {
+            if (form != null) AntdUI.Message.error(form, "儲存失敗: " + ex.Message);
+        }
+    }
+
+    /// <summary>WorkDetailPanel「儲存」事件 handler — 寫 metadata + author 解析 + tags + manually_edited 旗標。</summary>
+    private void SaveWorkEdit(WorkEditData data)
+    {
+        if (_metaStore == null) return;
+        var assetId = _metaStore.GetAssetId(data.Path);
+        if (assetId == null) return;
+
+        try
+        {
+            // 解析作者：留空 = 清空 author_id；有名 = UpsertAuthor 取或建
+            long? authorId = null;
+            if (!string.IsNullOrWhiteSpace(data.AuthorName))
+            {
+                authorId = _metaStore.UpsertAuthor(data.AuthorName.Trim());
+            }
+
+            // 取舊 metadata 保留閱讀相關欄位（read_status / read_count / last_read / last_page），
+            // 編輯不應動到閱讀記錄
+            var existing = _metaStore.GetMetadata(assetId.Value);
+            var updated = new AssetMetadata
+            {
+                AssetId = assetId.Value,
+                AuthorId = authorId,
+                Title = data.Title,
+                Series = data.Series,
+                ChapterNo = data.ChapterNo,
+                Language = data.Language,
+                TranslationGroup = data.TranslationGroup,
+                Rating = data.Rating,
+                PageCount = existing?.PageCount,
+                ReadStatus = existing?.ReadStatus ?? ReadStatus.Unread,
+                ReadCount = existing?.ReadCount ?? 0,
+                LastRead = existing?.LastRead,
+                LastPage = existing?.LastPage,
+                ExternalId = existing?.ExternalId,
+                ParsedAt = existing?.ParsedAt ?? DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                ManuallyEdited = true,
+            };
+            _metaStore.UpsertMetadata(updated);
+            _metaStore.SetAssetTags(assetId.Value, data.Tags);
+
+            // 刷面板 + 卡片 metadata view
+            ShowWorkDetail(data.Path);
+            RefreshCardReadStatusByPath(data.Path);
+        }
+        catch (Exception ex)
+        {
+            var form = this.FindForm();
+            if (form != null) AntdUI.Message.error(form, "儲存失敗: " + ex.Message);
+        }
     }
 
     private void ConfirmAndResetWorkReading(string path)

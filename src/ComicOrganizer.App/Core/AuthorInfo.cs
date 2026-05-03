@@ -24,6 +24,9 @@ public class AuthorInfo
     /// <summary>該作者作品命中最多的 top N 標籤（依 count desc）。預設 limit=10。</summary>
     public List<TagFreq> TopTags { get; set; } = new();
 
+    /// <summary>掛在「作者本身」上的 tag（風格/類型描述）— 給編輯模式用。</summary>
+    public List<Tag> AuthorTags { get; set; } = new();
+
     /// <summary>最近閱讀過的 5 筆（last_read DESC）。空集合表示尚未開始讀過任何作品。</summary>
     public List<RecentRead> RecentlyRead { get; set; } = new();
 

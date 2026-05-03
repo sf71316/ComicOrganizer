@@ -836,6 +836,14 @@ GROUP BY t.name
 ORDER BY count DESC
 LIMIT 10;", new { authorId }, _currentTx).AsList();
 
+            // 4.5 掛在作者本身的 tag — author_tag 表（給編輯模式用）
+            info.AuthorTags = _conn.Query<Tag>(@"
+SELECT t.id, t.name, t.category
+FROM tag t
+JOIN author_tag at ON at.tag_id = t.id
+WHERE at.author_id = @authorId
+ORDER BY t.name;", new { authorId }, _currentTx).AsList();
+
             // 5. AllWorks — 全部作品依 title 排序（NULL 排最後）
             info.AllWorks = _conn.Query<AssetMetadataView>(@"
 SELECT a.path, am.title, am.language, am.translation_group, am.page_count

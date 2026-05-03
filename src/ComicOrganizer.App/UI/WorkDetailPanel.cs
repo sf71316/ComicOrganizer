@@ -5,6 +5,7 @@ namespace ComicOrganizer.App.UI;
 /// <summary>
 /// 作品詳細資訊面板。Drawer 內顯示，內容由 IAssetMetaStore.GetWorkDetail 提供。
 /// 顯示：cover / 標題 / author 連結 / metadata / 閱讀記錄 / tags / 檔案資訊 / 操作按鈕。
+/// 編輯模式（#45 Phase 2）：title / author / series / chapter / language / translation_group / rating / tags
 /// </summary>
 public partial class WorkDetailPanel : UserControl
 {
@@ -22,7 +23,13 @@ public partial class WorkDetailPanel : UserControl
     /// <summary>使用者按「重置閱讀記錄」— 清 read_status / count / last_read / last_page。</summary>
     public event Action<string>? RequestResetReading;
 
+    /// <summary>使用者按「儲存」— host 處理 DB 寫入後刷新此 panel。</summary>
+    public event Action<WorkEditData>? RequestSaveEdit;
+
     private string _currentPath = "";
+    private bool _isEditing;
+    private WorkDetail? _currentDetail;
+    private readonly List<string> _editTags = new();
 
     public WorkDetailPanel()
     {
@@ -53,7 +60,15 @@ public partial class WorkDetailPanel : UserControl
         };
         picCover.Click += (s, e) =>
         {
-            if (!string.IsNullOrEmpty(_currentPath)) RequestOpenViewer?.Invoke(_currentPath);
+            if (!string.IsNullOrEmpty(_currentPath) && !_isEditing) RequestOpenViewer?.Invoke(_currentPath);
+        };
+        btnEdit.Click += (s, e) => SetEditMode(true);
+        btnCancel.Click += (s, e) => SetEditMode(false);
+        btnSave.Click += (s, e) => SaveEdit();
+        btnAddTag.Click += (s, e) => AddTagFromInput();
+        txtAddTag.KeyDown += (s, e) =>
+        {
+            if (e.KeyCode == Keys.Enter) { AddTagFromInput(); e.Handled = e.SuppressKeyPress = true; }
         };
 
         ApplyLocalization();
@@ -74,6 +89,10 @@ public partial class WorkDetailPanel : UserControl
     public void Show(WorkDetail detail, Image? cover)
     {
         _currentPath = detail.Path;
+        _currentDetail = detail;
+        _editTags.Clear();
+        _editTags.AddRange(detail.Tags.Select(t => t.Name));
+        SetEditMode(false);   // 顯示新作品時強制離開編輯態
         lblEmpty.Visible = false;
         contentPanel.Visible = true;
 
@@ -111,26 +130,8 @@ public partial class WorkDetailPanel : UserControl
         // 閱讀記錄
         lblReadStats.Text = FormatReadStats(detail);
 
-        // tags
-        flowTags.SuspendLayout();
-        flowTags.Controls.Clear();
-        if (detail.Tags.Count == 0)
-        {
-            flowTags.Controls.Add(BuildEmptyHint("(無標籤)"));
-        }
-        else
-        {
-            foreach (var t in detail.Tags)
-            {
-                flowTags.Controls.Add(new AntdUI.Tag
-                {
-                    Text = t.Name,
-                    Margin = new Padding(0, 0, 4, 4),
-                    Font = new Font("Microsoft JhengHei UI", 8.5F),
-                });
-            }
-        }
-        flowTags.ResumeLayout(true);
+        // tags（view mode）
+        RebuildTagsView();
 
         // 檔案資訊
         lblFileInfo.Text = FormatFileInfo(detail);
@@ -152,6 +153,123 @@ public partial class WorkDetailPanel : UserControl
         lblEmpty.Visible = true;
         lblEmpty.BringToFront();
     }
+
+    // ===== 編輯模式 =====
+
+    private void SetEditMode(bool editing)
+    {
+        _isEditing = editing;
+        // view 控件
+        lblWorkTitle.Visible = !editing;
+        lnkAuthor.Visible = !editing && _currentDetail?.AuthorId.HasValue == true;
+        lblMetaInfo.Visible = !editing;
+        // edit 控件
+        txtTitle.Visible = editing;
+        txtAuthor.Visible = editing;
+        editGrid.Visible = editing;
+        addTagPanel.Visible = editing;
+        // header / actions
+        btnEdit.Visible = !editing;
+        btnRead.Visible = !editing;
+        btnExplorer.Visible = !editing;
+        btnResetReading.Visible = !editing;
+        btnSave.Visible = editing;
+        btnCancel.Visible = editing;
+
+        if (editing)
+        {
+            // 編輯態 ↔ 把當前資料填入 input
+            var d = _currentDetail;
+            if (d != null)
+            {
+                txtTitle.Text = d.Title ?? "";
+                txtAuthor.Text = d.AuthorMainName ?? "";
+                txtSeries.Text = d.Series ?? "";
+                txtChapter.Text = d.ChapterNo ?? "";
+                txtLanguage.Text = d.Language ?? "";
+                txtTranslationGroup.Text = d.TranslationGroup ?? "";
+                numRating.Value = d.Rating ?? 0;
+            }
+            txtAddTag.Text = "";
+        }
+        else if (_currentDetail != null)
+        {
+            // 取消編輯 — 重置 _editTags 為原始 tag list
+            _editTags.Clear();
+            _editTags.AddRange(_currentDetail.Tags.Select(t => t.Name));
+        }
+        RebuildTagsView();
+    }
+
+    private void RebuildTagsView()
+    {
+        flowTags.SuspendLayout();
+        flowTags.Controls.Clear();
+        var tagNames = _isEditing ? _editTags : (_currentDetail?.Tags.Select(t => t.Name).ToList() ?? new());
+        if (tagNames.Count == 0)
+        {
+            flowTags.Controls.Add(BuildEmptyHint(_isEditing ? "(無標籤，下方新增)" : "(無標籤)"));
+        }
+        else
+        {
+            foreach (var name in tagNames)
+            {
+                var chip = new AntdUI.Tag
+                {
+                    Text = name,
+                    Margin = new Padding(0, 0, 4, 4),
+                    Font = new Font("Microsoft JhengHei UI", 8.5F),
+                    CloseIcon = _isEditing,    // edit mode 顯示 X
+                };
+                if (_isEditing)
+                {
+                    var capturedName = name;
+                    chip.CloseChanged += (s, e) =>
+                    {
+                        _editTags.Remove(capturedName);
+                        // 用 BeginInvoke 避免在 close handler 中重 build flowTags 出問題
+                        BeginInvoke(new Action(RebuildTagsView));
+                        return true;   // 允許 AntdUI 正常關閉動畫
+                    };
+                }
+                flowTags.Controls.Add(chip);
+            }
+        }
+        flowTags.ResumeLayout(true);
+    }
+
+    private void AddTagFromInput()
+    {
+        var name = txtAddTag.Text?.Trim() ?? "";
+        if (name.Length == 0) return;
+        if (!_editTags.Contains(name, StringComparer.OrdinalIgnoreCase))
+        {
+            _editTags.Add(name);
+            RebuildTagsView();
+        }
+        txtAddTag.Text = "";
+    }
+
+    private void SaveEdit()
+    {
+        if (string.IsNullOrEmpty(_currentPath)) return;
+        var data = new WorkEditData
+        {
+            Path = _currentPath,
+            Title = NullIfEmpty(txtTitle.Text),
+            AuthorName = NullIfEmpty(txtAuthor.Text),
+            Series = NullIfEmpty(txtSeries.Text),
+            ChapterNo = NullIfEmpty(txtChapter.Text),
+            Language = NullIfEmpty(txtLanguage.Text),
+            TranslationGroup = NullIfEmpty(txtTranslationGroup.Text),
+            Rating = numRating.Value > 0 ? (int)numRating.Value : null,
+            Tags = new List<string>(_editTags),
+        };
+        RequestSaveEdit?.Invoke(data);
+        SetEditMode(false);
+    }
+
+    private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
     private void OnAuthorLinkClicked(object? sender, LinkLabelLinkClickedEventArgs e)
     {
@@ -218,12 +336,13 @@ public partial class WorkDetailPanel : UserControl
         var parsedStr = d.ParsedAt.HasValue
             ? DateTimeOffset.FromUnixTimeSeconds(d.ParsedAt.Value).LocalDateTime.ToString("yyyy-MM-dd")
             : "(未解析)";
+        var manuallyTag = d.ManuallyEdited ? "  (手動編輯)" : "";
         return
             $"檔名: {d.Name}\n" +
             $"類型: {(d.IsFolder ? "目錄" : "檔案")}\n" +
             $"大小: {sizeStr}\n" +
             $"修改時間: {mtimeStr}\n" +
-            $"解析時間: {parsedStr}";
+            $"解析時間: {parsedStr}{manuallyTag}";
     }
 
     private static string FormatFileSize(long bytes)
@@ -249,4 +368,18 @@ public partial class WorkDetailPanel : UserControl
         else rel = "剛剛";
         return diff.TotalDays >= 30 ? rel : $"{rel} ({absStr})";
     }
+}
+
+/// <summary>WorkDetailPanel 「儲存」事件帶的編輯資料。AuthorName 會由 host UpsertAuthor 解析成 author_id。</summary>
+public class WorkEditData
+{
+    public string Path { get; set; } = "";
+    public string? Title { get; set; }
+    public string? AuthorName { get; set; }
+    public string? Series { get; set; }
+    public string? ChapterNo { get; set; }
+    public string? Language { get; set; }
+    public string? TranslationGroup { get; set; }
+    public int? Rating { get; set; }
+    public List<string> Tags { get; set; } = new();
 }

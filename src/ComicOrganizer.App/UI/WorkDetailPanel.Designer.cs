@@ -7,6 +7,7 @@ partial class WorkDetailPanel
     // Header
     private System.Windows.Forms.Panel headerPanel;
     private System.Windows.Forms.Label lblTitle;
+    private AntdUI.Button btnEdit;
     private AntdUI.Button btnClose;
 
     // 內容
@@ -17,11 +18,19 @@ partial class WorkDetailPanel
     private System.Windows.Forms.Panel coverPanel;
     private System.Windows.Forms.PictureBox picCover;
     private System.Windows.Forms.Label lblWorkTitle;
+    private AntdUI.Input txtTitle;        // edit mode 取代 lblWorkTitle
     private System.Windows.Forms.LinkLabel lnkAuthor;
+    private AntdUI.Input txtAuthor;       // edit mode 取代 lnkAuthor（輸入作者名 → save 時 UpsertAuthor）
 
     // metadata grid
     private AntdUI.Divider divider1;
     private System.Windows.Forms.Label lblMetaInfo;
+    private System.Windows.Forms.TableLayoutPanel editGrid;   // edit mode 取代 lblMetaInfo
+    private AntdUI.Input txtSeries;
+    private AntdUI.Input txtChapter;
+    private AntdUI.Input txtLanguage;
+    private AntdUI.Input txtTranslationGroup;
+    private AntdUI.InputNumber numRating;
 
     // 閱讀記錄
     private AntdUI.Divider divider2;
@@ -32,6 +41,9 @@ partial class WorkDetailPanel
     private AntdUI.Divider divider3;
     private System.Windows.Forms.Label lblTagsHeader;
     private System.Windows.Forms.FlowLayoutPanel flowTags;
+    private System.Windows.Forms.FlowLayoutPanel addTagPanel;   // edit mode：txtAddTag + btnAddTag
+    private AntdUI.Input txtAddTag;
+    private AntdUI.Button btnAddTag;
 
     // 檔案資訊
     private AntdUI.Divider divider4;
@@ -44,6 +56,8 @@ partial class WorkDetailPanel
     private AntdUI.Button btnRead;
     private AntdUI.Button btnExplorer;
     private AntdUI.Button btnResetReading;
+    private AntdUI.Button btnSave;
+    private AntdUI.Button btnCancel;
 
     // Empty
     private System.Windows.Forms.Label lblEmpty;
@@ -58,21 +72,33 @@ partial class WorkDetailPanel
     {
         headerPanel = new System.Windows.Forms.Panel();
         lblTitle = new System.Windows.Forms.Label();
+        btnEdit = new AntdUI.Button();
         btnClose = new AntdUI.Button();
         contentPanel = new System.Windows.Forms.Panel();
         layout = new System.Windows.Forms.TableLayoutPanel();
         coverPanel = new System.Windows.Forms.Panel();
         picCover = new System.Windows.Forms.PictureBox();
         lblWorkTitle = new System.Windows.Forms.Label();
+        txtTitle = new AntdUI.Input();
         lnkAuthor = new System.Windows.Forms.LinkLabel();
+        txtAuthor = new AntdUI.Input();
         divider1 = new AntdUI.Divider();
         lblMetaInfo = new System.Windows.Forms.Label();
+        editGrid = new System.Windows.Forms.TableLayoutPanel();
+        txtSeries = new AntdUI.Input();
+        txtChapter = new AntdUI.Input();
+        txtLanguage = new AntdUI.Input();
+        txtTranslationGroup = new AntdUI.Input();
+        numRating = new AntdUI.InputNumber();
         divider2 = new AntdUI.Divider();
         lblReadStatsHeader = new System.Windows.Forms.Label();
         lblReadStats = new System.Windows.Forms.Label();
         divider3 = new AntdUI.Divider();
         lblTagsHeader = new System.Windows.Forms.Label();
         flowTags = new System.Windows.Forms.FlowLayoutPanel();
+        addTagPanel = new System.Windows.Forms.FlowLayoutPanel();
+        txtAddTag = new AntdUI.Input();
+        btnAddTag = new AntdUI.Button();
         divider4 = new AntdUI.Divider();
         lblFileInfoHeader = new System.Windows.Forms.Label();
         lblFileInfo = new System.Windows.Forms.Label();
@@ -81,6 +107,8 @@ partial class WorkDetailPanel
         btnRead = new AntdUI.Button();
         btnExplorer = new AntdUI.Button();
         btnResetReading = new AntdUI.Button();
+        btnSave = new AntdUI.Button();
+        btnCancel = new AntdUI.Button();
         lblEmpty = new System.Windows.Forms.Label();
 
         SuspendLayout();
@@ -95,8 +123,10 @@ partial class WorkDetailPanel
         headerPanel.Dock = System.Windows.Forms.DockStyle.Top;
         headerPanel.Height = 36;
         headerPanel.Padding = new System.Windows.Forms.Padding(8, 4, 4, 4);
+        // Dock=Right 後加的會在更左邊；先加 close 後加 edit → edit 在 close 左邊
         headerPanel.Controls.Add(lblTitle);
         headerPanel.Controls.Add(btnClose);
+        headerPanel.Controls.Add(btnEdit);
         //
         // lblTitle
         //
@@ -115,6 +145,16 @@ partial class WorkDetailPanel
         btnClose.Name = "btnClose";
         btnClose.Size = new System.Drawing.Size(28, 28);
         btnClose.Text = "";
+        //
+        // btnEdit — 編輯切換按鈕（位於 header，Dock=Right 在 close 左邊）
+        //
+        btnEdit.Dock = System.Windows.Forms.DockStyle.Right;
+        btnEdit.Ghost = true;
+        btnEdit.IconRatio = 0.6F;
+        btnEdit.IconSvg = "EditOutlined";
+        btnEdit.Name = "btnEdit";
+        btnEdit.Size = new System.Drawing.Size(28, 28);
+        btnEdit.Text = "";
 
         //
         // contentPanel
@@ -132,23 +172,28 @@ partial class WorkDetailPanel
         layout.ColumnCount = 1;
         layout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
         layout.Dock = System.Windows.Forms.DockStyle.Top;
-        for (int i = 0; i < 16; i++) layout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
+        // 編輯模式控件用各自的 row（藏起來時 AutoSize 自動收掉）
+        for (int i = 0; i < 20; i++) layout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
         layout.Controls.Add(coverPanel, 0, 0);
-        layout.Controls.Add(lblWorkTitle, 0, 1);
-        layout.Controls.Add(lnkAuthor, 0, 2);
-        layout.Controls.Add(divider1, 0, 3);
-        layout.Controls.Add(lblMetaInfo, 0, 4);
-        layout.Controls.Add(divider2, 0, 5);
-        layout.Controls.Add(lblReadStatsHeader, 0, 6);
-        layout.Controls.Add(lblReadStats, 0, 7);
-        layout.Controls.Add(divider3, 0, 8);
-        layout.Controls.Add(lblTagsHeader, 0, 9);
-        layout.Controls.Add(flowTags, 0, 10);
-        layout.Controls.Add(divider4, 0, 11);
-        layout.Controls.Add(lblFileInfoHeader, 0, 12);
-        layout.Controls.Add(lblFileInfo, 0, 13);
-        layout.Controls.Add(divider5, 0, 14);
-        layout.Controls.Add(flowActions, 0, 15);
+        layout.Controls.Add(lblWorkTitle, 0, 1);     // view 標題
+        layout.Controls.Add(txtTitle, 0, 2);          // edit 標題
+        layout.Controls.Add(lnkAuthor, 0, 3);         // view 作者
+        layout.Controls.Add(txtAuthor, 0, 4);         // edit 作者
+        layout.Controls.Add(divider1, 0, 5);
+        layout.Controls.Add(lblMetaInfo, 0, 6);       // view metadata
+        layout.Controls.Add(editGrid, 0, 7);          // edit metadata grid
+        layout.Controls.Add(divider2, 0, 8);
+        layout.Controls.Add(lblReadStatsHeader, 0, 9);
+        layout.Controls.Add(lblReadStats, 0, 10);
+        layout.Controls.Add(divider3, 0, 11);
+        layout.Controls.Add(lblTagsHeader, 0, 12);
+        layout.Controls.Add(flowTags, 0, 13);
+        layout.Controls.Add(addTagPanel, 0, 14);      // edit only
+        layout.Controls.Add(divider4, 0, 15);
+        layout.Controls.Add(lblFileInfoHeader, 0, 16);
+        layout.Controls.Add(lblFileInfo, 0, 17);
+        layout.Controls.Add(divider5, 0, 18);
+        layout.Controls.Add(flowActions, 0, 19);
 
         //
         // coverPanel - 容納 picCover 並置中
@@ -175,6 +220,14 @@ partial class WorkDetailPanel
         lblWorkTitle.Name = "lblWorkTitle";
         lblWorkTitle.Text = "(Title)";
         //
+        // txtTitle (edit mode 替換 lblWorkTitle)
+        //
+        txtTitle.Dock = System.Windows.Forms.DockStyle.Fill;
+        txtTitle.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
+        txtTitle.Name = "txtTitle";
+        txtTitle.PlaceholderText = "標題";
+        txtTitle.Visible = false;
+        //
         // lnkAuthor
         //
         lnkAuthor.AutoSize = true;
@@ -182,6 +235,14 @@ partial class WorkDetailPanel
         lnkAuthor.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
         lnkAuthor.Name = "lnkAuthor";
         lnkAuthor.Text = "";
+        //
+        // txtAuthor (edit mode 替換 lnkAuthor — 輸入作者主名，save 時 UpsertAuthor 取或建)
+        //
+        txtAuthor.Dock = System.Windows.Forms.DockStyle.Fill;
+        txtAuthor.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
+        txtAuthor.Name = "txtAuthor";
+        txtAuthor.PlaceholderText = "作者主名（留空=無作者）";
+        txtAuthor.Visible = false;
 
         //
         // dividers
@@ -208,13 +269,57 @@ partial class WorkDetailPanel
         divider5.Name = "divider5";
 
         //
-        // lblMetaInfo - 多行 metadata
+        // lblMetaInfo - 多行 metadata（view mode）
         //
         lblMetaInfo.AutoSize = true;
         lblMetaInfo.Font = new System.Drawing.Font("Microsoft JhengHei UI", 9.5F);
         lblMetaInfo.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
         lblMetaInfo.Name = "lblMetaInfo";
         lblMetaInfo.Text = "";
+        //
+        // editGrid（edit mode metadata 表單：5 row × 2 col）
+        //
+        editGrid.AutoSize = true;
+        editGrid.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+        editGrid.ColumnCount = 2;
+        editGrid.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 70F));
+        editGrid.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
+        editGrid.Dock = System.Windows.Forms.DockStyle.Fill;
+        editGrid.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
+        editGrid.Name = "editGrid";
+        for (int i = 0; i < 5; i++) editGrid.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
+        editGrid.Controls.Add(MakeEditLabel("系列"), 0, 0);
+        editGrid.Controls.Add(txtSeries, 1, 0);
+        editGrid.Controls.Add(MakeEditLabel("章節"), 0, 1);
+        editGrid.Controls.Add(txtChapter, 1, 1);
+        editGrid.Controls.Add(MakeEditLabel("語言"), 0, 2);
+        editGrid.Controls.Add(txtLanguage, 1, 2);
+        editGrid.Controls.Add(MakeEditLabel("翻譯組"), 0, 3);
+        editGrid.Controls.Add(txtTranslationGroup, 1, 3);
+        editGrid.Controls.Add(MakeEditLabel("評分"), 0, 4);
+        editGrid.Controls.Add(numRating, 1, 4);
+        editGrid.Visible = false;
+        //
+        // edit inputs 共用屬性
+        //
+        txtSeries.Dock = System.Windows.Forms.DockStyle.Fill;
+        txtSeries.Margin = new System.Windows.Forms.Padding(0, 0, 0, 2);
+        txtSeries.Name = "txtSeries";
+        txtChapter.Dock = System.Windows.Forms.DockStyle.Fill;
+        txtChapter.Margin = new System.Windows.Forms.Padding(0, 0, 0, 2);
+        txtChapter.Name = "txtChapter";
+        txtLanguage.Dock = System.Windows.Forms.DockStyle.Fill;
+        txtLanguage.Margin = new System.Windows.Forms.Padding(0, 0, 0, 2);
+        txtLanguage.Name = "txtLanguage";
+        txtLanguage.PlaceholderText = "ja / en / zh-CN / zh-TW ...";
+        txtTranslationGroup.Dock = System.Windows.Forms.DockStyle.Fill;
+        txtTranslationGroup.Margin = new System.Windows.Forms.Padding(0, 0, 0, 2);
+        txtTranslationGroup.Name = "txtTranslationGroup";
+        numRating.Dock = System.Windows.Forms.DockStyle.Fill;
+        numRating.Margin = new System.Windows.Forms.Padding(0, 0, 0, 2);
+        numRating.Minimum = 0;
+        numRating.Maximum = 5;
+        numRating.Name = "numRating";
 
         //
         // lblReadStatsHeader
@@ -251,6 +356,34 @@ partial class WorkDetailPanel
         flowTags.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
         flowTags.Name = "flowTags";
         flowTags.WrapContents = true;
+        //
+        // addTagPanel — edit mode：txtAddTag + btnAddTag
+        //
+        addTagPanel.AutoSize = true;
+        addTagPanel.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+        addTagPanel.Dock = System.Windows.Forms.DockStyle.Fill;
+        addTagPanel.FlowDirection = System.Windows.Forms.FlowDirection.LeftToRight;
+        addTagPanel.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
+        addTagPanel.Name = "addTagPanel";
+        addTagPanel.WrapContents = false;
+        addTagPanel.Controls.Add(txtAddTag);
+        addTagPanel.Controls.Add(btnAddTag);
+        addTagPanel.Visible = false;
+        //
+        // txtAddTag
+        //
+        txtAddTag.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
+        txtAddTag.Name = "txtAddTag";
+        txtAddTag.PlaceholderText = "新增標籤（Enter 加入）";
+        txtAddTag.Size = new System.Drawing.Size(220, 30);
+        //
+        // btnAddTag
+        //
+        btnAddTag.IconSvg = "PlusOutlined";
+        btnAddTag.Margin = new System.Windows.Forms.Padding(0);
+        btnAddTag.Name = "btnAddTag";
+        btnAddTag.Size = new System.Drawing.Size(60, 30);
+        btnAddTag.Text = "加入";
 
         //
         // lblFileInfoHeader
@@ -283,6 +416,8 @@ partial class WorkDetailPanel
         flowActions.Controls.Add(btnRead);
         flowActions.Controls.Add(btnExplorer);
         flowActions.Controls.Add(btnResetReading);
+        flowActions.Controls.Add(btnSave);
+        flowActions.Controls.Add(btnCancel);
         //
         // btnRead
         //
@@ -309,6 +444,21 @@ partial class WorkDetailPanel
         btnResetReading.Size = new System.Drawing.Size(120, 30);
         btnResetReading.Text = "重置閱讀記錄";
         btnResetReading.Type = AntdUI.TTypeMini.Default;
+        //
+        // btnSave / btnCancel — edit mode 的操作按鈕
+        //
+        btnSave.IconSvg = "SaveOutlined";
+        btnSave.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
+        btnSave.Name = "btnSave";
+        btnSave.Size = new System.Drawing.Size(96, 30);
+        btnSave.Text = "儲存";
+        btnSave.Type = AntdUI.TTypeMini.Primary;
+        btnSave.Visible = false;
+        btnCancel.Margin = new System.Windows.Forms.Padding(0);
+        btnCancel.Name = "btnCancel";
+        btnCancel.Size = new System.Drawing.Size(80, 30);
+        btnCancel.Text = "取消";
+        btnCancel.Visible = false;
 
         //
         // lblEmpty
@@ -337,4 +487,14 @@ partial class WorkDetailPanel
         headerPanel.ResumeLayout(false);
         ResumeLayout(false);
     }
+
+    /// <summary>editGrid 用的小 Label helper — 統一 font / margin。</summary>
+    private static System.Windows.Forms.Label MakeEditLabel(string text) => new System.Windows.Forms.Label
+    {
+        AutoSize = true,
+        Anchor = System.Windows.Forms.AnchorStyles.Left,
+        Font = new System.Drawing.Font("Microsoft JhengHei UI", 9F),
+        Margin = new System.Windows.Forms.Padding(0, 6, 6, 0),
+        Text = text,
+    };
 }
