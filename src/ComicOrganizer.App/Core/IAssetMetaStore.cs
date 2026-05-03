@@ -147,6 +147,67 @@ public interface IAssetMetaStore : IDisposable
     /// <summary>關聯 asset 與 tag（多對多）。已存在則 ignore。</summary>
     void AssociateTag(long assetId, long tagId);
 
+    /// <summary>移除 asset 與 tag 的關聯（其他 asset 仍可保留同一 tag）。</summary>
+    void DisassociateTag(long assetId, long tagId);
+
+    /// <summary>用 tagNames 整批 reset 一個 asset 的 tag 集合（會自動 UpsertTag 沒看過的 name）。</summary>
+    void SetAssetTags(long assetId, IEnumerable<string> tagNames);
+
     /// <summary>列出 asset 的所有 tag。</summary>
     IReadOnlyList<Tag> ListTagsForAsset(long assetId);
+
+    // ===== Author tags（#45：作者本身也能掛 tag — 風格 / 類型描述）=====
+
+    void AssociateAuthorTag(long authorId, long tagId);
+    void DisassociateAuthorTag(long authorId, long tagId);
+    void SetAuthorTags(long authorId, IEnumerable<string> tagNames);
+    IReadOnlyList<Tag> ListTagsForAuthor(long authorId);
+
+    // ===== Editing APIs (#45) =====
+
+    /// <summary>改作者主名。新名稱已存在 → throw InvalidOperationException（caller 走 MergeAuthor）。</summary>
+    void RenameAuthor(long authorId, string newMainName);
+
+    /// <summary>把 srcId 的所有 work / 別名 / author_tag 轉移到 destId，刪除 srcId。
+    /// 衝突的別名（destId 已有同 name）保留 destId 的、刪 srcId 的。</summary>
+    void MergeAuthor(long srcId, long destId);
+
+    /// <summary>更新 author.folder_path（搬庫後修正用）。</summary>
+    void SetAuthorFolderPath(long authorId, string? folderPath);
+
+    /// <summary>更新單一別名（name + lang）。</summary>
+    void UpdateAuthorAlias(long aliasId, string name, string? lang);
+
+    /// <summary>刪除單一別名。</summary>
+    void DeleteAuthorAlias(long aliasId);
+
+    /// <summary>改 work 的歸屬作者（asset_meta.author_id）。authorId=null 時清空關聯。</summary>
+    void SetWorkAuthor(long assetId, long? authorId);
+
+    /// <summary>name 前綴搜尋作者（main_name + alias 都比對）。給編輯時的 autocomplete 用。</summary>
+    IReadOnlyList<Author> SearchAuthors(string prefix, int limit = 20);
+
+    /// <summary>name 前綴搜尋 tag。給編輯時的 autocomplete 用。</summary>
+    IReadOnlyList<Tag> SearchTags(string prefix, int limit = 20);
+
+    /// <summary>列所有 tag + 使用次數（asset_count + author_count）。給 Tag 列表頁用。</summary>
+    IReadOnlyList<TagUsage> ListTagsByUsage();
+
+    /// <summary>列所有 author + work_count + alias_count + tag_count。給作者列表頁用。</summary>
+    IReadOnlyList<AuthorUsage> ListAuthorsByUsage();
+
+    /// <summary>改 tag 名稱。新名稱已存在 → throw（caller 走 MergeTag）。</summary>
+    void RenameTag(long tagId, string newName);
+
+    /// <summary>把 srcId 的所有 asset_tag / author_tag 關聯轉到 destId，刪 srcId。</summary>
+    void MergeTag(long srcId, long destId);
+
+    /// <summary>刪除 tag（cascade 移除所有 asset_tag / author_tag 關聯）。</summary>
+    void DeleteTag(long tagId);
+
+    /// <summary>更新 tag.category（character / artist / parody / genre / language / meta 等自由字串）。</summary>
+    void SetTagCategory(long tagId, string? category);
+
+    /// <summary>標記 / 取消「使用者手動編輯過」flag（保護不被 re-parse 覆寫）。</summary>
+    void SetMetadataManuallyEdited(long assetId, bool edited);
 }

@@ -48,6 +48,9 @@ public class AssetMetadata
 
     /// <summary>內建 reader 上次閱讀到的頁碼（0-based）。null = 從未讀過 / 從第一頁開始。</summary>
     public int? LastPage { get; set; }
+
+    /// <summary>使用者手動編輯過 — re-parse / 自動同步流程不得覆寫此筆。</summary>
+    public bool ManuallyEdited { get; set; }
 }
 
 /// <summary>
@@ -92,7 +95,28 @@ public class WorkDetail
     public string? ExternalId { get; set; }
     public long? ParsedAt { get; set; }
     public int? LastPage { get; set; }
+    public bool ManuallyEdited { get; set; }
 
     public List<Tag> Tags { get; set; } = new();
+}
+
+/// <summary>Tag + 使用次數（給 Tag 列表頁排序 / 統計用）。</summary>
+public class TagUsage
+{
+    public long Id { get; set; }
+    public string Name { get; set; } = "";
+    public string? Category { get; set; }
+    public int AssetCount { get; set; }
+    public int AuthorCount { get; set; }
+    public int TotalCount => AssetCount + AuthorCount;
+}
+
+/// <summary>Author + 統計（給作者列表頁顯示用）。</summary>
+public class AuthorUsage
+{
+    public Author Author { get; set; } = null!;
+    public int WorkCount { get; set; }
+    public int AliasCount { get; set; }
+    public int TagCount { get; set; }
 }
 

@@ -13,7 +13,7 @@ public class SqliteAssetMetaStore : IAssetMetaStore
     private readonly SqliteConnection _conn;
     private readonly object _lock = new();
     private SqliteTransaction? _currentTx;
-    private const int CurrentSchemaVersion = 3;
+    private const int CurrentSchemaVersion = 4;
 
     static SqliteAssetMetaStore()
     {
@@ -41,13 +41,13 @@ public class SqliteAssetMetaStore : IAssetMetaStore
         var currentVersion = _conn.ExecuteScalar<long?>("SELECT version FROM schema_version LIMIT 1;") ?? 0;
 
         // v0：什麼都沒有 → 建最新 schema
-        // v1：舊 schema → migrate 到 v2 → 接 v3
-        // v2：補 v3 columns
-        // v3：no-op
+        // v1～v3：逐步補 columns 到最新
+        // v4：no-op
         if (currentVersion == 0)
         {
             CreateSchemaV2();
             ApplyV3Additions();
+            ApplyV4Additions();
             _conn.Execute("INSERT INTO schema_version (version) VALUES (@v);", new { v = CurrentSchemaVersion });
             return;
         }
@@ -59,15 +59,39 @@ public class SqliteAssetMetaStore : IAssetMetaStore
         if (currentVersion == 2)
         {
             ApplyV3Additions();
-            _conn.Execute("DELETE FROM schema_version; INSERT INTO schema_version (version) VALUES (@v);",
-                new { v = CurrentSchemaVersion });
+            currentVersion = 3;
         }
+        if (currentVersion == 3)
+        {
+            ApplyV4Additions();
+        }
+        _conn.Execute("DELETE FROM schema_version; INSERT INTO schema_version (version) VALUES (@v);",
+            new { v = CurrentSchemaVersion });
     }
 
     /// <summary>v2 → v3：asset_meta 加 last_page 欄位（Phase 1.3 reader 進度保存用）。</summary>
     private void ApplyV3Additions()
     {
         _conn.Execute("ALTER TABLE asset_meta ADD COLUMN last_page INTEGER;");
+    }
+
+    /// <summary>v3 → v4：metadata 編輯機制（#45）。
+    /// - asset_meta.manually_edited：保護使用者編輯不被 re-parse / 同步覆寫
+    /// - author_tag table：tag 不只屬於 work，作者本身也能掛 tag（風格/類型描述）。
+    /// </summary>
+    private void ApplyV4Additions()
+    {
+        _conn.Execute(@"
+ALTER TABLE asset_meta ADD COLUMN manually_edited INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS author_tag (
+    author_id INTEGER NOT NULL,
+    tag_id INTEGER NOT NULL,
+    PRIMARY KEY (author_id, tag_id),
+    FOREIGN KEY (author_id) REFERENCES author(id) ON DELETE CASCADE,
+    FOREIGN KEY (tag_id) REFERENCES tag(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_author_tag_tag_id ON author_tag(tag_id);
+");
     }
 
     /// <summary>直接建立 v2 schema（首次啟動或測試用）。</summary>
@@ -512,7 +536,8 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         lock (_lock)
             return _conn.QueryFirstOrDefault<AssetMetadata>(@"
 SELECT asset_id, author_id, title, series, chapter_no, language, translation_group,
-       page_count, rating, read_status, read_count, last_read, external_id, parsed_at, last_page
+       page_count, rating, read_status, read_count, last_read, external_id, parsed_at, last_page,
+       manually_edited
 FROM asset_meta WHERE asset_id = @id LIMIT 1;",
                 new { id = assetId }, _currentTx);
     }
@@ -522,9 +547,11 @@ FROM asset_meta WHERE asset_id = @id LIMIT 1;",
         lock (_lock)
             _conn.Execute(@"
 INSERT INTO asset_meta (asset_id, author_id, title, series, chapter_no, language, translation_group,
-                        page_count, rating, read_status, read_count, last_read, external_id, parsed_at, last_page)
+                        page_count, rating, read_status, read_count, last_read, external_id, parsed_at, last_page,
+                        manually_edited)
 VALUES (@AssetId, @AuthorId, @Title, @Series, @ChapterNo, @Language, @TranslationGroup,
-        @PageCount, @Rating, @ReadStatus, @ReadCount, @LastRead, @ExternalId, @ParsedAt, @LastPage)
+        @PageCount, @Rating, @ReadStatus, @ReadCount, @LastRead, @ExternalId, @ParsedAt, @LastPage,
+        @ManuallyEdited)
 ON CONFLICT(asset_id) DO UPDATE SET
     author_id = excluded.author_id,
     title = excluded.title,
@@ -539,7 +566,8 @@ ON CONFLICT(asset_id) DO UPDATE SET
     last_read = excluded.last_read,
     external_id = excluded.external_id,
     parsed_at = excluded.parsed_at,
-    last_page = excluded.last_page;",
+    last_page = excluded.last_page,
+    manually_edited = excluded.manually_edited;",
                 new
                 {
                     meta.AssetId,
@@ -557,6 +585,7 @@ ON CONFLICT(asset_id) DO UPDATE SET
                     meta.ExternalId,
                     ParsedAt = meta.ParsedAt > 0 ? meta.ParsedAt : NowUnix(),
                     meta.LastPage,
+                    ManuallyEdited = meta.ManuallyEdited ? 1 : 0,
                 }, _currentTx);
     }
 
@@ -583,7 +612,8 @@ SELECT a.id AS AssetId, a.path, a.name, a.is_folder, a.file_size, a.mtime,
        am.series, am.chapter_no, am.language, am.translation_group,
        am.page_count, am.rating,
        am.read_status, am.read_count, am.last_read,
-       am.external_id, am.parsed_at, am.last_page
+       am.external_id, am.parsed_at, am.last_page,
+       am.manually_edited
 FROM asset a
 LEFT JOIN asset_meta am ON am.asset_id = a.id
 LEFT JOIN author au ON au.id = am.author_id
@@ -859,6 +889,265 @@ SELECT t.id, t.name, t.category
 FROM tag t
 JOIN asset_tag at ON at.tag_id = t.id
 WHERE at.asset_id = @assetId;", new { assetId }, _currentTx).AsList();
+    }
+
+    public void DisassociateTag(long assetId, long tagId)
+    {
+        lock (_lock)
+            _conn.Execute("DELETE FROM asset_tag WHERE asset_id = @assetId AND tag_id = @tagId;",
+                new { assetId, tagId }, _currentTx);
+    }
+
+    public void SetAssetTags(long assetId, IEnumerable<string> tagNames)
+    {
+        var names = tagNames.Select(n => n?.Trim() ?? "").Where(n => n.Length > 0).Distinct().ToList();
+        RunInTransaction(() =>
+        {
+            _conn.Execute("DELETE FROM asset_tag WHERE asset_id = @assetId;", new { assetId }, _currentTx);
+            foreach (var name in names)
+            {
+                long tagId = UpsertTag(name);
+                _conn.Execute("INSERT OR IGNORE INTO asset_tag (asset_id, tag_id) VALUES (@assetId, @tagId);",
+                    new { assetId, tagId }, _currentTx);
+            }
+        });
+    }
+
+    // ===== Author tags =====
+
+    public void AssociateAuthorTag(long authorId, long tagId)
+    {
+        lock (_lock)
+            _conn.Execute("INSERT OR IGNORE INTO author_tag (author_id, tag_id) VALUES (@authorId, @tagId);",
+                new { authorId, tagId }, _currentTx);
+    }
+
+    public void DisassociateAuthorTag(long authorId, long tagId)
+    {
+        lock (_lock)
+            _conn.Execute("DELETE FROM author_tag WHERE author_id = @authorId AND tag_id = @tagId;",
+                new { authorId, tagId }, _currentTx);
+    }
+
+    public void SetAuthorTags(long authorId, IEnumerable<string> tagNames)
+    {
+        var names = tagNames.Select(n => n?.Trim() ?? "").Where(n => n.Length > 0).Distinct().ToList();
+        RunInTransaction(() =>
+        {
+            _conn.Execute("DELETE FROM author_tag WHERE author_id = @authorId;", new { authorId }, _currentTx);
+            foreach (var name in names)
+            {
+                long tagId = UpsertTag(name);
+                _conn.Execute("INSERT OR IGNORE INTO author_tag (author_id, tag_id) VALUES (@authorId, @tagId);",
+                    new { authorId, tagId }, _currentTx);
+            }
+        });
+    }
+
+    public IReadOnlyList<Tag> ListTagsForAuthor(long authorId)
+    {
+        lock (_lock)
+            return _conn.Query<Tag>(@"
+SELECT t.id, t.name, t.category
+FROM tag t
+JOIN author_tag at ON at.tag_id = t.id
+WHERE at.author_id = @authorId
+ORDER BY t.name;", new { authorId }, _currentTx).AsList();
+    }
+
+    // ===== Editing APIs (#45) =====
+
+    public void RenameAuthor(long authorId, string newMainName)
+    {
+        if (string.IsNullOrWhiteSpace(newMainName))
+            throw new ArgumentException("newMainName cannot be empty", nameof(newMainName));
+        var trimmed = newMainName.Trim();
+        lock (_lock)
+        {
+            // 衝突檢查 — 已有別人用此 main_name
+            var conflictId = _conn.ExecuteScalar<long?>(
+                "SELECT id FROM author WHERE main_name = @name AND id != @id LIMIT 1;",
+                new { name = trimmed, id = authorId }, _currentTx);
+            if (conflictId.HasValue)
+                throw new InvalidOperationException(
+                    $"Author with main_name '{trimmed}' already exists (id={conflictId}). Caller should use MergeAuthor instead.");
+            _conn.Execute("UPDATE author SET main_name = @name WHERE id = @id;",
+                new { name = trimmed, id = authorId }, _currentTx);
+        }
+    }
+
+    public void MergeAuthor(long srcId, long destId)
+    {
+        if (srcId == destId) return;
+        RunInTransaction(() =>
+        {
+            // 轉移 work（asset_meta.author_id）
+            _conn.Execute("UPDATE asset_meta SET author_id = @dest WHERE author_id = @src;",
+                new { dest = destId, src = srcId }, _currentTx);
+            // 轉移別名（衝突就跳過 — UNIQUE(author_id, name)）
+            _conn.Execute(@"
+INSERT OR IGNORE INTO author_alias (author_id, name, lang)
+SELECT @dest, name, lang FROM author_alias WHERE author_id = @src;",
+                new { dest = destId, src = srcId }, _currentTx);
+            _conn.Execute("DELETE FROM author_alias WHERE author_id = @src;", new { src = srcId }, _currentTx);
+            // 轉移 author_tag（衝突 ignore）
+            _conn.Execute(@"
+INSERT OR IGNORE INTO author_tag (author_id, tag_id)
+SELECT @dest, tag_id FROM author_tag WHERE author_id = @src;",
+                new { dest = destId, src = srcId }, _currentTx);
+            _conn.Execute("DELETE FROM author_tag WHERE author_id = @src;", new { src = srcId }, _currentTx);
+            // 把 src 的主名變成 dest 的別名（保留歷史）
+            _conn.Execute(@"
+INSERT OR IGNORE INTO author_alias (author_id, name, lang)
+SELECT @dest, main_name, NULL FROM author WHERE id = @src;",
+                new { dest = destId, src = srcId }, _currentTx);
+            _conn.Execute("DELETE FROM author WHERE id = @src;", new { src = srcId }, _currentTx);
+        });
+    }
+
+    public void SetAuthorFolderPath(long authorId, string? folderPath)
+    {
+        lock (_lock)
+            _conn.Execute("UPDATE author SET folder_path = @path WHERE id = @id;",
+                new { path = folderPath, id = authorId }, _currentTx);
+    }
+
+    public void UpdateAuthorAlias(long aliasId, string name, string? lang)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            throw new ArgumentException("name cannot be empty", nameof(name));
+        lock (_lock)
+            _conn.Execute("UPDATE author_alias SET name = @name, lang = @lang WHERE id = @id;",
+                new { name = name.Trim(), lang, id = aliasId }, _currentTx);
+    }
+
+    public void DeleteAuthorAlias(long aliasId)
+    {
+        lock (_lock)
+            _conn.Execute("DELETE FROM author_alias WHERE id = @id;", new { id = aliasId }, _currentTx);
+    }
+
+    public void SetWorkAuthor(long assetId, long? authorId)
+    {
+        lock (_lock)
+            _conn.Execute("UPDATE asset_meta SET author_id = @authorId WHERE asset_id = @assetId;",
+                new { authorId, assetId }, _currentTx);
+    }
+
+    public IReadOnlyList<Author> SearchAuthors(string prefix, int limit = 20)
+    {
+        var pattern = (prefix ?? "").Trim() + "%";
+        lock (_lock)
+            return _conn.Query<Author>(@"
+SELECT DISTINCT a.id, a.main_name, a.folder_path, a.learned_at
+FROM author a
+LEFT JOIN author_alias aa ON aa.author_id = a.id
+WHERE a.main_name LIKE @pattern OR aa.name LIKE @pattern
+ORDER BY a.main_name
+LIMIT @limit;", new { pattern, limit }, _currentTx).AsList();
+    }
+
+    public IReadOnlyList<Tag> SearchTags(string prefix, int limit = 20)
+    {
+        var pattern = (prefix ?? "").Trim() + "%";
+        lock (_lock)
+            return _conn.Query<Tag>(@"
+SELECT id, name, category FROM tag
+WHERE name LIKE @pattern
+ORDER BY name
+LIMIT @limit;", new { pattern, limit }, _currentTx).AsList();
+    }
+
+    public IReadOnlyList<TagUsage> ListTagsByUsage()
+    {
+        lock (_lock)
+            return _conn.Query<TagUsage>(@"
+SELECT t.id, t.name, t.category,
+       (SELECT COUNT(*) FROM asset_tag WHERE tag_id = t.id) AS AssetCount,
+       (SELECT COUNT(*) FROM author_tag WHERE tag_id = t.id) AS AuthorCount
+FROM tag t
+ORDER BY (AssetCount + AuthorCount) DESC, t.name;", transaction: _currentTx).AsList();
+    }
+
+    public IReadOnlyList<AuthorUsage> ListAuthorsByUsage()
+    {
+        lock (_lock)
+        {
+            // 一次撈：author + work_count + alias_count + tag_count
+            var rows = _conn.Query<(long Id, string MainName, string? FolderPath, long LearnedAt,
+                                    int WorkCount, int AliasCount, int TagCount)>(@"
+SELECT a.id, a.main_name AS MainName, a.folder_path AS FolderPath, a.learned_at AS LearnedAt,
+       (SELECT COUNT(*) FROM asset_meta WHERE author_id = a.id) AS WorkCount,
+       (SELECT COUNT(*) FROM author_alias WHERE author_id = a.id) AS AliasCount,
+       (SELECT COUNT(*) FROM author_tag WHERE author_id = a.id) AS TagCount
+FROM author a
+ORDER BY WorkCount DESC, a.main_name;", transaction: _currentTx).AsList();
+            return rows.Select(r => new AuthorUsage
+            {
+                Author = new Author { Id = r.Id, MainName = r.MainName, FolderPath = r.FolderPath, LearnedAt = r.LearnedAt },
+                WorkCount = r.WorkCount,
+                AliasCount = r.AliasCount,
+                TagCount = r.TagCount,
+            }).ToList();
+        }
+    }
+
+    public void RenameTag(long tagId, string newName)
+    {
+        if (string.IsNullOrWhiteSpace(newName))
+            throw new ArgumentException("newName cannot be empty", nameof(newName));
+        var trimmed = newName.Trim();
+        lock (_lock)
+        {
+            var conflictId = _conn.ExecuteScalar<long?>(
+                "SELECT id FROM tag WHERE name = @name AND id != @id LIMIT 1;",
+                new { name = trimmed, id = tagId }, _currentTx);
+            if (conflictId.HasValue)
+                throw new InvalidOperationException(
+                    $"Tag with name '{trimmed}' already exists (id={conflictId}). Caller should use MergeTag instead.");
+            _conn.Execute("UPDATE tag SET name = @name WHERE id = @id;",
+                new { name = trimmed, id = tagId }, _currentTx);
+        }
+    }
+
+    public void MergeTag(long srcId, long destId)
+    {
+        if (srcId == destId) return;
+        RunInTransaction(() =>
+        {
+            _conn.Execute(@"
+INSERT OR IGNORE INTO asset_tag (asset_id, tag_id)
+SELECT asset_id, @dest FROM asset_tag WHERE tag_id = @src;",
+                new { dest = destId, src = srcId }, _currentTx);
+            _conn.Execute("DELETE FROM asset_tag WHERE tag_id = @src;", new { src = srcId }, _currentTx);
+            _conn.Execute(@"
+INSERT OR IGNORE INTO author_tag (author_id, tag_id)
+SELECT author_id, @dest FROM author_tag WHERE tag_id = @src;",
+                new { dest = destId, src = srcId }, _currentTx);
+            _conn.Execute("DELETE FROM author_tag WHERE tag_id = @src;", new { src = srcId }, _currentTx);
+            _conn.Execute("DELETE FROM tag WHERE id = @src;", new { src = srcId }, _currentTx);
+        });
+    }
+
+    public void DeleteTag(long tagId)
+    {
+        lock (_lock)
+            _conn.Execute("DELETE FROM tag WHERE id = @id;", new { id = tagId }, _currentTx);
+        // ON DELETE CASCADE 會自動清 asset_tag / author_tag
+    }
+
+    public void SetTagCategory(long tagId, string? category)
+    {
+        lock (_lock)
+            _conn.Execute("UPDATE tag SET category = @cat WHERE id = @id;",
+                new { cat = category, id = tagId }, _currentTx);
+    }
+
+    public void SetMetadataManuallyEdited(long assetId, bool edited)
+    {
+        lock (_lock)
+            _conn.Execute("UPDATE asset_meta SET manually_edited = @flag WHERE asset_id = @id;",
+                new { flag = edited ? 1 : 0, id = assetId }, _currentTx);
     }
 
     public void Dispose()
