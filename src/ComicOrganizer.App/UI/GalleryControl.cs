@@ -1277,7 +1277,7 @@ public partial class GalleryControl : UserControl, IThemedControl
 
         bool rtl = (_prefs?.DefaultReadingDirection ?? "rtl") == "rtl";
         bool spreadFromCover = _prefs?.DualPageSpreadFromCover ?? false;
-        var form = new ReaderForm(source, rtl, spreadFromCover);
+        var form = new ReaderForm(source, rtl, spreadFromCover, _metaStore);
         form.Show();   // modeless，不阻擋 main form
     }
 
