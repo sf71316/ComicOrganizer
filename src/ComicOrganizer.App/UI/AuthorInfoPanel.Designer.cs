@@ -16,7 +16,6 @@ partial class AuthorInfoPanel
     private System.Windows.Forms.Label lblMainName;
     private AntdUI.Input txtMainName;            // edit
     private System.Windows.Forms.Label lblFolderPath;
-    private AntdUI.Input txtFolderPath;          // edit
     private System.Windows.Forms.Label lblAliases;
     private System.Windows.Forms.FlowLayoutPanel flowAliasesEdit;   // edit：每個別名 chip + 末尾 add
     private System.Windows.Forms.FlowLayoutPanel addAliasPanel;     // edit：txtAddAliasName + lang + button
@@ -63,7 +62,6 @@ partial class AuthorInfoPanel
         lblMainName = new System.Windows.Forms.Label();
         txtMainName = new AntdUI.Input();
         lblFolderPath = new System.Windows.Forms.Label();
-        txtFolderPath = new AntdUI.Input();
         lblAliases = new System.Windows.Forms.Label();
         flowAliasesEdit = new System.Windows.Forms.FlowLayoutPanel();
         addAliasPanel = new System.Windows.Forms.FlowLayoutPanel();
@@ -104,7 +102,6 @@ partial class AuthorInfoPanel
         headerPanel.Padding = new System.Windows.Forms.Padding(8, 4, 4, 4);
         headerPanel.Controls.Add(lblTitle);
         headerPanel.Controls.Add(btnClose);
-        headerPanel.Controls.Add(btnEdit);
         //
         // lblTitle
         //
@@ -124,15 +121,14 @@ partial class AuthorInfoPanel
         btnClose.Size = new System.Drawing.Size(28, 28);
         btnClose.Text = "";
         //
-        // btnEdit
+        // btnEdit — 編輯切換（在 action bar，跟「清除作者閱讀記錄」同列）
         //
-        btnEdit.Dock = System.Windows.Forms.DockStyle.Right;
-        btnEdit.Ghost = true;
-        btnEdit.IconRatio = 0.6F;
-        btnEdit.IconSvg = "EditOutlined";
+        btnEdit.IconSvg = "FormOutlined";
+        btnEdit.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
         btnEdit.Name = "btnEdit";
-        btnEdit.Size = new System.Drawing.Size(28, 28);
-        btnEdit.Text = "";
+        btnEdit.Size = new System.Drawing.Size(80, 30);
+        btnEdit.Text = "編輯";
+        btnEdit.Type = AntdUI.TTypeMini.Primary;
 
         //
         // contentPanel
@@ -154,8 +150,7 @@ partial class AuthorInfoPanel
         for (int i = 0; i < 22; i++) layout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
         layout.Controls.Add(lblMainName, 0, 0);
         layout.Controls.Add(txtMainName, 0, 1);          // edit
-        layout.Controls.Add(lblFolderPath, 0, 2);
-        layout.Controls.Add(txtFolderPath, 0, 3);        // edit
+        layout.Controls.Add(lblFolderPath, 0, 2);        // 兩種模式都顯示（純資訊，不可編輯）
         layout.Controls.Add(lblAliases, 0, 4);
         layout.Controls.Add(flowAliasesEdit, 0, 5);      // edit：可刪別名 chips
         layout.Controls.Add(addAliasPanel, 0, 6);         // edit：加別名輸入
@@ -185,10 +180,11 @@ partial class AuthorInfoPanel
         //
         // txtMainName (edit)
         //
-        txtMainName.Dock = System.Windows.Forms.DockStyle.Fill;
+        txtMainName.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
         txtMainName.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
         txtMainName.Name = "txtMainName";
         txtMainName.PlaceholderText = "作者主名";
+        txtMainName.Size = new System.Drawing.Size(280, 32);
         txtMainName.Visible = false;
         //
         // lblFolderPath
@@ -199,14 +195,6 @@ partial class AuthorInfoPanel
         lblFolderPath.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
         lblFolderPath.Name = "lblFolderPath";
         lblFolderPath.Text = "";
-        //
-        // txtFolderPath (edit)
-        //
-        txtFolderPath.Dock = System.Windows.Forms.DockStyle.Fill;
-        txtFolderPath.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
-        txtFolderPath.Name = "txtFolderPath";
-        txtFolderPath.PlaceholderText = "資料夾路徑（可空）";
-        txtFolderPath.Visible = false;
         //
         // lblAliases
         //
@@ -287,6 +275,7 @@ partial class AuthorInfoPanel
         flowActions.Margin = new System.Windows.Forms.Padding(0, 4, 0, 0);
         flowActions.Name = "flowActions";
         flowActions.WrapContents = true;
+        flowActions.Controls.Add(btnEdit);
         flowActions.Controls.Add(btnResetAuthorReading);
         flowActions.Controls.Add(btnSave);
         flowActions.Controls.Add(btnCancel);

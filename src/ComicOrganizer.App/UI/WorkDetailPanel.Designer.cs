@@ -123,10 +123,8 @@ partial class WorkDetailPanel
         headerPanel.Dock = System.Windows.Forms.DockStyle.Top;
         headerPanel.Height = 36;
         headerPanel.Padding = new System.Windows.Forms.Padding(8, 4, 4, 4);
-        // Dock=Right 後加的會在更左邊；先加 close 後加 edit → edit 在 close 左邊
         headerPanel.Controls.Add(lblTitle);
         headerPanel.Controls.Add(btnClose);
-        headerPanel.Controls.Add(btnEdit);
         //
         // lblTitle
         //
@@ -146,15 +144,14 @@ partial class WorkDetailPanel
         btnClose.Size = new System.Drawing.Size(28, 28);
         btnClose.Text = "";
         //
-        // btnEdit — 編輯切換按鈕（位於 header，Dock=Right 在 close 左邊）
+        // btnEdit — 編輯切換（在 action bar，跟 Read/Explorer/ResetReading 同列）
         //
-        btnEdit.Dock = System.Windows.Forms.DockStyle.Right;
-        btnEdit.Ghost = true;
-        btnEdit.IconRatio = 0.6F;
-        btnEdit.IconSvg = "EditOutlined";
+        btnEdit.IconSvg = "FormOutlined";
+        btnEdit.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
         btnEdit.Name = "btnEdit";
-        btnEdit.Size = new System.Drawing.Size(28, 28);
-        btnEdit.Text = "";
+        btnEdit.Size = new System.Drawing.Size(80, 30);
+        btnEdit.Text = "編輯";
+        btnEdit.Type = AntdUI.TTypeMini.Primary;
 
         //
         // contentPanel
@@ -222,10 +219,11 @@ partial class WorkDetailPanel
         //
         // txtTitle (edit mode 替換 lblWorkTitle)
         //
-        txtTitle.Dock = System.Windows.Forms.DockStyle.Fill;
+        txtTitle.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
         txtTitle.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
         txtTitle.Name = "txtTitle";
         txtTitle.PlaceholderText = "標題";
+        txtTitle.Size = new System.Drawing.Size(340, 32);
         txtTitle.Visible = false;
         //
         // lnkAuthor
@@ -238,10 +236,11 @@ partial class WorkDetailPanel
         //
         // txtAuthor (edit mode 替換 lnkAuthor — 輸入作者主名，save 時 UpsertAuthor 取或建)
         //
-        txtAuthor.Dock = System.Windows.Forms.DockStyle.Fill;
-        txtAuthor.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
+        txtAuthor.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        txtAuthor.Margin = new System.Windows.Forms.Padding(0, 0, 0, 8);
         txtAuthor.Name = "txtAuthor";
         txtAuthor.PlaceholderText = "作者主名（留空=無作者）";
+        txtAuthor.Size = new System.Drawing.Size(340, 30);
         txtAuthor.Visible = false;
 
         //
@@ -300,26 +299,32 @@ partial class WorkDetailPanel
         editGrid.Controls.Add(numRating, 1, 4);
         editGrid.Visible = false;
         //
-        // edit inputs 共用屬性
+        // edit inputs 共用屬性 — Anchor=L|R 讓 column 100% 寬撐滿，固定 Height 給 AutoSize row 用
         //
-        txtSeries.Dock = System.Windows.Forms.DockStyle.Fill;
-        txtSeries.Margin = new System.Windows.Forms.Padding(0, 0, 0, 2);
+        const int InputH = 30;
+        txtSeries.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        txtSeries.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
         txtSeries.Name = "txtSeries";
-        txtChapter.Dock = System.Windows.Forms.DockStyle.Fill;
-        txtChapter.Margin = new System.Windows.Forms.Padding(0, 0, 0, 2);
+        txtSeries.Size = new System.Drawing.Size(200, InputH);
+        txtChapter.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        txtChapter.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
         txtChapter.Name = "txtChapter";
-        txtLanguage.Dock = System.Windows.Forms.DockStyle.Fill;
-        txtLanguage.Margin = new System.Windows.Forms.Padding(0, 0, 0, 2);
+        txtChapter.Size = new System.Drawing.Size(200, InputH);
+        txtLanguage.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        txtLanguage.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
         txtLanguage.Name = "txtLanguage";
         txtLanguage.PlaceholderText = "ja / en / zh-CN / zh-TW ...";
-        txtTranslationGroup.Dock = System.Windows.Forms.DockStyle.Fill;
-        txtTranslationGroup.Margin = new System.Windows.Forms.Padding(0, 0, 0, 2);
+        txtLanguage.Size = new System.Drawing.Size(200, InputH);
+        txtTranslationGroup.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
+        txtTranslationGroup.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
         txtTranslationGroup.Name = "txtTranslationGroup";
-        numRating.Dock = System.Windows.Forms.DockStyle.Fill;
-        numRating.Margin = new System.Windows.Forms.Padding(0, 0, 0, 2);
+        txtTranslationGroup.Size = new System.Drawing.Size(200, InputH);
+        numRating.Anchor = System.Windows.Forms.AnchorStyles.Left;
+        numRating.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
         numRating.Minimum = 0;
         numRating.Maximum = 5;
         numRating.Name = "numRating";
+        numRating.Size = new System.Drawing.Size(80, InputH);
 
         //
         // lblReadStatsHeader
@@ -415,6 +420,7 @@ partial class WorkDetailPanel
         flowActions.WrapContents = true;
         flowActions.Controls.Add(btnRead);
         flowActions.Controls.Add(btnExplorer);
+        flowActions.Controls.Add(btnEdit);
         flowActions.Controls.Add(btnResetReading);
         flowActions.Controls.Add(btnSave);
         flowActions.Controls.Add(btnCancel);

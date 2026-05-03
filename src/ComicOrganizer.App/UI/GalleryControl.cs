@@ -394,10 +394,7 @@ public partial class GalleryControl : UserControl, IThemedControl
                 }
             }
 
-            // 2. folder_path
-            _metaStore.SetAuthorFolderPath(data.AuthorId, data.FolderPath);
-
-            // 3. 別名 diff：DB 中存在但 data 沒有 = 刪；data 中 Id=0 = 新增；其他 = 改
+            // 2. 別名 diff：DB 中存在但 data 沒有 = 刪；data 中 Id=0 = 新增；其他 = 改
             var dbAliases = _metaStore.ListAuthorAliases(data.AuthorId).ToDictionary(a => a.Id);
             var keepIds = new HashSet<long>();
             foreach (var alias in data.Aliases)

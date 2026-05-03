@@ -258,11 +258,11 @@ public partial class AuthorInfoPanel : UserControl
         _isEditing = editing;
         // view 控件
         lblMainName.Visible = !editing;
-        lblFolderPath.Visible = !editing && _currentInfo?.Author.FolderPath is not null and not "";
+        // folder_path 兩種模式都用 label 顯示（只讀，使用者不能改）
+        lblFolderPath.Visible = _currentInfo?.Author.FolderPath is not null and not "";
         lblAliases.Visible = !editing && _currentInfo?.Aliases.Count > 0;
         // edit 控件
         txtMainName.Visible = editing;
-        txtFolderPath.Visible = editing;
         flowAliasesEdit.Visible = editing;
         addAliasPanel.Visible = editing;
         addTagPanel.Visible = editing;
@@ -275,11 +275,7 @@ public partial class AuthorInfoPanel : UserControl
         if (editing)
         {
             var info = _currentInfo;
-            if (info != null)
-            {
-                txtMainName.Text = info.Author.MainName;
-                txtFolderPath.Text = info.Author.FolderPath ?? "";
-            }
+            if (info != null) txtMainName.Text = info.Author.MainName;
             txtAddAliasName.Text = txtAddAliasLang.Text = txtAddTag.Text = "";
         }
         else if (_currentInfo != null)
@@ -423,7 +419,6 @@ public partial class AuthorInfoPanel : UserControl
         {
             AuthorId = _currentAuthorId,
             MainName = (txtMainName.Text ?? "").Trim(),
-            FolderPath = string.IsNullOrWhiteSpace(txtFolderPath.Text) ? null : txtFolderPath.Text.Trim(),
             Aliases = _editAliases.Select(a => new AliasEdit { Id = a.Id, Name = a.Name, Lang = a.Lang }).ToList(),
             Tags = new List<string>(_editTags),
         };
@@ -438,12 +433,12 @@ public class AuthorEditData
 {
     public long AuthorId { get; set; }
     public string MainName { get; set; } = "";
-    public string? FolderPath { get; set; }
     /// <summary>編輯後的別名清單；Id=0 = 新加的 row（host 走 AddAuthorAlias）；
     /// 不在此清單裡的舊 row 視為刪除（host diff vs DB 後呼叫 DeleteAuthorAlias）。</summary>
     public List<AliasEdit> Aliases { get; set; } = new();
     /// <summary>作者本身的 tag list（會走 SetAuthorTags 整批 reset）。</summary>
     public List<string> Tags { get; set; } = new();
+    // 注意：folder_path 不放這裡 — 它是 system-managed（scan 時自動設），不允許 UI 編輯
 }
 
 public class AliasEdit
