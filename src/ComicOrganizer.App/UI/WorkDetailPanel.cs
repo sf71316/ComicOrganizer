@@ -19,6 +19,9 @@ public partial class WorkDetailPanel : UserControl
     /// <summary>使用者按「開啟位置」— Explorer 定位。</summary>
     public event Action<string>? RequestExplorer;
 
+    /// <summary>使用者按「重置閱讀記錄」— 清 read_status / count / last_read / last_page。</summary>
+    public event Action<string>? RequestResetReading;
+
     private string _currentPath = "";
 
     public WorkDetailPanel()
@@ -44,6 +47,10 @@ public partial class WorkDetailPanel : UserControl
         {
             if (!string.IsNullOrEmpty(_currentPath)) RequestExplorer?.Invoke(_currentPath);
         };
+        btnResetReading.Click += (s, e) =>
+        {
+            if (!string.IsNullOrEmpty(_currentPath)) RequestResetReading?.Invoke(_currentPath);
+        };
         picCover.Click += (s, e) =>
         {
             if (!string.IsNullOrEmpty(_currentPath)) RequestOpenViewer?.Invoke(_currentPath);
@@ -60,6 +67,7 @@ public partial class WorkDetailPanel : UserControl
         lblFileInfoHeader.Text = LocalizationManager.GetString("WorkDetailFileInfo") ?? "檔案資訊";
         btnRead.Text = LocalizationManager.GetString("WorkDetailRead") ?? "閱讀";
         btnExplorer.Text = LocalizationManager.GetString("WorkDetailExplorer") ?? "開啟位置";
+        btnResetReading.Text = LocalizationManager.GetString("WorkDetailResetReading") ?? "重置閱讀記錄";
     }
 
     /// <summary>套用詳細資訊。cover 由 caller 預先載入後傳入（沒就 null）。</summary>

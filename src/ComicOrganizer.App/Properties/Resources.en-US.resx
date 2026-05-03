@@ -137,6 +137,8 @@
   <data name="WorkDetailFileInfo" xml:space="preserve"><value>File Info</value></data>
   <data name="WorkDetailRead" xml:space="preserve"><value>Read</value></data>
   <data name="WorkDetailExplorer" xml:space="preserve"><value>Open Location</value></data>
+  <data name="WorkDetailResetReading" xml:space="preserve"><value>Reset Reading</value></data>
+  <data name="AuthorInfoResetReading" xml:space="preserve"><value>Clear Author Reading</value></data>
   <data name="WorkDetailNoData" xml:space="preserve"><value>No work detail available</value></data>
   <data name="MenuWorkDetail" xml:space="preserve"><value>Detail</value></data>
 </root>

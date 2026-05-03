@@ -51,6 +51,7 @@ public partial class SettingsForm : Window, IThemedControl
         txtImageViewer.Text = Config.ImageViewerPath;
         txtImageViewerArgs.Text = Config.ImageViewerArgs;
         cbDebug.Checked = Config.DebugMode;
+        cbTrackReading.Checked = Prefs.TrackReadingRecord;
         numMaxScanDepth.Value = Config.MaxScanDepth;
         LoadSizeWithUnit(Config.MinCoverFileSizeBytes, numMinCoverSize, selectMinCoverUnit);
         LoadSizeWithUnit(Config.MaxCoverFileSizeBytes, numMaxCoverSize, selectMaxCoverUnit);
@@ -218,6 +219,7 @@ public partial class SettingsForm : Window, IThemedControl
         Config.ImageViewerPath = txtImageViewer.Text;
         Config.ImageViewerArgs = string.IsNullOrWhiteSpace(txtImageViewerArgs.Text) ? "\"{path}\"" : txtImageViewerArgs.Text;
         Config.DebugMode = cbDebug.Checked;
+        Prefs.TrackReadingRecord = cbTrackReading.Checked;
         Config.MaxScanDepth = (int)numMaxScanDepth.Value;
         Config.MinCoverFileSizeBytes = SaveSizeWithUnit(numMinCoverSize, selectMinCoverUnit);
         Config.MaxCoverFileSizeBytes = SaveSizeWithUnit(numMaxCoverSize, selectMaxCoverUnit);

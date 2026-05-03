@@ -26,6 +26,8 @@ partial class AuthorInfoPanel
     private AntdUI.Divider divider4;
     private System.Windows.Forms.Label lblAllWorksHeader;
     private System.Windows.Forms.FlowLayoutPanel flowAllWorks;
+    private AntdUI.Divider divider5;
+    private AntdUI.Button btnResetAuthorReading;
 
     // ShowEmpty 訊息
     private System.Windows.Forms.Label lblEmpty;
@@ -57,6 +59,8 @@ partial class AuthorInfoPanel
         divider4 = new AntdUI.Divider();
         lblAllWorksHeader = new System.Windows.Forms.Label();
         flowAllWorks = new System.Windows.Forms.FlowLayoutPanel();
+        divider5 = new AntdUI.Divider();
+        btnResetAuthorReading = new AntdUI.Button();
         lblEmpty = new System.Windows.Forms.Label();
 
         SuspendLayout();
@@ -107,9 +111,10 @@ partial class AuthorInfoPanel
         layout.ColumnCount = 1;
         layout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
         layout.Dock = System.Windows.Forms.DockStyle.Top;
-        // 13 行：MainName, FolderPath, Aliases, divider1, Stats, divider2, TagsHeader, flowTags,
-        //         divider3, RecentHeader, flowRecent, divider4, AllWorksHeader, flowAllWorks
-        for (int i = 0; i < 14; i++) layout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
+        // 16 行：MainName, FolderPath, Aliases, divider1, Stats, divider2, TagsHeader, flowTags,
+        //         divider3, RecentHeader, flowRecent, divider4, AllWorksHeader, flowAllWorks,
+        //         divider5, btnResetAuthorReading
+        for (int i = 0; i < 16; i++) layout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
         layout.Controls.Add(lblMainName, 0, 0);
         layout.Controls.Add(lblFolderPath, 0, 1);
         layout.Controls.Add(lblAliases, 0, 2);
@@ -124,6 +129,8 @@ partial class AuthorInfoPanel
         layout.Controls.Add(divider4, 0, 11);
         layout.Controls.Add(lblAllWorksHeader, 0, 12);
         layout.Controls.Add(flowAllWorks, 0, 13);
+        layout.Controls.Add(divider5, 0, 14);
+        layout.Controls.Add(btnResetAuthorReading, 0, 15);
 
         //
         // lblMainName
@@ -170,6 +177,19 @@ partial class AuthorInfoPanel
         divider4.Height = 8;
         divider4.Margin = new System.Windows.Forms.Padding(0, 4, 0, 4);
         divider4.Name = "divider4";
+        divider5.Dock = System.Windows.Forms.DockStyle.Fill;
+        divider5.Height = 8;
+        divider5.Margin = new System.Windows.Forms.Padding(0, 8, 0, 4);
+        divider5.Name = "divider5";
+        //
+        // btnResetAuthorReading
+        //
+        btnResetAuthorReading.IconSvg = "UndoOutlined";
+        btnResetAuthorReading.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
+        btnResetAuthorReading.Name = "btnResetAuthorReading";
+        btnResetAuthorReading.Size = new System.Drawing.Size(180, 30);
+        btnResetAuthorReading.Text = "清除此作者閱讀記錄";
+        btnResetAuthorReading.Type = AntdUI.TTypeMini.Default;
 
         //
         // lblStats

@@ -25,6 +25,7 @@ partial class SettingsForm
     private AntdUI.Label labelLang;
     private AntdUI.Select selectLang;
     private AntdUI.Checkbox cbDebug;
+    private AntdUI.Checkbox cbTrackReading;
 
     // libraryPanel 控件
     private AntdUI.Label label1;
@@ -78,6 +79,7 @@ partial class SettingsForm
         labelLang = new AntdUI.Label();
         selectLang = new Select();
         cbDebug = new Checkbox();
+        cbTrackReading = new Checkbox();
         label1 = new AntdUI.Label();
         label2 = new AntdUI.Label();
         label3 = new AntdUI.Label();
@@ -178,6 +180,7 @@ partial class SettingsForm
         // generalPanel
         //
         generalPanel.BackColor = Color.Transparent;
+        generalPanel.Controls.Add(cbTrackReading);
         generalPanel.Controls.Add(cbDebug);
         generalPanel.Controls.Add(selectLang);
         generalPanel.Controls.Add(labelLang);
@@ -231,6 +234,15 @@ partial class SettingsForm
         cbDebug.Size = new Size(300, 30);
         cbDebug.TabIndex = 4;
         cbDebug.Text = "偵錯模式 (不移動檔案)";
+        //
+        // cbTrackReading
+        //
+        cbTrackReading.BackColor = Color.Transparent;
+        cbTrackReading.Location = new Point(40, 280);
+        cbTrackReading.Name = "cbTrackReading";
+        cbTrackReading.Size = new Size(400, 30);
+        cbTrackReading.TabIndex = 5;
+        cbTrackReading.Text = "啟用閱讀記錄 (狀態 / 次數 / 上次閱讀)";
         //
         // libraryPanel
         //

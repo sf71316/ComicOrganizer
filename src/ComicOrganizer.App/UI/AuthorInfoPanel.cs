@@ -14,6 +14,12 @@ public partial class AuthorInfoPanel : UserControl
     /// <summary>使用者在 RecentlyRead / AllWorks 清單按下某個作品 — string 為 work path。</summary>
     public event Action<string>? RequestOpenWork;
 
+    /// <summary>使用者按「清除此作者所有閱讀記錄」— long 為 author id。</summary>
+    public event Action<long>? RequestResetAuthorReading;
+
+    /// <summary>當前顯示的 author id（給 reset button 用）；ShowInfo 時設定。</summary>
+    private long _currentAuthorId;
+
     public AuthorInfoPanel()
     {
         InitializeComponent();
@@ -26,6 +32,10 @@ public partial class AuthorInfoPanel : UserControl
         lblFolderPath.ForeColor = ThemeColors.Border;  // 次要色
 
         btnClose.Click += (s, e) => CloseRequested?.Invoke();
+        btnResetAuthorReading.Click += (s, e) =>
+        {
+            if (_currentAuthorId > 0) RequestResetAuthorReading?.Invoke(_currentAuthorId);
+        };
 
         ApplyLocalization();
     }
@@ -36,6 +46,7 @@ public partial class AuthorInfoPanel : UserControl
         lblTagsHeader.Text = LocalizationManager.GetString("AuthorInfoTopTags") ?? "主要標籤";
         lblRecentHeader.Text = LocalizationManager.GetString("AuthorInfoRecentRead") ?? "最近閱讀";
         lblAllWorksHeader.Text = LocalizationManager.GetString("AuthorInfoAllWorks") ?? "全部作品";
+        btnResetAuthorReading.Text = LocalizationManager.GetString("AuthorInfoResetReading") ?? "清除此作者閱讀記錄";
     }
 
     /// <summary>套用聚合資料 — 顯示完整 panel 內容。</summary>
@@ -44,6 +55,7 @@ public partial class AuthorInfoPanel : UserControl
         lblEmpty.Visible = false;
         contentPanel.Visible = true;
         headerPanel.Visible = true;
+        _currentAuthorId = info.Author.Id;
 
         lblMainName.Text = info.Author.MainName;
 

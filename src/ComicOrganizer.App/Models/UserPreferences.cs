@@ -28,4 +28,8 @@ public class UserPreferences
 
     /// <summary>閱讀記錄翻頁門檻。內建 reader 內翻過此頁數才算一次有效閱讀（與秒數任一達成即可）。</summary>
     public int ReadCountThresholdPages { get; set; } = 2;
+
+    /// <summary>是否啟用閱讀記錄功能（read_status 自動升級 / read_count++ / last_read 更新）。
+    /// false 時 reader / 外部 viewer 都不寫這幾個欄位；last_page 仍會記錄（resume 用）。</summary>
+    public bool TrackReadingRecord { get; set; } = true;
 }

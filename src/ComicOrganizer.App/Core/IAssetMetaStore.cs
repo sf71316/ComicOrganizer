@@ -128,6 +128,17 @@ public interface IAssetMetaStore : IDisposable
     /// <summary>更新 path 對應的 last_page。沒 asset_meta no-op；有就只更新該欄位。</summary>
     void SetLastPage(string path, int pageIndex);
 
+    // ===== 閱讀記錄重置（read_status / read_count / last_read / last_page 一次清掉）=====
+
+    /// <summary>重置單一作品的閱讀記錄。metadata（title/author/tags 等）保留。</summary>
+    void ResetReadingRecord(string path);
+
+    /// <summary>重置某作者底下所有作品的閱讀記錄。回傳影響筆數。</summary>
+    int ResetReadingRecordsForAuthor(long authorId);
+
+    /// <summary>重置全庫所有作品的閱讀記錄。回傳影響筆數。</summary>
+    int ResetAllReadingRecords();
+
     // ===== Tag =====
 
     /// <summary>取或建 tag（name 主鍵 reuse）。</summary>

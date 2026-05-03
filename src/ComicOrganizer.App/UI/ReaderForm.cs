@@ -17,6 +17,18 @@ public partial class ReaderForm : Window, IThemedControl
     private readonly IAssetMetaStore? _metaStore;   // 進度保存用，可選
     private int _currentIndex;
     private int _lastSavedPage = -1;   // 上次寫進 DB 的頁碼，避免重覆寫
+
+    // 雙條件閱讀計數（Phase 1.3c）：時間 + 翻頁數都過門檻才算一次有效閱讀
+    private readonly DateTime _openedAt = DateTime.UtcNow;
+    private int _pagesVisited;        // 包含 GoToPage 抵達的初始頁
+    private bool _readRecorded;       // 已 RecordRead 過此 session 一次
+    private bool _completedRecorded;  // 自動 Completed 已觸發過
+    private readonly int _readThresholdSeconds;
+    private readonly int _readThresholdPages;
+    private readonly bool _trackReadingRecord;   // false 時 TryRecordRead / TryAutoComplete 都跳過
+
+    /// <summary>定期觸發 TryRecordRead — 使用者只停在一頁不翻時也能在時間到後觸發記錄。</summary>
+    private readonly System.Windows.Forms.Timer _recordCheckTimer = new() { Interval = 5000 };
     private ReaderViewMode _viewMode = ReaderViewMode.SinglePage;
     private ReaderZoomMode _zoomMode = ReaderZoomMode.FitPage;
     private float _customZoom = 1.0f;
@@ -41,13 +53,32 @@ public partial class ReaderForm : Window, IThemedControl
 
     public ReaderForm(IReaderSource source, bool rightToLeft = true,
                       bool dualPageSpreadFromCover = false,
-                      IAssetMetaStore? metaStore = null)
+                      IAssetMetaStore? metaStore = null,
+                      ReadRecordQueue? readRecordQueue = null,
+                      int readThresholdSeconds = 30,
+                      int readThresholdPages = 2,
+                      bool trackReadingRecord = true)
     {
         InitializeComponent();
         _source = source;
         _rtl = rightToLeft;
         _spreadFromCover = dualPageSpreadFromCover;
         _metaStore = metaStore;
+        _readThresholdSeconds = Math.Max(1, readThresholdSeconds);
+        _readThresholdPages = Math.Max(1, readThresholdPages);
+        _trackReadingRecord = trackReadingRecord;
+
+        // 取消外層（card 點擊）已 enqueue 的 30s 自動計數 — 內建 reader 走自己的雙條件邏輯
+        readRecordQueue?.Cancel(source.RootPath);
+
+        // 啟動定期檢查 timer：每 5s 觸發 TryRecordRead 確保時間條件能在不翻頁時也被命中
+        _recordCheckTimer.Tick += (s, e) =>
+        {
+            if (IsDisposed) { _recordCheckTimer.Stop(); return; }
+            if (_readRecorded) { _recordCheckTimer.Stop(); return; }   // 記錄完不再 polling
+            TryRecordRead();
+        };
+        _recordCheckTimer.Start();
 
         // 從 DB 撈 last_page 接續閱讀；沒紀錄或越界回 0
         var resume = _metaStore?.GetLastPage(source.RootPath);
@@ -125,6 +156,45 @@ public partial class ReaderForm : Window, IThemedControl
             _lastSavedPage = _currentIndex;
         }
         catch { /* DB 寫失敗不致命 */ }
+    }
+
+    /// <summary>
+    /// 雙條件計數（Phase 1.3c）：停留時間「或」翻頁數任一達標就算一次有效閱讀。
+    ///   - 停留 ≥ N 秒 → 視為慢讀（停在一頁細看）
+    ///   - 翻過 ≥ M 頁 → 視為快瀏覽（看圖為主）
+    /// 任一達成即記錄；一個 reader session 最多觸發一次（read_count++ 一次）。
+    /// </summary>
+    private void TryRecordRead()
+    {
+        if (!_trackReadingRecord) return;
+        if (_readRecorded || _metaStore == null) return;
+        var elapsed = (DateTime.UtcNow - _openedAt).TotalSeconds;
+        if (elapsed < _readThresholdSeconds && _pagesVisited < _readThresholdPages) return;
+        try
+        {
+            _metaStore.RecordRead(_source.RootPath);
+            _readRecorded = true;
+            _recordCheckTimer.Stop();
+        }
+        catch { /* DB 寫失敗不致命 */ }
+    }
+
+    /// <summary>
+    /// 自動 Completed（Phase 1.3b）：當前 spread 涵蓋最後一頁就標 Completed。
+    /// 一個 reader session 最多觸發一次。
+    /// </summary>
+    private void TryAutoComplete()
+    {
+        if (!_trackReadingRecord) return;
+        if (_completedRecorded || _metaStore == null) return;
+        int lastShown = _currentIndex + SpreadSize(_currentIndex) - 1;
+        if (lastShown < _source.PageCount - 1) return;
+        try
+        {
+            _metaStore.SetReadStatus(_source.RootPath, ReadStatus.Completed);
+            _completedRecorded = true;
+        }
+        catch { }
     }
 
     private void OnContentMouseWheel(object? sender, MouseEventArgs e)
@@ -359,6 +429,9 @@ public partial class ReaderForm : Window, IThemedControl
 
         // 每次翻頁存進度 — SQLite UPDATE 單筆，ms 等級不會卡 UI
         SaveProgress();
+        _pagesVisited++;
+        TryRecordRead();
+        TryAutoComplete();
     }
 
     private async Task LoadPageAsync(int index)
@@ -467,17 +540,20 @@ public partial class ReaderForm : Window, IThemedControl
             return;
         }
 
-        // 雙頁：依原圖寬度比例分配 picPage 的寬度，垂直依高度比例置中（不同高度時矮的不被拉伸）
+        // 雙頁：扣掉中間 5px 白色分隔條，剩餘寬度依原圖寬度比例分配
+        const int Gap = 5;
+        int contentW = picPage.Width - Gap;
         int totalNaturalW = _leftImage.Width + _rightImage.Width;
         int totalNaturalH = Math.Max(_leftImage.Height, _rightImage.Height);
-        int leftW = (int)((double)_leftImage.Width / totalNaturalW * picPage.Width);
-        int rightW = picPage.Width - leftW;
+        int leftW = (int)((double)_leftImage.Width / totalNaturalW * contentW);
+        int rightW = contentW - leftW;
         int leftH = (int)((double)_leftImage.Height / totalNaturalH * picPage.Height);
         int rightH = (int)((double)_rightImage.Height / totalNaturalH * picPage.Height);
         int leftY = (picPage.Height - leftH) / 2;
         int rightY = (picPage.Height - rightH) / 2;
         g.DrawImage(_leftImage, new Rectangle(0, leftY, leftW, leftH));
-        g.DrawImage(_rightImage, new Rectangle(leftW, rightY, rightW, rightH));
+        g.FillRectangle(Brushes.White, leftW, 0, Gap, picPage.Height);
+        g.DrawImage(_rightImage, new Rectangle(leftW + Gap, rightY, rightW, rightH));
     }
 
     /// <summary>釋放 spread 視窗 ± PreloadRadius 之外的 cache。</summary>
@@ -502,6 +578,8 @@ public partial class ReaderForm : Window, IThemedControl
 
     private void DisposeAllPages()
     {
+        _recordCheckTimer.Stop();
+        _recordCheckTimer.Dispose();
         _leftImage = null;
         _rightImage = null;
         lock (_cacheLock)

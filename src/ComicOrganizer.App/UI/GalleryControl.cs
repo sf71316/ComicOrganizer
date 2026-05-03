@@ -288,6 +288,12 @@ public partial class GalleryControl : UserControl, IThemedControl
         _ = LoadTreeAsync();
     }
 
+    /// <summary>SettingsForm 儲存後 MainForm 呼叫，傳新 prefs 進來讓 reader 偏好即時生效。</summary>
+    public void OnPrefsUpdated(UserPreferences prefs)
+    {
+        _prefs = prefs;
+    }
+
     protected override bool ProcessCmdKey(ref System.Windows.Forms.Message msg, Keys keyData)
     {
         if (keyData == Keys.F5)
@@ -329,6 +335,70 @@ public partial class GalleryControl : UserControl, IThemedControl
 
         // WorkDetailPanel 的「開啟位置」 → Explorer
         detailDrawerHost.WorkPanel.RequestExplorer += path => OpenInExplorer(path);
+
+        // 「重置閱讀記錄」：彈確認 Modal → ResetReadingRecord → 刷面板 + card icon
+        detailDrawerHost.WorkPanel.RequestResetReading += path => ConfirmAndResetWorkReading(path);
+
+        // AuthorInfoPanel 加「清除此作者所有閱讀記錄」入口（透過 panel 暴露的 event）
+        detailDrawerHost.AuthorPanel.RequestResetAuthorReading += authorId => ConfirmAndResetAuthorReading(authorId);
+    }
+
+    private void ConfirmAndResetWorkReading(string path)
+    {
+        if (_metaStore == null) return;
+        var form = this.FindForm();
+        if (form == null) return;
+        var name = Path.GetFileName(path);
+        AntdUI.Modal.open(new AntdUI.Modal.Config(form, "重置閱讀記錄",
+            $"重置「{name}」的閱讀狀態 / 次數 / 上次閱讀 / 上次頁碼？\n\n此動作不可復原；metadata（標題 / 作者 / 標籤）會保留。",
+            AntdUI.TType.Warn)
+        {
+            OkText = "重置",
+            CancelText = "取消",
+            OnOk = _ =>
+            {
+                try { _metaStore.ResetReadingRecord(path); }
+                catch { return true; }
+                // Modal OnOk 由 AntdUI 在 worker thread fire，UI 更新需 marshal 回 UI thread
+                BeginInvoke(() =>
+                {
+                    if (IsDisposed) return;
+                    ShowWorkDetail(path);
+                    RefreshCardReadStatusByPath(path);
+                });
+                return true;
+            }
+        });
+    }
+
+    private void ConfirmAndResetAuthorReading(long authorId)
+    {
+        if (_metaStore == null) return;
+        var form = this.FindForm();
+        if (form == null) return;
+        var info = _metaStore.GetAuthorInfo(authorId);
+        if (info == null) return;
+        AntdUI.Modal.open(new AntdUI.Modal.Config(form, "清除作者閱讀記錄",
+            $"清除「{info.Author.MainName}」底下所有 {info.TotalWorks} 件作品的閱讀記錄？\n\n此動作不可復原；metadata 會保留。",
+            AntdUI.TType.Warn)
+        {
+            OkText = "清除",
+            CancelText = "取消",
+            OnOk = _ =>
+            {
+                try { _metaStore.ResetReadingRecordsForAuthor(authorId); }
+                catch { return true; }
+                // 重撈 + 刷面板 + 卡片 icon — marshal 回 UI thread（Modal callback 在 worker thread）
+                var fresh = _metaStore.GetAuthorInfo(authorId);
+                BeginInvoke(() =>
+                {
+                    if (IsDisposed) return;
+                    if (fresh != null) detailDrawerHost.ShowAuthor(fresh);
+                    foreach (var w in info.AllWorks) RefreshCardReadStatusByPath(w.Path);
+                });
+                return true;
+            }
+        });
     }
 
     /// <summary>
@@ -338,7 +408,7 @@ public partial class GalleryControl : UserControl, IThemedControl
     private void RecordReadAndOpenViewer(string path, bool refreshAuthorPanel)
     {
         // 走 queue 延遲提交：30s 後才實際 RecordRead；queue.Recorded event 觸發時自動刷卡片 icon
-        _readRecordQueue?.EnqueueRead(path);
+        EnqueueReadIfEnabled(path);
         OpenForReading(path);
         if (refreshAuthorPanel) ShowAuthorInfo(path);
         else ShowWorkDetail(path);
@@ -1169,16 +1239,16 @@ public partial class GalleryControl : UserControl, IThemedControl
                         card.ReadStatusProvider = p => _metaStore?.GetReadStatus(p);
                         var c = card;   // 給 lambda capture 用，避免 foreach var closure 疑慮
                         // 透過 queue 延遲 RecordRead；queue.Recorded event 會 RefreshCardReadStatusByPath
-                        card.RequestOpenFolder += p => { _readRecordQueue?.EnqueueRead(p); OpenFolderTab(p, false); };
-                        card.RequestOpenViewer += p => { _readRecordQueue?.EnqueueRead(p); OpenForReading(p); };
-                        card.RequestNewTab += (p, forceNew) => { _readRecordQueue?.EnqueueRead(p); OpenFolderTab(p, forceNew); };
+                        card.RequestOpenFolder += p => { EnqueueReadIfEnabled(p); OpenFolderTab(p, false); };
+                        card.RequestOpenViewer += p => { EnqueueReadIfEnabled(p); OpenForReading(p); };
+                        card.RequestNewTab += (p, forceNew) => { EnqueueReadIfEnabled(p); OpenFolderTab(p, forceNew); };
                         card.RequestExplorer += p => OpenInExplorer(p);
                         card.RequestAuthorInfo += p => ShowAuthorInfo(p);
                         card.RequestWorkDetail += p => ShowWorkDetail(p);
                         // 強制走內建 reader 不看 pref（給使用者顯式選擇用）；失敗 fallback 外部 viewer
                         card.RequestOpenInBuiltInReader += p =>
                         {
-                            _readRecordQueue?.EnqueueRead(p);
+                            EnqueueReadIfEnabled(p);
                             try { OpenInBuiltInReader(p); }
                             catch { OpenWithExternalViewer(p); }
                         };
@@ -1277,8 +1347,19 @@ public partial class GalleryControl : UserControl, IThemedControl
 
         bool rtl = (_prefs?.DefaultReadingDirection ?? "rtl") == "rtl";
         bool spreadFromCover = _prefs?.DualPageSpreadFromCover ?? false;
-        var form = new ReaderForm(source, rtl, spreadFromCover, _metaStore);
+        int thrSec = _prefs?.ReadCountThresholdSeconds ?? 30;
+        int thrPages = _prefs?.ReadCountThresholdPages ?? 2;
+        bool track = _prefs?.TrackReadingRecord ?? true;
+        var form = new ReaderForm(source, rtl, spreadFromCover, _metaStore,
+                                  _readRecordQueue, thrSec, thrPages, track);
         form.Show();   // modeless，不阻擋 main form
+    }
+
+    /// <summary>card 點擊 → 排隊閱讀紀錄；TrackReadingRecord=false 時 no-op。</summary>
+    private void EnqueueReadIfEnabled(string path)
+    {
+        if (_prefs?.TrackReadingRecord == false) return;
+        _readRecordQueue?.EnqueueRead(path);
     }
 
     private void OpenWithExternalViewer(string filePath)

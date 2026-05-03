@@ -66,14 +66,42 @@ public partial class RebuildCacheForm : Window
         var items = new AntdUI.IContextMenuStripItem[]
         {
             new AntdUI.ContextMenuStripItem("清除縮圖快取") { IconSvg = "FileImageOutlined" },
+            new AntdUI.ContextMenuStripItem("清除閱讀記錄") { IconSvg = "UndoOutlined" },
             new AntdUI.ContextMenuStripItem("完整清除（含目錄索引）") { IconSvg = "DeleteOutlined" },
         };
         AntdUI.ContextMenuStrip.open(btnClearCache, mi =>
         {
             if (mi.Text == null) return;
             if (mi.Text.Contains("縮圖")) HandleClearThumbCache();
+            else if (mi.Text.Contains("閱讀")) HandleClearReadingRecords();
             else if (mi.Text.Contains("完整")) HandleClearAll();
         }, items);
+    }
+
+    private void HandleClearReadingRecords()
+    {
+        AntdUI.Modal.open(new AntdUI.Modal.Config(this, "清除所有閱讀記錄",
+            "清除全庫所有作品的閱讀狀態 / 次數 / 上次閱讀 / 上次頁碼？\n\n" +
+            "此動作不可復原；metadata（作者 / 標題 / 標籤）會保留。",
+            AntdUI.TType.Warn)
+        {
+            OkText = "清除",
+            CancelText = "取消",
+            OnOk = config =>
+            {
+                int affected = 0;
+                try { affected = _service.ResetAllReadingRecords(); }
+                catch { return true; }
+                // Modal OnOk 在 worker thread fire；Notification 用 form 當 owner 必須回 UI thread
+                BeginInvoke(() =>
+                {
+                    if (IsDisposed) return;
+                    AntdUI.Notification.success(this, "完成",
+                        $"已清除 {affected} 件作品的閱讀記錄", autoClose: 3, align: AntdUI.TAlignFrom.TR);
+                });
+                return true;
+            }
+        });
     }
 
     private void HandleClearThumbCache()

@@ -656,6 +656,35 @@ WHERE asset_id = (SELECT id FROM asset WHERE path = @path);",
             // affected=0 OK：沒 asset_meta 不寫入（reader 開非 work 路徑時不會炸）
     }
 
+    // 共用 SET 子句 — 4 個欄位一次清回初始狀態
+    private const string ResetReadingFieldsSet =
+        "read_status = 0, read_count = 0, last_read = NULL, last_page = NULL";
+
+    public void ResetReadingRecord(string path)
+    {
+        lock (_lock)
+            _conn.Execute(@$"
+UPDATE asset_meta SET {ResetReadingFieldsSet}
+WHERE asset_id = (SELECT id FROM asset WHERE path = @path);",
+                new { path }, _currentTx);
+    }
+
+    public int ResetReadingRecordsForAuthor(long authorId)
+    {
+        lock (_lock)
+            return _conn.Execute(@$"
+UPDATE asset_meta SET {ResetReadingFieldsSet}
+WHERE author_id = @authorId;",
+                new { authorId }, _currentTx);
+    }
+
+    public int ResetAllReadingRecords()
+    {
+        lock (_lock)
+            return _conn.Execute(@$"UPDATE asset_meta SET {ResetReadingFieldsSet};",
+                transaction: _currentTx);
+    }
+
     public void DeleteMetadata(long assetId)
     {
         lock (_lock)

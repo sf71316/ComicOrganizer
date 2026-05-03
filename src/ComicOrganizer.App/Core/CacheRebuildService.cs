@@ -169,6 +169,10 @@ public class CacheRebuildService
         }, ct);
     }
 
+    /// <summary>清除全庫所有作品的閱讀記錄（read_status / read_count / last_read / last_page）。
+    /// 同步呼叫 — 量小（純 SQL UPDATE），不需要 tracker。回傳影響筆數。</summary>
+    public int ResetAllReadingRecords() => _metaStore.ResetAllReadingRecords();
+
     /// <summary>完整清除：DELETE FROM asset + 刪 thumbs/。catalog + 縮圖都清掉，回到全新狀態。
     /// 不掃描 — 使用者自己決定何時跑 UpdateIndex 重建索引。
     /// </summary>

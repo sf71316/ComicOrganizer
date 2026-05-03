@@ -43,6 +43,7 @@ partial class WorkDetailPanel
     private System.Windows.Forms.FlowLayoutPanel flowActions;
     private AntdUI.Button btnRead;
     private AntdUI.Button btnExplorer;
+    private AntdUI.Button btnResetReading;
 
     // Empty
     private System.Windows.Forms.Label lblEmpty;
@@ -79,6 +80,7 @@ partial class WorkDetailPanel
         flowActions = new System.Windows.Forms.FlowLayoutPanel();
         btnRead = new AntdUI.Button();
         btnExplorer = new AntdUI.Button();
+        btnResetReading = new AntdUI.Button();
         lblEmpty = new System.Windows.Forms.Label();
 
         SuspendLayout();
@@ -280,6 +282,7 @@ partial class WorkDetailPanel
         flowActions.WrapContents = true;
         flowActions.Controls.Add(btnRead);
         flowActions.Controls.Add(btnExplorer);
+        flowActions.Controls.Add(btnResetReading);
         //
         // btnRead
         //
@@ -297,6 +300,15 @@ partial class WorkDetailPanel
         btnExplorer.Name = "btnExplorer";
         btnExplorer.Size = new System.Drawing.Size(96, 30);
         btnExplorer.Text = "開啟位置";
+        //
+        // btnResetReading
+        //
+        btnResetReading.IconSvg = "UndoOutlined";
+        btnResetReading.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
+        btnResetReading.Name = "btnResetReading";
+        btnResetReading.Size = new System.Drawing.Size(120, 30);
+        btnResetReading.Text = "重置閱讀記錄";
+        btnResetReading.Type = AntdUI.TTypeMini.Default;
 
         //
         // lblEmpty

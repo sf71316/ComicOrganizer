@@ -168,6 +168,7 @@ public partial class MainForm : Window, IThemedControl
             _prefs = settings.Prefs;
             archiveControl.OnConfigUpdated(_config);
             galleryControl.OnConfigUpdated(_config);
+            galleryControl.OnPrefsUpdated(_prefs);
             AntdUI.Notification.info(this,
                 LocalizationManager.GetString("SettingsSaved") ?? "設定已儲存",
                 "",autoClose:3,align:TAlignFrom.TR);
