@@ -11,6 +11,8 @@ public partial class GalleryControl : UserControl, IThemedControl
     private AppConfig _config = null!;
     private CoverManager _coverManager = null!;
     private IAssetMetaStore? _metaStore;   // 可選 — null 時 card 走原本 filename 顯示
+    private ReadRecordQueue? _readRecordQueue;   // 延遲提交閱讀紀錄（30s 門檻），#49 Phase 1.0
+    private UserPreferences? _prefs;   // reader / 閱讀方向偏好，#49
 
     private const string LazyPlaceholderTag = "__LAZY__";
 
@@ -193,11 +195,28 @@ public partial class GalleryControl : UserControl, IThemedControl
         }
     }
 
-    public void Initialize(AppConfig config, CoverManager coverManager, IAssetMetaStore? metaStore = null)
+    public void Initialize(AppConfig config, CoverManager coverManager,
+                           IAssetMetaStore? metaStore = null,
+                           ReadRecordQueue? readRecordQueue = null,
+                           UserPreferences? prefs = null)
     {
         _config = config;
         _coverManager = coverManager;
         _metaStore = metaStore;
+        _readRecordQueue = readRecordQueue;
+        _prefs = prefs;
+
+        // Recorded fired from background thread → marshal to UI 同步卡片 icon
+        if (_readRecordQueue != null)
+        {
+            _readRecordQueue.Recorded += path =>
+            {
+                if (IsDisposed) return;
+                try { BeginInvoke(() => RefreshCardReadStatusByPath(path)); }
+                catch { /* handle 還沒建好或已 disposed */ }
+            };
+        }
+
         _ = LoadTreeAsync();
     }
 
@@ -318,11 +337,11 @@ public partial class GalleryControl : UserControl, IThemedControl
     /// </summary>
     private void RecordReadAndOpenViewer(string path, bool refreshAuthorPanel)
     {
-        _metaStore?.RecordRead(path);
-        OpenWithExternalViewer(path);
+        // 走 queue 延遲提交：30s 後才實際 RecordRead；queue.Recorded event 觸發時自動刷卡片 icon
+        _readRecordQueue?.EnqueueRead(path);
+        OpenForReading(path);
         if (refreshAuthorPanel) ShowAuthorInfo(path);
         else ShowWorkDetail(path);
-        RefreshCardReadStatusByPath(path);
     }
 
     /// <summary>
@@ -832,7 +851,7 @@ public partial class GalleryControl : UserControl, IThemedControl
             }
             AntdUI.ContextMenuStrip.open(tableList, mi =>
             {
-                if (mi.Text == "📖 閱讀") OpenWithExternalViewer(item.FullPath);
+                if (mi.Text == "📖 閱讀") OpenForReading(item.FullPath);
                 else if (mi.Text == "📂 檔案總管中開啟")
                     OpenInExplorer(item.FullPath);
                 else if (mi.Text == "🔗 另開頁籤") OpenFolderTab(item.FullPath, true);
@@ -1149,12 +1168,20 @@ public partial class GalleryControl : UserControl, IThemedControl
                         // 卡片用此 provider 查當前 read_status（icon 顯示 + menu disable）
                         card.ReadStatusProvider = p => _metaStore?.GetReadStatus(p);
                         var c = card;   // 給 lambda capture 用，避免 foreach var closure 疑慮
-                        card.RequestOpenFolder += p => { _metaStore?.RecordRead(p); c.RefreshReadStatusIcon(); OpenFolderTab(p, false); };
-                        card.RequestOpenViewer += p => { _metaStore?.RecordRead(p); c.RefreshReadStatusIcon(); OpenWithExternalViewer(p); };
-                        card.RequestNewTab += (p, forceNew) => { _metaStore?.RecordRead(p); c.RefreshReadStatusIcon(); OpenFolderTab(p, forceNew); };
+                        // 透過 queue 延遲 RecordRead；queue.Recorded event 會 RefreshCardReadStatusByPath
+                        card.RequestOpenFolder += p => { _readRecordQueue?.EnqueueRead(p); OpenFolderTab(p, false); };
+                        card.RequestOpenViewer += p => { _readRecordQueue?.EnqueueRead(p); OpenForReading(p); };
+                        card.RequestNewTab += (p, forceNew) => { _readRecordQueue?.EnqueueRead(p); OpenFolderTab(p, forceNew); };
                         card.RequestExplorer += p => OpenInExplorer(p);
                         card.RequestAuthorInfo += p => ShowAuthorInfo(p);
                         card.RequestWorkDetail += p => ShowWorkDetail(p);
+                        // 強制走內建 reader 不看 pref（給使用者顯式選擇用）；失敗 fallback 外部 viewer
+                        card.RequestOpenInBuiltInReader += p =>
+                        {
+                            _readRecordQueue?.EnqueueRead(p);
+                            try { OpenInBuiltInReader(p); }
+                            catch { OpenWithExternalViewer(p); }
+                        };
                         card.RequestSetReadStatus += (p, status) =>
                         {
                             _metaStore?.SetReadStatus(p, status);
@@ -1200,6 +1227,58 @@ public partial class GalleryControl : UserControl, IThemedControl
             }
         }
         catch { /* 忽略無法開啟的狀況 */ }
+    }
+
+    /// <summary>
+    /// 統一的「開啟閱讀」入口：依 UserPreferences.UseBuiltInReader 決定走內建 reader 或外部 viewer。
+    /// 內建 reader 支援 folder / archive / 單檔圖片；單檔圖片會走 FolderReaderSource 自動 enumerate 同層。
+    /// </summary>
+    private void OpenForReading(string path)
+    {
+        if (_prefs?.UseBuiltInReader == true && CanUseBuiltInReader(path))
+        {
+            try { OpenInBuiltInReader(path); return; }
+            catch
+            {
+                // 內建 reader 失敗 fallback 到外部 viewer，避免使用者點了沒反應
+            }
+        }
+        OpenWithExternalViewer(path);
+    }
+
+    private static readonly HashSet<string> BuiltInReaderArchiveExts =
+        new(StringComparer.OrdinalIgnoreCase) { ".zip", ".cbz", ".rar", ".cbr", ".7z" };
+
+    private static bool CanUseBuiltInReader(string path)
+    {
+        if (Directory.Exists(path)) return true;   // FolderReaderSource 會檢查內含圖
+        if (!File.Exists(path)) return false;
+        var ext = Path.GetExtension(path);
+        if (BuiltInReaderArchiveExts.Contains(ext)) return true;
+        // 單檔圖檔也支援 — FolderReaderSource 會 enumerate 同層 (Honeyview 行為)
+        return _imageExts.Contains(ext);
+    }
+
+    private void OpenInBuiltInReader(string path)
+    {
+        IReaderSource source;
+        var ext = Path.GetExtension(path);
+        if (BuiltInReaderArchiveExts.Contains(ext) && File.Exists(path))
+            source = new ArchiveReaderSource(path);
+        else
+            source = new FolderReaderSource(path);
+
+        // 沒圖直接 fallback（避免空白 reader）
+        if (source.PageCount == 0)
+        {
+            source.Dispose();
+            throw new InvalidOperationException("No images found");
+        }
+
+        bool rtl = (_prefs?.DefaultReadingDirection ?? "rtl") == "rtl";
+        bool spreadFromCover = _prefs?.DualPageSpreadFromCover ?? false;
+        var form = new ReaderForm(source, rtl, spreadFromCover);
+        form.Show();   // modeless，不阻擋 main form
     }
 
     private void OpenWithExternalViewer(string filePath)

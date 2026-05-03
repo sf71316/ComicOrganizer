@@ -50,6 +50,7 @@ partial class RebuildCacheForm
         // 
         // windowBar
         // 
+        windowBar.ColorScheme = AntdUI.TAMode.Dark;
         windowBar.Dock = DockStyle.Top;
         windowBar.Location = new Point(0, 0);
         windowBar.Name = "windowBar";

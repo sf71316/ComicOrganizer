@@ -13,6 +13,8 @@ public partial class RebuildCacheForm : Window
         InitializeComponent();
         _service = service;
         _tracker = tracker;
+        windowBar.BackColor = ThemeColors.Primary;
+        windowBar.ForeColor = ThemeColors.HeaderText;
         ApplyLocalization();
         WireEvents();
 

@@ -32,6 +32,7 @@ public partial class SettingsForm : Window, IThemedControl
     public void ApplyThemeColors()
     {
         windowBar.BackColor = Core.ThemeColors.Primary;
+        windowBar.ForeColor = Core.ThemeColors.HeaderText;
         content.BackColor = Core.ThemeColors.Surface;
         leftMenu.BackColor = Core.ThemeColors.Background;
         footer.BackColor = Core.ThemeColors.Surface;

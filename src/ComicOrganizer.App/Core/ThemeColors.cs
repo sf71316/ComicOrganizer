@@ -9,6 +9,7 @@ public static class ThemeColors
 {
     // Light Mode Colors (原始主題)
     private static readonly Color LightText = Color.FromArgb(102, 69, 146);
+    private static readonly Color LightHeaderText = Color.FromArgb(247, 228, 247);   // Primary 紫底上的 header 文字
     private static readonly Color LightBackground = Color.FromArgb(212, 211, 211);
     private static readonly Color LightPrimary = Color.FromArgb(131, 117, 159);
     private static readonly Color LightSecondary = Color.FromArgb(194, 177, 201);
@@ -22,6 +23,7 @@ public static class ThemeColors
 
     // Dark Mode Colors
     private static readonly Color DarkText = Color.FromArgb(220, 220, 220);
+    private static readonly Color DarkHeaderText = Color.FromArgb(230, 230, 230);   // Primary 深底上的 header 文字
     private static readonly Color DarkBackground = Color.FromArgb(30, 30, 30);
     private static readonly Color DarkPrimary = Color.FromArgb(60, 60, 60);
     private static readonly Color DarkSecondary = Color.FromArgb(45, 45, 48);
@@ -34,6 +36,7 @@ public static class ThemeColors
     private static readonly Color DarkTreeViewSurface = Color.FromArgb(189, 189, 189);
 
     public static Color Text => ThemeManager.IsDark ? DarkText : LightText;
+    public static Color HeaderText => ThemeManager.IsDark ? DarkHeaderText : LightHeaderText;
     public static Color Background => ThemeManager.IsDark ? DarkBackground : LightBackground;
     public static Color Primary => ThemeManager.IsDark ? DarkPrimary : LightPrimary;
     public static Color Secondary => ThemeManager.IsDark ? DarkSecondary : LightSecondary;

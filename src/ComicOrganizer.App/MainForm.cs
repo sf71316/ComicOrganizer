@@ -23,6 +23,9 @@ public partial class MainForm : Window, IThemedControl
     private readonly CacheIntegrityChecker _integrityChecker;
     private readonly RebuildProgressTracker _rebuildTracker;
 
+    // 閱讀記錄延遲提交 queue（#49 Phase 1.0）
+    private readonly ReadRecordQueue _readRecordQueue;
+
     public MainForm()
     {
         // 先載 config 並初始化 ThemeManager → ThemeColors.X getter 才會回傳對的色，
@@ -52,16 +55,20 @@ public partial class MainForm : Window, IThemedControl
         _rebuildTracker = new RebuildProgressTracker(_metaStore);
         _integrityChecker = new CacheIntegrityChecker(_metaStore, _thumbStore, _rebuildTracker);
         _rebuildService = new CacheRebuildService(_config, _coverManager, _metaStore, _thumbStore, _integrityChecker, _rebuildTracker, _cacheWriter);
+        _readRecordQueue = new ReadRecordQueue(_metaStore, _prefs.ReadCountThresholdSeconds);
         // Tracker 改變時，statusBar 自動同步顯示（背景任務全域可見）
         _rebuildTracker.StateChanged += (s, e) => UpdateStatusFromTracker();
 
         // 等 Form Load 後 Initialize（此時 handle 已建立、Invoke 才能用）
         this.Load += (s, e) =>
         {
-            galleryControl.Initialize(_config, _coverManager, _metaStore);
+            galleryControl.Initialize(_config, _coverManager, _metaStore, _readRecordQueue, _prefs);
             archiveControl.Initialize(_config, _intelligence, _organizer);
             ShowGallery();
         };
+
+        // 關閉時 flush 所有 pending 閱讀紀錄，避免「快關 app」流失計數
+        this.FormClosing += (s, e) => _readRecordQueue.Dispose();
 
         WireMenuEvents();
     }
@@ -193,6 +200,7 @@ public partial class MainForm : Window, IThemedControl
     public void ApplyThemeColors()
     {
         windowBar.BackColor = Core.ThemeColors.Primary;
+        windowBar.ForeColor = Core.ThemeColors.HeaderText;
         menuStrip1.BackColor = Core.ThemeColors.Background;
         menuStrip1.ForeColor = Core.ThemeColors.Text;
         this.BackColor = Core.ThemeColors.Background;

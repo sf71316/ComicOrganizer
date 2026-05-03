@@ -17,6 +17,9 @@ public partial class ComicCardControl : UserControl
 
     /// <summary>使用者按右鍵「詳細資訊」 — 觸發 WorkDetailPanel。</summary>
     public event Action<string>? RequestWorkDetail;
+
+    /// <summary>使用者按右鍵「內建閱讀器」 — 不論 UseBuiltInReader 偏好，強制走內建 reader。</summary>
+    public event Action<string>? RequestOpenInBuiltInReader;
     public event Action<string, ReadStatus>? RequestSetReadStatus;
     private const int CornerRadius = 8;
     private Color _currentBgColor = Color.White;
@@ -450,6 +453,9 @@ public partial class ComicCardControl : UserControl
         var menuItems = new List<AntdUI.IContextMenuStripItem>();
         if (IsFolderNode) menuItems.Add(new AntdUI.ContextMenuStripItem("📂 進入目錄"));
         else menuItems.Add(new AntdUI.ContextMenuStripItem("👁 閱讀"));
+        // 內建 reader 選項（穩定後再交換為主要動作）— 只對 reader 支援的格式顯示
+        if (CanUseBuiltInReader(ItemPath))
+            menuItems.Add(new AntdUI.ContextMenuStripItem("📖 內建閱讀器"));
         menuItems.Add(new AntdUI.ContextMenuStripItem("另開頁籤"));
         menuItems.Add(new AntdUI.ContextMenuStripItemDivider());
         menuItems.Add(new AntdUI.ContextMenuStripItem("📂 在檔案總管中開啟"));
@@ -474,7 +480,11 @@ public partial class ComicCardControl : UserControl
         {
             var t = menuItem.Text;
             if (t == null) return;
-            if (t.Contains("進入") || t.Contains("閱讀"))
+            if (t.Contains("內建閱讀器") || t.Contains("Built-in"))
+            {
+                RequestOpenInBuiltInReader?.Invoke(ItemPath);
+            }
+            else if (t.Contains("進入") || t.Contains("閱讀"))
             {
                 OpenPrimary();
             }
@@ -507,6 +517,30 @@ public partial class ComicCardControl : UserControl
                 RequestSetReadStatus?.Invoke(ItemPath, ReadStatus.Unread);
             }
         }, menuItems.ToArray());
+    }
+
+    /// <summary>
+    /// 是否能用內建閱讀器開啟。reader 支援：壓縮檔（.zip/.cbz/.rar/.cbr/.7z）/ 單張圖檔 / 含圖資料夾。
+    /// PDF / EPUB 等 Phase 2+ 才支援，目前 false。
+    /// </summary>
+    private static bool CanUseBuiltInReader(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            // 含至少 1 張圖即可（FolderReaderSource enumerate 直接子檔）
+            foreach (var f in Directory.EnumerateFiles(path))
+            {
+                var e = Path.GetExtension(f).ToLowerInvariant();
+                if (e is ".jpg" or ".jpeg" or ".png" or ".webp" or ".bmp" or ".gif")
+                    return true;
+            }
+            return false;
+        }
+        if (!File.Exists(path)) return false;
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+        if (ext is ".zip" or ".cbz" or ".rar" or ".cbr" or ".7z") return true;
+        if (ext is ".jpg" or ".jpeg" or ".png" or ".webp" or ".bmp" or ".gif") return true;
+        return false;
     }
 
     /// <summary>
