@@ -7,16 +7,21 @@ namespace ComicOrganizer.App.UI;
 public partial class SettingsForm : Window, IThemedControl
 {
     private readonly ConfigManager _configManager;
+    private readonly UserPreferencesManager _prefsManager;
     public AppConfig Config { get; private set; }
+    public UserPreferences Prefs { get; private set; }
 
     // 從 Designer.cs 搬到這裡 inline 初始化，避免 VS Designer regenerate 重複把 new 那行吃掉
     private readonly AntdUI.FolderBrowserDialog folderBrowserDialog = new AntdUI.FolderBrowserDialog();
 
-    public SettingsForm(ConfigManager configManager, AppConfig config)
+    public SettingsForm(ConfigManager configManager, AppConfig config,
+                        UserPreferencesManager prefsManager, UserPreferences prefs)
     {
         InitializeComponent();
         _configManager = configManager;
+        _prefsManager = prefsManager;
         Config = config;
+        Prefs = prefs;
 
         LoadConfig();
         WireEvents();
@@ -55,13 +60,13 @@ public partial class SettingsForm : Window, IThemedControl
         selectTheme.Items.Add(LocalizationManager.GetString("ThemeLight"));
         selectTheme.Items.Add(LocalizationManager.GetString("ThemeDark"));
         selectTheme.Items.Add(LocalizationManager.GetString("ThemeSystem"));
-        selectTheme.SelectedIndex = (int)Config.Theme;
+        selectTheme.SelectedIndex = (int)Prefs.Theme;
 
         // Language selector
         selectLang.Items.Clear();
         selectLang.Items.Add("繁體中文");
         selectLang.Items.Add("English");
-        selectLang.SelectedIndex = Config.Language == "zh-TW" ? 0 : 1;
+        selectLang.SelectedIndex = Prefs.Language == "zh-TW" ? 0 : 1;
     }
 
     private void WireEvents()
@@ -217,14 +222,15 @@ public partial class SettingsForm : Window, IThemedControl
         Config.MaxCoverFileSizeBytes = SaveSizeWithUnit(numMaxCoverSize, selectMaxCoverUnit);
         Config.ThumbCacheMaxBytes = SaveSizeWithUnit_MB_GB(numThumbCacheMax, selectThumbCacheUnit);
 
-        // 修正轉型問題：使用 Index 而非直接轉型對象
+        // Theme + Language 寫到 preferences.json（與 appsettings.json 分檔）
         if (selectTheme.SelectedIndex >= 0)
-            Config.Theme = (AppTheme)selectTheme.SelectedIndex;
+            Prefs.Theme = (AppTheme)selectTheme.SelectedIndex;
 
         if (selectLang.SelectedIndex >= 0)
-            Config.Language = selectLang.SelectedIndex == 0 ? "zh-TW" : "en-US";
+            Prefs.Language = selectLang.SelectedIndex == 0 ? "zh-TW" : "en-US";
 
         _configManager.Save(Config);
+        _prefsManager.Save(Prefs);
         // 訊息留給 caller (MainForm.OpenSettings) 顯示，否則 Close() 後 message 隨 modal 消失看不到
         DialogResult = DialogResult.OK;
         Close();

@@ -42,13 +42,9 @@ public class AppConfig
     /// </summary>
     public long ThumbCacheMaxBytes { get; set; } = 1024L * 1024 * 1024;
 
-    // UI 偏好設定
-    public AppTheme Theme { get; set; } = AppTheme.System;
-    public string Language { get; set; } = "zh-TW";
-
     // 動態黑名單 (使用者可編輯)
-    public List<string> Blacklist { get; set; } = new() 
-    { 
+    public List<string> Blacklist { get; set; } = new()
+    {
         "中国翻訳", "中譯", "DL版", "Digital", "AI Generated", "無修正", "個人漢化", "繁中機翻",
         "pixiv", "fanbox", "fantia", "upscaled", "high res"
     };
@@ -60,11 +56,4 @@ public class AppConfig
         @"\d+x\d+",           // 解析度 (1280x720)
         @"\d{6,8}"            // 日期格式 (20240907)
     };
-}
-
-public enum AppTheme
-{
-    Light,
-    Dark,
-    System
 }
