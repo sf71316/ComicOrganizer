@@ -42,6 +42,18 @@ public class AppConfig
     /// </summary>
     public long ThumbCacheMaxBytes { get; set; } = 1024L * 1024 * 1024;
 
+    /// <summary>
+    /// 閱讀記錄延遲門檻（秒）— 內部設定不出 UI。
+    /// 在 reader 內停留超過此值或翻頁達 ReadCountThresholdPages 才算一次有效閱讀。
+    /// </summary>
+    public int ReadCountThresholdSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// 閱讀記錄翻頁門檻 — 內部設定不出 UI。
+    /// 內建 reader 內翻過此頁數才算一次有效閱讀（與秒數任一達成即可）。
+    /// </summary>
+    public int ReadCountThresholdPages { get; set; } = 2;
+
     // 動態黑名單 (使用者可編輯)
     public List<string> Blacklist { get; set; } = new()
     {

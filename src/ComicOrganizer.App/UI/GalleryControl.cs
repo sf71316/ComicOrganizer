@@ -1347,8 +1347,8 @@ public partial class GalleryControl : UserControl, IThemedControl
 
         bool rtl = (_prefs?.DefaultReadingDirection ?? "rtl") == "rtl";
         bool spreadFromCover = _prefs?.DualPageSpreadFromCover ?? false;
-        int thrSec = _prefs?.ReadCountThresholdSeconds ?? 30;
-        int thrPages = _prefs?.ReadCountThresholdPages ?? 2;
+        int thrSec = _config.ReadCountThresholdSeconds;
+        int thrPages = _config.ReadCountThresholdPages;
         bool track = _prefs?.TrackReadingRecord ?? true;
         var form = new ReaderForm(source, rtl, spreadFromCover, _metaStore,
                                   _readRecordQueue, thrSec, thrPages, track);

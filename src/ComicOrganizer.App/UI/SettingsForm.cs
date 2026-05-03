@@ -44,6 +44,9 @@ public partial class SettingsForm : Window, IThemedControl
         this.Refresh();
     }
 
+    private static string FmtRtl() => LocalizationManager.GetString("ReadingDirectionRtl") ?? "左←右";
+    private static string FmtLtr() => LocalizationManager.GetString("ReadingDirectionLtr") ?? "左→右";
+
     private void LoadConfig()
     {
         txtSource.Text = Config.UnorganizedDirectory;
@@ -69,6 +72,14 @@ public partial class SettingsForm : Window, IThemedControl
         selectLang.Items.Add("繁體中文");
         selectLang.Items.Add("English");
         selectLang.SelectedIndex = Prefs.Language == "zh-TW" ? 0 : 1;
+
+        // Reader: 內建 reader / 閱讀方向 / 雙頁封面獨立
+        cbUseBuiltInReader.Checked = Prefs.UseBuiltInReader;
+        selectReadingDirection.Items.Clear();
+        selectReadingDirection.Items.Add(FmtRtl());
+        selectReadingDirection.Items.Add(FmtLtr());
+        selectReadingDirection.SelectedIndex = Prefs.DefaultReadingDirection == "ltr" ? 1 : 0;
+        cbDualPageSpreadFromCover.Checked = Prefs.DualPageSpreadFromCover;
     }
 
     private void WireEvents()
@@ -81,6 +92,7 @@ public partial class SettingsForm : Window, IThemedControl
         // 左側選單切換 sub-panel
         btnMenuGeneral.Click += (s, e) => ShowSection(SettingsSection.General);
         btnMenuLibrary.Click += (s, e) => ShowSection(SettingsSection.Library);
+        btnMenuReader.Click += (s, e) => ShowSection(SettingsSection.Reader);
 
         selectTheme.SelectedValueChanged += (s, e) =>
         {
@@ -100,16 +112,17 @@ public partial class SettingsForm : Window, IThemedControl
         };
     }
 
-    private enum SettingsSection { General, Library }
+    private enum SettingsSection { General, Library, Reader }
 
     private void ShowSection(SettingsSection section)
     {
-        bool isGeneral = section == SettingsSection.General;
-        generalPanel.Visible = isGeneral;
-        libraryPanel.Visible = !isGeneral;
+        generalPanel.Visible = section == SettingsSection.General;
+        libraryPanel.Visible = section == SettingsSection.Library;
+        readerPanel.Visible = section == SettingsSection.Reader;
         // 選中的按鈕用 Primary 樣式，未選中用 Default
-        btnMenuGeneral.Type = isGeneral ? AntdUI.TTypeMini.Primary : AntdUI.TTypeMini.Default;
-        btnMenuLibrary.Type = isGeneral ? AntdUI.TTypeMini.Default : AntdUI.TTypeMini.Primary;
+        btnMenuGeneral.Type = section == SettingsSection.General ? AntdUI.TTypeMini.Primary : AntdUI.TTypeMini.Default;
+        btnMenuLibrary.Type = section == SettingsSection.Library ? AntdUI.TTypeMini.Primary : AntdUI.TTypeMini.Default;
+        btnMenuReader.Type  = section == SettingsSection.Reader  ? AntdUI.TTypeMini.Primary : AntdUI.TTypeMini.Default;
     }
 
     public void ApplyLocalization()
@@ -127,6 +140,19 @@ public partial class SettingsForm : Window, IThemedControl
         // 左側選單分類
         btnMenuGeneral.Text = LocalizationManager.GetString("SettingsMenuGeneral") ?? "一般設定";
         btnMenuLibrary.Text = LocalizationManager.GetString("SettingsMenuLibrary") ?? "漫畫庫管理";
+        btnMenuReader.Text  = LocalizationManager.GetString("SettingsMenuReader")  ?? "閱讀器";
+
+        // 閱讀器分頁
+        cbUseBuiltInReader.Text = LocalizationManager.GetString("SettingsUseBuiltInReader") ?? "使用內建閱讀器（取代外部 viewer）";
+        labelReadingDirection.Text = LocalizationManager.GetString("SettingsReadingDirection") ?? "閱讀方向";
+        cbDualPageSpreadFromCover.Text = LocalizationManager.GetString("SettingsDualPageSpreadFromCover") ?? "雙頁模式封面獨立顯示";
+
+        // selectReadingDirection 內容受語言影響 — 重新填
+        var rtlIdx = selectReadingDirection.SelectedIndex;
+        selectReadingDirection.Items.Clear();
+        selectReadingDirection.Items.Add(FmtRtl());
+        selectReadingDirection.Items.Add(FmtLtr());
+        if (rtlIdx >= 0) selectReadingDirection.SelectedIndex = rtlIdx;
 
         // 漫畫庫管理 - 搜尋層數 + 封面大小過濾
         labelMaxScanDepth.Text = LocalizationManager.GetString("SettingsMaxScanDepth") ?? "搜尋層數限制 (封面遞迴)";
@@ -224,6 +250,11 @@ public partial class SettingsForm : Window, IThemedControl
         Config.MinCoverFileSizeBytes = SaveSizeWithUnit(numMinCoverSize, selectMinCoverUnit);
         Config.MaxCoverFileSizeBytes = SaveSizeWithUnit(numMaxCoverSize, selectMaxCoverUnit);
         Config.ThumbCacheMaxBytes = SaveSizeWithUnit_MB_GB(numThumbCacheMax, selectThumbCacheUnit);
+
+        // Reader 偏好
+        Prefs.UseBuiltInReader = cbUseBuiltInReader.Checked;
+        Prefs.DefaultReadingDirection = selectReadingDirection.SelectedIndex == 1 ? "ltr" : "rtl";
+        Prefs.DualPageSpreadFromCover = cbDualPageSpreadFromCover.Checked;
 
         // Theme + Language 寫到 preferences.json（與 appsettings.json 分檔）
         if (selectTheme.SelectedIndex >= 0)

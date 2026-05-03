@@ -99,6 +99,12 @@
   <data name="ArchiveFinished" xml:space="preserve"><value>歸檔處理完畢</value></data>
   <data name="SettingsMenuGeneral" xml:space="preserve"><value>一般設定</value></data>
   <data name="SettingsMenuLibrary" xml:space="preserve"><value>漫畫庫管理</value></data>
+  <data name="SettingsMenuReader" xml:space="preserve"><value>閱讀器</value></data>
+  <data name="SettingsUseBuiltInReader" xml:space="preserve"><value>使用內建閱讀器（取代外部 viewer）</value></data>
+  <data name="SettingsReadingDirection" xml:space="preserve"><value>閱讀方向</value></data>
+  <data name="SettingsDualPageSpreadFromCover" xml:space="preserve"><value>雙頁模式封面獨立顯示</value></data>
+  <data name="ReadingDirectionRtl" xml:space="preserve"><value>左←右</value></data>
+  <data name="ReadingDirectionLtr" xml:space="preserve"><value>左→右</value></data>
   <data name="SettingsMaxScanDepth" xml:space="preserve"><value>搜尋層數限制 (封面遞迴)</value></data>
   <data name="SettingsCoverSizeRange" xml:space="preserve"><value>封面取樣檔案大小範圍</value></data>
   <data name="MenuRebuildCache" xml:space="preserve"><value>重建索引資料庫(&amp;R)...</value></data>

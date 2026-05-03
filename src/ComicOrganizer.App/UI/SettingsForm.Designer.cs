@@ -10,14 +10,16 @@ partial class SettingsForm
     private AntdUI.Panel content;
     private AntdUI.Panel footer;
 
-    // 左側選單 + 兩個分類按鈕
+    // 左側選單 + 三個分類按鈕
     private AntdUI.Panel leftMenu;
     private AntdUI.Button btnMenuGeneral;
     private AntdUI.Button btnMenuLibrary;
+    private AntdUI.Button btnMenuReader;
 
-    // 內容區兩個 sub-panel（toggle Visible 切換）
+    // 內容區三個 sub-panel（toggle Visible 切換）
     private AntdUI.Panel generalPanel;
     private System.Windows.Forms.Panel libraryPanel;  // 用 Forms.Panel 才有 AutoScroll
+    private AntdUI.Panel readerPanel;
 
     // generalPanel 控件
     private AntdUI.Label labelTheme;
@@ -26,6 +28,12 @@ partial class SettingsForm
     private AntdUI.Select selectLang;
     private AntdUI.Checkbox cbDebug;
     private AntdUI.Checkbox cbTrackReading;
+
+    // readerPanel 控件
+    private AntdUI.Checkbox cbUseBuiltInReader;
+    private AntdUI.Label labelReadingDirection;
+    private AntdUI.Select selectReadingDirection;
+    private AntdUI.Checkbox cbDualPageSpreadFromCover;
 
     // libraryPanel 控件
     private AntdUI.Label label1;
@@ -72,8 +80,14 @@ partial class SettingsForm
         content = new AntdUI.Panel();
         btnMenuGeneral = new AntdUI.Button();
         btnMenuLibrary = new AntdUI.Button();
+        btnMenuReader = new AntdUI.Button();
         generalPanel = new AntdUI.Panel();
         libraryPanel = new System.Windows.Forms.Panel();
+        readerPanel = new AntdUI.Panel();
+        cbUseBuiltInReader = new Checkbox();
+        labelReadingDirection = new AntdUI.Label();
+        selectReadingDirection = new Select();
+        cbDualPageSpreadFromCover = new Checkbox();
         labelTheme = new AntdUI.Label();
         selectTheme = new Select();
         labelLang = new AntdUI.Label();
@@ -109,6 +123,7 @@ partial class SettingsForm
         content.SuspendLayout();
         generalPanel.SuspendLayout();
         libraryPanel.SuspendLayout();
+        readerPanel.SuspendLayout();
         footer.SuspendLayout();
         SuspendLayout();
         //
@@ -131,6 +146,8 @@ partial class SettingsForm
         // leftMenu
         //
         leftMenu.BackColor = Color.FromArgb(245, 245, 245);
+        // Dock=Top 時後加的會壓在前面 — 由下到上加
+        leftMenu.Controls.Add(btnMenuReader);
         leftMenu.Controls.Add(btnMenuLibrary);
         leftMenu.Controls.Add(btnMenuGeneral);
         leftMenu.Dock = DockStyle.Left;
@@ -164,11 +181,23 @@ partial class SettingsForm
         btnMenuLibrary.Text = "漫畫庫管理";
         btnMenuLibrary.TextAlign = ContentAlignment.MiddleLeft;
         //
+        // btnMenuReader
+        //
+        btnMenuReader.Dock = DockStyle.Top;
+        btnMenuReader.IconSvg = "BookOutlined";
+        btnMenuReader.Location = new Point(15, 110);
+        btnMenuReader.Name = "btnMenuReader";
+        btnMenuReader.Size = new Size(150, 45);
+        btnMenuReader.TabIndex = 2;
+        btnMenuReader.Text = "閱讀器";
+        btnMenuReader.TextAlign = ContentAlignment.MiddleLeft;
+        //
         // content
         //
         content.BackColor = Color.FromArgb(189, 189, 189);
         content.Controls.Add(generalPanel);
         content.Controls.Add(libraryPanel);
+        content.Controls.Add(readerPanel);
         content.Dock = DockStyle.Fill;
         content.Location = new Point(180, 48);
         content.Name = "content";
@@ -483,6 +512,56 @@ partial class SettingsForm
         selectThumbCacheUnit.Size = new Size(80, 45);
         selectThumbCacheUnit.TabIndex = 21;
         //
+        // readerPanel
+        //
+        readerPanel.BackColor = Color.Transparent;
+        readerPanel.Controls.Add(cbDualPageSpreadFromCover);
+        readerPanel.Controls.Add(selectReadingDirection);
+        readerPanel.Controls.Add(labelReadingDirection);
+        readerPanel.Controls.Add(cbUseBuiltInReader);
+        readerPanel.Dock = DockStyle.Fill;
+        readerPanel.Location = new Point(0, 0);
+        readerPanel.Name = "readerPanel";
+        readerPanel.Padding = new Padding(40, 30, 40, 30);
+        readerPanel.Radius = 0;
+        readerPanel.Size = new Size(720, 562);
+        readerPanel.TabIndex = 2;
+        readerPanel.Visible = false;
+        //
+        // cbUseBuiltInReader
+        //
+        cbUseBuiltInReader.BackColor = Color.Transparent;
+        cbUseBuiltInReader.Location = new Point(40, 30);
+        cbUseBuiltInReader.Name = "cbUseBuiltInReader";
+        cbUseBuiltInReader.Size = new Size(420, 30);
+        cbUseBuiltInReader.TabIndex = 0;
+        cbUseBuiltInReader.Text = "使用內建閱讀器（取代外部 viewer）";
+        //
+        // labelReadingDirection
+        //
+        labelReadingDirection.BackColor = Color.Transparent;
+        labelReadingDirection.Location = new Point(40, 80);
+        labelReadingDirection.Name = "labelReadingDirection";
+        labelReadingDirection.Size = new Size(200, 30);
+        labelReadingDirection.TabIndex = 1;
+        labelReadingDirection.Text = "閱讀方向";
+        //
+        // selectReadingDirection
+        //
+        selectReadingDirection.Location = new Point(40, 115);
+        selectReadingDirection.Name = "selectReadingDirection";
+        selectReadingDirection.Size = new Size(250, 40);
+        selectReadingDirection.TabIndex = 2;
+        //
+        // cbDualPageSpreadFromCover
+        //
+        cbDualPageSpreadFromCover.BackColor = Color.Transparent;
+        cbDualPageSpreadFromCover.Location = new Point(40, 175);
+        cbDualPageSpreadFromCover.Name = "cbDualPageSpreadFromCover";
+        cbDualPageSpreadFromCover.Size = new Size(420, 30);
+        cbDualPageSpreadFromCover.TabIndex = 3;
+        cbDualPageSpreadFromCover.Text = "雙頁模式封面獨立顯示";
+        //
         // footer
         //
         footer.BackColor = Color.FromArgb(189, 189, 189);
@@ -533,6 +612,7 @@ partial class SettingsForm
         content.ResumeLayout(false);
         generalPanel.ResumeLayout(false);
         libraryPanel.ResumeLayout(false);
+        readerPanel.ResumeLayout(false);
         footer.ResumeLayout(false);
         ResumeLayout(false);
     }

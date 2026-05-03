@@ -55,7 +55,7 @@ public partial class MainForm : Window, IThemedControl
         _rebuildTracker = new RebuildProgressTracker(_metaStore);
         _integrityChecker = new CacheIntegrityChecker(_metaStore, _thumbStore, _rebuildTracker);
         _rebuildService = new CacheRebuildService(_config, _coverManager, _metaStore, _thumbStore, _integrityChecker, _rebuildTracker, _cacheWriter);
-        _readRecordQueue = new ReadRecordQueue(_metaStore, _prefs.ReadCountThresholdSeconds);
+        _readRecordQueue = new ReadRecordQueue(_metaStore, _config.ReadCountThresholdSeconds);
         // Tracker 改變時，statusBar 自動同步顯示（背景任務全域可見）
         _rebuildTracker.StateChanged += (s, e) => UpdateStatusFromTracker();
 
