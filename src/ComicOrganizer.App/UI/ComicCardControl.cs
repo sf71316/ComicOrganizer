@@ -18,8 +18,9 @@ public partial class ComicCardControl : UserControl
     /// <summary>使用者按右鍵「詳細資訊」 — 觸發 WorkDetailPanel。</summary>
     public event Action<string>? RequestWorkDetail;
 
-    /// <summary>使用者按右鍵「內建閱讀器」 — 不論 UseBuiltInReader 偏好，強制走內建 reader。</summary>
-    public event Action<string>? RequestOpenInBuiltInReader;
+    /// <summary>使用者按右鍵「使用外部閱讀器/程式開啟」 — 漫畫格式走設定的外部 viewer，
+    /// 非漫畫格式（PDF/EPUB 等）走系統預設程式。</summary>
+    public event Action<string>? RequestOpenWithExternal;
     public event Action<string, ReadStatus>? RequestSetReadStatus;
     private const int CornerRadius = 8;
     private Color _currentBgColor = Color.White;
@@ -486,9 +487,11 @@ public partial class ComicCardControl : UserControl
         var menuItems = new List<AntdUI.IContextMenuStripItem>();
         if (IsFolderNode) menuItems.Add(new AntdUI.ContextMenuStripItem("📂 進入目錄"));
         else menuItems.Add(new AntdUI.ContextMenuStripItem("👁 閱讀"));
-        // 內建 reader 選項（穩定後再交換為主要動作）— 只對 reader 支援的格式顯示
-        if (CanUseBuiltInReader(ItemPath))
-            menuItems.Add(new AntdUI.ContextMenuStripItem("📖 內建閱讀器"));
+        // 強制走外部開啟 — 漫畫格式用設定的 image viewer；其他格式（PDF/EPUB 等）走系統預設程式
+        var externalLabel = CanUseBuiltInReader(ItemPath)
+            ? "🔗 使用外部閱讀器開啟"
+            : "🔗 使用外部程式開啟";
+        menuItems.Add(new AntdUI.ContextMenuStripItem(externalLabel));
         menuItems.Add(new AntdUI.ContextMenuStripItem("另開頁籤"));
         menuItems.Add(new AntdUI.ContextMenuStripItemDivider());
         menuItems.Add(new AntdUI.ContextMenuStripItem("📂 在檔案總管中開啟"));
@@ -513,9 +516,9 @@ public partial class ComicCardControl : UserControl
         {
             var t = menuItem.Text;
             if (t == null) return;
-            if (t.Contains("內建閱讀器") || t.Contains("Built-in"))
+            if (t.Contains("外部") || t.Contains("External"))
             {
-                RequestOpenInBuiltInReader?.Invoke(ItemPath);
+                RequestOpenWithExternal?.Invoke(ItemPath);
             }
             else if (t.Contains("進入") || t.Contains("閱讀"))
             {

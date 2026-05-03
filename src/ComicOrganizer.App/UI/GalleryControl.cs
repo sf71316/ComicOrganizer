@@ -1245,12 +1245,13 @@ public partial class GalleryControl : UserControl, IThemedControl
                         card.RequestExplorer += p => OpenInExplorer(p);
                         card.RequestAuthorInfo += p => ShowAuthorInfo(p);
                         card.RequestWorkDetail += p => ShowWorkDetail(p);
-                        // 強制走內建 reader 不看 pref（給使用者顯式選擇用）；失敗 fallback 外部 viewer
-                        card.RequestOpenInBuiltInReader += p =>
+                        // 強制走外部開啟（不看 UseBuiltInReader 偏好）：
+                        // 漫畫格式 → 設定的外部 viewer；其他格式 → 系統預設程式
+                        card.RequestOpenWithExternal += p =>
                         {
                             EnqueueReadIfEnabled(p);
-                            try { OpenInBuiltInReader(p); }
-                            catch { OpenWithExternalViewer(p); }
+                            if (CanUseBuiltInReader(p)) OpenWithExternalViewer(p);
+                            else OpenWithSystemDefault(p);
                         };
                         card.RequestSetReadStatus += (p, status) =>
                         {
@@ -1360,6 +1361,20 @@ public partial class GalleryControl : UserControl, IThemedControl
     {
         if (_prefs?.TrackReadingRecord == false) return;
         _readRecordQueue?.EnqueueRead(path);
+    }
+
+    /// <summary>非漫畫格式（PDF/EPUB/docx 等）走系統預設程式 — 不經過 ImageViewerPath。</summary>
+    private void OpenWithSystemDefault(string path)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            var form = this.FindForm();
+            if (form != null) AntdUI.Message.error(form, "開啟失敗: " + ex.Message);
+        }
     }
 
     private void OpenWithExternalViewer(string filePath)
