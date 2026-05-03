@@ -122,6 +122,12 @@ public interface IAssetMetaStore : IDisposable
     /// <summary>取 path 對應的 read_status（沒 asset_meta 紀錄回 null）。給卡片 icon / menu disable 用。</summary>
     ReadStatus? GetReadStatus(string path);
 
+    /// <summary>取 path 對應的 last_page（內建 reader 上次閱讀頁碼，0-based）。沒紀錄回 null。</summary>
+    int? GetLastPage(string path);
+
+    /// <summary>更新 path 對應的 last_page。沒 asset_meta no-op；有就只更新該欄位。</summary>
+    void SetLastPage(string path, int pageIndex);
+
     // ===== Tag =====
 
     /// <summary>取或建 tag（name 主鍵 reuse）。</summary>

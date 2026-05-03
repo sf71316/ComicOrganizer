@@ -13,8 +13,10 @@ public partial class ReaderForm : Window, IThemedControl
 {
     private readonly IReaderSource _source;
     private readonly bool _rtl;
-    private readonly bool _spreadFromCover;   // true: 第 1 頁獨立、2+3 併排；false: 1+2、3+4 併排
+    private readonly bool _spreadFromCover;
+    private readonly IAssetMetaStore? _metaStore;   // 進度保存用，可選
     private int _currentIndex;
+    private int _lastSavedPage = -1;   // 上次寫進 DB 的頁碼，避免重覆寫
     private ReaderViewMode _viewMode = ReaderViewMode.SinglePage;
     private ReaderZoomMode _zoomMode = ReaderZoomMode.FitPage;
     private float _customZoom = 1.0f;
@@ -35,13 +37,19 @@ public partial class ReaderForm : Window, IThemedControl
     private bool _isFullscreen;
 
     public ReaderForm(IReaderSource source, bool rightToLeft = true,
-                      bool dualPageSpreadFromCover = false)
+                      bool dualPageSpreadFromCover = false,
+                      IAssetMetaStore? metaStore = null)
     {
         InitializeComponent();
         _source = source;
         _rtl = rightToLeft;
         _spreadFromCover = dualPageSpreadFromCover;
-        _currentIndex = 0;
+        _metaStore = metaStore;
+
+        // 從 DB 撈 last_page 接續閱讀；沒紀錄或越界回 0
+        var resume = _metaStore?.GetLastPage(source.RootPath);
+        _currentIndex = (resume.HasValue && resume.Value >= 0 && resume.Value < source.PageCount)
+            ? resume.Value : 0;
 
         Text = source.DisplayName;
         // PageHeader：Text = 分頁資訊（UpdatePageInfo 會更新），SubText = 作品名（固定）
@@ -93,8 +101,25 @@ public partial class ReaderForm : Window, IThemedControl
         scrollHost.MouseWheel += OnContentMouseWheel;
         picPage.MouseWheel += OnContentMouseWheel;
 
-        FormClosing += (s, e) => DisposeAllPages();
+        FormClosing += (s, e) =>
+        {
+            SaveProgress();   // 關閉時保存最終頁碼
+            DisposeAllPages();
+        };
         scrollHost.Resize += (s, e) => LayoutPic();
+    }
+
+    /// <summary>把 _currentIndex 寫進 asset_meta.last_page（僅在頁碼變動時寫入）。</summary>
+    private void SaveProgress()
+    {
+        if (_metaStore == null) return;
+        if (_currentIndex == _lastSavedPage) return;
+        try
+        {
+            _metaStore.SetLastPage(_source.RootPath, _currentIndex);
+            _lastSavedPage = _currentIndex;
+        }
+        catch { /* DB 寫失敗不致命 */ }
     }
 
     private void OnContentMouseWheel(object? sender, MouseEventArgs e)
@@ -133,8 +158,15 @@ public partial class ReaderForm : Window, IThemedControl
                 else Close();
                 break;
             case Keys.F11: case Keys.F: case Keys.Enter: ToggleFullscreen(); break;
-            case Keys.Left: StepSpread(_rtl ? +1 : -1); break;
-            case Keys.Right: StepSpread(_rtl ? -1 : +1); break;
+            // ←/→ 翻頁只在 Single/Dual 生效；Continuous 模式留給捲動 / ↑↓ 不攔截走 scrollHost 預設
+            case Keys.Left:
+                if (_viewMode == ReaderViewMode.ContinuousScroll) return;
+                StepSpread(_rtl ? +1 : -1);
+                break;
+            case Keys.Right:
+                if (_viewMode == ReaderViewMode.ContinuousScroll) return;
+                StepSpread(_rtl ? -1 : +1);
+                break;
             case Keys.PageUp: case Keys.Back: StepSpread(-1); break;
             case Keys.PageDown: case Keys.Space: StepSpread(+1); break;
             case Keys.Home: GoToPage(0); break;
@@ -315,6 +347,9 @@ public partial class ReaderForm : Window, IThemedControl
 
         // 立刻嘗試 render（cache hit 即時顯示；miss 等 LoadPageAsync 完成後 fire 回來再 render）
         TryRenderCurrentSpread();
+
+        // 每次翻頁存進度 — SQLite UPDATE 單筆，ms 等級不會卡 UI
+        SaveProgress();
     }
 
     private async Task LoadPageAsync(int index)
@@ -410,7 +445,8 @@ public partial class ReaderForm : Window, IThemedControl
         UpdateStatusBar();
     }
 
-    /// <summary>把兩張圖左右拼接成一張 Bitmap。高度取較高者；矮的居中對齊。gutter 用 reader 中性灰。</summary>
+    /// <summary>把兩張圖左右拼接成一張 Bitmap。高度取較高者；矮的居中對齊。gutter 用 reader 中性灰。
+    /// 用顯式 Rectangle 畫圖避免 GDI+ 走內嵌 DPI metadata 縮放圖片造成中間白邊。</summary>
     private static Bitmap ComposePair(Image left, Image right)
     {
         int totalW = left.Width + right.Width;
@@ -421,8 +457,8 @@ public partial class ReaderForm : Window, IThemedControl
         g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
         g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
         g.Clear(ReaderContentBg);
-        g.DrawImage(left, 0, (totalH - left.Height) / 2);
-        g.DrawImage(right, left.Width, (totalH - right.Height) / 2);
+        g.DrawImage(left, new Rectangle(0, (totalH - left.Height) / 2, left.Width, left.Height));
+        g.DrawImage(right, new Rectangle(left.Width, (totalH - right.Height) / 2, right.Width, right.Height));
         return bmp;
     }
 

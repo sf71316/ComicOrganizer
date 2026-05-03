@@ -13,7 +13,7 @@ public class SqliteAssetMetaStore : IAssetMetaStore
     private readonly SqliteConnection _conn;
     private readonly object _lock = new();
     private SqliteTransaction? _currentTx;
-    private const int CurrentSchemaVersion = 2;
+    private const int CurrentSchemaVersion = 3;
 
     static SqliteAssetMetaStore()
     {
@@ -40,19 +40,34 @@ public class SqliteAssetMetaStore : IAssetMetaStore
         _conn.Execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY);");
         var currentVersion = _conn.ExecuteScalar<long?>("SELECT version FROM schema_version LIMIT 1;") ?? 0;
 
-        // v0：什麼都沒有 → 直接建 v2
-        // v1：舊 schema → migrate 到 v2
-        // v2：什麼都不做
+        // v0：什麼都沒有 → 建最新 schema
+        // v1：舊 schema → migrate 到 v2 → 接 v3
+        // v2：補 v3 columns
+        // v3：no-op
         if (currentVersion == 0)
         {
             CreateSchemaV2();
+            ApplyV3Additions();
             _conn.Execute("INSERT INTO schema_version (version) VALUES (@v);", new { v = CurrentSchemaVersion });
+            return;
         }
-        else if (currentVersion == 1)
+        if (currentVersion == 1)
         {
             MigrateV1ToV2();
+            currentVersion = 2;
         }
-        // currentVersion >= 2 → 已是最新，no-op
+        if (currentVersion == 2)
+        {
+            ApplyV3Additions();
+            _conn.Execute("DELETE FROM schema_version; INSERT INTO schema_version (version) VALUES (@v);",
+                new { v = CurrentSchemaVersion });
+        }
+    }
+
+    /// <summary>v2 → v3：asset_meta 加 last_page 欄位（Phase 1.3 reader 進度保存用）。</summary>
+    private void ApplyV3Additions()
+    {
+        _conn.Execute("ALTER TABLE asset_meta ADD COLUMN last_page INTEGER;");
     }
 
     /// <summary>直接建立 v2 schema（首次啟動或測試用）。</summary>
@@ -497,7 +512,7 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         lock (_lock)
             return _conn.QueryFirstOrDefault<AssetMetadata>(@"
 SELECT asset_id, author_id, title, series, chapter_no, language, translation_group,
-       page_count, rating, read_status, read_count, last_read, external_id, parsed_at
+       page_count, rating, read_status, read_count, last_read, external_id, parsed_at, last_page
 FROM asset_meta WHERE asset_id = @id LIMIT 1;",
                 new { id = assetId }, _currentTx);
     }
@@ -507,9 +522,9 @@ FROM asset_meta WHERE asset_id = @id LIMIT 1;",
         lock (_lock)
             _conn.Execute(@"
 INSERT INTO asset_meta (asset_id, author_id, title, series, chapter_no, language, translation_group,
-                        page_count, rating, read_status, read_count, last_read, external_id, parsed_at)
+                        page_count, rating, read_status, read_count, last_read, external_id, parsed_at, last_page)
 VALUES (@AssetId, @AuthorId, @Title, @Series, @ChapterNo, @Language, @TranslationGroup,
-        @PageCount, @Rating, @ReadStatus, @ReadCount, @LastRead, @ExternalId, @ParsedAt)
+        @PageCount, @Rating, @ReadStatus, @ReadCount, @LastRead, @ExternalId, @ParsedAt, @LastPage)
 ON CONFLICT(asset_id) DO UPDATE SET
     author_id = excluded.author_id,
     title = excluded.title,
@@ -523,7 +538,8 @@ ON CONFLICT(asset_id) DO UPDATE SET
     read_count = excluded.read_count,
     last_read = excluded.last_read,
     external_id = excluded.external_id,
-    parsed_at = excluded.parsed_at;",
+    parsed_at = excluded.parsed_at,
+    last_page = excluded.last_page;",
                 new
                 {
                     meta.AssetId,
@@ -540,6 +556,7 @@ ON CONFLICT(asset_id) DO UPDATE SET
                     meta.LastRead,
                     meta.ExternalId,
                     ParsedAt = meta.ParsedAt > 0 ? meta.ParsedAt : NowUnix(),
+                    meta.LastPage,
                 }, _currentTx);
     }
 
@@ -566,7 +583,7 @@ SELECT a.id AS AssetId, a.path, a.name, a.is_folder, a.file_size, a.mtime,
        am.series, am.chapter_no, am.language, am.translation_group,
        am.page_count, am.rating,
        am.read_status, am.read_count, am.last_read,
-       am.external_id, am.parsed_at
+       am.external_id, am.parsed_at, am.last_page
 FROM asset a
 LEFT JOIN asset_meta am ON am.asset_id = a.id
 LEFT JOIN author au ON au.id = am.author_id
@@ -618,6 +635,25 @@ JOIN asset a ON a.id = am.asset_id
 WHERE a.path = @path LIMIT 1;", new { path }, _currentTx);
             return v.HasValue ? (ReadStatus)v.Value : null;
         }
+    }
+
+    public int? GetLastPage(string path)
+    {
+        lock (_lock)
+            return _conn.ExecuteScalar<int?>(@"
+SELECT am.last_page FROM asset_meta am
+JOIN asset a ON a.id = am.asset_id
+WHERE a.path = @path LIMIT 1;", new { path }, _currentTx);
+    }
+
+    public void SetLastPage(string path, int pageIndex)
+    {
+        lock (_lock)
+            _conn.Execute(@"
+UPDATE asset_meta SET last_page = @page
+WHERE asset_id = (SELECT id FROM asset WHERE path = @path);",
+                new { page = pageIndex, path }, _currentTx);
+            // affected=0 OK：沒 asset_meta 不寫入（reader 開非 work 路徑時不會炸）
     }
 
     public void DeleteMetadata(long assetId)

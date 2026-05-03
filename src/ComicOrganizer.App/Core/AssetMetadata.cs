@@ -45,6 +45,9 @@ public class AssetMetadata
 
     /// <summary>parser 跑的時間（Unix ts）。重 parse 時更新。</summary>
     public long ParsedAt { get; set; }
+
+    /// <summary>內建 reader 上次閱讀到的頁碼（0-based）。null = 從未讀過 / 從第一頁開始。</summary>
+    public int? LastPage { get; set; }
 }
 
 /// <summary>
@@ -88,6 +91,7 @@ public class WorkDetail
     public long? LastRead { get; set; }
     public string? ExternalId { get; set; }
     public long? ParsedAt { get; set; }
+    public int? LastPage { get; set; }
 
     public List<Tag> Tags { get; set; } = new();
 }
