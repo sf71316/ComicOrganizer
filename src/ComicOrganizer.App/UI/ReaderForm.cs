@@ -28,8 +28,11 @@ public partial class ReaderForm : Window, IThemedControl
     private readonly object _cacheLock = new();
     private const int PreloadRadius = 2;
 
-    // 雙頁 composite 暫存：避免每次重畫；spread 更新時 dispose 舊的
-    private Bitmap? _composite;
+    // 當前要顯示的圖（直接 ref _cache 的 bitmap，不複製）：
+    // _leftImage 必有值；_rightImage 只有雙頁模式 spread size=2 才設
+    // 翻頁時只是換 ref，picPage.Invalidate 重畫，零 allocation
+    private Image? _leftImage;
+    private Image? _rightImage;
 
     // 全螢幕狀態回復用
     private FormBorderStyle _prevBorderStyle;
@@ -58,6 +61,10 @@ public partial class ReaderForm : Window, IThemedControl
         ApplyThemeColors();
         this.WireThemeAndLocalization();
 
+        // picPage 不走預設 Image stretch，改自畫；TryRenderCurrentSpread 只設 ref 不 allocate
+        picPage.Image = null;
+        picPage.Paint += OnPicPagePaint;
+
         WireEvents();
 
         if (source.PageCount > 0)
@@ -80,9 +87,7 @@ public partial class ReaderForm : Window, IThemedControl
         scrollHost.BackColor = ReaderContentBg;
         picPage.BackColor = ReaderContentBg;
         lblStatus.ForeColor = ThemeColors.Text;
-        // dual mode composite 的 gutter 把 bg 烙進 bitmap → 主題切換時重 render 才會跟著變
-        if (_viewMode == ReaderViewMode.DualPage && SpreadSize(_currentIndex) == 2)
-            TryRenderCurrentSpread();
+        // 自畫不烙 bg，主題切換時 picPage.BackColor 自動 trigger 重畫，無需手動重 render
     }
 
     public void ApplyLocalization()
@@ -212,12 +217,17 @@ public partial class ReaderForm : Window, IThemedControl
         UpdateStatusBar();
     }
 
-    /// <summary>依 _zoomMode + _customZoom 計算 picPage 顯示尺寸與位置（捲動容器內居中）。</summary>
+    /// <summary>依 _zoomMode + _customZoom 計算 picPage 顯示尺寸與位置（捲動容器內居中）。
+    /// 自然大小取 _leftImage + _rightImage 的併排寬度；單頁時 _rightImage 為 null。</summary>
     private void LayoutPic()
     {
-        var img = picPage.Image;
-        if (img == null) return;
+        if (_leftImage == null) return;
         if (scrollHost.ClientSize.Width <= 0 || scrollHost.ClientSize.Height <= 0) return;
+
+        int naturalW = _leftImage.Width + (_rightImage?.Width ?? 0);
+        int naturalH = _rightImage != null
+            ? Math.Max(_leftImage.Height, _rightImage.Height)
+            : _leftImage.Height;
 
         // AutoScroll 計算 viewport 排除 scrollbar — 用 ClientSize 即可
         int hostW = scrollHost.ClientSize.Width;
@@ -228,33 +238,32 @@ public partial class ReaderForm : Window, IThemedControl
         {
             case ReaderZoomMode.FitPage:
                 {
-                    float sx = (float)hostW / img.Width;
-                    float sy = (float)hostH / img.Height;
+                    float sx = (float)hostW / naturalW;
+                    float sy = (float)hostH / naturalH;
                     float s = Math.Min(sx, sy);
-                    targetW = Math.Max(1, (int)(img.Width * s));
-                    targetH = Math.Max(1, (int)(img.Height * s));
+                    targetW = Math.Max(1, (int)(naturalW * s));
+                    targetH = Math.Max(1, (int)(naturalH * s));
                 }
                 break;
             case ReaderZoomMode.FitWidth:
                 targetW = hostW;
-                targetH = (int)(img.Height * (float)hostW / img.Width);
+                targetH = (int)(naturalH * (float)hostW / naturalW);
                 break;
             case ReaderZoomMode.Actual:
-                targetW = img.Width;
-                targetH = img.Height;
+                targetW = naturalW;
+                targetH = naturalH;
                 break;
             case ReaderZoomMode.Custom:
-                targetW = Math.Max(1, (int)(img.Width * _customZoom));
-                targetH = Math.Max(1, (int)(img.Height * _customZoom));
+                targetW = Math.Max(1, (int)(naturalW * _customZoom));
+                targetH = Math.Max(1, (int)(naturalH * _customZoom));
                 break;
             default:
-                targetW = img.Width;
-                targetH = img.Height;
+                targetW = naturalW;
+                targetH = naturalH;
                 break;
         }
 
         picPage.Size = new Size(targetW, targetH);
-        // 居中對齊：尺寸小於容器時 padding 兩側；大於時靠左上由 scroll 處理
         int x = Math.Max(0, (hostW - targetW) / 2);
         int y = Math.Max(0, (hostH - targetH) / 2);
         picPage.Location = new Point(x, y);
@@ -400,7 +409,9 @@ public partial class ReaderForm : Window, IThemedControl
         catch { /* handle gone */ }
     }
 
-    /// <summary>把當前 spread 套到 picPage（cache hit 即時顯示；缺頁顯示 loading）。</summary>
+    /// <summary>把當前 spread 套到 picPage（cache hit 即時顯示；缺頁顯示 loading）。
+    /// 不做 composite — 只更新 _leftImage / _rightImage ref，讓 OnPicPagePaint 直接畫。
+    /// 翻頁的 hot path = 兩個 ref 賦值 + LayoutPic + Invalidate，~ms 等級。</summary>
     private void TryRenderCurrentSpread()
     {
         int start = _currentIndex;
@@ -416,50 +427,57 @@ public partial class ReaderForm : Window, IThemedControl
         // 任一頁未到 → 顯示 loading
         if (p0 == null || (size == 2 && p1 == null))
         {
-            picPage.Image = null;
+            _leftImage = null;
+            _rightImage = null;
+            picPage.Invalidate();
             lblStatus.Text = "讀取中…";
             return;
         }
 
-        // 釋放舊 composite
-        var oldComposite = _composite;
-        _composite = null;
-
         if (size == 1)
         {
-            picPage.Image = p0;
+            _leftImage = p0;
+            _rightImage = null;
         }
         else
         {
             // 雙頁併排：RTL → 右邊放 start (主)、左邊放 start+1；LTR 反之
-            var leftImg = _rtl ? p1! : p0;
-            var rightImg = _rtl ? p0 : p1!;
-            _composite = ComposePair(leftImg, rightImg);
-            picPage.Image = _composite;
+            _leftImage = _rtl ? p1! : p0;
+            _rightImage = _rtl ? p0 : p1!;
         }
 
-        if (oldComposite != null && !ReferenceEquals(oldComposite, picPage.Image))
-            oldComposite.Dispose();
-
         LayoutPic();
+        picPage.Invalidate();
         UpdateStatusBar();
     }
 
-    /// <summary>把兩張圖左右拼接成一張 Bitmap。高度取較高者；矮的居中對齊。gutter 用 reader 中性灰。
-    /// 用顯式 Rectangle 畫圖避免 GDI+ 走內嵌 DPI metadata 縮放圖片造成中間白邊。</summary>
-    private static Bitmap ComposePair(Image left, Image right)
+    /// <summary>picPage 自畫：依 _leftImage / _rightImage 直接 DrawImage 縮放，
+    /// 不需事先 composite 整張 bitmap，避免大圖每翻一頁都 alloc/dispose 數百 MB。</summary>
+    private void OnPicPagePaint(object? sender, PaintEventArgs e)
     {
-        int totalW = left.Width + right.Width;
-        int totalH = Math.Max(left.Height, right.Height);
-        var bmp = new Bitmap(totalW, totalH);
-        using var g = Graphics.FromImage(bmp);
-        g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceOver;
-        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+        if (_leftImage == null) return;
+        var g = e.Graphics;
         g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-        g.Clear(ReaderContentBg);
-        g.DrawImage(left, new Rectangle(0, (totalH - left.Height) / 2, left.Width, left.Height));
-        g.DrawImage(right, new Rectangle(left.Width, (totalH - right.Height) / 2, right.Width, right.Height));
-        return bmp;
+        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+        // BackColor 已在 OnPaintBackground 填好
+
+        if (_rightImage == null)
+        {
+            g.DrawImage(_leftImage, new Rectangle(0, 0, picPage.Width, picPage.Height));
+            return;
+        }
+
+        // 雙頁：依原圖寬度比例分配 picPage 的寬度，垂直依高度比例置中（不同高度時矮的不被拉伸）
+        int totalNaturalW = _leftImage.Width + _rightImage.Width;
+        int totalNaturalH = Math.Max(_leftImage.Height, _rightImage.Height);
+        int leftW = (int)((double)_leftImage.Width / totalNaturalW * picPage.Width);
+        int rightW = picPage.Width - leftW;
+        int leftH = (int)((double)_leftImage.Height / totalNaturalH * picPage.Height);
+        int rightH = (int)((double)_rightImage.Height / totalNaturalH * picPage.Height);
+        int leftY = (picPage.Height - leftH) / 2;
+        int rightY = (picPage.Height - rightH) / 2;
+        g.DrawImage(_leftImage, new Rectangle(0, leftY, leftW, leftH));
+        g.DrawImage(_rightImage, new Rectangle(leftW, rightY, rightW, rightH));
     }
 
     /// <summary>釋放 spread 視窗 ± PreloadRadius 之外的 cache。</summary>
@@ -484,10 +502,8 @@ public partial class ReaderForm : Window, IThemedControl
 
     private void DisposeAllPages()
     {
-        var oldComposite = _composite;
-        picPage.Image = null;
-        _composite = null;
-        oldComposite?.Dispose();
+        _leftImage = null;
+        _rightImage = null;
         lock (_cacheLock)
         {
             foreach (var img in _cache.Values) img.Dispose();
@@ -538,8 +554,8 @@ public partial class ReaderForm : Window, IThemedControl
     private void UpdateStatusBar()
     {
         var name = _source.GetPageName(_currentIndex);
-        var img = picPage.Image;
-        var dim = img != null ? $"{img.Width}×{img.Height}" : "-";
+        // 顯示「主」頁尺寸（雙頁模式 = leftImg；single mode 也是 leftImg）
+        var dim = _leftImage != null ? $"{_leftImage.Width}×{_leftImage.Height}" : "-";
         var dir = _rtl ? "RTL" : "LTR";
         var mode = _viewMode switch
         {
