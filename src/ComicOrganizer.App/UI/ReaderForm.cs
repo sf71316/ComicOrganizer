@@ -39,6 +39,10 @@ public partial class ReaderForm : Window, IThemedControl
     private readonly System.Windows.Forms.Timer _scrollDebounce = new() { Interval = 500 };
     private bool IsContinuous => _viewMode == ReaderViewMode.ContinuousScroll;
 
+    // ScrollableControl.Scroll event 在 thumbtrack 拖曳期間 firing 不可靠（known WinForms 限制）
+    // → 用 NativeWindow 直接攔截 scrollHost 的 WM_VSCROLL，確保每次 scroll 都觸發 UpdateContinuousState
+    private ScrollMessageHook? _scrollHook;
+
     // 預讀 cache：頁 index → 已 decode bitmap（單頁原圖）
     private readonly Dictionary<int, Image> _cache = new();
     private readonly HashSet<int> _loading = new();
@@ -151,7 +155,10 @@ public partial class ReaderForm : Window, IThemedControl
         picPage.MouseWheel += OnContentMouseWheel;
 
         // Continuous 模式：scrollHost 捲動 → 更新當前頁與 cache window
+        // ScrollableControl.Scroll event 在 thumbtrack 拖曳期間不一定 fire；用 WndProc hook 補足
         scrollHost.Scroll += (s, e) => { if (IsContinuous) UpdateContinuousState(); };
+        _scrollHook = new ScrollMessageHook(scrollHost);
+        _scrollHook.OnScrollMessage += () => { if (IsContinuous) UpdateContinuousState(); };
         // 拖捲軸停止 500ms 後寫進度（避免每個 scroll event 都打 DB）
         _scrollDebounce.Tick += (s, e) =>
         {
@@ -657,8 +664,9 @@ public partial class ReaderForm : Window, IThemedControl
                     // TotalHeight 改變 → resize picPage（會自動觸發 Invalidate）
                     int newH = Math.Max(1, _layout.TotalHeight);
                     if (picPage.Height != newH) picPage.Size = new Size(_layout.ContentWidth, newH);
-                    // SetMeasured 後 yOffset 整體位移 — 重新校準 cache window，
-                    // 否則新可見範圍的頁可能停在「讀取中」永不被觸發 LoadPageAsync
+                    // SetMeasured 後 yOffset 整體位移 — 重新校準 cache window
+                    // （focus page 的位置可能略有飄移，但這是 lazy fill 的必然代價，
+                    //  在這裡強制 ScrollTo 復位反而會跟使用者進行中的拖曳/滾輪輸入打架）
                     UpdateContinuousState();
                     picPage.Invalidate();
                     return;
@@ -857,6 +865,7 @@ public partial class ReaderForm : Window, IThemedControl
         _recordCheckTimer.Dispose();
         _scrollDebounce.Stop();
         _scrollDebounce.Dispose();
+        _scrollHook?.Dispose();
         _leftImage = null;
         _rightImage = null;
         lock (_cacheLock)
@@ -935,5 +944,41 @@ public partial class ReaderForm : Window, IThemedControl
             _ => "",
         };
         lblStatus.Text = $"{name}    {dim}    {dir}    {mode}    {zoomLabel}";
+    }
+}
+
+/// <summary>
+/// 攔截 WinForms 控件的 WM_VSCROLL / WM_HSCROLL 訊息，補足 ScrollableControl.Scroll event 在
+/// thumbtrack 拖曳期間 firing 不可靠的問題。
+///
+/// base.WndProc 先讓 ScrollableControl 處理（更新 AutoScrollPosition），再 fire OnScrollMessage，
+/// 這樣 handler 內讀 -AutoScrollPosition.Y 就是已更新的最新值。
+/// </summary>
+internal sealed class ScrollMessageHook : NativeWindow, IDisposable
+{
+    private const int WM_VSCROLL = 0x0115;
+    private const int WM_HSCROLL = 0x0114;
+
+    public event Action? OnScrollMessage;
+
+    public ScrollMessageHook(Control target)
+    {
+        if (target.IsHandleCreated) AssignHandle(target.Handle);
+        else target.HandleCreated += (s, e) => AssignHandle(target.Handle);
+        target.HandleDestroyed += (s, e) => ReleaseHandle();
+    }
+
+    protected override void WndProc(ref System.Windows.Forms.Message m)
+    {
+        base.WndProc(ref m);
+        if (m.Msg == WM_VSCROLL || m.Msg == WM_HSCROLL)
+        {
+            OnScrollMessage?.Invoke();
+        }
+    }
+
+    public void Dispose()
+    {
+        ReleaseHandle();
     }
 }
