@@ -99,18 +99,20 @@ public class ContinuousLayoutTests
     public void SetZoom_ScalesContentWidthAndAllHeights()
     {
         var layout = new ContinuousLayout(2, 800);
-        layout.SetMeasured(0, 1000, 1500);   // h = 1200 at zoom 1.0
+        layout.SetMeasured(0, 1000, 1500);   // 自然 1000×1500，FitWidth (zoom=1.0) → h = 1200
 
-        // zoom 1.0 = 預設 FitWidth
+        // 預設 zoom 1.0 = FitWidth（等於 viewport 寬）
         Assert.Equal(800, layout.ContentWidth);
         Assert.Equal(1200, layout.GetPageHeight(0));
 
-        layout.SetZoom(1.5f);
-        // ContentWidth = 800 × 1.5 = 1200 → h = 1500 × 1200/1000 = 1800
-        Assert.Equal(1200, layout.ContentWidth);
-        Assert.Equal(1800, layout.GetPageHeight(0));
+        // SetZoom(MaxZoom)：ContentWidth = 800 × MaxZoom，依比例算 height
+        layout.SetZoom(ContinuousLayout.MaxZoom);
+        int expectedW = (int)(800 * ContinuousLayout.MaxZoom);
+        int expectedH = (int)(1500 * (float)expectedW / 1000);
+        Assert.Equal(expectedW, layout.ContentWidth);
+        Assert.Equal(expectedH, layout.GetPageHeight(0));
 
-        // 範圍 clamp 由常數決定（避免測試與 source 不同步）
+        // 範圍 clamp（由常數決定，避免測試與 source 不同步）
         layout.SetZoom(10f);
         Assert.Equal(ContinuousLayout.MaxZoom, layout.Zoom);
         layout.SetZoom(0.01f);

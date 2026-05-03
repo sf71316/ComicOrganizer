@@ -14,6 +14,8 @@ partial class ReaderForm
     private AntdUI.Button btnFullscreen;
     private System.Windows.Forms.Panel scrollHost;
     private System.Windows.Forms.PictureBox picPage;
+    /// <summary>連續捲動模式專用 VScrollBar，繞過 Windows 控件高度 65535 限制（picPage 不能那麼高）。</summary>
+    private System.Windows.Forms.VScrollBar vScrollBarContinuous;
     private System.Windows.Forms.Panel statusBar;
     private System.Windows.Forms.Label lblStatus;
 
@@ -41,6 +43,7 @@ partial class ReaderForm
         segViewMode = new AntdUI.Segmented();
         scrollHost = new System.Windows.Forms.Panel();
         picPage = new System.Windows.Forms.PictureBox();
+        vScrollBarContinuous = new System.Windows.Forms.VScrollBar();
         statusBar = new System.Windows.Forms.Panel();
         lblStatus = new System.Windows.Forms.Label();
         toolbar.SuspendLayout();
@@ -153,8 +156,17 @@ partial class ReaderForm
         //
         scrollHost.AutoScroll = true;
         scrollHost.Controls.Add(picPage);
+        scrollHost.Controls.Add(vScrollBarContinuous);
         scrollHost.Dock = System.Windows.Forms.DockStyle.Fill;
         scrollHost.Name = "scrollHost";
+        //
+        // vScrollBarContinuous — 只在連續捲動模式顯示，繞過 Windows 控件 65535 高度限制
+        //
+        vScrollBarContinuous.Dock = System.Windows.Forms.DockStyle.Right;
+        vScrollBarContinuous.LargeChange = 800;
+        vScrollBarContinuous.SmallChange = 60;
+        vScrollBarContinuous.Visible = false;
+        vScrollBarContinuous.Name = "vScrollBarContinuous";
         //
         // picPage
         //

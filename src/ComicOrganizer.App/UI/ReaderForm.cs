@@ -39,9 +39,9 @@ public partial class ReaderForm : Window, IThemedControl
     private readonly System.Windows.Forms.Timer _scrollDebounce = new() { Interval = 500 };
     private bool IsContinuous => _viewMode == ReaderViewMode.ContinuousScroll;
 
-    // ScrollableControl.Scroll event 在 thumbtrack 拖曳期間 firing 不可靠（known WinForms 限制）
-    // → 用 NativeWindow 直接攔截 scrollHost 的 WM_VSCROLL，確保每次 scroll 都觸發 UpdateContinuousState
-    private ScrollMessageHook? _scrollHook;
+    // 連續捲動模式採用「虛擬 scroll」— picPage 保持 viewport 大小（避開 Windows 控件 65535 高度上限），
+    // _virtualScrollY 為 [0, layout.TotalHeight - viewH] 的邏輯 scroll 偏移，DrawContinuous 用此偏移平移繪製。
+    private int _virtualScrollY;
 
     // 預讀 cache：頁 index → 已 decode bitmap（單頁原圖）
     private readonly Dictionary<int, Image> _cache = new();
@@ -154,11 +154,14 @@ public partial class ReaderForm : Window, IThemedControl
         scrollHost.MouseWheel += OnContentMouseWheel;
         picPage.MouseWheel += OnContentMouseWheel;
 
-        // Continuous 模式：scrollHost 捲動 → 更新當前頁與 cache window
-        // ScrollableControl.Scroll event 在 thumbtrack 拖曳期間不一定 fire；用 WndProc hook 補足
-        scrollHost.Scroll += (s, e) => { if (IsContinuous) UpdateContinuousState(); };
-        _scrollHook = new ScrollMessageHook(scrollHost);
-        _scrollHook.OnScrollMessage += () => { if (IsContinuous) UpdateContinuousState(); };
+        // Continuous 模式：使用獨立 vScrollBarContinuous 處理大於 65535px 的虛擬 scroll
+        vScrollBarContinuous.ValueChanged += (s, e) =>
+        {
+            if (!IsContinuous) return;
+            _virtualScrollY = vScrollBarContinuous.Value;
+            picPage.Invalidate();
+            UpdateContinuousState();
+        };
         // 拖捲軸停止 500ms 後寫進度（避免每個 scroll event 都打 DB）
         _scrollDebounce.Tick += (s, e) =>
         {
@@ -175,9 +178,7 @@ public partial class ReaderForm : Window, IThemedControl
         {
             if (IsContinuous && _layout != null)
             {
-                // viewport 寬變動 → page 高度全部按比例變動 → 同一 scrollY 對應的內容會偏移
-                // 先記下當前 viewport top 對應的頁，resize 後 ScrollTo 該頁頂部維持視覺位置
-                int oldScrollY = -scrollHost.AutoScrollPosition.Y;
+                int oldScrollY = _virtualScrollY;
                 int focusPage = _layout.FindPageAtY(oldScrollY);
                 LayoutPic();
                 if (focusPage >= 0) ScrollContinuousTo(_layout.GetPageY(focusPage));
@@ -257,10 +258,8 @@ public partial class ReaderForm : Window, IThemedControl
         }
         if (IsContinuous)
         {
-            // picPage 不是 ScrollableControl，wheel 不會自動 bubble 給 scrollHost；
-            // 手動把 wheel 轉成 scrollHost 的 AutoScroll 位移，並觸發 UpdateContinuousState 預讀新頁
-            int scrollY = -scrollHost.AutoScrollPosition.Y;
-            int newY = Math.Max(0, scrollY - e.Delta);   // wheel up (Delta>0) → scrollY 減
+            // 自繪 scroll：wheel 直接調整 _virtualScrollY 並同步 vScrollBarContinuous.Value
+            int newY = _virtualScrollY - e.Delta;   // wheel up (Delta>0) → scrollY 減
             ScrollContinuousTo(newY);
             return;
         }
@@ -327,10 +326,7 @@ public partial class ReaderForm : Window, IThemedControl
     {
         if (_layout == null) return;
         float zoom = sliderZoom.Value / 100f;
-        // 保存當前 viewport 中心對應的頁，zoom 後 ScrollTo 維持「視覺中心頁」不變
-        int scrollY = -scrollHost.AutoScrollPosition.Y;
-        int viewH = scrollHost.ClientSize.Height;
-        int focusPage = _layout.FindPageAtY(scrollY + viewH / 2);
+        int focusPage = _layout.FindPageAtY(_virtualScrollY + picPage.Height / 2);
         _layout.SetZoom(zoom);
         LayoutPic();
         if (focusPage >= 0) ScrollContinuousTo(_layout.GetPageY(focusPage));
@@ -340,19 +336,30 @@ public partial class ReaderForm : Window, IThemedControl
 
     private void ScrollContinuousTo(int y)
     {
-        // AutoScrollPosition 設值時 WinForms 會自動把它轉成負值內部存
-        y = Math.Max(0, Math.Min(y, _layout?.TotalHeight ?? y));
-        scrollHost.AutoScrollPosition = new Point(0, y);
-        UpdateContinuousState();
+        if (_layout == null) return;
+        int maxScroll = Math.Max(0, _layout.TotalHeight - picPage.Height);
+        y = Math.Max(0, Math.Min(y, maxScroll));
+        // 改 vScrollBarContinuous.Value 會觸發 ValueChanged → 更新 _virtualScrollY + Invalidate + UpdateContinuousState
+        if (vScrollBarContinuous.Value != y)
+        {
+            int clampedForScrollBar = Math.Min(y, vScrollBarContinuous.Maximum);
+            vScrollBarContinuous.Value = clampedForScrollBar;
+        }
+        else
+        {
+            // Value 未變動 → 仍要主動觸發 cache 同步（GoToPage(currentIndex) 重 render 等場景）
+            _virtualScrollY = y;
+            picPage.Invalidate();
+            UpdateContinuousState();
+        }
     }
 
     private void SmartPageDown()
     {
         if (_layout == null) return;
-        int scrollY = -scrollHost.AutoScrollPosition.Y;
-        int viewH = scrollHost.ClientSize.Height;
+        int scrollY = _virtualScrollY;
+        int viewH = picPage.Height;
         int next = _layout.NextPageBoundary(scrollY);
-        // 接近下一頁邊界（≤1.1×viewH）→ 對齊；否則滾 90% viewport（長條漫情境）
         int target = (next - scrollY) <= (int)(viewH * 1.1)
             ? next
             : scrollY + (int)(viewH * 0.9);
@@ -362,8 +369,8 @@ public partial class ReaderForm : Window, IThemedControl
     private void SmartPageUp()
     {
         if (_layout == null) return;
-        int scrollY = -scrollHost.AutoScrollPosition.Y;
-        int viewH = scrollHost.ClientSize.Height;
+        int scrollY = _virtualScrollY;
+        int viewH = picPage.Height;
         int prev = _layout.PrevPageBoundary(scrollY);
         int target = (scrollY - prev) <= (int)(viewH * 1.1)
             ? prev
@@ -413,14 +420,20 @@ public partial class ReaderForm : Window, IThemedControl
     {
         if (IsContinuous && _layout != null)
         {
-            int contW = scrollHost.ClientSize.Width;
-            if (contW <= 0) return;
+            // 扣掉 vScrollBarContinuous 寬度 — 自繪 scroll 所以 scrollHost 不長 AutoScroll bar
+            int contW = scrollHost.ClientSize.Width - vScrollBarContinuous.Width;
+            int contH = scrollHost.ClientSize.Height;
+            if (contW <= 0 || contH <= 0) return;
             _layout.SetViewportWidth(contW);
-            // picPage 跨足整個 layout，AutoScroll 自動長 vertical scrollbar
-            picPage.Size = new Size(_layout.ContentWidth, Math.Max(1, _layout.TotalHeight));
-            picPage.Location = new Point(Math.Max(0, (contW - _layout.ContentWidth) / 2), 0);
-            // 注意：state 同步交給呼叫者 — 因為若 layout 剛 Recalc 但 scroll 還沒對齊，
-            // 在這裡 UpdateContinuousState 會用「舊 scrollY × 新 yOffset」算出錯誤可見範圍
+            // picPage 保持 viewport 大小，避開 Windows 控件 65535 高度限制；繪製時用 _virtualScrollY 平移
+            picPage.Size = new Size(contW, contH);
+            picPage.Location = new Point(0, 0);
+            // 設定 vScrollBarContinuous 的 range — Windows scrollbar 用 32-bit Maximum，可表達 long 內容
+            int maxScroll = Math.Max(0, _layout.TotalHeight - contH);
+            vScrollBarContinuous.LargeChange = Math.Max(1, contH);
+            vScrollBarContinuous.Maximum = maxScroll + vScrollBarContinuous.LargeChange - 1;
+            _virtualScrollY = Math.Max(0, Math.Min(_virtualScrollY, maxScroll));
+            if (vScrollBarContinuous.Value != _virtualScrollY) vScrollBarContinuous.Value = _virtualScrollY;
             return;
         }
         if (_leftImage == null) return;
@@ -494,31 +507,33 @@ public partial class ReaderForm : Window, IThemedControl
 
         if (toContinuous)
         {
-            // 進 Continuous：建立 layout、釋放 single/dual 的 image ref（cache 仍保留）
+            // 進 Continuous：建立 layout、釋放 single/dual 的 image ref（cache 仍保留）、停掉 AutoScroll、顯示自繪 vScrollBar
             _leftImage = null;
             _rightImage = null;
-            _layout = new ContinuousLayout(_source.PageCount, scrollHost.ClientSize.Width);
+            scrollHost.AutoScroll = false;   // 禁用 AutoScroll（picPage 維持 viewport 大小，不會觸發）
+            vScrollBarContinuous.Visible = true;
+            _virtualScrollY = 0;
+            _layout = new ContinuousLayout(_source.PageCount, Math.Max(1, scrollHost.ClientSize.Width - vScrollBarContinuous.Width));
             _layout.Gap = switchSeamless.Checked ? 0 : ContinuousLayout.PageGap;
-            // 已 cache 的頁可立即 SetMeasured
             lock (_cacheLock)
             {
                 foreach (var (idx2, img) in _cache) _layout.SetMeasured(idx2, img.Width, img.Height);
             }
-            // slider 預設停在中央位置，對應 zoom = 中間值
             int defaultVal = (sliderZoom.MinValue + sliderZoom.MaxValue) / 2;
             sliderZoom.Value = defaultVal;
             _layout.SetZoom(defaultVal / 100f);
             LayoutPic();
-            // 跳到當前頁的 yOffset
             ScrollContinuousTo(_layout.GetPageY(_currentIndex));
             picPage.Invalidate();
             UpdateStatusBar();
         }
         else
         {
-            // 離 Continuous：丟掉 layout，回 single/dual 的 spread 對齊重 render
+            // 離 Continuous：丟掉 layout、隱藏 vScrollBar、恢復 AutoScroll、回 single/dual
             _layout = null;
-            scrollHost.AutoScrollPosition = new Point(0, 0);
+            vScrollBarContinuous.Visible = false;
+            scrollHost.AutoScroll = true;
+            _virtualScrollY = 0;
             _currentIndex = SpreadStart(_currentIndex);
             GoToPage(_currentIndex);
         }
@@ -527,10 +542,7 @@ public partial class ReaderForm : Window, IThemedControl
     private void OnSeamlessChanged()
     {
         if (_layout == null) return;
-        // 保存當前 viewport 中心對應頁，gap 改變後 ScrollTo 維持視覺中心
-        int scrollY = -scrollHost.AutoScrollPosition.Y;
-        int viewH = scrollHost.ClientSize.Height;
-        int focusPage = _layout.FindPageAtY(scrollY + viewH / 2);
+        int focusPage = _layout.FindPageAtY(_virtualScrollY + picPage.Height / 2);
         _layout.Gap = switchSeamless.Checked ? 0 : ContinuousLayout.PageGap;
         LayoutPic();
         if (focusPage >= 0) ScrollContinuousTo(_layout.GetPageY(focusPage));
@@ -660,13 +672,19 @@ public partial class ReaderForm : Window, IThemedControl
                 if (IsDisposed) return;
                 if (IsContinuous && _layout != null)
                 {
+                    int oldTotal = _layout.TotalHeight;
                     _layout.SetMeasured(index, natW, natH);
-                    // TotalHeight 改變 → resize picPage（會自動觸發 Invalidate）
-                    int newH = Math.Max(1, _layout.TotalHeight);
-                    if (picPage.Height != newH) picPage.Size = new Size(_layout.ContentWidth, newH);
-                    // SetMeasured 後 yOffset 整體位移 — 重新校準 cache window
-                    // （focus page 的位置可能略有飄移，但這是 lazy fill 的必然代價，
-                    //  在這裡強制 ScrollTo 復位反而會跟使用者進行中的拖曳/滾輪輸入打架）
+                    int newTotal = _layout.TotalHeight;
+                    // TotalHeight 變動 → 更新 vScrollBarContinuous.Maximum 反映新範圍
+                    int maxScroll = Math.Max(0, newTotal - picPage.Height);
+                    int newMax = maxScroll + vScrollBarContinuous.LargeChange - 1;
+                    if (vScrollBarContinuous.Maximum != newMax) vScrollBarContinuous.Maximum = newMax;
+                    // _virtualScrollY 可能因 totalH 縮小而越界，clamp 並同步 scrollbar
+                    if (_virtualScrollY > maxScroll)
+                    {
+                        _virtualScrollY = maxScroll;
+                        vScrollBarContinuous.Value = Math.Min(_virtualScrollY, vScrollBarContinuous.Maximum);
+                    }
                     UpdateContinuousState();
                     picPage.Invalidate();
                     return;
@@ -763,37 +781,41 @@ public partial class ReaderForm : Window, IThemedControl
         g.DrawImage(_rightImage, new Rectangle(leftW + Gap, rightY, rightW, rightH));
     }
 
-    /// <summary>Continuous 模式繪製：clip 範圍內的可見頁逐張畫到對應 yOffset。</summary>
+    /// <summary>Continuous 模式繪製：viewport 內的可見頁，用 _virtualScrollY 平移到 picPage 局部座標。</summary>
     private void DrawContinuous(PaintEventArgs e)
     {
         if (_layout == null) return;
         var g = e.Graphics;
         g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
         g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-        var clip = e.ClipRectangle;
-        var (first, last) = _layout.GetVisibleRange(clip.Top, clip.Bottom);
+        int viewTop = _virtualScrollY;
+        int viewBottom = _virtualScrollY + picPage.Height;
+        var (first, last) = _layout.GetVisibleRange(viewTop, viewBottom);
         if (first < 0) return;
         int contentW = _layout.ContentWidth;
+        // 水平居中：contentW < picPage.Width 時 xOffset > 0（兩側留白）；
+        // contentW > picPage.Width 時 xOffset < 0（圖左右各削掉一半，視覺仍居中）
+        int xOffset = (picPage.Width - contentW) / 2;
         for (int i = first; i <= last; i++)
         {
             Image? img;
             lock (_cacheLock) { _cache.TryGetValue(i, out img); }
-            int y = _layout.GetPageY(i);
+            int layoutY = _layout.GetPageY(i);
             int h = _layout.GetPageHeight(i);
+            int localY = layoutY - _virtualScrollY;
             if (img == null)
             {
-                // 未 decode：畫淺色佔位 + 「載入中」字樣
                 using var brush = new SolidBrush(Color.FromArgb(80, 80, 80));
-                g.FillRectangle(brush, 0, y, contentW, h);
+                g.FillRectangle(brush, xOffset, localY, contentW, h);
                 using var sf = new StringFormat
                 {
                     Alignment = StringAlignment.Center,
                     LineAlignment = StringAlignment.Center,
                 };
-                g.DrawString("讀取中…", lblStatus.Font, Brushes.White, new RectangleF(0, y, contentW, h), sf);
+                g.DrawString("讀取中…", lblStatus.Font, Brushes.White, new RectangleF(xOffset, localY, contentW, h), sf);
                 continue;
             }
-            g.DrawImage(img, new Rectangle(0, y, contentW, h));
+            g.DrawImage(img, new Rectangle(xOffset, localY, contentW, h));
         }
     }
 
@@ -801,10 +823,11 @@ public partial class ReaderForm : Window, IThemedControl
     private void UpdateContinuousState()
     {
         if (_layout == null) return;
-        int scrollY = -scrollHost.AutoScrollPosition.Y;
-        int viewH = scrollHost.ClientSize.Height;
+        int scrollY = _virtualScrollY;
+        int viewH = picPage.Height;
         int center = scrollY + viewH / 2;
         int pageIdx = _layout.FindPageAtY(center);
+        var (first, last) = _layout.GetVisibleRange(scrollY, scrollY + viewH);
         if (pageIdx >= 0 && pageIdx != _currentIndex)
         {
             _currentIndex = pageIdx;
@@ -814,7 +837,6 @@ public partial class ReaderForm : Window, IThemedControl
             TryRecordRead();
         }
         // visible window cache（含 ±PreloadRadius）
-        var (first, last) = _layout.GetVisibleRange(scrollY, scrollY + viewH);
         if (first >= 0) UpdateContinuousCacheWindow(first, last);
         // 看到末頁 → Auto Completed
         if (last >= _source.PageCount - 1) TryAutoComplete();
@@ -865,7 +887,6 @@ public partial class ReaderForm : Window, IThemedControl
         _recordCheckTimer.Dispose();
         _scrollDebounce.Stop();
         _scrollDebounce.Dispose();
-        _scrollHook?.Dispose();
         _leftImage = null;
         _rightImage = null;
         lock (_cacheLock)
@@ -947,38 +968,3 @@ public partial class ReaderForm : Window, IThemedControl
     }
 }
 
-/// <summary>
-/// 攔截 WinForms 控件的 WM_VSCROLL / WM_HSCROLL 訊息，補足 ScrollableControl.Scroll event 在
-/// thumbtrack 拖曳期間 firing 不可靠的問題。
-///
-/// base.WndProc 先讓 ScrollableControl 處理（更新 AutoScrollPosition），再 fire OnScrollMessage，
-/// 這樣 handler 內讀 -AutoScrollPosition.Y 就是已更新的最新值。
-/// </summary>
-internal sealed class ScrollMessageHook : NativeWindow, IDisposable
-{
-    private const int WM_VSCROLL = 0x0115;
-    private const int WM_HSCROLL = 0x0114;
-
-    public event Action? OnScrollMessage;
-
-    public ScrollMessageHook(Control target)
-    {
-        if (target.IsHandleCreated) AssignHandle(target.Handle);
-        else target.HandleCreated += (s, e) => AssignHandle(target.Handle);
-        target.HandleDestroyed += (s, e) => ReleaseHandle();
-    }
-
-    protected override void WndProc(ref System.Windows.Forms.Message m)
-    {
-        base.WndProc(ref m);
-        if (m.Msg == WM_VSCROLL || m.Msg == WM_HSCROLL)
-        {
-            OnScrollMessage?.Invoke();
-        }
-    }
-
-    public void Dispose()
-    {
-        ReleaseHandle();
-    }
-}
