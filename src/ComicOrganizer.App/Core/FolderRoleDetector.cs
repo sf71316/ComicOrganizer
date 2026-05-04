@@ -150,17 +150,24 @@ public class FolderRoleDetector
         {
             int childWorkCount = subdirCount + (archiveCount > 0 ? 1 : 0);
 
-            // (a) 單一 Work child (1 chapter sub 或 1 zip)
-            //     → 名字像 Work → 自己是 Work (含 1 chapter)；否則 Author with single work
+            // 名字明確是 Series 容器（X集全 / 全X巻 / 完結 / 合集 / Vol.X-Y）→ Category，children 是獨立卷
+            // 此判定優先於 chapter check，因為 children 即使叫 Vol1/Vol2 也是獨立 work
+            if (childWorkCount > 1 && LooksLikeSeries(folderName)) return FolderRole.Category;
+
+            // child folders 名字像章節 (Ch1/Ch2/第N話/Vol.N/純數字) → 自己是 Work-with-chapters
+            // 同時涵蓋單章節 (work2 只有 Ch1) 和多章節 (work1 有 Ch1+Ch2) 的 case
+            var childNames = subdirs.Take(SampleChildCount).Select(Path.GetFileName).Where(n => n != null).Cast<string>().ToList();
+            if (subdirCount > 0 && LooksLikeChapterFolders(childNames)) return FolderRole.Work;
+
+            // (a) 單一 Work child (非章節 naming)
+            //     → 名字像 Work → 自己是 Work；否則 Author with single work
             if (childWorkCount <= 1)
             {
                 return LooksLikeWorkTitle(folderName) ? FolderRole.Work : FolderRole.Author;
             }
-            // (b) 多個 Work children
-            //     → 名字像 Series (X集全 / 全X巻) → Category
+            // (b) 多個 Work children (非章節 naming, 非 series)
             //     → 名字像 Work title (Comic Market) → Category (可能 Series 沒被 Rules 抓)
             //     → 否則 Author with multiple works
-            if (LooksLikeSeries(folderName)) return FolderRole.Category;
             if (LooksLikeWorkTitle(folderName)) return FolderRole.Category;
             return FolderRole.Author;
         }
@@ -233,6 +240,20 @@ public class FolderRoleDetector
         ("MultipleBrackets", new Regex(@"\[[^\]]*\][^[]*\[[^\]]*\]", RegexOptions.Compiled)),
     };
 
+    /// <summary>
+    /// 章節「資料夾」名判定規則 — child folder name 命中任一條 → 父層是 Work-with-chapters 而非 Author。
+    /// 區別 Page (image 檔名) 與 Chapter (子目錄名)：兩者語意不同，分開規則。
+    /// </summary>
+    private static readonly Regex[] ChapterFolderRules =
+    {
+        new(@"^Ch(?:apter)?[\s._\-]*\d+",   RegexOptions.Compiled | RegexOptions.IgnoreCase),     // Ch1, Ch.2, Chapter 3, Ch_4
+        new(@"^第\d+(?:話|章|回)",            RegexOptions.Compiled),                                // 第1話 / 第2章
+        new(@"^Vol(?:ume)?[\s._\-]*\d+",     RegexOptions.Compiled | RegexOptions.IgnoreCase),     // Vol.1, Volume 2
+        new(@"^Part[\s._\-]*\d+",            RegexOptions.Compiled | RegexOptions.IgnoreCase),     // Part 1
+        new(@"^\d+$",                        RegexOptions.Compiled),                                // 純數字資料夾（01 / 002）
+        new(@"^\d+[\s._\-]",                 RegexOptions.Compiled),                                // "01 - 序章" / "02_本篇"
+    };
+
     /// <summary>章節頁面檔名判定規則 — image 檔名命中任一條 → 視為章節頁。</summary>
     private static readonly Regex[] PageNameRules =
     {
@@ -264,6 +285,17 @@ public class FolderRoleDetector
     {
         if (string.IsNullOrEmpty(folderName)) return false;
         return SeriesNameRules.Any(r => r.Pattern.IsMatch(folderName));
+    }
+
+    /// <summary>過半 child folder 名字像章節 → 自己是 Work-with-chapters。</summary>
+    private static bool LooksLikeChapterFolders(IReadOnlyList<string> childFolderNames)
+    {
+        if (childFolderNames.Count == 0) return false;
+        int matched = childFolderNames.Count(name =>
+            !string.IsNullOrEmpty(name) && ChapterFolderRules.Any(r => r.IsMatch(name)));
+        // 嚴格半數以上（避免 1/2 個誤判）— 特例：只有 1 個 child 時要求命中
+        if (childFolderNames.Count == 1) return matched == 1;
+        return matched * 2 > childFolderNames.Count;
     }
 
     /// <summary>過半 image 命中 PageNameRules 且不被 NotPageRules 排除 → 是 chapter folder。</summary>

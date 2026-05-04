@@ -457,7 +457,19 @@ LIMIT @n;", new { n = count }, _currentTx).AsList();
 
     public void Clear()
     {
-        lock (_lock) _conn.Execute("DELETE FROM asset;", transaction: _currentTx);
+        // 「完整清除」= 回到全新狀態。除了 asset (cascade 帶走 asset_meta / asset_thumb / asset_tag)
+        // 也要清 author / tag 系列，否則 stale 作者/標籤會殘留（Detector 修正後 rebuild 也修不到）。
+        lock (_lock)
+        {
+            _conn.Execute(@"
+DELETE FROM asset;
+DELETE FROM author_tag;
+DELETE FROM author_alias;
+DELETE FROM author;
+DELETE FROM tag;
+DELETE FROM folder_role;
+", transaction: _currentTx);
+        }
     }
 
     public void ClearThumbFields()

@@ -146,11 +146,36 @@ public class FolderRoleDetectorTests : IDisposable
         var d = new FolderRoleDetector(lib);
         Assert.Equal(FolderRole.Work, d.Detect(ch1));
         Assert.Equal(FolderRole.Work, d.Detect(ch2));
-        // 作品 含 chapter (都是 Work) → 視為 Author 在邏輯上會錯
-        // 設計上目前 chapter folder 仍標 Work，所以「作品」也是 Author。
-        // 這是已知簡化（Work / Chapter 沒區分），未來真要區分時再加 heuristic。
-        Assert.Equal(FolderRole.Author, d.Detect(work));
-        Assert.Equal(FolderRole.Category, d.Detect(author));   // 作者 子是 Author（即「作品」）→ 退一層成 Category
+        // 「作品」: children 全是 Work 且名字 Ch1/Ch2 命中 ChapterFolderRules → 父層是 Work-with-chapters
+        Assert.Equal(FolderRole.Work, d.Detect(work));
+        // 「作者」: 唯一 child 「作品」是 Work → childWorkCount=1，名字「作者」不像 WorkTitle → Author
+        Assert.Equal(FolderRole.Author, d.Detect(author));
+    }
+
+    // ========== Author 含多 Work，每 Work 有多章節 (TestData/[高橋悠太] 場景) ==========
+    [Fact]
+    public void Author_With_Multiple_Works_Each_Having_Chapters()
+    {
+        var lib = Mk();
+        var author = Mk("[高橋悠太]");
+        var work1 = Mk("[高橋悠太]", "[高橋悠太] 宇宙騎兵");
+        var work1ch1 = Mk("[高橋悠太]", "[高橋悠太] 宇宙騎兵", "Ch1");
+        var work1ch2 = Mk("[高橋悠太]", "[高橋悠太] 宇宙騎兵", "Ch2");
+        var work2 = Mk("[高橋悠太]", "[高橋悠太] 星際遠征");
+        var work2ch1 = Mk("[高橋悠太]", "[高橋悠太] 星際遠征", "Ch1");
+        Touch(work1ch1, "01.jpg"); Touch(work1ch1, "02.jpg");
+        Touch(work1ch2, "01.jpg"); Touch(work1ch2, "02.jpg");
+        Touch(work2ch1, "01.jpg"); Touch(work2ch1, "02.jpg");
+
+        var d = new FolderRoleDetector(lib);
+        // chapter 仍是 Work（少量 image leaf）
+        Assert.Equal(FolderRole.Work, d.Detect(work1ch1));
+        Assert.Equal(FolderRole.Work, d.Detect(work1ch2));
+        // work1: children 是 Ch1/Ch2 → Work-with-chapters
+        Assert.Equal(FolderRole.Work, d.Detect(work1));
+        Assert.Equal(FolderRole.Work, d.Detect(work2));
+        // author: 多個 Work children，名字不是 Series / WorkTitle → Author
+        Assert.Equal(FolderRole.Author, d.Detect(author));
     }
 
     // ========== Empty folder ==========
