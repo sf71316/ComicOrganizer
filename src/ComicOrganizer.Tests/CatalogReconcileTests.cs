@@ -269,6 +269,36 @@ public class CatalogReconcileTests : IDisposable
     }
 
     [Fact]
+    public void Renamed_Work_Detected_By_Size_Mtime_Match()
+    {
+        // basename 變了 (rename) → Pass 1 (basename, size) 不中
+        // Pass 2 (size, mtime) 配對 → 應該偵測為 PathChange
+        var author = MkAuthorFolder("[作者A]");
+        var oldPath = MkWorkArchive(author, "old_name.zip", 4096);
+        var assetId = RegisterAsset(oldPath, isFolder: false);
+
+        // 對齊 mtime — RegisterAsset 寫死 1234567890，FS 真實 mtime 是 now，所以要 set FS 檔的 mtime
+        var fakeMtime = DateTimeOffset.FromUnixTimeSeconds(1234567890).UtcDateTime;
+        File.SetLastWriteTimeUtc(oldPath, fakeMtime);
+
+        // rename
+        var newPath = Path.Combine(author, "new_name.zip");
+        File.Move(oldPath, newPath);
+        File.SetLastWriteTimeUtc(newPath, fakeMtime);   // 確保 mtime 不變（File.Move 通常保留，雙保險）
+
+        var report = _service.Analyze();
+
+        Assert.Single(report.PathChanges);
+        Assert.Empty(report.Orphans);
+        Assert.Empty(report.Ambiguous);
+
+        var change = report.PathChanges[0];
+        Assert.Equal(assetId, change.AssetId);
+        Assert.Equal(oldPath, change.OldPath);
+        Assert.Equal(newPath, change.NewPath);
+    }
+
+    [Fact]
     public void Mixed_Scenario_Detects_All_Three_Categories()
     {
         // 三種狀況同時：path change / orphan / ambiguous

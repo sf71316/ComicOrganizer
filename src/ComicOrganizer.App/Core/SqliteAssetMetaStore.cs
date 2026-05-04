@@ -1174,7 +1174,7 @@ SELECT author_id, @dest FROM author_tag WHERE tag_id = @src;",
     {
         lock (_lock)
             return _conn.Query<AssetCatalogEntry>(@"
-SELECT id AS Id, path AS Path, name AS Name, is_folder AS IsFolder, file_size AS FileSize
+SELECT id AS Id, path AS Path, name AS Name, is_folder AS IsFolder, file_size AS FileSize, mtime AS Mtime
 FROM asset
 ORDER BY id;", transaction: _currentTx).AsList();
     }

@@ -11,4 +11,5 @@ public class AssetCatalogEntry
     public string Name { get; set; } = "";
     public bool IsFolder { get; set; }
     public long? FileSize { get; set; }
+    public long Mtime { get; set; }
 }
