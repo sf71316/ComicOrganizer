@@ -1170,6 +1170,29 @@ SELECT author_id, @dest FROM author_tag WHERE tag_id = @src;",
                 new { flag = edited ? 1 : 0, id = assetId }, _currentTx);
     }
 
+    public IReadOnlyList<AssetCatalogEntry> ListAssetEntries()
+    {
+        lock (_lock)
+            return _conn.Query<AssetCatalogEntry>(@"
+SELECT id AS Id, path AS Path, name AS Name, is_folder AS IsFolder, file_size AS FileSize
+FROM asset
+ORDER BY id;", transaction: _currentTx).AsList();
+    }
+
+    public void UpdateAssetPath(long assetId, string newPath)
+    {
+        lock (_lock)
+            _conn.Execute("UPDATE asset SET path = @p WHERE id = @id;",
+                new { p = newPath, id = assetId }, _currentTx);
+    }
+
+    public void DeleteAssetById(long assetId)
+    {
+        lock (_lock)
+            // ON DELETE CASCADE 自動清 asset_meta / asset_thumb / asset_tag
+            _conn.Execute("DELETE FROM asset WHERE id = @id;", new { id = assetId }, _currentTx);
+    }
+
     public void Dispose()
     {
         lock (_lock) _conn.Dispose();

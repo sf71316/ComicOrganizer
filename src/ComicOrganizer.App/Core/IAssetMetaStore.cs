@@ -210,4 +210,15 @@ public interface IAssetMetaStore : IDisposable
 
     /// <summary>標記 / 取消「使用者手動編輯過」flag（保護不被 re-parse 覆寫）。</summary>
     void SetMetadataManuallyEdited(long assetId, bool edited);
+
+    // ===== Catalog reconcile (#45 Phase 6) =====
+
+    /// <summary>列出所有 asset 的 (id, path, name, is_folder, file_size)。給 catalog reconcile 用。</summary>
+    IReadOnlyList<AssetCatalogEntry> ListAssetEntries();
+
+    /// <summary>更新 asset.path（搬檔後修正）。其他欄位 (asset_meta / asset_thumb / asset_tag) 保留 — 走 asset.id FK。</summary>
+    void UpdateAssetPath(long assetId, string newPath);
+
+    /// <summary>依 asset.id 刪除（cascade 帶走 asset_meta / asset_thumb / asset_tag）。</summary>
+    void DeleteAssetById(long assetId);
 }
