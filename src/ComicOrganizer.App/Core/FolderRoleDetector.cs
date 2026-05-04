@@ -151,24 +151,22 @@ public class FolderRoleDetector
             int childWorkCount = subdirCount + (archiveCount > 0 ? 1 : 0);
 
             // 名字明確是 Series 容器（X集全 / 全X巻 / 完結 / 合集 / Vol.X-Y）→ Category，children 是獨立卷
-            // 此判定優先於 chapter check，因為 children 即使叫 Vol1/Vol2 也是獨立 work
+            // 此判定優先於後續 Work checks，因為 children 即使叫 Vol1/Vol2 也是獨立 work
             if (childWorkCount > 1 && LooksLikeSeries(folderName)) return FolderRole.Category;
 
-            // child folders 名字像章節 (Ch1/Ch2/第N話/Vol.N/純數字) → 自己是 Work-with-chapters
-            // 同時涵蓋單章節 (work2 只有 Ch1) 和多章節 (work1 有 Ch1+Ch2) 的 case
+            // 名字像 Work title (含 Comic Market 編號 / 翻譯標記 / 章節標記 / "[Author] Title"
+            // / 多重方括號) → 自己是 Work-with-chapters。children 不論名字怎麼變（Spring/Summer/
+            // Ch1/序章/上篇）都視為章節
+            if (LooksLikeWorkTitle(folderName)) return FolderRole.Work;
+
+            // child folders 名字像章節 (Ch1/Ch2/第N話/Vol.N/純數字) → 即使父名沒線索也判 Work
             var childNames = subdirs.Take(SampleChildCount).Select(Path.GetFileName).Where(n => n != null).Cast<string>().ToList();
             if (subdirCount > 0 && LooksLikeChapterFolders(childNames)) return FolderRole.Work;
 
-            // (a) 單一 Work child (非章節 naming)
-            //     → 名字像 Work → 自己是 Work；否則 Author with single work
-            if (childWorkCount <= 1)
-            {
-                return LooksLikeWorkTitle(folderName) ? FolderRole.Work : FolderRole.Author;
-            }
-            // (b) 多個 Work children (非章節 naming, 非 series)
-            //     → 名字像 Work title (Comic Market) → Category (可能 Series 沒被 Rules 抓)
-            //     → 否則 Author with multiple works
-            if (LooksLikeWorkTitle(folderName)) return FolderRole.Category;
+            // 單一 Work child + 父名無 Work 線索 → Author with single work
+            if (childWorkCount <= 1) return FolderRole.Author;
+
+            // 多個 Work children + 父名無 Work 線索 → Author with multiple works
             return FolderRole.Author;
         }
         // 子全是 Author → 自己是 Category (e.g., "不常看")
@@ -238,6 +236,9 @@ public class FolderRoleDetector
         ("DateLikeNumber",   new Regex(@"\d{6,8}", RegexOptions.Compiled)),
         // 多個 [] (≥2)：Author 通常只 1 個 [作者]；2+ 通常是 Work
         ("MultipleBrackets", new Regex(@"\[[^\]]*\][^[]*\[[^\]]*\]", RegexOptions.Compiled)),
+        // "[Author] Title" 樣式 — 單一方括號開頭 + 之後有文字
+        // Author folder 通常是純 [Name]；有後綴內容多半是 Work title
+        ("AuthorPrefixedTitle", new Regex(@"^\[[^\]]+\][\s\(\-_].*\S", RegexOptions.Compiled)),
     };
 
     /// <summary>

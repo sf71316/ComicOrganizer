@@ -152,6 +152,34 @@ public class FolderRoleDetectorTests : IDisposable
         Assert.Equal(FolderRole.Author, d.Detect(author));
     }
 
+    // ========== Work 名 "[Author] Title"，children 是「命名章節」(Spring/Summer/Autumn) ==========
+    // (TestData/[山田太郎]/[山田太郎] 月光下 場景：children 不是 Ch1/Ch2 而是 Spring/Summer)
+    [Fact]
+    public void Work_With_Named_Chapter_Subfolders()
+    {
+        var lib = Mk();
+        var author = Mk("[山田太郎]");
+        var work = Mk("[山田太郎]", "[山田太郎] 月光下");
+        var spring = Mk("[山田太郎]", "[山田太郎] 月光下", "Spring");
+        var summer = Mk("[山田太郎]", "[山田太郎] 月光下", "Summer");
+        var autumn = Mk("[山田太郎]", "[山田太郎] 月光下", "Autumn");
+        for (int i = 0; i < 8; i++)
+        {
+            Touch(spring, $"page_{i}.png");
+            Touch(summer, $"page_{i}.png");
+            Touch(autumn, $"page_{i}.png");
+        }
+
+        var d = new FolderRoleDetector(lib);
+        Assert.Equal(FolderRole.Work, d.Detect(spring));
+        Assert.Equal(FolderRole.Work, d.Detect(summer));
+        Assert.Equal(FolderRole.Work, d.Detect(autumn));
+        // 「[山田太郎] 月光下」: 父名是 "[Author] Title" → Work-with-chapters
+        // 即使 children 是 Spring/Summer/Autumn 不是 Ch1/Ch2
+        Assert.Equal(FolderRole.Work, d.Detect(work));
+        Assert.Equal(FolderRole.Author, d.Detect(author));
+    }
+
     // ========== Author 含多 Work，每 Work 有多章節 (TestData/[高橋悠太] 場景) ==========
     [Fact]
     public void Author_With_Multiple_Works_Each_Having_Chapters()
