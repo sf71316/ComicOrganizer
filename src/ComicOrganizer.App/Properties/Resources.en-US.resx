@@ -108,6 +108,39 @@
   <data name="SettingsMaxScanDepth" xml:space="preserve"><value>Max Scan Depth (cover recursion)</value></data>
   <data name="SettingsCoverSizeRange" xml:space="preserve"><value>Cover sampling file size range</value></data>
   <data name="MenuRebuildCache" xml:space="preserve"><value>Rebuild Cache Database(&amp;R)...</value></data>
+  <data name="MenuMetadata" xml:space="preserve"><value>Metadata Management(&amp;M)</value></data>
+  <data name="MetaNavTags" xml:space="preserve"><value>Tags</value></data>
+  <data name="MetaNavAuthors" xml:space="preserve"><value>Authors</value></data>
+  <data name="TagManageTitle" xml:space="preserve"><value>Tag Management</value></data>
+  <data name="TagManageSearchPlaceholder" xml:space="preserve"><value>Search tag name...</value></data>
+  <data name="TagManageCategoryAll" xml:space="preserve"><value>All categories</value></data>
+  <data name="TagManageRefresh" xml:space="preserve"><value>Refresh</value></data>
+  <data name="TagManageEmpty" xml:space="preserve"><value>(loading)</value></data>
+  <data name="TagManageCountFmt" xml:space="preserve"><value>{0} tag(s)</value></data>
+  <data name="TagColName" xml:space="preserve"><value>Name</value></data>
+  <data name="TagColCategory" xml:space="preserve"><value>Category</value></data>
+  <data name="TagColWorks" xml:space="preserve"><value>Works</value></data>
+  <data name="TagColAuthors" xml:space="preserve"><value>Authors</value></data>
+  <data name="TagColTotal" xml:space="preserve"><value>Total</value></data>
+  <data name="TagColAction" xml:space="preserve"><value>Action</value></data>
+  <data name="TagCategoryUncategorized" xml:space="preserve"><value>(uncategorized)</value></data>
+  <data name="TagOpRenameTitle" xml:space="preserve"><value>Rename tag</value></data>
+  <data name="TagOpRenamePrompt" xml:space="preserve"><value>New name (was: {0}):</value></data>
+  <data name="TagOpRenameConflictTitle" xml:space="preserve"><value>Tag name conflict</value></data>
+  <data name="TagOpRenameConflictMsg" xml:space="preserve"><value>Tag "{0}" already exists. Merge instead? {1} association(s) will be transferred.</value></data>
+  <data name="TagOpCategoryTitle" xml:space="preserve"><value>Edit category</value></data>
+  <data name="TagOpCategoryPrompt" xml:space="preserve"><value>Category for tag "{0}" (empty = uncategorized):</value></data>
+  <data name="TagOpMergeTitle" xml:space="preserve"><value>Merge tag into…</value></data>
+  <data name="TagOpMergePrompt" xml:space="preserve"><value>Select target tag to merge "{0}" into:</value></data>
+  <data name="TagOpMergeConfirmTitle" xml:space="preserve"><value>Confirm merge</value></data>
+  <data name="TagOpMergeConfirmMsg" xml:space="preserve"><value>Merge "{0}" ({1} associations) into "{2}" ({3} associations). Source tag will be deleted. This cannot be undone.</value></data>
+  <data name="TagOpMergeButton" xml:space="preserve"><value>Merge</value></data>
+  <data name="TagOpDeleteTitle" xml:space="preserve"><value>Delete tag</value></data>
+  <data name="TagOpDeleteMsg" xml:space="preserve"><value>Permanently delete tag "{0}" and its {1} association(s) ({2} works + {3} authors). This cannot be undone.</value></data>
+  <data name="TagPickerSearchPlaceholder" xml:space="preserve"><value>Search target tag...</value></data>
+  <data name="DialogOk" xml:space="preserve"><value>OK</value></data>
+  <data name="DialogCancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="DialogDelete" xml:space="preserve"><value>Delete</value></data>
   <data name="RebuildCacheTitle" xml:space="preserve"><value>Rebuild Cache Database</value></data>
   <data name="RebuildFull" xml:space="preserve"><value>Full Rebuild</value></data>
   <data name="RebuildFullDesc" xml:space="preserve"><value>Clear all cache, rescan from root directory</value></data>

@@ -17,10 +17,12 @@ partial class MainForm
 
     private UI.GalleryControl galleryControl;
     private UI.ArchiveControl archiveControl;
+    private UI.MetadataManageControl metadataManageControl;
 
     private ToolStripMenuItem mnuFile;
     private ToolStripMenuItem mnuFileGallery;
     private ToolStripMenuItem mnuFileArchive;
+    private ToolStripMenuItem mnuFileMetadata;
     private ToolStripSeparator mnuFileSep1;
     private ToolStripMenuItem mnuFileSettings;
     private ToolStripSeparator mnuFileSepCache;
@@ -52,6 +54,7 @@ partial class MainForm
         mnuFile = new ToolStripMenuItem();
         mnuFileGallery = new ToolStripMenuItem();
         mnuFileArchive = new ToolStripMenuItem();
+        mnuFileMetadata = new ToolStripMenuItem();
         mnuFileSep1 = new ToolStripSeparator();
         mnuFileSettings = new ToolStripMenuItem();
         mnuFileSepCache = new ToolStripSeparator();
@@ -67,6 +70,7 @@ partial class MainForm
         contentHost = new System.Windows.Forms.Panel();
         galleryControl = new ComicOrganizer.App.UI.GalleryControl();
         archiveControl = new ComicOrganizer.App.UI.ArchiveControl();
+        metadataManageControl = new ComicOrganizer.App.UI.MetadataManageControl();
         statusBar = new AntdUI.Panel();
         statusLabel = new AntdUI.Label();
         menuStrip1.SuspendLayout();
@@ -107,7 +111,7 @@ partial class MainForm
         // 
         // mnuFile
         // 
-        mnuFile.DropDownItems.AddRange(new ToolStripItem[] { mnuFileGallery, mnuFileArchive, mnuFileSep1, mnuFileSettings, mnuFileSepCache, mnuFileRebuildCache, mnuFileSep2, mnuFileExit });
+        mnuFile.DropDownItems.AddRange(new ToolStripItem[] { mnuFileGallery, mnuFileArchive, mnuFileMetadata, mnuFileSep1, mnuFileSettings, mnuFileSepCache, mnuFileRebuildCache, mnuFileSep2, mnuFileExit });
         mnuFile.Name = "mnuFile";
         mnuFile.Size = new Size(63, 22);
         mnuFile.Text = "功能(&F)";
@@ -123,9 +127,15 @@ partial class MainForm
         mnuFileArchive.Name = "mnuFileArchive";
         mnuFileArchive.Size = new Size(200, 22);
         mnuFileArchive.Text = "自動歸檔(&A)";
-        // 
+        //
+        // mnuFileMetadata
+        //
+        mnuFileMetadata.Name = "mnuFileMetadata";
+        mnuFileMetadata.Size = new Size(200, 22);
+        mnuFileMetadata.Text = "詮釋資料管理(&M)";
+        //
         // mnuFileSep1
-        // 
+        //
         mnuFileSep1.Name = "mnuFileSep1";
         mnuFileSep1.Size = new Size(197, 6);
         // 
@@ -201,6 +211,7 @@ partial class MainForm
         // 
         contentHost.Controls.Add(galleryControl);
         contentHost.Controls.Add(archiveControl);
+        contentHost.Controls.Add(metadataManageControl);
         contentHost.Dock = DockStyle.Fill;
         contentHost.Location = new Point(0, 78);
         contentHost.Name = "contentHost";
@@ -224,7 +235,16 @@ partial class MainForm
         archiveControl.Size = new Size(1280, 614);
         archiveControl.TabIndex = 1;
         archiveControl.Visible = false;
-        // 
+        //
+        // metadataManageControl
+        //
+        metadataManageControl.Dock = DockStyle.Fill;
+        metadataManageControl.Location = new Point(0, 0);
+        metadataManageControl.Name = "metadataManageControl";
+        metadataManageControl.Size = new Size(1280, 614);
+        metadataManageControl.TabIndex = 2;
+        metadataManageControl.Visible = false;
+        //
         // statusBar
         // 
         statusBar.Back = ThemeColors.StatusBar;

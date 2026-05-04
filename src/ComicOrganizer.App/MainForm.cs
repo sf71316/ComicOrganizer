@@ -64,6 +64,7 @@ public partial class MainForm : Window, IThemedControl
         {
             galleryControl.Initialize(_config, _coverManager, _metaStore, _readRecordQueue, _prefs);
             archiveControl.Initialize(_config, _intelligence, _organizer);
+            metadataManageControl.Initialize(_metaStore);
             ShowGallery();
         };
 
@@ -77,6 +78,7 @@ public partial class MainForm : Window, IThemedControl
     {
         mnuFileGallery.Click += (s, e) => ShowGallery();
         mnuFileArchive.Click += (s, e) => ShowArchive();
+        mnuFileMetadata.Click += (s, e) => ShowMetadataManage();
         mnuFileSettings.Click += (s, e) => OpenSettings();
         mnuFileRebuildCache.Click += (s, e) => OpenRebuildCacheDialog();
         mnuFileExit.Click += (s, e) => Close();
@@ -150,13 +152,23 @@ public partial class MainForm : Window, IThemedControl
     private void ShowGallery()
     {
         archiveControl.Visible = false;
+        metadataManageControl.Visible = false;
         galleryControl.Visible = true;
     }
 
     private void ShowArchive()
     {
         galleryControl.Visible = false;
+        metadataManageControl.Visible = false;
         archiveControl.Visible = true;
+    }
+
+    private void ShowMetadataManage()
+    {
+        galleryControl.Visible = false;
+        archiveControl.Visible = false;
+        metadataManageControl.Visible = true;
+        metadataManageControl.OnShown();
     }
 
     private void OpenSettings()
@@ -214,6 +226,7 @@ public partial class MainForm : Window, IThemedControl
         mnuFile.Text = LocalizationManager.GetString("MenuFile"); // Need to ensure these keys exist or match
         mnuFileGallery.Text = LocalizationManager.GetString("MenuGallery");
         mnuFileArchive.Text = LocalizationManager.GetString("MenuArchive");
+        mnuFileMetadata.Text = LocalizationManager.GetString("MenuMetadata") ?? "詮釋資料管理(&M)";
         mnuFileSettings.Text = LocalizationManager.GetString("MenuSettings");
         mnuFileRebuildCache.Text = LocalizationManager.GetString("MenuRebuildCache") ?? "重建索引資料庫(&R)...";
         mnuFileExit.Text = LocalizationManager.GetString("MenuExit");
