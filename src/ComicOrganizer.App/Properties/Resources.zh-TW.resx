@@ -141,6 +141,27 @@
   <data name="DialogOk" xml:space="preserve"><value>確定</value></data>
   <data name="DialogCancel" xml:space="preserve"><value>取消</value></data>
   <data name="DialogDelete" xml:space="preserve"><value>刪除</value></data>
+  <data name="AuthorManageTitle" xml:space="preserve"><value>作者管理</value></data>
+  <data name="AuthorManageSearchPlaceholder" xml:space="preserve"><value>搜尋作者主名 / 別名...</value></data>
+  <data name="AuthorManageCountFmt" xml:space="preserve"><value>共 {0} 位作者</value></data>
+  <data name="AuthorFilterAll" xml:space="preserve"><value>全部作者</value></data>
+  <data name="AuthorFilterPhysical" xml:space="preserve"><value>有實體資料夾</value></data>
+  <data name="AuthorFilterMetaOnly" xml:space="preserve"><value>僅 metadata</value></data>
+  <data name="AuthorColMainName" xml:space="preserve"><value>主名</value></data>
+  <data name="AuthorColFolder" xml:space="preserve"><value>實體資料夾</value></data>
+  <data name="AuthorColAliases" xml:space="preserve"><value>別名數</value></data>
+  <data name="AuthorColTags" xml:space="preserve"><value>標籤數</value></data>
+  <data name="AuthorColWorks" xml:space="preserve"><value>作品數</value></data>
+  <data name="AuthorOpRenameTitle" xml:space="preserve"><value>重新命名作者</value></data>
+  <data name="AuthorOpRenamePrompt" xml:space="preserve"><value>新主名（{0}）：</value></data>
+  <data name="AuthorOpRenameConflictTitle" xml:space="preserve"><value>作者主名衝突</value></data>
+  <data name="AuthorOpRenameConflictMsg" xml:space="preserve"><value>已有作者「{0}」（{1} 部作品）。要把當前作者合併進去嗎？</value></data>
+  <data name="AuthorOpMergeTitle" xml:space="preserve"><value>合併作者到…</value></data>
+  <data name="AuthorOpMergePrompt" xml:space="preserve"><value>選擇要把「{0}」合併到哪位作者：</value></data>
+  <data name="AuthorOpMergeConfirmTitle" xml:space="preserve"><value>確認合併</value></data>
+  <data name="AuthorOpMergeConfirmMsg" xml:space="preserve"><value>將「{0}」（{1} 作品 / {2} 別名 / {3} 標籤）合併到「{4}」（{5} 作品）。來源作者主名會自動變成目標作者的別名，原作者刪除。此動作不可復原。</value></data>
+  <data name="AuthorOpMergeButton" xml:space="preserve"><value>合併</value></data>
+  <data name="AuthorPickerSearchPlaceholder" xml:space="preserve"><value>搜尋目標作者...</value></data>
   <data name="RebuildCacheTitle" xml:space="preserve"><value>重建索引資料庫</value></data>
   <data name="RebuildFull" xml:space="preserve"><value>完整重建</value></data>
   <data name="RebuildFullDesc" xml:space="preserve"><value>清空所有 cache，從根目錄重新掃描</value></data>

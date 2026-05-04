@@ -141,6 +141,27 @@
   <data name="DialogOk" xml:space="preserve"><value>OK</value></data>
   <data name="DialogCancel" xml:space="preserve"><value>Cancel</value></data>
   <data name="DialogDelete" xml:space="preserve"><value>Delete</value></data>
+  <data name="AuthorManageTitle" xml:space="preserve"><value>Author Management</value></data>
+  <data name="AuthorManageSearchPlaceholder" xml:space="preserve"><value>Search author main name / alias...</value></data>
+  <data name="AuthorManageCountFmt" xml:space="preserve"><value>{0} author(s)</value></data>
+  <data name="AuthorFilterAll" xml:space="preserve"><value>All authors</value></data>
+  <data name="AuthorFilterPhysical" xml:space="preserve"><value>With physical folder</value></data>
+  <data name="AuthorFilterMetaOnly" xml:space="preserve"><value>Metadata-only</value></data>
+  <data name="AuthorColMainName" xml:space="preserve"><value>Main name</value></data>
+  <data name="AuthorColFolder" xml:space="preserve"><value>Physical folder</value></data>
+  <data name="AuthorColAliases" xml:space="preserve"><value>Aliases</value></data>
+  <data name="AuthorColTags" xml:space="preserve"><value>Tags</value></data>
+  <data name="AuthorColWorks" xml:space="preserve"><value>Works</value></data>
+  <data name="AuthorOpRenameTitle" xml:space="preserve"><value>Rename author</value></data>
+  <data name="AuthorOpRenamePrompt" xml:space="preserve"><value>New main name (was: {0}):</value></data>
+  <data name="AuthorOpRenameConflictTitle" xml:space="preserve"><value>Author main name conflict</value></data>
+  <data name="AuthorOpRenameConflictMsg" xml:space="preserve"><value>Author "{0}" already exists ({1} works). Merge current author into it?</value></data>
+  <data name="AuthorOpMergeTitle" xml:space="preserve"><value>Merge author into…</value></data>
+  <data name="AuthorOpMergePrompt" xml:space="preserve"><value>Select target author to merge "{0}" into:</value></data>
+  <data name="AuthorOpMergeConfirmTitle" xml:space="preserve"><value>Confirm merge</value></data>
+  <data name="AuthorOpMergeConfirmMsg" xml:space="preserve"><value>Merge "{0}" ({1} works / {2} aliases / {3} tags) into "{4}" ({5} works). Source main name becomes alias of target. Source author is deleted. This cannot be undone.</value></data>
+  <data name="AuthorOpMergeButton" xml:space="preserve"><value>Merge</value></data>
+  <data name="AuthorPickerSearchPlaceholder" xml:space="preserve"><value>Search target author...</value></data>
   <data name="RebuildCacheTitle" xml:space="preserve"><value>Rebuild Cache Database</value></data>
   <data name="RebuildFull" xml:space="preserve"><value>Full Rebuild</value></data>
   <data name="RebuildFullDesc" xml:space="preserve"><value>Clear all cache, rescan from root directory</value></data>

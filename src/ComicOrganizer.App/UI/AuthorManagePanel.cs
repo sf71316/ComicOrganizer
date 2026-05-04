@@ -1,0 +1,251 @@
+using AntdUI;
+using ComicOrganizer.App.Core;
+using System.ComponentModel;
+using System.Windows.Forms;
+
+namespace ComicOrganizer.App.UI;
+
+public partial class AuthorManagePanel : UserControl, IThemedControl
+{
+    private const string FilterAll = "__all__";
+    private const string FilterPhysical = "__physical__";    // 有 folder_path
+    private const string FilterMetadataOnly = "__meta__";    // 沒 folder_path
+
+    private IAssetMetaStore? _metaStore;
+    private List<AuthorUsage> _allAuthors = new();
+    private string _searchText = "";
+    private string _filter = FilterAll;
+    private readonly List<string> _filterTokens = new();
+
+    public AuthorManagePanel()
+    {
+        InitializeComponent();
+        ConfigureTable();
+        BuildFilterDropdown();
+        WireEvents();
+        this.WireThemeAndLocalization();
+    }
+
+    public void Initialize(IAssetMetaStore metaStore)
+    {
+        _metaStore = metaStore;
+    }
+
+    public new void Refresh()
+    {
+        if (_metaStore == null) return;
+        _allAuthors = _metaStore.ListAuthorsByUsage().ToList();
+        ApplyFilter();
+    }
+
+    // ── 內部 ──────────────────────────────────────────────────────────
+
+    private void ConfigureTable()
+    {
+        tableAuthors.AutoSizeColumnsMode = ColumnsMode.Fill;
+        tableAuthors.EmptyText = "（無資料）";
+        tableAuthors.Columns = new ColumnCollection
+        {
+            new Column("MainName",   LocalizationManager.GetString("AuthorColMainName") ?? "主名")    { Width = "26%", SortOrder = true },
+            new Column("FolderPath", LocalizationManager.GetString("AuthorColFolder")   ?? "實體資料夾"){ Width = "30%" },
+            new Column("AliasCount", LocalizationManager.GetString("AuthorColAliases")  ?? "別名數")  { Width = "10%", SortOrder = true, Align = ColumnAlign.Right },
+            new Column("TagCount",   LocalizationManager.GetString("AuthorColTags")     ?? "標籤數")  { Width = "10%", SortOrder = true, Align = ColumnAlign.Right },
+            new Column("WorkCount",  LocalizationManager.GetString("AuthorColWorks")    ?? "作品數")  { Width = "10%", SortOrder = true, Align = ColumnAlign.Right },
+            new Column("Action",     LocalizationManager.GetString("TagColAction")      ?? "操作")    { Width = "14%" },
+        };
+    }
+
+    private void BuildFilterDropdown()
+    {
+        _filterTokens.Clear();
+        selectFilter.Items.Clear();
+
+        _filterTokens.Add(FilterAll);
+        selectFilter.Items.Add(LocalizationManager.GetString("AuthorFilterAll") ?? "全部作者");
+
+        _filterTokens.Add(FilterPhysical);
+        selectFilter.Items.Add(LocalizationManager.GetString("AuthorFilterPhysical") ?? "有實體資料夾");
+
+        _filterTokens.Add(FilterMetadataOnly);
+        selectFilter.Items.Add(LocalizationManager.GetString("AuthorFilterMetaOnly") ?? "僅 metadata");
+
+        selectFilter.SelectedIndex = 0;
+    }
+
+    private void WireEvents()
+    {
+        btnRefresh.Click += (s, e) => Refresh();
+
+        txtSearch.TextChanged += (s, e) =>
+        {
+            _searchText = txtSearch.Text?.Trim() ?? "";
+            ApplyFilter();
+        };
+
+        selectFilter.SelectedValueChanged += (s, e) =>
+        {
+            if (selectFilter.SelectedIndex < 0) _filter = FilterAll;
+            else if (selectFilter.SelectedIndex < _filterTokens.Count)
+                _filter = _filterTokens[selectFilter.SelectedIndex];
+            ApplyFilter();
+        };
+
+        tableAuthors.CellButtonClick += (s, e) =>
+        {
+            if (e.Record is not AuthorRow row) return;
+            switch (e.Btn.Id)
+            {
+                case "Rename": OnRenameClicked(row); break;
+                case "Merge":  OnMergeClicked(row);  break;
+            }
+        };
+    }
+
+    private void ApplyFilter()
+    {
+        IEnumerable<AuthorUsage> q = _allAuthors;
+
+        if (!string.IsNullOrEmpty(_searchText))
+            q = q.Where(a =>
+                a.Author.MainName.Contains(_searchText, StringComparison.OrdinalIgnoreCase));
+
+        if (_filter == FilterPhysical)
+            q = q.Where(a => !string.IsNullOrEmpty(a.Author.FolderPath));
+        else if (_filter == FilterMetadataOnly)
+            q = q.Where(a => string.IsNullOrEmpty(a.Author.FolderPath));
+
+        var rows = q.Select(ToRow).ToList();
+        tableAuthors.DataSource = new BindingList<AuthorRow>(rows);
+        lblCount.Text = string.Format(
+            LocalizationManager.GetString("AuthorManageCountFmt") ?? "共 {0} 位作者",
+            rows.Count);
+    }
+
+    private AuthorRow ToRow(AuthorUsage u) => new AuthorRow
+    {
+        Id = u.Author.Id,
+        MainName = u.Author.MainName,
+        FolderPath = u.Author.FolderPath ?? "",
+        AliasCount = u.AliasCount,
+        TagCount = u.TagCount,
+        WorkCount = u.WorkCount,
+        Action = new CellLink[]
+        {
+            new CellButton("Rename", "", TTypeMini.Default) { Ghost = true, IconSvg = "EditOutlined"        },
+            new CellButton("Merge",  "", TTypeMini.Default) { Ghost = true, IconSvg = "MergeCellsOutlined" },
+        }
+    };
+
+    // ── 列操作 ─────────────────────────────────────────────────────────
+
+    private void OnRenameClicked(AuthorRow row)
+    {
+        if (_metaStore == null) return;
+        var form = this.FindForm();
+        if (form == null) return;
+
+        using var dlg = new SimpleInputDialog(
+            LocalizationManager.GetString("AuthorOpRenameTitle") ?? "重新命名作者",
+            (LocalizationManager.GetString("AuthorOpRenamePrompt") ?? "新主名（{0}）：").Replace("{0}", row.MainName),
+            row.MainName);
+        if (dlg.ShowDialog(form) != DialogResult.OK) return;
+        var newName = dlg.Value;
+        if (string.IsNullOrWhiteSpace(newName) || newName == row.MainName) return;
+
+        try
+        {
+            _metaStore.RenameAuthor(row.Id, newName);
+            Refresh();
+        }
+        catch (InvalidOperationException)
+        {
+            // 衝突 → 詢問合併
+            var existing = _allAuthors.FirstOrDefault(a => a.Author.MainName.Equals(newName, StringComparison.OrdinalIgnoreCase));
+            if (existing == null) return;
+
+            AntdUI.Modal.open(new AntdUI.Modal.Config(form,
+                LocalizationManager.GetString("AuthorOpRenameConflictTitle") ?? "作者主名衝突",
+                string.Format(
+                    LocalizationManager.GetString("AuthorOpRenameConflictMsg") ?? "已有作者「{0}」（{1} 部作品）。要把當前作者合併進去嗎？",
+                    newName, existing.WorkCount),
+                AntdUI.TType.Warn)
+            {
+                OkText = LocalizationManager.GetString("AuthorOpMergeButton") ?? "合併",
+                CancelText = LocalizationManager.GetString("DialogCancel") ?? "取消",
+                OnOk = _ =>
+                {
+                    try { _metaStore.MergeAuthor(row.Id, existing.Author.Id); }
+                    catch (Exception ex) { AntdUI.Message.error(form, ex.Message); return true; }
+                    BeginInvoke(new Action(Refresh));
+                    return true;
+                }
+            });
+        }
+    }
+
+    private void OnMergeClicked(AuthorRow row)
+    {
+        if (_metaStore == null) return;
+        var form = this.FindForm();
+        if (form == null) return;
+
+        using var dlg = new AuthorPickerDialog(
+            LocalizationManager.GetString("AuthorOpMergeTitle") ?? "合併作者到…",
+            string.Format(LocalizationManager.GetString("AuthorOpMergePrompt") ?? "選擇要把「{0}」合併到哪位作者：", row.MainName),
+            _allAuthors, row.Id);
+        if (dlg.ShowDialog(form) != DialogResult.OK || dlg.SelectedAuthor == null) return;
+
+        var dest = dlg.SelectedAuthor;
+        AntdUI.Modal.open(new AntdUI.Modal.Config(form,
+            LocalizationManager.GetString("AuthorOpMergeConfirmTitle") ?? "確認合併",
+            string.Format(
+                LocalizationManager.GetString("AuthorOpMergeConfirmMsg") ??
+                "將「{0}」（{1} 作品 / {2} 別名 / {3} 標籤）合併到「{4}」（{5} 作品）。\n來源作者主名會自動變成目標作者的別名，原作者刪除。\n此動作不可復原。",
+                row.MainName, row.WorkCount, row.AliasCount, row.TagCount,
+                dest.Author.MainName, dest.WorkCount),
+            AntdUI.TType.Warn)
+        {
+            OkText = LocalizationManager.GetString("AuthorOpMergeButton") ?? "合併",
+            CancelText = LocalizationManager.GetString("DialogCancel") ?? "取消",
+            OnOk = _ =>
+            {
+                try { _metaStore.MergeAuthor(row.Id, dest.Author.Id); }
+                catch (Exception ex) { AntdUI.Message.error(form, ex.Message); return true; }
+                BeginInvoke(new Action(Refresh));
+                return true;
+            }
+        });
+    }
+
+    // ── Theme / Localization ───────────────────────────────────────────────
+
+    public void ApplyThemeColors()
+    {
+        BackColor = ThemeColors.Surface;
+        toolbarPanel.BackColor = ThemeColors.Surface;
+        tableAuthors.BackColor = ThemeColors.Surface;
+        lblTitle.ForeColor = ThemeColors.Text;
+        lblCount.ForeColor = ThemeColors.Secondary;
+    }
+
+    public void ApplyLocalization()
+    {
+        lblTitle.Text = LocalizationManager.GetString("AuthorManageTitle") ?? "作者管理";
+        txtSearch.PlaceholderText = LocalizationManager.GetString("AuthorManageSearchPlaceholder") ?? "搜尋作者主名 / 別名...";
+        selectFilter.PlaceholderText = LocalizationManager.GetString("AuthorFilterAll") ?? "全部作者";
+        btnRefresh.Text = LocalizationManager.GetString("TagManageRefresh") ?? "重新整理";
+    }
+
+    // ── DTO for table row ─────────────────────────────────────────────────
+
+    public class AuthorRow
+    {
+        public long Id { get; set; }
+        public string MainName { get; set; } = "";
+        public string FolderPath { get; set; } = "";
+        public int AliasCount { get; set; }
+        public int TagCount { get; set; }
+        public int WorkCount { get; set; }
+        public CellLink[]? Action { get; set; }
+    }
+}

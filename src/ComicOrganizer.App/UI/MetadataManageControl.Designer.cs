@@ -12,6 +12,7 @@ partial class MetadataManageControl
 
     private System.Windows.Forms.Panel contentPanel;
     private TagManagePanel tagPanel;
+    private AuthorManagePanel authorPanel;
 
     protected override void Dispose(bool disposing)
     {
@@ -29,6 +30,7 @@ partial class MetadataManageControl
         btnNavTags = new AntdUI.Button();
         contentPanel = new System.Windows.Forms.Panel();
         tagPanel = new TagManagePanel();
+        authorPanel = new AuthorManagePanel();
 
         sidebarPanel.SuspendLayout();
         contentPanel.SuspendLayout();
@@ -61,7 +63,6 @@ partial class MetadataManageControl
         // btnNavAuthors
         //
         btnNavAuthors.Dock = System.Windows.Forms.DockStyle.Top;
-        btnNavAuthors.Enabled = false;   // Phase 5 才啟用
         btnNavAuthors.IconSvg = "UserOutlined";
         btnNavAuthors.Location = new System.Drawing.Point(15, 65);
         btnNavAuthors.Name = "btnNavAuthors";
@@ -72,6 +73,7 @@ partial class MetadataManageControl
         //
         // contentPanel
         //
+        contentPanel.Controls.Add(authorPanel);
         contentPanel.Controls.Add(tagPanel);
         contentPanel.Dock = System.Windows.Forms.DockStyle.Fill;
         contentPanel.Location = new System.Drawing.Point(180, 0);
@@ -86,6 +88,15 @@ partial class MetadataManageControl
         tagPanel.Name = "tagPanel";
         tagPanel.Size = new System.Drawing.Size(1100, 614);
         tagPanel.TabIndex = 0;
+        //
+        // authorPanel
+        //
+        authorPanel.Dock = System.Windows.Forms.DockStyle.Fill;
+        authorPanel.Location = new System.Drawing.Point(0, 0);
+        authorPanel.Name = "authorPanel";
+        authorPanel.Size = new System.Drawing.Size(1100, 614);
+        authorPanel.TabIndex = 1;
+        authorPanel.Visible = false;
         //
         // MetadataManageControl
         //

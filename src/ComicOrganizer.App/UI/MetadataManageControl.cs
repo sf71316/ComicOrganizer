@@ -23,24 +23,34 @@ public partial class MetadataManageControl : UserControl, IThemedControl
     {
         _metaStore = metaStore;
         tagPanel.Initialize(metaStore);
+        authorPanel.Initialize(metaStore);
         _initialized = true;
     }
 
-    /// <summary>由 MainForm.ShowMetadataManage 呼叫，每次切到此 tab 時刷新一次。</summary>
+    /// <summary>由 MainForm.ShowMetadataManage 呼叫，每次切到此 tab 時刷新當前 section。</summary>
     public void OnShown()
     {
         if (!_initialized) return;
-        tagPanel.Refresh();
+        if (_current == NavSection.Tags) tagPanel.Refresh();
+        else authorPanel.Refresh();
     }
 
     private enum NavSection { Tags, Authors }
+    private NavSection _current = NavSection.Tags;
 
     private void SwitchTo(NavSection section)
     {
-        // Phase 4 只有 Tags
+        _current = section;
         btnNavTags.Type = section == NavSection.Tags ? TTypeMini.Primary : TTypeMini.Default;
         btnNavAuthors.Type = section == NavSection.Authors ? TTypeMini.Primary : TTypeMini.Default;
         tagPanel.Visible = section == NavSection.Tags;
+        authorPanel.Visible = section == NavSection.Authors;
+
+        if (_initialized)
+        {
+            if (section == NavSection.Tags) tagPanel.Refresh();
+            else authorPanel.Refresh();
+        }
     }
 
     public void ApplyThemeColors()

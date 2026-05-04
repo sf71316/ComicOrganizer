@@ -194,10 +194,10 @@ partial class RebuildCacheForm
         // lblResumeDesc
         // 
         lblResumeDesc.BackColor = Color.Transparent;
-        lblResumeDesc.Location = new Point(215, 174);
+        lblResumeDesc.Location = new Point(215, 170);
         lblResumeDesc.Margin = new Padding(2);
         lblResumeDesc.Name = "lblResumeDesc";
-        lblResumeDesc.Size = new Size(290, 30);
+        lblResumeDesc.Size = new Size(208, 40);
         lblResumeDesc.TabIndex = 10;
         lblResumeDesc.Text = "上次掃描被中斷，繼續未完成的部分（已 cache 的會 skip）";
         // 
