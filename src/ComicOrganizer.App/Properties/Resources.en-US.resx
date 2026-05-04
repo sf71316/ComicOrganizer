@@ -162,6 +162,32 @@
   <data name="AuthorOpMergeConfirmMsg" xml:space="preserve"><value>Merge "{0}" ({1} works / {2} aliases / {3} tags) into "{4}" ({5} works). Source main name becomes alias of target. Source author is deleted. This cannot be undone.</value></data>
   <data name="AuthorOpMergeButton" xml:space="preserve"><value>Merge</value></data>
   <data name="AuthorPickerSearchPlaceholder" xml:space="preserve"><value>Search target author...</value></data>
+  <data name="ReconcileButton" xml:space="preserve"><value>Reconcile File System</value></data>
+  <data name="ReconcileButtonDesc" xml:space="preserve"><value>Detect works moved to other folders, and orphaned indices not found on disk</value></data>
+  <data name="ReconcileRunning" xml:space="preserve"><value>Reconciling</value></data>
+  <data name="ReconcileResultTitle" xml:space="preserve"><value>Reconcile Result</value></data>
+  <data name="ReconcileSummaryFmt" xml:space="preserve"><value>FS scanned {0} / DB indexed {1} → path changes {2} / orphans {3} / ambiguous {4}</value></data>
+  <data name="ReconcileNoChangeFmt" xml:space="preserve"><value>No differences detected.
+FS scanned {0} / DB indexed {1}</value></data>
+  <data name="ReconcileTabPathChangesFmt" xml:space="preserve"><value>Path Changes ({0})</value></data>
+  <data name="ReconcileTabOrphansFmt" xml:space="preserve"><value>Orphans ({0})</value></data>
+  <data name="ReconcileTabAmbiguousFmt" xml:space="preserve"><value>Ambiguous ({0})</value></data>
+  <data name="ReconcileColOld" xml:space="preserve"><value>Old Path</value></data>
+  <data name="ReconcileColNew" xml:space="preserve"><value>New Path</value></data>
+  <data name="ReconcileColPath" xml:space="preserve"><value>Path</value></data>
+  <data name="ReconcileColCandidates" xml:space="preserve"><value>Candidates</value></data>
+  <data name="ReconcileColSize" xml:space="preserve"><value>Size</value></data>
+  <data name="ReconcileApplyPathChangesFmt" xml:space="preserve"><value>Apply selected path changes ({0})</value></data>
+  <data name="ReconcileDeleteOrphansFmt" xml:space="preserve"><value>Delete selected orphans ({0})</value></data>
+  <data name="ReconcileApplyConfirmTitle" xml:space="preserve"><value>Confirm apply</value></data>
+  <data name="ReconcileApplyConfirmMsgFmt" xml:space="preserve"><value>Update {0} asset paths (preserving metadata / read history / tags). This cannot be undone.</value></data>
+  <data name="ReconcileDeleteConfirmTitle" xml:space="preserve"><value>Confirm delete</value></data>
+  <data name="ReconcileDeleteConfirmMsgFmt" xml:space="preserve"><value>Delete {0} orphan asset records from index (and their metadata / thumbnails / tags). This cannot be undone.</value></data>
+  <data name="ReconcileDoneTitle" xml:space="preserve"><value>Done</value></data>
+  <data name="ReconcileApplyDoneFmt" xml:space="preserve"><value>{0} paths updated</value></data>
+  <data name="ReconcileDeleteDoneFmt" xml:space="preserve"><value>{0} orphans deleted</value></data>
+  <data name="DialogConfirm" xml:space="preserve"><value>Confirm</value></data>
+  <data name="DialogClose" xml:space="preserve"><value>Close</value></data>
   <data name="RebuildCacheTitle" xml:space="preserve"><value>Rebuild Cache Database</value></data>
   <data name="RebuildFull" xml:space="preserve"><value>Full Rebuild</value></data>
   <data name="RebuildFullDesc" xml:space="preserve"><value>Clear all cache, rescan from root directory</value></data>

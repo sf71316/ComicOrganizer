@@ -7,12 +7,15 @@ public partial class RebuildCacheForm : Window
 {
     private readonly CacheRebuildService _service;
     private readonly RebuildProgressTracker _tracker;
+    private readonly CatalogReconcileService _reconcileService;
 
-    public RebuildCacheForm(CacheRebuildService service, RebuildProgressTracker tracker)
+    public RebuildCacheForm(CacheRebuildService service, RebuildProgressTracker tracker,
+                            CatalogReconcileService reconcileService)
     {
         InitializeComponent();
         _service = service;
         _tracker = tracker;
+        _reconcileService = reconcileService;
         windowBar.BackColor = ThemeColors.Primary;
         windowBar.ForeColor = ThemeColors.HeaderText;
         ApplyLocalization();
@@ -33,6 +36,48 @@ public partial class RebuildCacheForm : Window
         lblUpdateDesc.Text = LocalizationManager.GetString("RebuildUpdateIndexDesc") ?? "更新漫畫庫最新資料與刪除舊有資料";
         btnClearCache.Text = (LocalizationManager.GetString("RebuildClearCache") ?? "清除快取資料") + " ▾";
         lblClearDesc.Text = LocalizationManager.GetString("RebuildClearCacheDesc") ?? "選擇要清除的快取資料範圍（縮圖 / 完整）";
+        btnReconcile.Text = LocalizationManager.GetString("ReconcileButton") ?? "比對檔案系統";
+        lblReconcileDesc.Text = LocalizationManager.GetString("ReconcileButtonDesc") ?? "偵測作品搬到別目錄、檔案系統找不到的索引（孤兒）";
+    }
+
+    private async Task ExecuteReconcileAsync()
+    {
+        // 用 _tracker 顯示進度（雖然 reconcile 沒對 tracker 寫進度，但用「running」狀態擋住其他按鈕）
+        var ct = _tracker.Start(LocalizationManager.GetString("ReconcileRunning") ?? "比對中");
+        ReconcileReport? report = null;
+        try
+        {
+            report = await _reconcileService.AnalyzeAsync(ct: ct);
+            _tracker.NotifyEnd(cancelled: false);
+        }
+        catch (OperationCanceledException)
+        {
+            _tracker.NotifyEnd(cancelled: true);
+            return;
+        }
+        catch (Exception ex)
+        {
+            _tracker.NotifyEnd(cancelled: true);
+            AntdUI.Modal.open(new AntdUI.Modal.Config(this, "比對失敗", ex.Message, AntdUI.TType.Error));
+            return;
+        }
+
+        if (IsDisposed) return;
+        if (report == null || report.IsEmpty)
+        {
+            AntdUI.Modal.open(new AntdUI.Modal.Config(this,
+                LocalizationManager.GetString("ReconcileResultTitle") ?? "比對結果",
+                string.Format(
+                    LocalizationManager.GetString("ReconcileNoChangeFmt") ??
+                        "沒有發現差異。\nFS 掃描 {0} 件 / DB 索引 {1} 件",
+                    report?.FsWorksScanned ?? 0, report?.DbAssetsScanned ?? 0),
+                AntdUI.TType.Info)
+            { CancelText = null });
+            return;
+        }
+
+        using var dlg = new ReconcileResultDialog(report, _reconcileService);
+        dlg.ShowDialog(this);
     }
 
     private void WireEvents()
@@ -56,6 +101,11 @@ public partial class RebuildCacheForm : Window
         {
             if (_tracker.IsRunning) return;
             await _service.ResumeScanAsync();
+        };
+        btnReconcile.Click += async (s, e) =>
+        {
+            if (_tracker.IsRunning) return;
+            await ExecuteReconcileAsync();
         };
         btnCancel.Click += (s, e) => _tracker.Cancel();
         btnClose.Click += (s, e) => Close();
@@ -227,6 +277,7 @@ public partial class RebuildCacheForm : Window
         btnUpdateIndex.Enabled = !running;
         btnClearCache.Enabled = !running;
         btnResume.Enabled = !running && _tracker.WasInterrupted;
+        btnReconcile.Enabled = !running;
         btnCancel.Visible = running;
         btnClose.Enabled = true;                          // 永遠可關（任務背景跑）
         

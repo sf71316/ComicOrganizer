@@ -162,6 +162,32 @@
   <data name="AuthorOpMergeConfirmMsg" xml:space="preserve"><value>將「{0}」（{1} 作品 / {2} 別名 / {3} 標籤）合併到「{4}」（{5} 作品）。來源作者主名會自動變成目標作者的別名，原作者刪除。此動作不可復原。</value></data>
   <data name="AuthorOpMergeButton" xml:space="preserve"><value>合併</value></data>
   <data name="AuthorPickerSearchPlaceholder" xml:space="preserve"><value>搜尋目標作者...</value></data>
+  <data name="ReconcileButton" xml:space="preserve"><value>比對檔案系統</value></data>
+  <data name="ReconcileButtonDesc" xml:space="preserve"><value>偵測作品搬到別目錄、檔案系統找不到的索引（孤兒）</value></data>
+  <data name="ReconcileRunning" xml:space="preserve"><value>比對中</value></data>
+  <data name="ReconcileResultTitle" xml:space="preserve"><value>比對結果</value></data>
+  <data name="ReconcileSummaryFmt" xml:space="preserve"><value>FS 掃描 {0} 件 / DB 索引 {1} 件 → 路徑變更 {2} / 孤兒 {3} / 歧義 {4}</value></data>
+  <data name="ReconcileNoChangeFmt" xml:space="preserve"><value>沒有發現差異。
+FS 掃描 {0} 件 / DB 索引 {1} 件</value></data>
+  <data name="ReconcileTabPathChangesFmt" xml:space="preserve"><value>路徑變更 ({0})</value></data>
+  <data name="ReconcileTabOrphansFmt" xml:space="preserve"><value>孤兒索引 ({0})</value></data>
+  <data name="ReconcileTabAmbiguousFmt" xml:space="preserve"><value>歧義 ({0})</value></data>
+  <data name="ReconcileColOld" xml:space="preserve"><value>舊路徑</value></data>
+  <data name="ReconcileColNew" xml:space="preserve"><value>新路徑</value></data>
+  <data name="ReconcileColPath" xml:space="preserve"><value>路徑</value></data>
+  <data name="ReconcileColCandidates" xml:space="preserve"><value>候選新位置</value></data>
+  <data name="ReconcileColSize" xml:space="preserve"><value>大小</value></data>
+  <data name="ReconcileApplyPathChangesFmt" xml:space="preserve"><value>套用選取的路徑變更 ({0})</value></data>
+  <data name="ReconcileDeleteOrphansFmt" xml:space="preserve"><value>刪除選取的孤兒 ({0})</value></data>
+  <data name="ReconcileApplyConfirmTitle" xml:space="preserve"><value>確認套用</value></data>
+  <data name="ReconcileApplyConfirmMsgFmt" xml:space="preserve"><value>更新 {0} 筆 asset 的 path（保留 metadata / 閱讀記錄 / 標籤）。此動作不可復原。</value></data>
+  <data name="ReconcileDeleteConfirmTitle" xml:space="preserve"><value>確認刪除</value></data>
+  <data name="ReconcileDeleteConfirmMsgFmt" xml:space="preserve"><value>從索引刪除 {0} 筆孤兒 asset 紀錄（連同 metadata / 縮圖 / 標籤）。此動作不可復原。</value></data>
+  <data name="ReconcileDoneTitle" xml:space="preserve"><value>完成</value></data>
+  <data name="ReconcileApplyDoneFmt" xml:space="preserve"><value>{0} 筆路徑已更新</value></data>
+  <data name="ReconcileDeleteDoneFmt" xml:space="preserve"><value>{0} 筆孤兒已刪除</value></data>
+  <data name="DialogConfirm" xml:space="preserve"><value>確認</value></data>
+  <data name="DialogClose" xml:space="preserve"><value>關閉</value></data>
   <data name="RebuildCacheTitle" xml:space="preserve"><value>重建索引資料庫</value></data>
   <data name="RebuildFull" xml:space="preserve"><value>完整重建</value></data>
   <data name="RebuildFullDesc" xml:space="preserve"><value>清空所有 cache，從根目錄重新掃描</value></data>

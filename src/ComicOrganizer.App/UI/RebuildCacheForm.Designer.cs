@@ -14,6 +14,8 @@ partial class RebuildCacheForm
     private AntdUI.Label lblClearDesc;
     private AntdUI.Button btnResume;
     private AntdUI.Label lblResumeDesc;
+    private AntdUI.Button btnReconcile;
+    private AntdUI.Label lblReconcileDesc;
     private AntdUI.Divider divider;
     private AntdUI.Progress progressBar;
     private AntdUI.Label lblStatus;
@@ -45,6 +47,8 @@ partial class RebuildCacheForm
         btnClearCache = new AntdUI.Button();
         lblResumeDesc = new AntdUI.Label();
         btnResume = new AntdUI.Button();
+        lblReconcileDesc = new AntdUI.Label();
+        btnReconcile = new AntdUI.Button();
         content.SuspendLayout();
         SuspendLayout();
         // 
@@ -77,16 +81,18 @@ partial class RebuildCacheForm
         content.Controls.Add(btnClearCache);
         content.Controls.Add(lblResumeDesc);
         content.Controls.Add(btnResume);
+        content.Controls.Add(lblReconcileDesc);
+        content.Controls.Add(btnReconcile);
         content.Dock = DockStyle.Fill;
         content.Location = new Point(0, 50);
         content.Name = "content";
         content.Padding = new Padding(30);
-        content.Size = new Size(546, 367);
+        content.Size = new Size(546, 414);
         content.TabIndex = 0;
-        // 
+        //
         // btnClose
-        // 
-        btnClose.Location = new Point(422, 311);
+        //
+        btnClose.Location = new Point(422, 358);
         btnClose.Name = "btnClose";
         btnClose.Size = new Size(85, 35);
         btnClose.TabIndex = 0;
@@ -95,7 +101,7 @@ partial class RebuildCacheForm
         // 
         // btnCancel
         // 
-        btnCancel.Location = new Point(327, 311);
+        btnCancel.Location = new Point(327, 358);
         btnCancel.Name = "btnCancel";
         btnCancel.Size = new Size(85, 35);
         btnCancel.TabIndex = 1;
@@ -105,7 +111,7 @@ partial class RebuildCacheForm
         // lblCurrent
         // 
         lblCurrent.BackColor = Color.Transparent;
-        lblCurrent.Location = new Point(27, 262);
+        lblCurrent.Location = new Point(27, 309);
         lblCurrent.Name = "lblCurrent";
         lblCurrent.Size = new Size(480, 25);
         lblCurrent.TabIndex = 2;
@@ -114,7 +120,7 @@ partial class RebuildCacheForm
         // lblStatus
         // 
         lblStatus.BackColor = Color.Transparent;
-        lblStatus.Location = new Point(27, 282);
+        lblStatus.Location = new Point(27, 329);
         lblStatus.Name = "lblStatus";
         lblStatus.Size = new Size(480, 25);
         lblStatus.TabIndex = 3;
@@ -122,7 +128,7 @@ partial class RebuildCacheForm
         // 
         // progressBar
         // 
-        progressBar.Location = new Point(27, 240);
+        progressBar.Location = new Point(27, 287);
         progressBar.Name = "progressBar";
         progressBar.Size = new Size(480, 25);
         progressBar.TabIndex = 4;
@@ -130,7 +136,7 @@ partial class RebuildCacheForm
         // 
         // divider
         // 
-        divider.Location = new Point(27, 214);
+        divider.Location = new Point(27, 261);
         divider.Name = "divider";
         divider.Size = new Size(480, 20);
         divider.TabIndex = 5;
@@ -210,12 +216,32 @@ partial class RebuildCacheForm
         btnResume.TabIndex = 11;
         btnResume.Text = "繼續未完成的掃描";
         btnResume.Type = AntdUI.TTypeMini.Primary;
-        // 
+        //
+        // btnReconcile
+        //
+        btnReconcile.Location = new Point(27, 217);
+        btnReconcile.Margin = new Padding(2);
+        btnReconcile.Name = "btnReconcile";
+        btnReconcile.Size = new Size(180, 40);
+        btnReconcile.TabIndex = 14;
+        btnReconcile.Text = "比對檔案系統";
+        btnReconcile.Type = AntdUI.TTypeMini.Primary;
+        //
+        // lblReconcileDesc
+        //
+        lblReconcileDesc.BackColor = Color.Transparent;
+        lblReconcileDesc.Location = new Point(215, 217);
+        lblReconcileDesc.Margin = new Padding(2);
+        lblReconcileDesc.Name = "lblReconcileDesc";
+        lblReconcileDesc.Size = new Size(290, 40);
+        lblReconcileDesc.TabIndex = 15;
+        lblReconcileDesc.Text = "偵測作品搬到別目錄、檔案系統找不到的索引（孤兒）";
+        //
         // RebuildCacheForm
-        // 
+        //
         AutoScaleDimensions = new SizeF(7F, 15F);
         AutoScaleMode = AutoScaleMode.Font;
-        ClientSize = new Size(546, 417);
+        ClientSize = new Size(546, 464);
         Controls.Add(content);
         Controls.Add(windowBar);
         Name = "RebuildCacheForm";

@@ -22,6 +22,7 @@ public partial class MainForm : Window, IThemedControl
     private readonly CacheRebuildService _rebuildService;
     private readonly CacheIntegrityChecker _integrityChecker;
     private readonly RebuildProgressTracker _rebuildTracker;
+    private readonly CatalogReconcileService _reconcileService;
 
     // 閱讀記錄延遲提交 queue（#49 Phase 1.0）
     private readonly ReadRecordQueue _readRecordQueue;
@@ -55,6 +56,7 @@ public partial class MainForm : Window, IThemedControl
         _rebuildTracker = new RebuildProgressTracker(_metaStore);
         _integrityChecker = new CacheIntegrityChecker(_metaStore, _thumbStore, _rebuildTracker);
         _rebuildService = new CacheRebuildService(_config, _coverManager, _metaStore, _thumbStore, _integrityChecker, _rebuildTracker, _cacheWriter);
+        _reconcileService = new CatalogReconcileService(_config, _metaStore);
         _readRecordQueue = new ReadRecordQueue(_metaStore, _config.ReadCountThresholdSeconds);
         // Tracker 改變時，statusBar 自動同步顯示（背景任務全域可見）
         _rebuildTracker.StateChanged += (s, e) => UpdateStatusFromTracker();
@@ -89,7 +91,7 @@ public partial class MainForm : Window, IThemedControl
     private void OpenRebuildCacheDialog()
     {
         // 用 Show（非 ShowDialog）讓使用者可關 form 繼續用 App，任務在背景跑
-        var form = new UI.RebuildCacheForm(_rebuildService, _rebuildTracker);
+        var form = new UI.RebuildCacheForm(_rebuildService, _rebuildTracker, _reconcileService);
         form.Show(this);
     }
 
