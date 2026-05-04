@@ -299,6 +299,52 @@ public class CatalogReconcileTests : IDisposable
     }
 
     [Fact]
+    public void Cascade_Path_Update_For_Children_Of_Renamed_Parent()
+    {
+        // 場景：legacy DB 把 chapter 也當 Work 留 entry。父層 rename 後 chapter
+        // 變孤兒。應該 cascade rewrite path 而不是丟孤兒。
+        var author = MkAuthorFolder("[作者A]");
+        var oldWorkFolder = Path.Combine(author, "Silk Road");
+        Directory.CreateDirectory(oldWorkFolder);
+        var oldCh1 = Path.Combine(oldWorkFolder, "Ch1");
+        var oldCh2 = Path.Combine(oldWorkFolder, "Ch2");
+        Directory.CreateDirectory(oldCh1);
+        Directory.CreateDirectory(oldCh2);
+        for (int i = 0; i < 8; i++)
+        {
+            File.WriteAllBytes(Path.Combine(oldCh1, $"{i:D2}.jpg"), new byte[10]);
+            File.WriteAllBytes(Path.Combine(oldCh2, $"{i:D2}.jpg"), new byte[10]);
+        }
+
+        // mtime align — RegisterAsset 寫 1234567890；FS 也設一樣以利 Pass 2
+        var fakeMtime = DateTimeOffset.FromUnixTimeSeconds(1234567890).UtcDateTime;
+        Directory.SetLastWriteTimeUtc(oldWorkFolder, fakeMtime);
+
+        // 註冊三筆 entry：父層 + Ch1 + Ch2（模擬 legacy DB）
+        var idParent = RegisterAsset(oldWorkFolder, isFolder: true);
+        var idCh1 = RegisterAsset(oldCh1, isFolder: true);
+        var idCh2 = RegisterAsset(oldCh2, isFolder: true);
+
+        // rename 父層
+        var newWorkFolder = Path.Combine(author, "Silk Road1");
+        Directory.Move(oldWorkFolder, newWorkFolder);
+        Directory.SetLastWriteTimeUtc(newWorkFolder, fakeMtime);
+
+        var report = _service.Analyze();
+
+        // 預期 3 筆 PathChange（父層 + 兩個子）；無 orphan
+        Assert.Equal(3, report.PathChanges.Count);
+        Assert.Empty(report.Orphans);
+
+        Assert.Contains(report.PathChanges, c =>
+            c.AssetId == idParent && c.NewPath == newWorkFolder);
+        Assert.Contains(report.PathChanges, c =>
+            c.AssetId == idCh1 && c.NewPath == Path.Combine(newWorkFolder, "Ch1"));
+        Assert.Contains(report.PathChanges, c =>
+            c.AssetId == idCh2 && c.NewPath == Path.Combine(newWorkFolder, "Ch2"));
+    }
+
+    [Fact]
     public void Mixed_Scenario_Detects_All_Three_Categories()
     {
         // 三種狀況同時：path change / orphan / ambiguous

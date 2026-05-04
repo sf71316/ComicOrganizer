@@ -162,10 +162,63 @@ public class CatalogReconcileService
             processed++; progress?.Report((processed, dbMissing.Count));
         }
 
+        // 7. Post-process: cascade — orphan 中 path 是 PathChange 父層子孫的，跟著父層搬。
+        // 解決：legacy DB 殘留（舊 detector 把 chapter 當 Work 留下的 entry）+ 父層 rename 時
+        // 子目錄自動跟搬，保留 metadata。新路徑必須在 FS 存在才 cascade。
+        var primaryChanges = report.PathChanges.ToList();
+        var keptOrphans = new List<OrphanedAsset>();
+        foreach (var orphan in report.Orphans)
+        {
+            var match = FindBestAncestorChange(orphan.Path, primaryChanges);
+            if (match != null)
+            {
+                var newPath = RewritePathPrefix(orphan.Path, match.OldPath, match.NewPath);
+                bool fsExists = File.Exists(newPath) || Directory.Exists(newPath);
+                if (fsExists)
+                {
+                    report.PathChanges.Add(new PathChange(orphan.AssetId, orphan.Path, newPath, orphan.Size ?? 0));
+                    continue;
+                }
+            }
+            keptOrphans.Add(orphan);
+        }
+        report.Orphans.Clear();
+        report.Orphans.AddRange(keptOrphans);
+
         return report;
     }
 
     private record FsWork(string Path, long Size, long Mtime, bool IsFolder);
+
+    /// <summary>找 changes 中最長的、與 path 是祖先關係的。多重命中取最長 prefix（最近祖先）。</summary>
+    private static PathChange? FindBestAncestorChange(string path, IReadOnlyList<PathChange> changes)
+    {
+        PathChange? best = null;
+        int bestLen = -1;
+        foreach (var c in changes)
+        {
+            if (IsDescendant(path, c.OldPath) && c.OldPath.Length > bestLen)
+            {
+                best = c;
+                bestLen = c.OldPath.Length;
+            }
+        }
+        return best;
+    }
+
+    private static bool IsDescendant(string descendantPath, string ancestorPath)
+    {
+        var prefix = ancestorPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                     + Path.DirectorySeparatorChar;
+        return descendantPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string RewritePathPrefix(string fullPath, string oldPrefix, string newPrefix)
+    {
+        var oldNorm = oldPrefix.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var newNorm = newPrefix.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return newNorm + fullPath.Substring(oldNorm.Length);
+    }
 
     /// <summary>套用使用者確認的 path 變更。</summary>
     public int ApplyPathChanges(IEnumerable<PathChange> changes)
