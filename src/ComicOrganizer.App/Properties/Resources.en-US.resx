@@ -220,6 +220,18 @@ Processed: {0} / Skipped: {1} / Failed: {2}</value></data>
   <data name="ExtStatusTesting" xml:space="preserve"><value>Testing…</value></data>
   <data name="ExtStatusOkFmt" xml:space="preserve"><value>✓ Connected (user: {0})</value></data>
   <data name="ExtStatusFailFmt" xml:space="preserve"><value>✗ Failed: {0}</value></data>
+  <data name="MergeDialogTitle" xml:space="preserve"><value>Fetch metadata from nhentai</value></data>
+  <data name="MergeDialogHeaderFmt" xml:space="preserve"><value>Compare result (external ID: {0})</value></data>
+  <data name="MergeDialogApply" xml:space="preserve"><value>Apply</value></data>
+  <data name="MergeDialogApplyToRemaining" xml:space="preserve"><value>Apply this choice to the rest of the batch</value></data>
+  <data name="MergeFieldTitle" xml:space="preserve"><value>Title</value></data>
+  <data name="MergeFieldAuthor" xml:space="preserve"><value>Author</value></data>
+  <data name="MergeFieldLanguage" xml:space="preserve"><value>Language</value></data>
+  <data name="MergeFieldPageCount" xml:space="preserve"><value>Page count</value></data>
+  <data name="MergeFieldScanlator" xml:space="preserve"><value>Scanlator</value></data>
+  <data name="MergeFieldTags" xml:space="preserve"><value>Tags (check to keep)</value></data>
+  <data name="MergeWarnLanguage" xml:space="preserve"><value>⚠ Warning: different language usually means different versions (translation vs original); local kept by default</value></data>
+  <data name="MergeNoTags" xml:space="preserve"><value>(no tags)</value></data>
   <data name="RebuildCacheTitle" xml:space="preserve"><value>Rebuild Cache Database</value></data>
   <data name="RebuildFull" xml:space="preserve"><value>Full Rebuild</value></data>
   <data name="RebuildFullDesc" xml:space="preserve"><value>Clear all cache, rescan from root directory</value></data>

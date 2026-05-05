@@ -220,6 +220,18 @@ FS 掃描 {0} 件 / DB 索引 {1} 件</value></data>
   <data name="ExtStatusTesting" xml:space="preserve"><value>測試中…</value></data>
   <data name="ExtStatusOkFmt" xml:space="preserve"><value>✓ 連線成功（user: {0}）</value></data>
   <data name="ExtStatusFailFmt" xml:space="preserve"><value>✗ 連線失敗：{0}</value></data>
+  <data name="MergeDialogTitle" xml:space="preserve"><value>從 nhentai 拉取 metadata</value></data>
+  <data name="MergeDialogHeaderFmt" xml:space="preserve"><value>比對結果（外部 ID: {0}）</value></data>
+  <data name="MergeDialogApply" xml:space="preserve"><value>套用</value></data>
+  <data name="MergeDialogApplyToRemaining" xml:space="preserve"><value>套用此選擇到剩餘批次</value></data>
+  <data name="MergeFieldTitle" xml:space="preserve"><value>標題</value></data>
+  <data name="MergeFieldAuthor" xml:space="preserve"><value>作者</value></data>
+  <data name="MergeFieldLanguage" xml:space="preserve"><value>語言</value></data>
+  <data name="MergeFieldPageCount" xml:space="preserve"><value>頁數</value></data>
+  <data name="MergeFieldScanlator" xml:space="preserve"><value>翻譯組</value></data>
+  <data name="MergeFieldTags" xml:space="preserve"><value>Tags（勾選保留）</value></data>
+  <data name="MergeWarnLanguage" xml:space="preserve"><value>⚠ 警告：語言不同可能表示是不同版本（譯本 vs 原版），預設保留本地</value></data>
+  <data name="MergeNoTags" xml:space="preserve"><value>(無 tag)</value></data>
   <data name="RebuildCacheTitle" xml:space="preserve"><value>重建索引資料庫</value></data>
   <data name="RebuildFull" xml:space="preserve"><value>完整重建</value></data>
   <data name="RebuildFullDesc" xml:space="preserve"><value>清空所有 cache，從根目錄重新掃描</value></data>
