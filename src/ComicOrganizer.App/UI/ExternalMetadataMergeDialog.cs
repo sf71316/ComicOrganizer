@@ -156,12 +156,14 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
                               string? localValue, string? externalValue,
                               bool preferLocal, string? warning = null)
     {
+        int rowWidth = Math.Max(host.ClientSize.Width - 24, 740);
         var row = new System.Windows.Forms.Panel
         {
-            Width = host.ClientSize.Width - 24,
+            Width = rowWidth,
             Height = warning != null ? 95 : 75,
             Margin = new Padding(0, 0, 0, 8),
             BackColor = System.Drawing.Color.Transparent,
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
         };
 
         var lblLabel = new AntdUI.Label
@@ -177,15 +179,19 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
         {
             Text = $"本地: {DisplayValue(localValue)}",
             Location = new System.Drawing.Point(0, 24),
-            Size = new System.Drawing.Size(380, 22),
+            Size = new System.Drawing.Size(rowWidth - 8, 22),
             BackColor = System.Drawing.Color.Transparent,
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            AutoEllipsis = true,
         };
         var rbExternal = new System.Windows.Forms.RadioButton
         {
             Text = $"外部: {DisplayValue(externalValue)}",
             Location = new System.Drawing.Point(0, 48),
-            Size = new System.Drawing.Size(380, 22),
+            Size = new System.Drawing.Size(rowWidth - 8, 22),
             BackColor = System.Drawing.Color.Transparent,
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            AutoEllipsis = true,
         };
 
         // 預設選擇：preferLocal 或外部沒值 → 本地；否則外部

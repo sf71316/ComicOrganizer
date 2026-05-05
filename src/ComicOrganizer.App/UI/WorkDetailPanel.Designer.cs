@@ -160,7 +160,7 @@ partial class WorkDetailPanel
         btnFetchExternal.IconSvg = "ApiOutlined";
         btnFetchExternal.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
         btnFetchExternal.Name = "btnFetchExternal";
-        btnFetchExternal.Size = new System.Drawing.Size(110, 30);
+        btnFetchExternal.Size = new System.Drawing.Size(150, 30);
         btnFetchExternal.Text = "從 nhentai 拉取";
         btnFetchExternal.Visible = false;
 
@@ -180,8 +180,7 @@ partial class WorkDetailPanel
         layout.ColumnCount = 1;
         layout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
         layout.Dock = System.Windows.Forms.DockStyle.Top;
-        // 編輯模式控件用各自的 row（藏起來時 AutoSize 自動收掉）
-        for (int i = 0; i < 20; i++) layout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
+        
         layout.Controls.Add(coverPanel, 0, 0);
         layout.Controls.Add(lblWorkTitle, 0, 1);     // view 標題
         layout.Controls.Add(txtTitle, 0, 2);          // edit 標題
@@ -297,7 +296,6 @@ partial class WorkDetailPanel
         editGrid.Dock = System.Windows.Forms.DockStyle.Fill;
         editGrid.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
         editGrid.Name = "editGrid";
-        for (int i = 0; i < 5; i++) editGrid.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
         editGrid.Controls.Add(MakeEditLabel("系列"), 0, 0);
         editGrid.Controls.Add(txtSeries, 1, 0);
         editGrid.Controls.Add(MakeEditLabel("章節"), 0, 1);
@@ -429,8 +427,6 @@ partial class WorkDetailPanel
         flowActions.Margin = new System.Windows.Forms.Padding(0);
         flowActions.Name = "flowActions";
         flowActions.WrapContents = true;
-        flowActions.Controls.Add(btnRead);
-        flowActions.Controls.Add(btnExplorer);
         flowActions.Controls.Add(btnEdit);
         flowActions.Controls.Add(btnFetchExternal);
         flowActions.Controls.Add(btnResetReading);

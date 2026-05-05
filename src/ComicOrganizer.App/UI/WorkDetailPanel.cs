@@ -44,7 +44,16 @@ public partial class WorkDetailPanel : UserControl
     public WorkDetailPanel()
     {
         InitializeComponent();
-
+        // 編輯模式控件用各自的 row（藏起來時 AutoSize 自動收掉）
+        for (int i = 0; i < 20; i++)
+        {
+            layout.RowStyles.Add(
+            new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
+        }
+        for (int i = 0; i < 5; i++)
+        {
+            editGrid.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
+        }
         BackColor = ThemeColors.Surface;
         ForeColor = ThemeColors.Text;
         headerPanel.BackColor = ThemeColors.TabHeader;
