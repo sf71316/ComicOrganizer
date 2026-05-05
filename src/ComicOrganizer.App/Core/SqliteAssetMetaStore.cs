@@ -13,7 +13,7 @@ public class SqliteAssetMetaStore : IAssetMetaStore
     private readonly SqliteConnection _conn;
     private readonly object _lock = new();
     private SqliteTransaction? _currentTx;
-    private const int CurrentSchemaVersion = 4;
+    private const int CurrentSchemaVersion = 5;
 
     static SqliteAssetMetaStore()
     {
@@ -48,6 +48,7 @@ public class SqliteAssetMetaStore : IAssetMetaStore
             CreateSchemaV2();
             ApplyV3Additions();
             ApplyV4Additions();
+            ApplyV5Additions();
             _conn.Execute("INSERT INTO schema_version (version) VALUES (@v);", new { v = CurrentSchemaVersion });
             return;
         }
@@ -64,6 +65,11 @@ public class SqliteAssetMetaStore : IAssetMetaStore
         if (currentVersion == 3)
         {
             ApplyV4Additions();
+            currentVersion = 4;
+        }
+        if (currentVersion == 4)
+        {
+            ApplyV5Additions();
         }
         _conn.Execute("DELETE FROM schema_version; INSERT INTO schema_version (version) VALUES (@v);",
             new { v = CurrentSchemaVersion });
@@ -91,6 +97,32 @@ CREATE TABLE IF NOT EXISTS author_tag (
     FOREIGN KEY (tag_id) REFERENCES tag(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_author_tag_tag_id ON author_tag(tag_id);
+");
+    }
+
+    /// <summary>v4 → v5：外部 metadata source 資料表（#52）。
+    /// - 一個 asset 可從多個 source 拉資料（nhentai / ehentai / DLsite / ...）
+    /// - source_id：對方平台的 gallery id（"568742"）
+    /// - raw_json：完整 metadata JSON 存檔（剝 pages / related 後 ~1.5 KB/本）
+    ///   未來換 source / 重 import 不必重打 API
+    /// - PK (asset_id, source)：同 asset 同 source 只一筆，重抓覆蓋
+    /// - idx_aes_source 給「source + source_id 反查 asset」用（批次 dedup）
+    /// </summary>
+    private void ApplyV5Additions()
+    {
+        _conn.Execute(@"
+CREATE TABLE IF NOT EXISTS asset_external_source (
+    asset_id    INTEGER NOT NULL,
+    source      TEXT NOT NULL,
+    source_id   TEXT NOT NULL,
+    media_id    TEXT,
+    upload_at   INTEGER,
+    raw_json    TEXT NOT NULL,
+    fetched_at  INTEGER NOT NULL,
+    PRIMARY KEY (asset_id, source),
+    FOREIGN KEY (asset_id) REFERENCES asset(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_aes_source ON asset_external_source(source, source_id);
 ");
     }
 
@@ -1208,6 +1240,65 @@ ORDER BY id;", transaction: _currentTx).AsList();
                 ManuallyEditedCount = manually,
             };
         }
+    }
+
+    // ===== External metadata source (#52) =====
+
+    public AssetExternalSource? GetExternalSource(long assetId, string source)
+    {
+        lock (_lock)
+            return _conn.QuerySingleOrDefault<AssetExternalSource>(@"
+SELECT asset_id AS AssetId, source AS Source, source_id AS SourceId, media_id AS MediaId,
+       upload_at AS UploadAt, raw_json AS RawJson, fetched_at AS FetchedAt
+FROM asset_external_source
+WHERE asset_id = @id AND source = @s;",
+                new { id = assetId, s = source }, _currentTx);
+    }
+
+    public IReadOnlyList<AssetExternalSource> ListExternalSources(long assetId)
+    {
+        lock (_lock)
+            return _conn.Query<AssetExternalSource>(@"
+SELECT asset_id AS AssetId, source AS Source, source_id AS SourceId, media_id AS MediaId,
+       upload_at AS UploadAt, raw_json AS RawJson, fetched_at AS FetchedAt
+FROM asset_external_source
+WHERE asset_id = @id
+ORDER BY source;",
+                new { id = assetId }, _currentTx).AsList();
+    }
+
+    public void UpsertExternalSource(AssetExternalSource record)
+    {
+        lock (_lock)
+            _conn.Execute(@"
+INSERT INTO asset_external_source
+    (asset_id, source, source_id, media_id, upload_at, raw_json, fetched_at)
+VALUES
+    (@AssetId, @Source, @SourceId, @MediaId, @UploadAt, @RawJson, @FetchedAt)
+ON CONFLICT(asset_id, source) DO UPDATE SET
+    source_id = excluded.source_id,
+    media_id = excluded.media_id,
+    upload_at = excluded.upload_at,
+    raw_json = excluded.raw_json,
+    fetched_at = excluded.fetched_at;",
+                record, _currentTx);
+    }
+
+    public void DeleteExternalSource(long assetId, string source)
+    {
+        lock (_lock)
+            _conn.Execute(@"
+DELETE FROM asset_external_source WHERE asset_id = @id AND source = @s;",
+                new { id = assetId, s = source }, _currentTx);
+    }
+
+    public long? FindAssetByExternalId(string source, string sourceId)
+    {
+        lock (_lock)
+            return _conn.QuerySingleOrDefault<long?>(@"
+SELECT asset_id FROM asset_external_source
+WHERE source = @s AND source_id = @sid LIMIT 1;",
+                new { s = source, sid = sourceId }, _currentTx);
     }
 
     public void Dispose()

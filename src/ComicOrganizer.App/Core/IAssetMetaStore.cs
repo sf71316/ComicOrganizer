@@ -224,4 +224,21 @@ public interface IAssetMetaStore : IDisposable
 
     /// <summary>整庫 parse 狀態統計（總筆數 / 已 parse / manually_edited）。給工具面板顯示用。</summary>
     ParseStats GetParseStats();
+
+    // ===== External metadata source (#52) =====
+
+    /// <summary>取得 asset 在某 source 的外部 metadata 紀錄（沒有回 null）。</summary>
+    AssetExternalSource? GetExternalSource(long assetId, string source);
+
+    /// <summary>列出 asset 所有 source 的 metadata 紀錄。給 UI「來源」分頁用。</summary>
+    IReadOnlyList<AssetExternalSource> ListExternalSources(long assetId);
+
+    /// <summary>upsert 外部 metadata 紀錄（同 (asset_id, source) 已存在會覆蓋）。</summary>
+    void UpsertExternalSource(AssetExternalSource record);
+
+    /// <summary>刪除 asset 在某 source 的紀錄（移除使用者重抓也不要的紀錄）。</summary>
+    void DeleteExternalSource(long assetId, string source);
+
+    /// <summary>用 (source, source_id) 反查已綁定到哪個 asset（給批次 dedup 避免重複拉）。</summary>
+    long? FindAssetByExternalId(string source, string sourceId);
 }
