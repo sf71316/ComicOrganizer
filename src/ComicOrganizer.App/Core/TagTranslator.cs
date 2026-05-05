@@ -82,6 +82,21 @@ public class TagTranslator
     /// <summary>artist 專用 convenience。</summary>
     public string? TranslateArtist(string slug) => Translate("artist", slug);
 
+    /// <summary>不知道 namespace 時，依序試 EhTag 所有 tag-like namespace。
+    /// 給本地 DB 內 tag (沒記 category 來源) 用。</summary>
+    public string? TranslateAny(string slug)
+    {
+        var db = _db.Value;
+        if (db == null || string.IsNullOrEmpty(slug)) return null;
+        // 一般主題優先 (覆蓋率最高)，artist/character 等次之
+        foreach (var ns in new[] { "female", "male", "mixed", "other", "artist",
+                                   "group", "parody", "character", "language", "cosplayer" })
+        {
+            if (db.TryGet(ns, slug, out var entry)) return entry.Name;
+        }
+        return null;
+    }
+
     /// <summary>artist 是否在 EhTag DB 內。</summary>
     public bool IsKnownArtist(string slug)
     {

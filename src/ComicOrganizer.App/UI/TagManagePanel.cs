@@ -11,9 +11,16 @@ public partial class TagManagePanel : UserControl, IThemedControl
     private const string CategoryUncategorizedToken = "__none__";
 
     private IAssetMetaStore? _metaStore;
+    private TagTranslator? _translator;
     private List<TagUsage> _allTags = new();      // 從 DB 撈進來的全集（refresh 後）
     private string _searchText = "";
     private string _categoryFilter = CategoryAllToken;
+
+    public void SetTagTranslator(TagTranslator? translator)
+    {
+        _translator = translator;
+        ApplyFilter();
+    }
 
     public TagManagePanel()
     {
@@ -44,12 +51,13 @@ public partial class TagManagePanel : UserControl, IThemedControl
         tableTags.EmptyText = "（無資料）";
         tableTags.Columns = new ColumnCollection
         {
-            new Column("Name",       LocalizationManager.GetString("TagColName")     ?? "名稱")     { Width = "30%", SortOrder = true },
-            new Column("Category",   LocalizationManager.GetString("TagColCategory") ?? "分類")     { Width = "20%", SortOrder = true },
-            new Column("AssetCount", LocalizationManager.GetString("TagColWorks")    ?? "作品數")   { Width = "10%", SortOrder = true, Align = ColumnAlign.Right },
-            new Column("AuthorCount",LocalizationManager.GetString("TagColAuthors")  ?? "作者數")   { Width = "10%", SortOrder = true, Align = ColumnAlign.Right },
-            new Column("TotalCount", LocalizationManager.GetString("TagColTotal")    ?? "總計")     { Width = "10%", SortOrder = true, Align = ColumnAlign.Right },
-            new Column("Action",     LocalizationManager.GetString("TagColAction")   ?? "操作")     { Width = "20%" },
+            new Column("Name",       LocalizationManager.GetString("TagColName")     ?? "名稱")     { Width = "20%", SortOrder = true },
+            new Column("Localized",  LocalizationManager.GetString("TagColLocalized")?? "中文")     { Width = "16%" },
+            new Column("Category",   LocalizationManager.GetString("TagColCategory") ?? "分類")     { Width = "16%", SortOrder = true },
+            new Column("AssetCount", LocalizationManager.GetString("TagColWorks")    ?? "作品數")   { Width = "9%", SortOrder = true, Align = ColumnAlign.Right },
+            new Column("AuthorCount",LocalizationManager.GetString("TagColAuthors")  ?? "作者數")   { Width = "9%", SortOrder = true, Align = ColumnAlign.Right },
+            new Column("TotalCount", LocalizationManager.GetString("TagColTotal")    ?? "總計")     { Width = "9%", SortOrder = true, Align = ColumnAlign.Right },
+            new Column("Action",     LocalizationManager.GetString("TagColAction")   ?? "操作")     { Width = "21%" },
         };
     }
 
@@ -144,10 +152,20 @@ public partial class TagManagePanel : UserControl, IThemedControl
     private TagRow ToRow(TagUsage t)
     {
         var uncatLabel = LocalizationManager.GetString("TagCategoryUncategorized") ?? "(未分類)";
+        // 翻譯：有 category 用 Translate，否則 TranslateAny
+        string localized = "";
+        if (_translator != null)
+        {
+            var zh = !string.IsNullOrEmpty(t.Category)
+                ? _translator.Translate(t.Category!, t.Name)
+                : _translator.TranslateAny(t.Name);
+            localized = zh ?? "";
+        }
         return new TagRow
         {
             Id = t.Id,
             Name = t.Name,
+            Localized = localized,
             Category = string.IsNullOrEmpty(t.Category) ? uncatLabel : t.Category,
             CategoryRaw = t.Category,
             AssetCount = t.AssetCount,
@@ -319,6 +337,7 @@ public partial class TagManagePanel : UserControl, IThemedControl
     {
         public long Id { get; set; }
         public string Name { get; set; } = "";
+        public string Localized { get; set; } = "";   // EhTag 翻譯（找不到 = 空）
         public string Category { get; set; } = "";   // 顯示用（含「(未分類)」）
         public string? CategoryRaw { get; set; }     // 原始 category 值（編輯用）
         public int AssetCount { get; set; }

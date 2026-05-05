@@ -21,10 +21,11 @@ public partial class MetadataManageControl : UserControl, IThemedControl
     }
 
     public void Initialize(IAssetMetaStore metaStore, ReparseAllService reparseService,
-                           RebuildProgressTracker tracker)
+                           RebuildProgressTracker tracker, TagTranslator? translator = null)
     {
         _metaStore = metaStore;
         tagPanel.Initialize(metaStore);
+        tagPanel.SetTagTranslator(translator);
         authorPanel.Initialize(metaStore);
         toolsPanel.Initialize(metaStore, reparseService, tracker);
         _initialized = true;

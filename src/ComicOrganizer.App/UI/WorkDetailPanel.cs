@@ -40,6 +40,14 @@ public partial class WorkDetailPanel : UserControl
     private bool _isEditing;
     private WorkDetail? _currentDetail;
     private readonly List<string> _editTags = new();
+    private TagTranslator? _translator;
+
+    /// <summary>由 host 注入翻譯器 — null 時 chip 顯示原文。</summary>
+    public void SetTagTranslator(TagTranslator? translator)
+    {
+        _translator = translator;
+        if (_currentDetail != null) RebuildTagsView();
+    }
 
     public WorkDetailPanel()
     {
@@ -229,37 +237,59 @@ public partial class WorkDetailPanel : UserControl
     {
         flowTags.SuspendLayout();
         flowTags.Controls.Clear();
-        var tagNames = _isEditing ? _editTags : (_currentDetail?.Tags.Select(t => t.Name).ToList() ?? new());
-        if (tagNames.Count == 0)
+        // view: 用 detail.Tags（含 category 給 translator 用）；edit: 純 string list
+        if (_isEditing)
         {
-            flowTags.Controls.Add(BuildEmptyHint(_isEditing ? "(無標籤，下方新增)" : "(無標籤)"));
+            if (_editTags.Count == 0)
+                flowTags.Controls.Add(BuildEmptyHint("(無標籤，下方新增)"));
+            else foreach (var name in _editTags) flowTags.Controls.Add(BuildChip(name, null, true));
         }
         else
         {
-            foreach (var name in tagNames)
-            {
-                var chip = new AntdUI.Tag
-                {
-                    Text = name,
-                    Margin = new Padding(0, 0, 4, 4),
-                    Font = new Font("Microsoft JhengHei UI", 8.5F),
-                    CloseIcon = _isEditing,    // edit mode 顯示 X
-                };
-                if (_isEditing)
-                {
-                    var capturedName = name;
-                    chip.CloseChanged += (s, e) =>
-                    {
-                        _editTags.Remove(capturedName);
-                        // 用 BeginInvoke 避免在 close handler 中重 build flowTags 出問題
-                        BeginInvoke(new Action(RebuildTagsView));
-                        return true;   // 允許 AntdUI 正常關閉動畫
-                    };
-                }
-                flowTags.Controls.Add(chip);
-            }
+            var tags = _currentDetail?.Tags ?? new List<Tag>();
+            if (tags.Count == 0)
+                flowTags.Controls.Add(BuildEmptyHint("(無標籤)"));
+            else foreach (var t in tags) flowTags.Controls.Add(BuildChip(t.Name, t.Category, false));
         }
         flowTags.ResumeLayout(true);
+    }
+
+    private AntdUI.Tag BuildChip(string name, string? category, bool editable)
+    {
+        // 翻譯顯示：有 translator + 命中 → 中文；否則原文
+        string display = name;
+        if (_translator != null)
+        {
+            var zh = !string.IsNullOrEmpty(category)
+                ? _translator.Translate(category!, name)
+                : _translator.TranslateAny(name);
+            if (!string.IsNullOrEmpty(zh)) display = zh;
+        }
+
+        var chip = new AntdUI.Tag
+        {
+            Text = display,
+            Margin = new Padding(0, 0, 4, 4),
+            Font = new Font("Microsoft JhengHei UI", 8.5F),
+            CloseIcon = editable,
+        };
+        // 翻譯後 hover 顯示原文（給使用者識別 slug）
+        if (display != name)
+        {
+            var tooltip = new ToolTip();
+            tooltip.SetToolTip(chip, name);
+        }
+        if (editable)
+        {
+            var capturedName = name;
+            chip.CloseChanged += (s, e) =>
+            {
+                _editTags.Remove(capturedName);
+                BeginInvoke(new Action(RebuildTagsView));
+                return true;
+            };
+        }
+        return chip;
     }
 
     private void AddTagFromInput()

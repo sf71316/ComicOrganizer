@@ -195,21 +195,29 @@ public partial class GalleryControl : UserControl, IThemedControl
         }
     }
 
+    private TagTranslator? _tagTranslator;
+
     public void Initialize(AppConfig config, CoverManager coverManager,
                            IAssetMetaStore? metaStore = null,
                            ReadRecordQueue? readRecordQueue = null,
-                           UserPreferences? prefs = null)
+                           UserPreferences? prefs = null,
+                           TagTranslator? tagTranslator = null)
     {
         _config = config;
         _coverManager = coverManager;
         _metaStore = metaStore;
         _readRecordQueue = readRecordQueue;
         _prefs = prefs;
+        _tagTranslator = tagTranslator;
 
         // ctor 跑 WireDrawerEvents 時 _config 還沒設 → 按鈕可見性沒生效
         // 這邊 Initialize 完成後 sync 一次
         if (detailDrawerHost?.WorkPanel != null)
+        {
             detailDrawerHost.WorkPanel.ShowFetchExternalButton = config.EnableExternalMetadata;
+            detailDrawerHost.WorkPanel.SetTagTranslator(tagTranslator);
+            detailDrawerHost.AuthorPanel.SetTagTranslator(tagTranslator);
+        }
 
         // Recorded fired from background thread → marshal to UI 同步卡片 icon
         if (_readRecordQueue != null)

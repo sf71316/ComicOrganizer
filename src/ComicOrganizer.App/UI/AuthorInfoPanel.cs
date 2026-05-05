@@ -23,6 +23,14 @@ public partial class AuthorInfoPanel : UserControl
     /// <summary>當前顯示的 author id（給 reset button 用）；ShowInfo 時設定。</summary>
     private long _currentAuthorId;
     private AuthorInfo? _currentInfo;
+    private TagTranslator? _translator;
+
+    /// <summary>由 host 注入翻譯器 — null 時 chip 顯示原文。</summary>
+    public void SetTagTranslator(TagTranslator? translator)
+    {
+        _translator = translator;
+        if (_currentInfo != null) RebuildTagsView();
+    }
     private bool _isEditing;
     /// <summary>編輯中的別名（snapshot 自 _currentInfo.Aliases，使用者按 X 移除/輸入新增 不馬上寫 DB，Save 才寫）。</summary>
     private readonly List<AuthorAlias> _editAliases = new();
@@ -329,21 +337,7 @@ public partial class AuthorInfoPanel : UserControl
             // 編輯時：顯示「作者本身」的 tag（_editTags），可刪
             foreach (var name in _editTags.ToList())
             {
-                var chip = new AntdUI.Tag
-                {
-                    Text = name,
-                    Margin = new Padding(0, 0, 4, 4),
-                    Font = new Font("Microsoft JhengHei UI", 8.5F),
-                    CloseIcon = true,
-                };
-                var captured = name;
-                chip.CloseChanged += (s, e) =>
-                {
-                    _editTags.Remove(captured);
-                    BeginInvoke(new Action(RebuildTagsView));
-                    return true;
-                };
-                flowTags.Controls.Add(chip);
+                flowTags.Controls.Add(BuildAuthorTagChip(name, editable: true));
             }
             if (_editTags.Count == 0)
                 flowTags.Controls.Add(new Label
@@ -362,12 +356,22 @@ public partial class AuthorInfoPanel : UserControl
             {
                 foreach (var tag in info.TopTags)
                 {
-                    flowTags.Controls.Add(new AntdUI.Tag
+                    var display = _translator?.TranslateAny(tag.Name);
+                    var labelText = !string.IsNullOrEmpty(display)
+                        ? $"{display}  {tag.Count}"
+                        : $"{tag.Name}  {tag.Count}";
+                    var chip = new AntdUI.Tag
                     {
-                        Text = $"{tag.Name}  {tag.Count}",
+                        Text = labelText,
                         Margin = new Padding(0, 0, 4, 4),
                         Font = new Font("Microsoft JhengHei UI", 8.5F),
-                    });
+                    };
+                    if (!string.IsNullOrEmpty(display))
+                    {
+                        var tt = new ToolTip();
+                        tt.SetToolTip(chip, tag.Name);
+                    }
+                    flowTags.Controls.Add(chip);
                 }
                 if (info.TopTags.Count == 0)
                     flowTags.Controls.Add(new Label
@@ -380,6 +384,34 @@ public partial class AuthorInfoPanel : UserControl
             }
         }
         flowTags.ResumeLayout(true);
+    }
+
+    private AntdUI.Tag BuildAuthorTagChip(string name, bool editable)
+    {
+        var display = _translator?.TranslateAny(name);
+        var chip = new AntdUI.Tag
+        {
+            Text = !string.IsNullOrEmpty(display) ? display : name,
+            Margin = new Padding(0, 0, 4, 4),
+            Font = new Font("Microsoft JhengHei UI", 8.5F),
+            CloseIcon = editable,
+        };
+        if (!string.IsNullOrEmpty(display) && display != name)
+        {
+            var tt = new ToolTip();
+            tt.SetToolTip(chip, name);
+        }
+        if (editable)
+        {
+            var captured = name;
+            chip.CloseChanged += (s, e) =>
+            {
+                _editTags.Remove(captured);
+                BeginInvoke(new Action(RebuildTagsView));
+                return true;
+            };
+        }
+        return chip;
     }
 
     private void AddAliasFromInput()

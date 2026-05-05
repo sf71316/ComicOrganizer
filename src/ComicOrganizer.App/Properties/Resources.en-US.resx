@@ -118,6 +118,7 @@
   <data name="TagManageEmpty" xml:space="preserve"><value>(loading)</value></data>
   <data name="TagManageCountFmt" xml:space="preserve"><value>{0} tag(s)</value></data>
   <data name="TagColName" xml:space="preserve"><value>Name</value></data>
+  <data name="TagColLocalized" xml:space="preserve"><value>Translated</value></data>
   <data name="TagColCategory" xml:space="preserve"><value>Category</value></data>
   <data name="TagColWorks" xml:space="preserve"><value>Works</value></data>
   <data name="TagColAuthors" xml:space="preserve"><value>Authors</value></data>

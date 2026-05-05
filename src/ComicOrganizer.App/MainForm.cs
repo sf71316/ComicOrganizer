@@ -24,6 +24,7 @@ public partial class MainForm : Window, IThemedControl
     private readonly RebuildProgressTracker _rebuildTracker;
     private readonly CatalogReconcileService _reconcileService;
     private readonly ReparseAllService _reparseService;
+    private readonly TagTranslator _tagTranslator;
 
     // 閱讀記錄延遲提交 queue（#49 Phase 1.0）
     private readonly ReadRecordQueue _readRecordQueue;
@@ -59,6 +60,7 @@ public partial class MainForm : Window, IThemedControl
         _rebuildService = new CacheRebuildService(_config, _coverManager, _metaStore, _thumbStore, _integrityChecker, _rebuildTracker, _cacheWriter);
         _reconcileService = new CatalogReconcileService(_config, _metaStore);
         _reparseService = new ReparseAllService(_metaStore, _rebuildTracker);
+        _tagTranslator = new TagTranslator();
         _readRecordQueue = new ReadRecordQueue(_metaStore, _config.ReadCountThresholdSeconds);
         // Tracker 改變時，statusBar 自動同步顯示（背景任務全域可見）
         _rebuildTracker.StateChanged += (s, e) => UpdateStatusFromTracker();
@@ -66,9 +68,9 @@ public partial class MainForm : Window, IThemedControl
         // 等 Form Load 後 Initialize（此時 handle 已建立、Invoke 才能用）
         this.Load += (s, e) =>
         {
-            galleryControl.Initialize(_config, _coverManager, _metaStore, _readRecordQueue, _prefs);
+            galleryControl.Initialize(_config, _coverManager, _metaStore, _readRecordQueue, _prefs, _tagTranslator);
             archiveControl.Initialize(_config, _intelligence, _organizer);
-            metadataManageControl.Initialize(_metaStore, _reparseService, _rebuildTracker);
+            metadataManageControl.Initialize(_metaStore, _reparseService, _rebuildTracker, _tagTranslator);
             ShowGallery();
         };
 

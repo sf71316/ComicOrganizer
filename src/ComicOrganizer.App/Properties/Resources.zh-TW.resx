@@ -118,6 +118,7 @@
   <data name="TagManageEmpty" xml:space="preserve"><value>（即將載入）</value></data>
   <data name="TagManageCountFmt" xml:space="preserve"><value>共 {0} 個標籤</value></data>
   <data name="TagColName" xml:space="preserve"><value>名稱</value></data>
+  <data name="TagColLocalized" xml:space="preserve"><value>中文</value></data>
   <data name="TagColCategory" xml:space="preserve"><value>分類</value></data>
   <data name="TagColWorks" xml:space="preserve"><value>作品數</value></data>
   <data name="TagColAuthors" xml:space="preserve"><value>作者數</value></data>
