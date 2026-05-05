@@ -241,13 +241,15 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
 
         var allTags = localTagNames.Union(externalTagNames, StringComparer.OrdinalIgnoreCase).OrderBy(t => t).ToList();
 
+        int rowWidth = Math.Max(host.ClientSize.Width - 24, 740);
         int rowHeight = 36 + Math.Max(allTags.Count, 1) * 26 + 12;
         var row = new System.Windows.Forms.Panel
         {
-            Width = host.ClientSize.Width - 24,
+            Width = rowWidth,
             Height = rowHeight,
             Margin = new Padding(0, 0, 0, 8),
             BackColor = System.Drawing.Color.Transparent,
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
         };
 
         var lblLabel = new AntdUI.Label
@@ -290,9 +292,10 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
                 {
                     Text = $"{tagName}  {source}",
                     Location = new System.Drawing.Point(20, y),
-                    Size = new System.Drawing.Size(720, 24),
+                    Size = new System.Drawing.Size(rowWidth - 28, 24),
                     Checked = true,   // 全部預設選取
                     BackColor = System.Drawing.Color.Transparent,
+                    Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 };
                 row.Controls.Add(cb);
                 _tagChecks[tagName] = cb;
