@@ -232,6 +232,12 @@ Processed: {0} / Skipped: {1} / Failed: {2}</value></data>
   <data name="MergeFieldTags" xml:space="preserve"><value>Tags (check to keep)</value></data>
   <data name="MergeWarnLanguage" xml:space="preserve"><value>⚠ Warning: different language usually means different versions (translation vs original); local kept by default</value></data>
   <data name="MergeNoTags" xml:space="preserve"><value>(no tags)</value></data>
+  <data name="WorkDetailFetchExternal" xml:space="preserve"><value>Fetch from nhentai</value></data>
+  <data name="FetchExtErrNoKey" xml:space="preserve"><value>Please set API key in Settings / External Source first</value></data>
+  <data name="FetchExtErrNoId" xml:space="preserve"><value>Filename has no 6-7 digit id; search fallback not yet implemented</value></data>
+  <data name="FetchExtErrNotFoundFmt" xml:space="preserve"><value>id={0} not found on nhentai (may have been removed)</value></data>
+  <data name="FetchExtErrFmt" xml:space="preserve"><value>Fetch failed: {0}</value></data>
+  <data name="FetchExtDone" xml:space="preserve"><value>Metadata applied</value></data>
   <data name="RebuildCacheTitle" xml:space="preserve"><value>Rebuild Cache Database</value></data>
   <data name="RebuildFull" xml:space="preserve"><value>Full Rebuild</value></data>
   <data name="RebuildFullDesc" xml:space="preserve"><value>Clear all cache, rescan from root directory</value></data>

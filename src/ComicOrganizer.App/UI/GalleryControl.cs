@@ -285,6 +285,9 @@ public partial class GalleryControl : UserControl, IThemedControl
     public void OnConfigUpdated(AppConfig config)
     {
         _config = config;
+        // 外部 metadata 啟用狀態變更 → 刷新 WorkDetailPanel 按鈕可見性
+        if (detailDrawerHost?.WorkPanel != null)
+            detailDrawerHost.WorkPanel.ShowFetchExternalButton = _config.EnableExternalMetadata;
         _ = LoadTreeAsync();
     }
 
@@ -341,6 +344,13 @@ public partial class GalleryControl : UserControl, IThemedControl
 
         // 編輯儲存：寫 metadata + 設 manually_edited + 重 set tags + 刷面板 / 卡片
         detailDrawerHost.WorkPanel.RequestSaveEdit += data => SaveWorkEdit(data);
+
+        // 從 nhentai 拉取 metadata（外部）
+        detailDrawerHost.WorkPanel.RequestFetchExternal += async path => await FetchExternalMetadata(path);
+
+        // 顯示按鈕：依 config.EnableExternalMetadata
+        detailDrawerHost.WorkPanel.ShowFetchExternalButton =
+            _prefs != null && _config != null && _config.EnableExternalMetadata;
 
         // AuthorInfoPanel 加「清除此作者所有閱讀記錄」入口（透過 panel 暴露的 event）
         detailDrawerHost.AuthorPanel.RequestResetAuthorReading += authorId => ConfirmAndResetAuthorReading(authorId);
@@ -479,6 +489,106 @@ public partial class GalleryControl : UserControl, IThemedControl
             var form = this.FindForm();
             if (form != null) AntdUI.Message.error(form, "儲存失敗: " + ex.Message);
         }
+    }
+
+    /// <summary>「從 nhentai 拉取」事件 handler — 抽 id（沒就 search 提示）→ API 抓 → merge dialog → 寫 DB。</summary>
+    private async Task FetchExternalMetadata(string path)
+    {
+        if (_metaStore == null || _config == null) return;
+        var form = this.FindForm();
+        if (form == null) return;
+
+        var apiKey = _config.GetNhentaiApiKey();
+        if (string.IsNullOrEmpty(apiKey))
+        {
+            AntdUI.Message.warn(form, LocalizationManager.GetString("FetchExtErrNoKey") ?? "請先在「設定 / 外部資料來源」設定 API key");
+            return;
+        }
+
+        var assetId = _metaStore.GetAssetId(path);
+        if (assetId == null) return;
+        var detail = _metaStore.GetWorkDetail(path);
+        if (detail == null) return;
+
+        // 抽 id：先試從檔名（不含副檔名 + parent dir name）
+        var name = Path.GetFileName(path);
+        var externalId = NhentaiIdExtractor.Extract(name) ?? NhentaiIdExtractor.Extract(Path.GetFileName(Path.GetDirectoryName(path) ?? ""));
+
+        try
+        {
+            using var client = new NhentaiApiClient(apiKey);
+
+            MetadataLookupResult? result = null;
+            if (!string.IsNullOrEmpty(externalId))
+            {
+                result = await client.GetByExternalIdAsync(externalId);
+                if (result == null)
+                {
+                    AntdUI.Message.warn(form, string.Format(
+                        LocalizationManager.GetString("FetchExtErrNotFoundFmt") ?? "id={0} 在 nhentai 上找不到（可能已下架）",
+                        externalId));
+                    return;
+                }
+            }
+            else
+            {
+                // 沒 id → 暫時提示「請手動輸入 id」（v2 加 search picker）
+                AntdUI.Message.info(form, LocalizationManager.GetString("FetchExtErrNoId") ?? "檔名沒含 6-7 位數字 id；search fallback 尚未實作");
+                return;
+            }
+
+            // 開 merge dialog
+            using var dlg = new ExternalMetadataMergeDialog(detail, result, batchMode: false);
+            if (dlg.ShowDialog(form) != DialogResult.OK || dlg.Result == null) return;
+
+            ApplyMergeResult(detail, dlg.Result);
+            ShowWorkDetail(path);
+            RefreshCardReadStatusByPath(path);
+
+            AntdUI.Message.success(form,
+                LocalizationManager.GetString("FetchExtDone") ?? "metadata 已套用");
+        }
+        catch (Exception ex)
+        {
+            AntdUI.Message.error(form, string.Format(
+                LocalizationManager.GetString("FetchExtErrFmt") ?? "拉取失敗：{0}", ex.Message));
+        }
+    }
+
+    /// <summary>把 MergeDialog 的結果寫進 DB（asset_meta + asset_tag + asset_external_source）。</summary>
+    private void ApplyMergeResult(WorkDetail detail, MergeResult result)
+    {
+        if (_metaStore == null) return;
+
+        // 解析作者：result.AuthorMainName 有值 → upsert；null → 保留既有
+        long? authorId = detail.AuthorId;
+        if (!string.IsNullOrWhiteSpace(result.AuthorMainName))
+            authorId = _metaStore.UpsertAuthor(result.AuthorMainName.Trim());
+
+        var existing = _metaStore.GetMetadata(detail.AssetId);
+        var updated = new AssetMetadata
+        {
+            AssetId = detail.AssetId,
+            AuthorId = authorId,
+            Title = result.Title ?? existing?.Title ?? detail.Title,
+            Series = result.Series ?? existing?.Series ?? detail.Series,
+            ChapterNo = existing?.ChapterNo ?? detail.ChapterNo,
+            Language = result.Language ?? existing?.Language ?? detail.Language,
+            TranslationGroup = result.TranslationGroup ?? existing?.TranslationGroup ?? detail.TranslationGroup,
+            PageCount = result.PageCount ?? existing?.PageCount ?? detail.PageCount,
+            Rating = existing?.Rating ?? detail.Rating,
+            ReadStatus = existing?.ReadStatus ?? ReadStatus.Unread,
+            ReadCount = existing?.ReadCount ?? 0,
+            LastRead = existing?.LastRead,
+            LastPage = existing?.LastPage,
+            ExternalId = result.ExternalSourceRecord?.SourceId ?? existing?.ExternalId,
+            ParsedAt = existing?.ParsedAt ?? DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            ManuallyEdited = true,   // 使用者剛 review 過外部 metadata，鎖住避免 re-parse 反轉
+        };
+        _metaStore.UpsertMetadata(updated);
+
+        if (result.Tags != null) _metaStore.SetAssetTags(detail.AssetId, result.Tags);
+        if (result.ExternalSourceRecord != null) _metaStore.UpsertExternalSource(result.ExternalSourceRecord);
     }
 
     private void ConfirmAndResetWorkReading(string path)

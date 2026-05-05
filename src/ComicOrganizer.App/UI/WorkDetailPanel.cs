@@ -26,6 +26,16 @@ public partial class WorkDetailPanel : UserControl
     /// <summary>使用者按「儲存」— host 處理 DB 寫入後刷新此 panel。</summary>
     public event Action<WorkEditData>? RequestSaveEdit;
 
+    /// <summary>使用者按「從 nhentai 拉取」— host 處理 API 呼叫 + merge dialog + DB 寫入。</summary>
+    public event Action<string>? RequestFetchExternal;
+
+    /// <summary>由 host 設定 — 控制「從 nhentai 拉取」按鈕是否顯示（依 config.EnableExternalMetadata）。</summary>
+    public bool ShowFetchExternalButton
+    {
+        get => btnFetchExternal.Visible;
+        set => btnFetchExternal.Visible = value;
+    }
+
     private string _currentPath = "";
     private bool _isEditing;
     private WorkDetail? _currentDetail;
@@ -65,6 +75,10 @@ public partial class WorkDetailPanel : UserControl
         btnEdit.Click += (s, e) => SetEditMode(true);
         btnCancel.Click += (s, e) => SetEditMode(false);
         btnSave.Click += (s, e) => SaveEdit();
+        btnFetchExternal.Click += (s, e) =>
+        {
+            if (!string.IsNullOrEmpty(_currentPath)) RequestFetchExternal?.Invoke(_currentPath);
+        };
         btnAddTag.Click += (s, e) => AddTagFromInput();
         txtAddTag.KeyDown += (s, e) =>
         {
@@ -83,6 +97,7 @@ public partial class WorkDetailPanel : UserControl
         btnRead.Text = LocalizationManager.GetString("WorkDetailRead") ?? "閱讀";
         btnExplorer.Text = LocalizationManager.GetString("WorkDetailExplorer") ?? "開啟位置";
         btnResetReading.Text = LocalizationManager.GetString("WorkDetailResetReading") ?? "重置閱讀記錄";
+        btnFetchExternal.Text = LocalizationManager.GetString("WorkDetailFetchExternal") ?? "從 nhentai 拉取";
     }
 
     /// <summary>套用詳細資訊。cover 由 caller 預先載入後傳入（沒就 null）。</summary>

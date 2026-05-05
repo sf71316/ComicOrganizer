@@ -8,6 +8,7 @@ partial class WorkDetailPanel
     private System.Windows.Forms.Panel headerPanel;
     private System.Windows.Forms.Label lblTitle;
     private AntdUI.Button btnEdit;
+    private AntdUI.Button btnFetchExternal;
     private AntdUI.Button btnClose;
 
     // 內容
@@ -73,6 +74,7 @@ partial class WorkDetailPanel
         headerPanel = new System.Windows.Forms.Panel();
         lblTitle = new System.Windows.Forms.Label();
         btnEdit = new AntdUI.Button();
+        btnFetchExternal = new AntdUI.Button();
         btnClose = new AntdUI.Button();
         contentPanel = new System.Windows.Forms.Panel();
         layout = new System.Windows.Forms.TableLayoutPanel();
@@ -152,6 +154,15 @@ partial class WorkDetailPanel
         btnEdit.Size = new System.Drawing.Size(80, 30);
         btnEdit.Text = "編輯";
         btnEdit.Type = AntdUI.TTypeMini.Primary;
+        //
+        // btnFetchExternal — 從 nhentai 拉取（在 action bar 最右）
+        //
+        btnFetchExternal.IconSvg = "ApiOutlined";
+        btnFetchExternal.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
+        btnFetchExternal.Name = "btnFetchExternal";
+        btnFetchExternal.Size = new System.Drawing.Size(110, 30);
+        btnFetchExternal.Text = "從 nhentai 拉取";
+        btnFetchExternal.Visible = false;
 
         //
         // contentPanel
@@ -421,6 +432,7 @@ partial class WorkDetailPanel
         flowActions.Controls.Add(btnRead);
         flowActions.Controls.Add(btnExplorer);
         flowActions.Controls.Add(btnEdit);
+        flowActions.Controls.Add(btnFetchExternal);
         flowActions.Controls.Add(btnResetReading);
         flowActions.Controls.Add(btnSave);
         flowActions.Controls.Add(btnCancel);
