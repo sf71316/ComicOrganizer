@@ -1193,6 +1193,23 @@ ORDER BY id;", transaction: _currentTx).AsList();
             _conn.Execute("DELETE FROM asset WHERE id = @id;", new { id = assetId }, _currentTx);
     }
 
+    public ParseStats GetParseStats()
+    {
+        lock (_lock)
+        {
+            var total = _conn.ExecuteScalar<int>("SELECT COUNT(*) FROM asset;", transaction: _currentTx);
+            var parsed = _conn.ExecuteScalar<int>("SELECT COUNT(*) FROM asset_meta;", transaction: _currentTx);
+            var manually = _conn.ExecuteScalar<int>(
+                "SELECT COUNT(*) FROM asset_meta WHERE manually_edited = 1;", transaction: _currentTx);
+            return new ParseStats
+            {
+                TotalAssets = total,
+                ParsedCount = parsed,
+                ManuallyEditedCount = manually,
+            };
+        }
+    }
+
     public void Dispose()
     {
         lock (_lock) _conn.Dispose();

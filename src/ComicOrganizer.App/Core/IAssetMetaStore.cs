@@ -221,4 +221,7 @@ public interface IAssetMetaStore : IDisposable
 
     /// <summary>依 asset.id 刪除（cascade 帶走 asset_meta / asset_thumb / asset_tag）。</summary>
     void DeleteAssetById(long assetId);
+
+    /// <summary>整庫 parse 狀態統計（總筆數 / 已 parse / manually_edited）。給工具面板顯示用。</summary>
+    ParseStats GetParseStats();
 }
