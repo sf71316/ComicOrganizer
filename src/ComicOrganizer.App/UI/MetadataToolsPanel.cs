@@ -1,6 +1,5 @@
 using AntdUI;
 using ComicOrganizer.App.Core;
-using ComicOrganizer.App.Models;
 using System.Windows.Forms;
 
 namespace ComicOrganizer.App.UI;
@@ -10,8 +9,6 @@ public partial class MetadataToolsPanel : UserControl, IThemedControl
     private IAssetMetaStore? _metaStore;
     private ReparseAllService? _reparseService;
     private RebuildProgressTracker? _tracker;
-    private ConfigManager? _configManager;
-    private AppConfig? _config;
 
     public MetadataToolsPanel()
     {
@@ -21,28 +18,12 @@ public partial class MetadataToolsPanel : UserControl, IThemedControl
     }
 
     public void Initialize(IAssetMetaStore metaStore, ReparseAllService reparseService,
-                           RebuildProgressTracker tracker,
-                           ConfigManager configManager, AppConfig config)
+                           RebuildProgressTracker tracker)
     {
         _metaStore = metaStore;
         _reparseService = reparseService;
         _tracker = tracker;
-        _configManager = configManager;
-        _config = config;
         _tracker.StateChanged += OnTrackerStateChanged;
-        LoadExternalSettings();
-    }
-
-    private void LoadExternalSettings()
-    {
-        if (_config == null) return;
-        swEnableExternal.Checked = _config.EnableExternalMetadata;
-        var key = _config.GetNhentaiApiKey();
-        // 不顯示真實 key（password input），但顯示「已設定」提示
-        txtExtKey.Text = "";
-        txtExtKey.PlaceholderText = string.IsNullOrEmpty(key)
-            ? (LocalizationManager.GetString("ExtKeyPlaceholderEmpty") ?? "nhk_...")
-            : (LocalizationManager.GetString("ExtKeyPlaceholderSet") ?? "(已儲存 — 留空保持原值)");
     }
 
     public new void Refresh()
@@ -62,75 +43,6 @@ public partial class MetadataToolsPanel : UserControl, IThemedControl
         btnRefreshStats.Click += (s, e) => Refresh();
         btnReparse.Click += async (s, e) => await ExecuteReparseAsync();
         btnCancel.Click += (s, e) => _tracker?.Cancel();
-
-        swEnableExternal.CheckedChanged += (s, e) =>
-        {
-            if (_config == null || _configManager == null) return;
-            _config.EnableExternalMetadata = swEnableExternal.Checked;
-            _configManager.Save(_config);
-        };
-        btnSaveKey.Click += (s, e) => OnSaveKey();
-        btnTestConnection.Click += async (s, e) => await OnTestConnection();
-    }
-
-    private void OnSaveKey()
-    {
-        if (_config == null || _configManager == null) return;
-        var key = txtExtKey.Text?.Trim() ?? "";
-        if (string.IsNullOrEmpty(key))
-        {
-            // 空字串 = 不變動（避免使用者載入頁面後不小心存空 key 清掉）
-            return;
-        }
-        _config.SetNhentaiApiKey(key);
-        _configManager.Save(_config);
-        txtExtKey.Text = "";
-        txtExtKey.PlaceholderText = LocalizationManager.GetString("ExtKeyPlaceholderSet") ?? "(已儲存 — 留空保持原值)";
-        lblExtStatus.Text = LocalizationManager.GetString("ExtStatusSaved") ?? "已儲存（請按「測試連線」驗證）";
-    }
-
-    private async Task OnTestConnection()
-    {
-        if (_config == null) return;
-        // txtExtKey 有輸入 → 用輸入的；否則用 config 已存的
-        var inputKey = txtExtKey.Text?.Trim();
-        var keyToUse = !string.IsNullOrEmpty(inputKey) ? inputKey : _config.GetNhentaiApiKey();
-        if (string.IsNullOrEmpty(keyToUse))
-        {
-            lblExtStatus.Text = LocalizationManager.GetString("ExtStatusNoKey") ?? "尚未設定 API key";
-            return;
-        }
-
-        btnTestConnection.Loading = true;
-        lblExtStatus.Text = LocalizationManager.GetString("ExtStatusTesting") ?? "測試中…";
-        try
-        {
-            using var client = new NhentaiApiClient(keyToUse);
-            var result = await client.TestConnectionAsync();
-            if (IsDisposed) return;
-            if (result.Success)
-            {
-                lblExtStatus.Text = string.Format(
-                    LocalizationManager.GetString("ExtStatusOkFmt") ?? "✓ 連線成功（user: {0}）",
-                    result.UserName ?? "?");
-            }
-            else
-            {
-                lblExtStatus.Text = string.Format(
-                    LocalizationManager.GetString("ExtStatusFailFmt") ?? "✗ 連線失敗：{0}",
-                    result.ErrorMessage ?? "unknown");
-            }
-        }
-        catch (Exception ex)
-        {
-            lblExtStatus.Text = string.Format(
-                LocalizationManager.GetString("ExtStatusFailFmt") ?? "✗ 連線失敗：{0}",
-                ex.Message);
-        }
-        finally
-        {
-            btnTestConnection.Loading = false;
-        }
     }
 
     private async Task ExecuteReparseAsync()
@@ -224,12 +136,6 @@ public partial class MetadataToolsPanel : UserControl, IThemedControl
         // AntdUI.Panel 用 Back（rounded 填色），不是 BackColor
         statsPanel.Back = ThemeColors.Background;
         reparsePanel.Back = ThemeColors.Background;
-        externalSourcePanel.Back = ThemeColors.Background;
-        lblExtTitle.ForeColor = ThemeColors.Text;
-        lblExtDesc.ForeColor = ThemeColors.Text;
-        lblExtEnable.ForeColor = ThemeColors.Text;
-        lblExtKey.ForeColor = ThemeColors.Text;
-        lblExtStatus.ForeColor = ThemeColors.Text;
         lblTitle.ForeColor = ThemeColors.Text;
         lblStatsTitle.ForeColor = ThemeColors.Text;
         lblReparseTitle.ForeColor = ThemeColors.Text;
@@ -253,12 +159,5 @@ public partial class MetadataToolsPanel : UserControl, IThemedControl
         btnRefreshStats.Text = LocalizationManager.GetString("TagManageRefresh") ?? "重新整理";
         btnReparse.Text = LocalizationManager.GetString("ToolsReparseButton") ?? "整庫重新解析";
         btnCancel.Text = LocalizationManager.GetString("DialogCancel") ?? "取消";
-
-        lblExtTitle.Text = LocalizationManager.GetString("ExtTitle") ?? "外部 metadata 來源 (nhentai)";
-        lblExtDesc.Text = LocalizationManager.GetString("ExtDesc") ?? "啟用後可從 nhentai API 拉取作品 metadata。API key 用 Windows DPAPI 加密儲存（per-user，跨機器拷貝 config 解不開）。";
-        lblExtEnable.Text = LocalizationManager.GetString("ExtEnableLabel") ?? "啟用：";
-        lblExtKey.Text = LocalizationManager.GetString("ExtKeyLabel") ?? "API Key:";
-        btnSaveKey.Text = LocalizationManager.GetString("ExtSaveKey") ?? "儲存 Key";
-        btnTestConnection.Text = LocalizationManager.GetString("ExtTestConnection") ?? "測試連線";
     }
 }

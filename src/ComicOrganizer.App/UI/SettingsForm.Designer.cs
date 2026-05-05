@@ -10,16 +10,28 @@ partial class SettingsForm
     private AntdUI.Panel content;
     private AntdUI.Panel footer;
 
-    // 左側選單 + 三個分類按鈕
+    // 左側選單 + 四個分類按鈕
     private AntdUI.Panel leftMenu;
     private AntdUI.Button btnMenuGeneral;
     private AntdUI.Button btnMenuLibrary;
     private AntdUI.Button btnMenuReader;
+    private AntdUI.Button btnMenuExternal;
 
-    // 內容區三個 sub-panel（toggle Visible 切換）
+    // 內容區四個 sub-panel（toggle Visible 切換）
     private AntdUI.Panel generalPanel;
     private System.Windows.Forms.Panel libraryPanel;  // 用 Forms.Panel 才有 AutoScroll
     private AntdUI.Panel readerPanel;
+    private AntdUI.Panel externalPanel;
+
+    // externalPanel 控件 (#52)
+    private AntdUI.Label lblExtTitle;
+    private AntdUI.Label lblExtDesc;
+    private AntdUI.Switch swEnableExternal;
+    private AntdUI.Label lblExtEnable;
+    private AntdUI.Label lblExtKey;
+    private AntdUI.Input txtExtKey;
+    private AntdUI.Button btnTestConnection;
+    private AntdUI.Label lblExtStatus;
 
     // generalPanel 控件
     private AntdUI.Label labelTheme;
@@ -81,9 +93,19 @@ partial class SettingsForm
         btnMenuGeneral = new AntdUI.Button();
         btnMenuLibrary = new AntdUI.Button();
         btnMenuReader = new AntdUI.Button();
+        btnMenuExternal = new AntdUI.Button();
         generalPanel = new AntdUI.Panel();
         libraryPanel = new System.Windows.Forms.Panel();
         readerPanel = new AntdUI.Panel();
+        externalPanel = new AntdUI.Panel();
+        lblExtTitle = new AntdUI.Label();
+        lblExtDesc = new AntdUI.Label();
+        swEnableExternal = new AntdUI.Switch();
+        lblExtEnable = new AntdUI.Label();
+        lblExtKey = new AntdUI.Label();
+        txtExtKey = new Input();
+        btnTestConnection = new AntdUI.Button();
+        lblExtStatus = new AntdUI.Label();
         cbUseBuiltInReader = new Checkbox();
         labelReadingDirection = new AntdUI.Label();
         selectReadingDirection = new Select();
@@ -124,6 +146,7 @@ partial class SettingsForm
         generalPanel.SuspendLayout();
         libraryPanel.SuspendLayout();
         readerPanel.SuspendLayout();
+        externalPanel.SuspendLayout();
         footer.SuspendLayout();
         SuspendLayout();
         //
@@ -147,6 +170,7 @@ partial class SettingsForm
         //
         leftMenu.BackColor = Color.FromArgb(245, 245, 245);
         // Dock=Top 時後加的會壓在前面 — 由下到上加
+        leftMenu.Controls.Add(btnMenuExternal);
         leftMenu.Controls.Add(btnMenuReader);
         leftMenu.Controls.Add(btnMenuLibrary);
         leftMenu.Controls.Add(btnMenuGeneral);
@@ -192,12 +216,24 @@ partial class SettingsForm
         btnMenuReader.Text = "閱讀器";
         btnMenuReader.TextAlign = ContentAlignment.MiddleLeft;
         //
+        // btnMenuExternal
+        //
+        btnMenuExternal.Dock = DockStyle.Top;
+        btnMenuExternal.IconSvg = "ApiOutlined";
+        btnMenuExternal.Location = new Point(15, 155);
+        btnMenuExternal.Name = "btnMenuExternal";
+        btnMenuExternal.Size = new Size(150, 45);
+        btnMenuExternal.TabIndex = 3;
+        btnMenuExternal.Text = "外部資料來源";
+        btnMenuExternal.TextAlign = ContentAlignment.MiddleLeft;
+        //
         // content
         //
         content.BackColor = Color.FromArgb(189, 189, 189);
         content.Controls.Add(generalPanel);
         content.Controls.Add(libraryPanel);
         content.Controls.Add(readerPanel);
+        content.Controls.Add(externalPanel);
         content.Dock = DockStyle.Fill;
         content.Location = new Point(180, 48);
         content.Name = "content";
@@ -562,6 +598,97 @@ partial class SettingsForm
         cbDualPageSpreadFromCover.TabIndex = 3;
         cbDualPageSpreadFromCover.Text = "雙頁模式封面獨立顯示";
         //
+        // externalPanel
+        //
+        externalPanel.BackColor = Color.Transparent;
+        externalPanel.Controls.Add(lblExtStatus);
+        externalPanel.Controls.Add(btnTestConnection);
+        externalPanel.Controls.Add(txtExtKey);
+        externalPanel.Controls.Add(lblExtKey);
+        externalPanel.Controls.Add(swEnableExternal);
+        externalPanel.Controls.Add(lblExtEnable);
+        externalPanel.Controls.Add(lblExtDesc);
+        externalPanel.Controls.Add(lblExtTitle);
+        externalPanel.Dock = DockStyle.Fill;
+        externalPanel.Location = new Point(0, 0);
+        externalPanel.Name = "externalPanel";
+        externalPanel.Padding = new Padding(40, 30, 40, 30);
+        externalPanel.Radius = 0;
+        externalPanel.Size = new Size(720, 562);
+        externalPanel.TabIndex = 3;
+        externalPanel.Visible = false;
+        //
+        // lblExtTitle
+        //
+        lblExtTitle.BackColor = Color.Transparent;
+        lblExtTitle.Font = new Font("Microsoft JhengHei UI", 12F, FontStyle.Bold);
+        lblExtTitle.Location = new Point(40, 30);
+        lblExtTitle.Name = "lblExtTitle";
+        lblExtTitle.Size = new Size(500, 30);
+        lblExtTitle.TabIndex = 0;
+        lblExtTitle.Text = "nhentai API";
+        //
+        // lblExtDesc
+        //
+        lblExtDesc.BackColor = Color.Transparent;
+        lblExtDesc.Location = new Point(40, 65);
+        lblExtDesc.Name = "lblExtDesc";
+        lblExtDesc.Size = new Size(620, 60);
+        lblExtDesc.TabIndex = 1;
+        lblExtDesc.Text = "啟用後可從 nhentai API 拉取作品 metadata。API key 用 Windows DPAPI 加密儲存。";
+        //
+        // lblExtEnable
+        //
+        lblExtEnable.BackColor = Color.Transparent;
+        lblExtEnable.Location = new Point(40, 145);
+        lblExtEnable.Name = "lblExtEnable";
+        lblExtEnable.Size = new Size(80, 30);
+        lblExtEnable.TabIndex = 2;
+        lblExtEnable.Text = "啟用：";
+        //
+        // swEnableExternal
+        //
+        swEnableExternal.Location = new Point(120, 150);
+        swEnableExternal.Name = "swEnableExternal";
+        swEnableExternal.Size = new Size(50, 25);
+        swEnableExternal.TabIndex = 3;
+        //
+        // lblExtKey
+        //
+        lblExtKey.BackColor = Color.Transparent;
+        lblExtKey.Location = new Point(40, 195);
+        lblExtKey.Name = "lblExtKey";
+        lblExtKey.Size = new Size(80, 30);
+        lblExtKey.TabIndex = 4;
+        lblExtKey.Text = "API Key:";
+        //
+        // txtExtKey
+        //
+        txtExtKey.PasswordChar = '●';
+        txtExtKey.Location = new Point(120, 192);
+        txtExtKey.Name = "txtExtKey";
+        txtExtKey.PlaceholderText = "nhk_...";
+        txtExtKey.Size = new Size(420, 36);
+        txtExtKey.TabIndex = 5;
+        //
+        // btnTestConnection
+        //
+        btnTestConnection.IconSvg = "ApiOutlined";
+        btnTestConnection.Location = new Point(120, 245);
+        btnTestConnection.Name = "btnTestConnection";
+        btnTestConnection.Size = new Size(140, 36);
+        btnTestConnection.TabIndex = 6;
+        btnTestConnection.Text = "測試連線";
+        //
+        // lblExtStatus
+        //
+        lblExtStatus.BackColor = Color.Transparent;
+        lblExtStatus.Location = new Point(40, 295);
+        lblExtStatus.Name = "lblExtStatus";
+        lblExtStatus.Size = new Size(620, 50);
+        lblExtStatus.TabIndex = 7;
+        lblExtStatus.Text = "(未測試)";
+        //
         // footer
         //
         footer.BackColor = Color.FromArgb(189, 189, 189);
@@ -613,6 +740,7 @@ partial class SettingsForm
         generalPanel.ResumeLayout(false);
         libraryPanel.ResumeLayout(false);
         readerPanel.ResumeLayout(false);
+        externalPanel.ResumeLayout(false);
         footer.ResumeLayout(false);
         ResumeLayout(false);
     }

@@ -206,7 +206,8 @@ FS scanned {0} / DB indexed {1}</value></data>
   <data name="ToolsReparseDoneFmt" xml:space="preserve"><value>Re-parse complete.
 Processed: {0} / Skipped: {1} / Failed: {2}</value></data>
   <data name="ToolsReparseCancelled" xml:space="preserve"><value>Re-parse cancelled</value></data>
-  <data name="ExtTitle" xml:space="preserve"><value>External metadata source (nhentai)</value></data>
+  <data name="SettingsMenuExternal" xml:space="preserve"><value>External Source</value></data>
+  <data name="ExtTitle" xml:space="preserve"><value>nhentai API</value></data>
   <data name="ExtDesc" xml:space="preserve"><value>Once enabled, fetches work metadata from the nhentai API. The API key is encrypted with Windows DPAPI (per-user; the config file is unreadable when copied to another machine).</value></data>
   <data name="ExtEnableLabel" xml:space="preserve"><value>Enable:</value></data>
   <data name="ExtKeyLabel" xml:space="preserve"><value>API Key:</value></data>

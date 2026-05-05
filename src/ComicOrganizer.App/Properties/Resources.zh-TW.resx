@@ -206,7 +206,8 @@ FS 掃描 {0} 件 / DB 索引 {1} 件</value></data>
   <data name="ToolsReparseDoneFmt" xml:space="preserve"><value>重新解析完成。
 處理: {0} / 跳過: {1} / 失敗: {2}</value></data>
   <data name="ToolsReparseCancelled" xml:space="preserve"><value>重新解析已取消</value></data>
-  <data name="ExtTitle" xml:space="preserve"><value>外部 metadata 來源 (nhentai)</value></data>
+  <data name="SettingsMenuExternal" xml:space="preserve"><value>外部資料來源</value></data>
+  <data name="ExtTitle" xml:space="preserve"><value>nhentai API</value></data>
   <data name="ExtDesc" xml:space="preserve"><value>啟用後可從 nhentai API 拉取作品 metadata。API key 用 Windows DPAPI 加密儲存（per-user，跨機器拷貝 config 解不開）。</value></data>
   <data name="ExtEnableLabel" xml:space="preserve"><value>啟用：</value></data>
   <data name="ExtKeyLabel" xml:space="preserve"><value>API Key:</value></data>

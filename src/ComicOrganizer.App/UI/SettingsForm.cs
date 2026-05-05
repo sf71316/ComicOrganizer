@@ -41,6 +41,12 @@ public partial class SettingsForm : Window, IThemedControl
         btnBrowseTarget.DefaultBack = Core.ThemeColors.Primary;
         btnBrowseViewer.DefaultBack = Core.ThemeColors.Primary;
         btnSave.BackColor = Core.ThemeColors.Primary;
+        // 外部 metadata 文字色
+        lblExtTitle.ForeColor = Core.ThemeColors.Text;
+        lblExtDesc.ForeColor = Core.ThemeColors.Text;
+        lblExtEnable.ForeColor = Core.ThemeColors.Text;
+        lblExtKey.ForeColor = Core.ThemeColors.Text;
+        lblExtStatus.ForeColor = Core.ThemeColors.Text;
         this.Refresh();
     }
 
@@ -80,6 +86,14 @@ public partial class SettingsForm : Window, IThemedControl
         selectReadingDirection.Items.Add(FmtLtr());
         selectReadingDirection.SelectedIndex = Prefs.DefaultReadingDirection == "ltr" ? 1 : 0;
         cbDualPageSpreadFromCover.Checked = Prefs.DualPageSpreadFromCover;
+
+        // 外部 metadata (#52)
+        swEnableExternal.Checked = Config.EnableExternalMetadata;
+        txtExtKey.Text = "";   // 不顯示真實 key
+        var hasKey = !string.IsNullOrEmpty(Config.GetNhentaiApiKey());
+        txtExtKey.PlaceholderText = hasKey
+            ? (LocalizationManager.GetString("ExtKeyPlaceholderSet") ?? "(已儲存 — 留空保持原值)")
+            : (LocalizationManager.GetString("ExtKeyPlaceholderEmpty") ?? "nhk_...");
     }
 
     private void WireEvents()
@@ -93,6 +107,9 @@ public partial class SettingsForm : Window, IThemedControl
         btnMenuGeneral.Click += (s, e) => ShowSection(SettingsSection.General);
         btnMenuLibrary.Click += (s, e) => ShowSection(SettingsSection.Library);
         btnMenuReader.Click += (s, e) => ShowSection(SettingsSection.Reader);
+        btnMenuExternal.Click += (s, e) => ShowSection(SettingsSection.External);
+
+        btnTestConnection.Click += async (s, e) => await OnTestConnection();
 
         selectTheme.SelectedValueChanged += (s, e) =>
         {
@@ -112,17 +129,51 @@ public partial class SettingsForm : Window, IThemedControl
         };
     }
 
-    private enum SettingsSection { General, Library, Reader }
+    private enum SettingsSection { General, Library, Reader, External }
 
     private void ShowSection(SettingsSection section)
     {
         generalPanel.Visible = section == SettingsSection.General;
         libraryPanel.Visible = section == SettingsSection.Library;
         readerPanel.Visible = section == SettingsSection.Reader;
+        externalPanel.Visible = section == SettingsSection.External;
         // 選中的按鈕用 Primary 樣式，未選中用 Default
-        btnMenuGeneral.Type = section == SettingsSection.General ? AntdUI.TTypeMini.Primary : AntdUI.TTypeMini.Default;
-        btnMenuLibrary.Type = section == SettingsSection.Library ? AntdUI.TTypeMini.Primary : AntdUI.TTypeMini.Default;
-        btnMenuReader.Type  = section == SettingsSection.Reader  ? AntdUI.TTypeMini.Primary : AntdUI.TTypeMini.Default;
+        btnMenuGeneral.Type  = section == SettingsSection.General  ? AntdUI.TTypeMini.Primary : AntdUI.TTypeMini.Default;
+        btnMenuLibrary.Type  = section == SettingsSection.Library  ? AntdUI.TTypeMini.Primary : AntdUI.TTypeMini.Default;
+        btnMenuReader.Type   = section == SettingsSection.Reader   ? AntdUI.TTypeMini.Primary : AntdUI.TTypeMini.Default;
+        btnMenuExternal.Type = section == SettingsSection.External ? AntdUI.TTypeMini.Primary : AntdUI.TTypeMini.Default;
+    }
+
+    private async Task OnTestConnection()
+    {
+        var inputKey = txtExtKey.Text?.Trim();
+        var keyToUse = !string.IsNullOrEmpty(inputKey) ? inputKey : Config.GetNhentaiApiKey();
+        if (string.IsNullOrEmpty(keyToUse))
+        {
+            lblExtStatus.Text = LocalizationManager.GetString("ExtStatusNoKey") ?? "尚未設定 API key";
+            return;
+        }
+
+        btnTestConnection.Loading = true;
+        lblExtStatus.Text = LocalizationManager.GetString("ExtStatusTesting") ?? "測試中…";
+        try
+        {
+            using var client = new NhentaiApiClient(keyToUse);
+            var result = await client.TestConnectionAsync();
+            if (IsDisposed) return;
+            lblExtStatus.Text = result.Success
+                ? string.Format(LocalizationManager.GetString("ExtStatusOkFmt") ?? "✓ 連線成功（user: {0}）", result.UserName ?? "?")
+                : string.Format(LocalizationManager.GetString("ExtStatusFailFmt") ?? "✗ 連線失敗：{0}", result.ErrorMessage ?? "unknown");
+        }
+        catch (Exception ex)
+        {
+            lblExtStatus.Text = string.Format(
+                LocalizationManager.GetString("ExtStatusFailFmt") ?? "✗ 連線失敗：{0}", ex.Message);
+        }
+        finally
+        {
+            btnTestConnection.Loading = false;
+        }
     }
 
     public void ApplyLocalization()
@@ -138,9 +189,17 @@ public partial class SettingsForm : Window, IThemedControl
         btnBrowseSource.Text = btnBrowseTarget.Text = btnBrowseViewer.Text = LocalizationManager.GetString("Browse") ?? "瀏覽";
 
         // 左側選單分類
-        btnMenuGeneral.Text = LocalizationManager.GetString("SettingsMenuGeneral") ?? "一般設定";
-        btnMenuLibrary.Text = LocalizationManager.GetString("SettingsMenuLibrary") ?? "漫畫庫管理";
-        btnMenuReader.Text  = LocalizationManager.GetString("SettingsMenuReader")  ?? "閱讀器";
+        btnMenuGeneral.Text  = LocalizationManager.GetString("SettingsMenuGeneral")  ?? "一般設定";
+        btnMenuLibrary.Text  = LocalizationManager.GetString("SettingsMenuLibrary")  ?? "漫畫庫管理";
+        btnMenuReader.Text   = LocalizationManager.GetString("SettingsMenuReader")   ?? "閱讀器";
+        btnMenuExternal.Text = LocalizationManager.GetString("SettingsMenuExternal") ?? "外部資料來源";
+
+        // 外部 metadata 分頁
+        lblExtTitle.Text = LocalizationManager.GetString("ExtTitle") ?? "nhentai API";
+        lblExtDesc.Text  = LocalizationManager.GetString("ExtDesc") ?? "啟用後可從 nhentai API 拉取作品 metadata。API key 用 Windows DPAPI 加密儲存。";
+        lblExtEnable.Text = LocalizationManager.GetString("ExtEnableLabel") ?? "啟用：";
+        lblExtKey.Text   = LocalizationManager.GetString("ExtKeyLabel") ?? "API Key:";
+        btnTestConnection.Text = LocalizationManager.GetString("ExtTestConnection") ?? "測試連線";
 
         // 閱讀器分頁
         cbUseBuiltInReader.Text = LocalizationManager.GetString("SettingsUseBuiltInReader") ?? "使用內建閱讀器（取代外部 viewer）";
@@ -255,6 +314,13 @@ public partial class SettingsForm : Window, IThemedControl
         Prefs.UseBuiltInReader = cbUseBuiltInReader.Checked;
         Prefs.DefaultReadingDirection = selectReadingDirection.SelectedIndex == 1 ? "ltr" : "rtl";
         Prefs.DualPageSpreadFromCover = cbDualPageSpreadFromCover.Checked;
+
+        // 外部 metadata (#52)
+        Config.EnableExternalMetadata = swEnableExternal.Checked;
+        var newKey = txtExtKey.Text?.Trim() ?? "";
+        // 空字串 = 不變動（避免使用者沒輸入就 Save 把舊 key 清掉）
+        if (!string.IsNullOrEmpty(newKey))
+            Config.SetNhentaiApiKey(newKey);
 
         // Theme + Language 寫到 preferences.json（與 appsettings.json 分檔）
         if (selectTheme.SelectedIndex >= 0)

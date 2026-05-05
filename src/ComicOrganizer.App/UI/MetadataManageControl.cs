@@ -21,13 +21,12 @@ public partial class MetadataManageControl : UserControl, IThemedControl
     }
 
     public void Initialize(IAssetMetaStore metaStore, ReparseAllService reparseService,
-                           RebuildProgressTracker tracker,
-                           ConfigManager configManager, Models.AppConfig config)
+                           RebuildProgressTracker tracker)
     {
         _metaStore = metaStore;
         tagPanel.Initialize(metaStore);
         authorPanel.Initialize(metaStore);
-        toolsPanel.Initialize(metaStore, reparseService, tracker, configManager, config);
+        toolsPanel.Initialize(metaStore, reparseService, tracker);
         _initialized = true;
     }
 

@@ -29,17 +29,6 @@ partial class MetadataToolsPanel
     private System.Windows.Forms.Label lblProgressCurrent;
     private AntdUI.Button btnCancel;
 
-    // 外部 metadata 來源區 (#52 Phase C)
-    private AntdUI.Panel externalSourcePanel;
-    private System.Windows.Forms.Label lblExtTitle;
-    private System.Windows.Forms.Label lblExtDesc;
-    private AntdUI.Switch swEnableExternal;
-    private System.Windows.Forms.Label lblExtEnable;
-    private System.Windows.Forms.Label lblExtKey;
-    private AntdUI.Input txtExtKey;
-    private AntdUI.Button btnSaveKey;
-    private AntdUI.Button btnTestConnection;
-    private System.Windows.Forms.Label lblExtStatus;
 
     protected override void Dispose(bool disposing)
     {
@@ -69,19 +58,8 @@ partial class MetadataToolsPanel
         btnReparse = new AntdUI.Button();
         lblReparseDesc = new System.Windows.Forms.Label();
         lblReparseTitle = new System.Windows.Forms.Label();
-        externalSourcePanel = new AntdUI.Panel();
-        lblExtTitle = new System.Windows.Forms.Label();
-        lblExtDesc = new System.Windows.Forms.Label();
-        swEnableExternal = new AntdUI.Switch();
-        lblExtEnable = new System.Windows.Forms.Label();
-        lblExtKey = new System.Windows.Forms.Label();
-        txtExtKey = new AntdUI.Input();
-        btnSaveKey = new AntdUI.Button();
-        btnTestConnection = new AntdUI.Button();
-        lblExtStatus = new System.Windows.Forms.Label();
         statsPanel.SuspendLayout();
         reparsePanel.SuspendLayout();
-        externalSourcePanel.SuspendLayout();
         SuspendLayout();
         // 
         // lblTitle
@@ -268,124 +246,18 @@ partial class MetadataToolsPanel
         lblReparseTitle.TabIndex = 0;
         lblReparseTitle.Text = "整庫重新解析 metadata";
         //
-        // externalSourcePanel
-        //
-        externalSourcePanel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-        externalSourcePanel.Controls.Add(lblExtStatus);
-        externalSourcePanel.Controls.Add(btnTestConnection);
-        externalSourcePanel.Controls.Add(btnSaveKey);
-        externalSourcePanel.Controls.Add(txtExtKey);
-        externalSourcePanel.Controls.Add(lblExtKey);
-        externalSourcePanel.Controls.Add(swEnableExternal);
-        externalSourcePanel.Controls.Add(lblExtEnable);
-        externalSourcePanel.Controls.Add(lblExtDesc);
-        externalSourcePanel.Controls.Add(lblExtTitle);
-        externalSourcePanel.Location = new Point(20, 595);
-        externalSourcePanel.Name = "externalSourcePanel";
-        externalSourcePanel.Padding = new Padding(20, 16, 20, 16);
-        externalSourcePanel.Radius = 8;
-        externalSourcePanel.Size = new Size(805, 240);
-        externalSourcePanel.TabIndex = 3;
-        //
-        // lblExtTitle
-        //
-        lblExtTitle.AutoSize = true;
-        lblExtTitle.BackColor = Color.Transparent;
-        lblExtTitle.Font = new Font("Microsoft JhengHei UI", 11F, FontStyle.Bold);
-        lblExtTitle.Location = new Point(20, 16);
-        lblExtTitle.Name = "lblExtTitle";
-        lblExtTitle.Size = new Size(160, 21);
-        lblExtTitle.TabIndex = 0;
-        lblExtTitle.Text = "外部 metadata 來源 (nhentai)";
-        //
-        // lblExtDesc
-        //
-        lblExtDesc.BackColor = Color.Transparent;
-        lblExtDesc.Location = new Point(20, 45);
-        lblExtDesc.Name = "lblExtDesc";
-        lblExtDesc.Size = new Size(750, 35);
-        lblExtDesc.TabIndex = 1;
-        lblExtDesc.Text = "啟用後可從 nhentai API 拉取作品 metadata。API key 用 Windows DPAPI 加密儲存（per-user，跨機器拷貝 config 解不開）。";
-        //
-        // lblExtEnable
-        //
-        lblExtEnable.AutoSize = true;
-        lblExtEnable.BackColor = Color.Transparent;
-        lblExtEnable.Location = new Point(20, 95);
-        lblExtEnable.Name = "lblExtEnable";
-        lblExtEnable.Size = new Size(40, 15);
-        lblExtEnable.TabIndex = 2;
-        lblExtEnable.Text = "啟用：";
-        //
-        // swEnableExternal
-        //
-        swEnableExternal.Location = new Point(80, 90);
-        swEnableExternal.Name = "swEnableExternal";
-        swEnableExternal.Size = new Size(50, 25);
-        swEnableExternal.TabIndex = 3;
-        //
-        // lblExtKey
-        //
-        lblExtKey.AutoSize = true;
-        lblExtKey.BackColor = Color.Transparent;
-        lblExtKey.Location = new Point(20, 130);
-        lblExtKey.Name = "lblExtKey";
-        lblExtKey.Size = new Size(60, 15);
-        lblExtKey.TabIndex = 4;
-        lblExtKey.Text = "API Key:";
-        //
-        // txtExtKey
-        //
-        txtExtKey.PasswordChar = '●';
-        txtExtKey.Location = new Point(80, 125);
-        txtExtKey.Name = "txtExtKey";
-        txtExtKey.PlaceholderText = "nhk_...";
-        txtExtKey.Size = new Size(420, 32);
-        txtExtKey.TabIndex = 5;
-        //
-        // btnSaveKey
-        //
-        btnSaveKey.Location = new Point(510, 125);
-        btnSaveKey.Name = "btnSaveKey";
-        btnSaveKey.Size = new Size(100, 32);
-        btnSaveKey.TabIndex = 6;
-        btnSaveKey.Text = "儲存 Key";
-        btnSaveKey.Type = TTypeMini.Primary;
-        //
-        // btnTestConnection
-        //
-        btnTestConnection.IconSvg = "ApiOutlined";
-        btnTestConnection.Location = new Point(620, 125);
-        btnTestConnection.Name = "btnTestConnection";
-        btnTestConnection.Size = new Size(120, 32);
-        btnTestConnection.TabIndex = 7;
-        btnTestConnection.Text = "測試連線";
-        //
-        // lblExtStatus
-        //
-        lblExtStatus.BackColor = Color.Transparent;
-        lblExtStatus.Location = new Point(20, 175);
-        lblExtStatus.Name = "lblExtStatus";
-        lblExtStatus.Size = new Size(750, 50);
-        lblExtStatus.TabIndex = 8;
-        lblExtStatus.Text = "(未測試)";
-        //
         // MetadataToolsPanel
         //
         AutoScaleDimensions = new SizeF(7F, 15F);
         AutoScaleMode = AutoScaleMode.Font;
-        AutoScroll = true;
-        Controls.Add(externalSourcePanel);
         Controls.Add(reparsePanel);
         Controls.Add(statsPanel);
         Controls.Add(lblTitle);
         Name = "MetadataToolsPanel";
-        Size = new Size(851, 870);
+        Size = new Size(851, 614);
         statsPanel.ResumeLayout(false);
         statsPanel.PerformLayout();
         reparsePanel.ResumeLayout(false);
-        reparsePanel.PerformLayout();
-        externalSourcePanel.ResumeLayout(false);
         reparsePanel.PerformLayout();
         ResumeLayout(false);
         PerformLayout();
