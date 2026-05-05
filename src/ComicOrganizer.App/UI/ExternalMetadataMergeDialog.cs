@@ -25,6 +25,10 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
     private readonly Dictionary<string, AntdUI.Checkbox> _tagChecks = new(StringComparer.OrdinalIgnoreCase);
     private AntdUI.Checkbox? cbApplyToRemaining;
 
+    // 手動 layout cursor
+    private int _yCursor = 0;
+    private System.Windows.Forms.Panel _scrollHost = null!;
+
     private AntdUI.Button btnOk;
     private AntdUI.Button btnCancel;
 
@@ -103,46 +107,48 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
             };
         }
 
-        // 主內容：FlowLayoutPanel 縱向排各 row
-        var flow = new System.Windows.Forms.FlowLayoutPanel
+        // 主內容：可捲動 Panel + 手動 y 定位（先 Add 進 content 取得 ClientSize）
+        _scrollHost = new System.Windows.Forms.Panel
         {
             Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false,
             AutoScroll = true,
             BackColor = System.Drawing.Color.Transparent,
         };
 
-        AddScalarRow(flow, LocalizationManager.GetString("MergeFieldTitle") ?? "標題",
+        // 先把 dock 結構建好（Bottom / Top 先 Add，Fill 最後）
+        content.Controls.Add(_scrollHost);   // Fill
+        content.Controls.Add(lblPath);       // Top
+        content.Controls.Add(lblHeader);     // Top
+        if (cbApplyToRemaining != null) content.Controls.Add(cbApplyToRemaining);
+        content.Controls.Add(btnRow);
+
+        // 強制 layout 一次拿到實際尺寸再加 row
+        content.PerformLayout();
+
+        AddScalarRow(LocalizationManager.GetString("MergeFieldTitle") ?? "標題",
             local.Title, ChooseExternalTitle(),
             preferLocal: false);
 
-        AddScalarRow(flow, LocalizationManager.GetString("MergeFieldAuthor") ?? "作者",
+        AddScalarRow(LocalizationManager.GetString("MergeFieldAuthor") ?? "作者",
             local.AuthorMainName, ChooseExternalAuthor(),
             preferLocal: false);
 
-        AddScalarRow(flow, LocalizationManager.GetString("MergeFieldLanguage") ?? "語言",
+        AddScalarRow(LocalizationManager.GetString("MergeFieldLanguage") ?? "語言",
             local.Language, ChooseExternalLanguage(),
             preferLocal: true,
             warning: LocalizationManager.GetString("MergeWarnLanguage") ??
                 "⚠ 警告：語言不同可能表示是不同版本（譯本 vs 原版），預設保留本地");
 
-        AddScalarRow(flow, LocalizationManager.GetString("MergeFieldPageCount") ?? "頁數",
+        AddScalarRow(LocalizationManager.GetString("MergeFieldPageCount") ?? "頁數",
             local.PageCount?.ToString(), external.NumPages?.ToString(),
             preferLocal: false);
 
-        AddScalarRow(flow, LocalizationManager.GetString("MergeFieldScanlator") ?? "翻譯組",
+        AddScalarRow(LocalizationManager.GetString("MergeFieldScanlator") ?? "翻譯組",
             local.TranslationGroup, string.IsNullOrEmpty(external.Scanlator) ? null : external.Scanlator,
             preferLocal: false);
 
         // Tag 區
-        AddTagsRow(flow);
-
-        content.Controls.Add(flow);
-        content.Controls.Add(lblPath);
-        content.Controls.Add(lblHeader);
-        if (cbApplyToRemaining != null) content.Controls.Add(cbApplyToRemaining);
-        content.Controls.Add(btnRow);
+        AddTagsRow();
 
         AcceptButton = btnOk;
         CancelButton = btnCancel;
@@ -152,16 +158,17 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
 
     // ── Field rows ─────────────────────────────────────────────────────
 
-    private void AddScalarRow(System.Windows.Forms.Panel host, string label,
+    private void AddScalarRow(string label,
                               string? localValue, string? externalValue,
                               bool preferLocal, string? warning = null)
     {
-        int rowWidth = Math.Max(host.ClientSize.Width - 24, 740);
+        int rowWidth = Math.Max(_scrollHost.ClientSize.Width - 24, 740);
+        int rowHeight = warning != null ? 95 : 75;
         var row = new System.Windows.Forms.Panel
         {
+            Location = new System.Drawing.Point(0, _yCursor),
             Width = rowWidth,
-            Height = warning != null ? 95 : 75,
-            Margin = new Padding(0, 0, 0, 8),
+            Height = rowHeight,
             BackColor = System.Drawing.Color.Transparent,
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
         };
@@ -226,12 +233,13 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
             row.Controls.Add(lblWarn);
         }
 
-        host.Controls.Add(row);
+        _scrollHost.Controls.Add(row);
+        _yCursor += rowHeight + 8;
 
         _rows.Add(new FieldRow(label, localValue, externalValue, rbLocal, rbExternal));
     }
 
-    private void AddTagsRow(System.Windows.Forms.Panel host)
+    private void AddTagsRow()
     {
         var localTagNames = _local.Tags.Select(t => t.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var externalTagNames = _external.Tags
@@ -241,13 +249,13 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
 
         var allTags = localTagNames.Union(externalTagNames, StringComparer.OrdinalIgnoreCase).OrderBy(t => t).ToList();
 
-        int rowWidth = Math.Max(host.ClientSize.Width - 24, 740);
+        int rowWidth = Math.Max(_scrollHost.ClientSize.Width - 24, 740);
         int rowHeight = 36 + Math.Max(allTags.Count, 1) * 26 + 12;
         var row = new System.Windows.Forms.Panel
         {
+            Location = new System.Drawing.Point(0, _yCursor),
             Width = rowWidth,
             Height = rowHeight,
-            Margin = new Padding(0, 0, 0, 8),
             BackColor = System.Drawing.Color.Transparent,
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
         };
@@ -303,7 +311,8 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
             }
         }
 
-        host.Controls.Add(row);
+        _scrollHost.Controls.Add(row);
+        _yCursor += rowHeight + 8;
     }
 
     // ── Build result ───────────────────────────────────────────────────
