@@ -55,8 +55,15 @@ public class TagTranslator
     /// <summary>翻譯庫條目總數。</summary>
     public int Count => _db.Value?.Count ?? 0;
 
-    /// <summary>nhentai (type, slug) → 中文翻譯名。找不到回 null。</summary>
+    /// <summary>nhentai (type, slug) → 中文翻譯名。找不到回 null。
+    /// 當前 UI 語言是 zh-TW 自動將簡體轉繁體（EhTag 是中國社群簡體翻譯）。</summary>
     public string? Translate(string nhentaiType, string slug)
+    {
+        var raw = TranslateRaw(nhentaiType, slug);
+        return MaybeToTraditional(raw);
+    }
+
+    private string? TranslateRaw(string nhentaiType, string slug)
     {
         var db = _db.Value;
         if (db == null || string.IsNullOrEmpty(slug)) return null;
@@ -79,6 +86,21 @@ public class TagTranslator
         return null;
     }
 
+    private static string? MaybeToTraditional(string? simplified)
+    {
+        if (string.IsNullOrEmpty(simplified)) return simplified;
+        var lang = System.Globalization.CultureInfo.CurrentUICulture.Name;
+        // zh-TW / zh-HK / zh-MO / zh-Hant 才轉；簡體環境保留
+        if (lang.StartsWith("zh-TW", StringComparison.OrdinalIgnoreCase)
+            || lang.StartsWith("zh-HK", StringComparison.OrdinalIgnoreCase)
+            || lang.StartsWith("zh-MO", StringComparison.OrdinalIgnoreCase)
+            || lang.Contains("Hant", StringComparison.OrdinalIgnoreCase))
+        {
+            return ZhConverter.ToTraditional(simplified);
+        }
+        return simplified;
+    }
+
     /// <summary>artist 專用 convenience。</summary>
     public string? TranslateArtist(string slug) => Translate("artist", slug);
 
@@ -92,7 +114,7 @@ public class TagTranslator
         foreach (var ns in new[] { "female", "male", "mixed", "other", "artist",
                                    "group", "parody", "character", "language", "cosplayer" })
         {
-            if (db.TryGet(ns, slug, out var entry)) return entry.Name;
+            if (db.TryGet(ns, slug, out var entry)) return MaybeToTraditional(entry.Name);
         }
         return null;
     }

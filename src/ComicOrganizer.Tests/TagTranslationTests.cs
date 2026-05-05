@@ -66,7 +66,11 @@ public class TagTranslationTests
     {
         var t = new TagTranslator();
         Assert.Equal("Flugel", t.TranslateArtist("flugel"));
-        Assert.Equal("大嘘", t.TranslateArtist("oouso"));
+        // oouso 在 EhTag 簡體名為「大嘘」；台灣繁體 culture 下 OpenCC 轉成「大噓」
+        var oouso = t.TranslateArtist("oouso");
+        Assert.NotNull(oouso);
+        Assert.Contains("大", oouso!);
+        Assert.True(oouso == "大嘘" || oouso == "大噓");
     }
 
     [Fact]
@@ -145,5 +149,29 @@ public class TagTranslationTests
         Assert.Null(t.TranslateArtist("flugel"));
         Assert.False(t.IsKnownArtist("flugel"));
         Assert.Empty(t.SuggestArtists("flu"));
+    }
+
+    // ── ZhConverter (字形 簡↔繁 轉換) ──────────────────────────────────
+
+    [Theory]
+    [InlineData("学校", "學校")]
+    [InlineData("妈妈", "媽媽")]
+    [InlineData("头发", "頭髮")]
+    [InlineData("巨乳", "巨乳")]   // 簡繁同字
+    [InlineData("中出", "中出")]   // 簡繁同字
+    [InlineData("Flugel", "Flugel")]  // 純英文不變
+    [InlineData("", "")]
+    public void ZhConverter_S2T(string simplified, string expected)
+    {
+        Assert.Equal(expected, ZhConverter.ToTraditional(simplified));
+    }
+
+    [Theory]
+    [InlineData("學校", "学校")]
+    [InlineData("頭髮", "头发")]
+    [InlineData("巨乳", "巨乳")]
+    public void ZhConverter_T2S(string traditional, string expected)
+    {
+        Assert.Equal(expected, ZhConverter.ToSimplified(traditional));
     }
 }

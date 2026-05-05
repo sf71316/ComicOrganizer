@@ -6,19 +6,7 @@ namespace ComicOrganizer.App.Core;
 
 /// <summary>
 /// EhTagTranslation/Database 翻譯庫 in-memory 索引（#53 Phase 1）。
-///
-/// schema (db.text.json):
-/// {
-///   "repo": "...",
-///   "head": { sha, message, ... },
-///   "version": 7,
-///   "data": [
-///     { "namespace": "artist", "data": { "flugel": {name,intro,links}, "oouso": {name:"大嘘",...}, ... } },
-///     { "namespace": "female", "data": { "big breasts": {name:"巨乳",...}, ... } },
-///     ...
-///   ]
-/// }
-///
+
 /// 載入後 lookup 用 Dictionary<(namespace, slug), Entry>。
 /// keys 全 lower-case 比對（slug 本身就是 lower-case）。
 /// </summary>
