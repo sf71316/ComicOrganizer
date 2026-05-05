@@ -206,6 +206,11 @@ public partial class GalleryControl : UserControl, IThemedControl
         _readRecordQueue = readRecordQueue;
         _prefs = prefs;
 
+        // ctor 跑 WireDrawerEvents 時 _config 還沒設 → 按鈕可見性沒生效
+        // 這邊 Initialize 完成後 sync 一次
+        if (detailDrawerHost?.WorkPanel != null)
+            detailDrawerHost.WorkPanel.ShowFetchExternalButton = config.EnableExternalMetadata;
+
         // Recorded fired from background thread → marshal to UI 同步卡片 icon
         if (_readRecordQueue != null)
         {
