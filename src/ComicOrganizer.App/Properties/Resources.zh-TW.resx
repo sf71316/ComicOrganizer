@@ -238,6 +238,19 @@ FS 掃描 {0} 件 / DB 索引 {1} 件</value></data>
   <data name="FetchExtErrNotFoundFmt" xml:space="preserve"><value>id={0} 在 nhentai 上找不到（可能已下架）</value></data>
   <data name="FetchExtErrFmt" xml:space="preserve"><value>拉取失敗：{0}</value></data>
   <data name="FetchExtDone" xml:space="preserve"><value>metadata 已套用</value></data>
+  <data name="PickerTitle" xml:space="preserve"><value>搜尋 nhentai 並選取對應作品</value></data>
+  <data name="PickerHintFmt" xml:space="preserve"><value>本地檔: {0}</value></data>
+  <data name="PickerQueryPlaceholder" xml:space="preserve"><value>標題 / artist:xxx / language:xxx ...</value></data>
+  <data name="PickerSearch" xml:space="preserve"><value>搜尋</value></data>
+  <data name="PickerSelect" xml:space="preserve"><value>選取</value></data>
+  <data name="PickerSearching" xml:space="preserve"><value>搜尋中…</value></data>
+  <data name="PickerHitCountFmt" xml:space="preserve"><value>{0} 筆結果</value></data>
+  <data name="PickerErrFmt" xml:space="preserve"><value>搜尋失敗：{0}</value></data>
+  <data name="PickerEmpty" xml:space="preserve"><value>輸入查詢字串後按搜尋</value></data>
+  <data name="PickerColId" xml:space="preserve"><value>ID</value></data>
+  <data name="PickerColEng" xml:space="preserve"><value>英文標題</value></data>
+  <data name="PickerColJp" xml:space="preserve"><value>日文標題</value></data>
+  <data name="PickerColPages" xml:space="preserve"><value>頁數</value></data>
   <data name="RebuildCacheTitle" xml:space="preserve"><value>重建索引資料庫</value></data>
   <data name="RebuildFull" xml:space="preserve"><value>完整重建</value></data>
   <data name="RebuildFullDesc" xml:space="preserve"><value>清空所有 cache，從根目錄重新掃描</value></data>

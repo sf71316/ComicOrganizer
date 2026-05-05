@@ -238,6 +238,19 @@ Processed: {0} / Skipped: {1} / Failed: {2}</value></data>
   <data name="FetchExtErrNotFoundFmt" xml:space="preserve"><value>id={0} not found on nhentai (may have been removed)</value></data>
   <data name="FetchExtErrFmt" xml:space="preserve"><value>Fetch failed: {0}</value></data>
   <data name="FetchExtDone" xml:space="preserve"><value>Metadata applied</value></data>
+  <data name="PickerTitle" xml:space="preserve"><value>Search nhentai and select matching gallery</value></data>
+  <data name="PickerHintFmt" xml:space="preserve"><value>Local file: {0}</value></data>
+  <data name="PickerQueryPlaceholder" xml:space="preserve"><value>title / artist:xxx / language:xxx ...</value></data>
+  <data name="PickerSearch" xml:space="preserve"><value>Search</value></data>
+  <data name="PickerSelect" xml:space="preserve"><value>Select</value></data>
+  <data name="PickerSearching" xml:space="preserve"><value>Searching…</value></data>
+  <data name="PickerHitCountFmt" xml:space="preserve"><value>{0} hits</value></data>
+  <data name="PickerErrFmt" xml:space="preserve"><value>Search failed: {0}</value></data>
+  <data name="PickerEmpty" xml:space="preserve"><value>Enter query and press Search</value></data>
+  <data name="PickerColId" xml:space="preserve"><value>ID</value></data>
+  <data name="PickerColEng" xml:space="preserve"><value>English Title</value></data>
+  <data name="PickerColJp" xml:space="preserve"><value>Japanese Title</value></data>
+  <data name="PickerColPages" xml:space="preserve"><value>Pages</value></data>
   <data name="RebuildCacheTitle" xml:space="preserve"><value>Rebuild Cache Database</value></data>
   <data name="RebuildFull" xml:space="preserve"><value>Full Rebuild</value></data>
   <data name="RebuildFullDesc" xml:space="preserve"><value>Clear all cache, rescan from root directory</value></data>

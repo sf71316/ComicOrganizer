@@ -532,9 +532,19 @@ public partial class GalleryControl : UserControl, IThemedControl
             }
             else
             {
-                // 沒 id → 暫時提示「請手動輸入 id」（v2 加 search picker）
-                AntdUI.Message.info(form, LocalizationManager.GetString("FetchExtErrNoId") ?? "檔名沒含 6-7 位數字 id；search fallback 尚未實作");
-                return;
+                // 沒 id → 開 search picker fallback
+                var initialQuery = BuildSearchQueryFromFilename(name);
+                using var picker = new NhentaiSearchPickerDialog(name, initialQuery,
+                    q => client.SearchAsync(q));
+                if (picker.ShowDialog(form) != DialogResult.OK || picker.SelectedHit == null) return;
+                result = await client.GetByExternalIdAsync(picker.SelectedHit.ExternalId);
+                if (result == null)
+                {
+                    AntdUI.Message.warn(form, string.Format(
+                        LocalizationManager.GetString("FetchExtErrNotFoundFmt") ?? "id={0} 在 nhentai 上找不到（可能已下架）",
+                        picker.SelectedHit.ExternalId));
+                    return;
+                }
             }
 
             // 開 merge dialog
@@ -553,6 +563,28 @@ public partial class GalleryControl : UserControl, IThemedControl
             AntdUI.Message.error(form, string.Format(
                 LocalizationManager.GetString("FetchExtErrFmt") ?? "拉取失敗：{0}", ex.Message));
         }
+    }
+
+    /// <summary>從檔名建構初始搜尋字串：parser 抽出 title + 加 artist:slug 前綴。</summary>
+    private static string BuildSearchQueryFromFilename(string filename)
+    {
+        var parsed = FilenameMetadataParser.ParseWorkName(filename);
+        var parts = new List<string>();
+
+        // artist:slug — 用 lower-case 去除空格
+        if (!string.IsNullOrWhiteSpace(parsed.AuthorMainName))
+        {
+            var slug = parsed.AuthorMainName.Trim().ToLowerInvariant().Replace(' ', '-');
+            parts.Add($"artist:{slug}");
+        }
+        // title 主體
+        if (!string.IsNullOrWhiteSpace(parsed.Title))
+            parts.Add(parsed.Title.Trim());
+        // 都沒抽到 → 用整個 filename（去副檔名）當 fallback
+        if (parts.Count == 0)
+            parts.Add(Path.GetFileNameWithoutExtension(filename));
+
+        return string.Join(" ", parts);
     }
 
     /// <summary>把 MergeDialog 的結果寫進 DB（asset_meta + asset_tag + asset_external_source）。</summary>
