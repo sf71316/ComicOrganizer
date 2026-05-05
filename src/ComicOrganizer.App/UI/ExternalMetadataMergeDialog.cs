@@ -16,6 +16,7 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
 {
     private readonly WorkDetail _local;
     private readonly MetadataLookupResult _external;
+    private readonly TagTranslator? _translator;
 
     public MergeResult? Result { get; private set; }
 
@@ -32,10 +33,12 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
     private AntdUI.Button btnOk;
     private AntdUI.Button btnCancel;
 
-    public ExternalMetadataMergeDialog(WorkDetail local, MetadataLookupResult external, bool batchMode = false)
+    public ExternalMetadataMergeDialog(WorkDetail local, MetadataLookupResult external,
+                                       bool batchMode = false, TagTranslator? translator = null)
     {
         _local = local;
         _external = external;
+        _translator = translator;
 
         Text = LocalizationManager.GetString("MergeDialogTitle") ?? "從 nhentai 拉取 metadata";
         Size = new System.Drawing.Size(820, 720);
@@ -284,6 +287,11 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
         }
         else
         {
+            // 建一個 slug → category 對映（從 external tags 撈，本地 tags 也會有 category）
+            var categoryBySlug = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var t in _external.Tags) categoryBySlug.TryAdd(t.Name, t.Type);
+            foreach (var t in _local.Tags) categoryBySlug.TryAdd(t.Name, t.Category ?? "");
+
             int y = 30;
             foreach (var tagName in allTags)
             {
@@ -296,9 +304,19 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
                     (false, true) => "[external]",
                     _ => "",
                 };
+                // 嘗試翻譯
+                string display = tagName;
+                if (_translator != null)
+                {
+                    string? zh = categoryBySlug.TryGetValue(tagName, out var cat)
+                        ? _translator.Translate(cat, tagName)
+                        : _translator.TranslateAny(tagName);
+                    if (!string.IsNullOrEmpty(zh) && zh != tagName)
+                        display = $"{zh}  ({tagName})";
+                }
                 var cb = new AntdUI.Checkbox
                 {
-                    Text = $"{tagName}  {source}",
+                    Text = $"{display}  {source}",
                     Location = new System.Drawing.Point(20, y),
                     Size = new System.Drawing.Size(rowWidth - 28, 24),
                     Checked = true,   // 全部預設選取

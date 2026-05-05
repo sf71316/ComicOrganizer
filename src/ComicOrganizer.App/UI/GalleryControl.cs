@@ -560,8 +560,8 @@ public partial class GalleryControl : UserControl, IThemedControl
                 }
             }
 
-            // 開 merge dialog
-            using var dlg = new ExternalMetadataMergeDialog(detail, result, batchMode: false);
+            // 開 merge dialog（傳 translator 即時顯示中文）
+            using var dlg = new ExternalMetadataMergeDialog(detail, result, batchMode: false, translator: _tagTranslator);
             if (dlg.ShowDialog(form) != DialogResult.OK || dlg.Result == null) return;
 
             ApplyMergeResult(detail, dlg.Result);
