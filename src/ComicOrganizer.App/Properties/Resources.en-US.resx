@@ -188,6 +188,24 @@ FS scanned {0} / DB indexed {1}</value></data>
   <data name="ReconcileDeleteDoneFmt" xml:space="preserve"><value>{0} orphans deleted</value></data>
   <data name="DialogConfirm" xml:space="preserve"><value>Confirm</value></data>
   <data name="DialogClose" xml:space="preserve"><value>Close</value></data>
+  <data name="MetaNavTools" xml:space="preserve"><value>Tools</value></data>
+  <data name="ToolsTitle" xml:space="preserve"><value>Metadata Tools</value></data>
+  <data name="ToolsStatsTitle" xml:space="preserve"><value>Parse Statistics</value></data>
+  <data name="ToolsStatsTotalFmt" xml:space="preserve"><value>Total works: {0}</value></data>
+  <data name="ToolsStatsParsedFmt" xml:space="preserve"><value>Parsed: {0} ({1:F1}%)</value></data>
+  <data name="ToolsStatsUnparsedFmt" xml:space="preserve"><value>Unparsed: {0}</value></data>
+  <data name="ToolsStatsManualFmt" xml:space="preserve"><value>Manually edited (skipped on re-parse): {0}</value></data>
+  <data name="ToolsStatsAutoFmt" xml:space="preserve"><value>Re-parseable: {0}</value></data>
+  <data name="ToolsReparseTitle" xml:space="preserve"><value>Re-parse all metadata</value></data>
+  <data name="ToolsReparseDesc" xml:space="preserve"><value>Re-parse metadata from filenames for all non-manually-edited works. Reading records (read count, last read, last page) are preserved. Works marked as "manually edited" are skipped.</value></data>
+  <data name="ToolsReparseButton" xml:space="preserve"><value>Re-parse all</value></data>
+  <data name="ToolsReparseConfirmTitle" xml:space="preserve"><value>Re-parse all</value></data>
+  <data name="ToolsReparseConfirmMsgFmt" xml:space="preserve"><value>Re-parse metadata for {0} works ({1} manually-edited works will be skipped). Reading records are preserved.</value></data>
+  <data name="ToolsReparseConfirmOk" xml:space="preserve"><value>Start re-parse</value></data>
+  <data name="ToolsReparseDoneTitle" xml:space="preserve"><value>Re-parse complete</value></data>
+  <data name="ToolsReparseDoneFmt" xml:space="preserve"><value>Re-parse complete.
+Processed: {0} / Skipped: {1} / Failed: {2}</value></data>
+  <data name="ToolsReparseCancelled" xml:space="preserve"><value>Re-parse cancelled</value></data>
   <data name="RebuildCacheTitle" xml:space="preserve"><value>Rebuild Cache Database</value></data>
   <data name="RebuildFull" xml:space="preserve"><value>Full Rebuild</value></data>
   <data name="RebuildFullDesc" xml:space="preserve"><value>Clear all cache, rescan from root directory</value></data>

@@ -9,10 +9,12 @@ partial class MetadataManageControl
     private AntdUI.Panel sidebarPanel;
     private AntdUI.Button btnNavTags;
     private AntdUI.Button btnNavAuthors;
+    private AntdUI.Button btnNavTools;
 
     private System.Windows.Forms.Panel contentPanel;
     private TagManagePanel tagPanel;
     private AuthorManagePanel authorPanel;
+    private MetadataToolsPanel toolsPanel;
 
     protected override void Dispose(bool disposing)
     {
@@ -26,11 +28,13 @@ partial class MetadataManageControl
     private void InitializeComponent()
     {
         sidebarPanel = new AntdUI.Panel();
+        btnNavTools = new AntdUI.Button();
         btnNavAuthors = new AntdUI.Button();
         btnNavTags = new AntdUI.Button();
         contentPanel = new System.Windows.Forms.Panel();
         tagPanel = new TagManagePanel();
         authorPanel = new AuthorManagePanel();
+        toolsPanel = new MetadataToolsPanel();
 
         sidebarPanel.SuspendLayout();
         contentPanel.SuspendLayout();
@@ -38,6 +42,7 @@ partial class MetadataManageControl
         //
         // sidebarPanel
         //
+        sidebarPanel.Controls.Add(btnNavTools);
         sidebarPanel.Controls.Add(btnNavAuthors);
         sidebarPanel.Controls.Add(btnNavTags);
         sidebarPanel.Dock = System.Windows.Forms.DockStyle.Left;
@@ -71,8 +76,20 @@ partial class MetadataManageControl
         btnNavAuthors.Text = "作者";
         btnNavAuthors.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
         //
+        // btnNavTools
+        //
+        btnNavTools.Dock = System.Windows.Forms.DockStyle.Top;
+        btnNavTools.IconSvg = "ToolOutlined";
+        btnNavTools.Location = new System.Drawing.Point(15, 110);
+        btnNavTools.Name = "btnNavTools";
+        btnNavTools.Size = new System.Drawing.Size(150, 45);
+        btnNavTools.TabIndex = 2;
+        btnNavTools.Text = "工具";
+        btnNavTools.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+        //
         // contentPanel
         //
+        contentPanel.Controls.Add(toolsPanel);
         contentPanel.Controls.Add(authorPanel);
         contentPanel.Controls.Add(tagPanel);
         contentPanel.Dock = System.Windows.Forms.DockStyle.Fill;
@@ -97,6 +114,15 @@ partial class MetadataManageControl
         authorPanel.Size = new System.Drawing.Size(1100, 614);
         authorPanel.TabIndex = 1;
         authorPanel.Visible = false;
+        //
+        // toolsPanel
+        //
+        toolsPanel.Dock = System.Windows.Forms.DockStyle.Fill;
+        toolsPanel.Location = new System.Drawing.Point(0, 0);
+        toolsPanel.Name = "toolsPanel";
+        toolsPanel.Size = new System.Drawing.Size(1100, 614);
+        toolsPanel.TabIndex = 2;
+        toolsPanel.Visible = false;
         //
         // MetadataManageControl
         //

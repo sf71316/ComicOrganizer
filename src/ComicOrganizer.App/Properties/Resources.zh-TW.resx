@@ -188,6 +188,24 @@ FS 掃描 {0} 件 / DB 索引 {1} 件</value></data>
   <data name="ReconcileDeleteDoneFmt" xml:space="preserve"><value>{0} 筆孤兒已刪除</value></data>
   <data name="DialogConfirm" xml:space="preserve"><value>確認</value></data>
   <data name="DialogClose" xml:space="preserve"><value>關閉</value></data>
+  <data name="MetaNavTools" xml:space="preserve"><value>工具</value></data>
+  <data name="ToolsTitle" xml:space="preserve"><value>詮釋資料工具</value></data>
+  <data name="ToolsStatsTitle" xml:space="preserve"><value>解析統計</value></data>
+  <data name="ToolsStatsTotalFmt" xml:space="preserve"><value>作品總數: {0}</value></data>
+  <data name="ToolsStatsParsedFmt" xml:space="preserve"><value>已 parse: {0} ({1:F1}%)</value></data>
+  <data name="ToolsStatsUnparsedFmt" xml:space="preserve"><value>未 parse: {0}</value></data>
+  <data name="ToolsStatsManualFmt" xml:space="preserve"><value>手動編輯保留 (重 parse 跳過): {0}</value></data>
+  <data name="ToolsStatsAutoFmt" xml:space="preserve"><value>可自動重 parse: {0}</value></data>
+  <data name="ToolsReparseTitle" xml:space="preserve"><value>整庫重新解析 metadata</value></data>
+  <data name="ToolsReparseDesc" xml:space="preserve"><value>從檔名重新解析所有未手動編輯的作品。閱讀記錄（讀取次數 / 上次閱讀 / 上次頁碼）會保留。已標記為「手動編輯」的作品會被跳過。</value></data>
+  <data name="ToolsReparseButton" xml:space="preserve"><value>整庫重新解析</value></data>
+  <data name="ToolsReparseConfirmTitle" xml:space="preserve"><value>整庫重新解析</value></data>
+  <data name="ToolsReparseConfirmMsgFmt" xml:space="preserve"><value>重新解析 {0} 件作品 metadata（{1} 件手動編輯會跳過）。閱讀記錄會保留。</value></data>
+  <data name="ToolsReparseConfirmOk" xml:space="preserve"><value>開始重新解析</value></data>
+  <data name="ToolsReparseDoneTitle" xml:space="preserve"><value>整庫重新解析完成</value></data>
+  <data name="ToolsReparseDoneFmt" xml:space="preserve"><value>重新解析完成。
+處理: {0} / 跳過: {1} / 失敗: {2}</value></data>
+  <data name="ToolsReparseCancelled" xml:space="preserve"><value>重新解析已取消</value></data>
   <data name="RebuildCacheTitle" xml:space="preserve"><value>重建索引資料庫</value></data>
   <data name="RebuildFull" xml:space="preserve"><value>完整重建</value></data>
   <data name="RebuildFullDesc" xml:space="preserve"><value>清空所有 cache，從根目錄重新掃描</value></data>
