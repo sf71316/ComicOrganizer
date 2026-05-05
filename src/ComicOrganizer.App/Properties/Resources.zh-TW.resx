@@ -206,6 +206,19 @@ FS 掃描 {0} 件 / DB 索引 {1} 件</value></data>
   <data name="ToolsReparseDoneFmt" xml:space="preserve"><value>重新解析完成。
 處理: {0} / 跳過: {1} / 失敗: {2}</value></data>
   <data name="ToolsReparseCancelled" xml:space="preserve"><value>重新解析已取消</value></data>
+  <data name="ExtTitle" xml:space="preserve"><value>外部 metadata 來源 (nhentai)</value></data>
+  <data name="ExtDesc" xml:space="preserve"><value>啟用後可從 nhentai API 拉取作品 metadata。API key 用 Windows DPAPI 加密儲存（per-user，跨機器拷貝 config 解不開）。</value></data>
+  <data name="ExtEnableLabel" xml:space="preserve"><value>啟用：</value></data>
+  <data name="ExtKeyLabel" xml:space="preserve"><value>API Key:</value></data>
+  <data name="ExtKeyPlaceholderEmpty" xml:space="preserve"><value>nhk_...</value></data>
+  <data name="ExtKeyPlaceholderSet" xml:space="preserve"><value>(已儲存 — 留空保持原值)</value></data>
+  <data name="ExtSaveKey" xml:space="preserve"><value>儲存 Key</value></data>
+  <data name="ExtTestConnection" xml:space="preserve"><value>測試連線</value></data>
+  <data name="ExtStatusSaved" xml:space="preserve"><value>已儲存（請按「測試連線」驗證）</value></data>
+  <data name="ExtStatusNoKey" xml:space="preserve"><value>尚未設定 API key</value></data>
+  <data name="ExtStatusTesting" xml:space="preserve"><value>測試中…</value></data>
+  <data name="ExtStatusOkFmt" xml:space="preserve"><value>✓ 連線成功（user: {0}）</value></data>
+  <data name="ExtStatusFailFmt" xml:space="preserve"><value>✗ 連線失敗：{0}</value></data>
   <data name="RebuildCacheTitle" xml:space="preserve"><value>重建索引資料庫</value></data>
   <data name="RebuildFull" xml:space="preserve"><value>完整重建</value></data>
   <data name="RebuildFullDesc" xml:space="preserve"><value>清空所有 cache，從根目錄重新掃描</value></data>

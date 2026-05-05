@@ -206,6 +206,19 @@ FS scanned {0} / DB indexed {1}</value></data>
   <data name="ToolsReparseDoneFmt" xml:space="preserve"><value>Re-parse complete.
 Processed: {0} / Skipped: {1} / Failed: {2}</value></data>
   <data name="ToolsReparseCancelled" xml:space="preserve"><value>Re-parse cancelled</value></data>
+  <data name="ExtTitle" xml:space="preserve"><value>External metadata source (nhentai)</value></data>
+  <data name="ExtDesc" xml:space="preserve"><value>Once enabled, fetches work metadata from the nhentai API. The API key is encrypted with Windows DPAPI (per-user; the config file is unreadable when copied to another machine).</value></data>
+  <data name="ExtEnableLabel" xml:space="preserve"><value>Enable:</value></data>
+  <data name="ExtKeyLabel" xml:space="preserve"><value>API Key:</value></data>
+  <data name="ExtKeyPlaceholderEmpty" xml:space="preserve"><value>nhk_...</value></data>
+  <data name="ExtKeyPlaceholderSet" xml:space="preserve"><value>(Saved — leave empty to keep current)</value></data>
+  <data name="ExtSaveKey" xml:space="preserve"><value>Save Key</value></data>
+  <data name="ExtTestConnection" xml:space="preserve"><value>Test Connection</value></data>
+  <data name="ExtStatusSaved" xml:space="preserve"><value>Saved. Click "Test Connection" to verify.</value></data>
+  <data name="ExtStatusNoKey" xml:space="preserve"><value>No API key set</value></data>
+  <data name="ExtStatusTesting" xml:space="preserve"><value>Testing…</value></data>
+  <data name="ExtStatusOkFmt" xml:space="preserve"><value>✓ Connected (user: {0})</value></data>
+  <data name="ExtStatusFailFmt" xml:space="preserve"><value>✗ Failed: {0}</value></data>
   <data name="RebuildCacheTitle" xml:space="preserve"><value>Rebuild Cache Database</value></data>
   <data name="RebuildFull" xml:space="preserve"><value>Full Rebuild</value></data>
   <data name="RebuildFullDesc" xml:space="preserve"><value>Clear all cache, rescan from root directory</value></data>

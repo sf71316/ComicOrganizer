@@ -68,7 +68,7 @@ public partial class MainForm : Window, IThemedControl
         {
             galleryControl.Initialize(_config, _coverManager, _metaStore, _readRecordQueue, _prefs);
             archiveControl.Initialize(_config, _intelligence, _organizer);
-            metadataManageControl.Initialize(_metaStore, _reparseService, _rebuildTracker);
+            metadataManageControl.Initialize(_metaStore, _reparseService, _rebuildTracker, _configManager, _config);
             ShowGallery();
         };
 

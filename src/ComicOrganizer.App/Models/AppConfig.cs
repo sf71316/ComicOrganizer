@@ -68,4 +68,13 @@ public class AppConfig
         @"\d+x\d+",           // 解析度 (1280x720)
         @"\d{6,8}"            // 日期格式 (20240907)
     };
+
+    // ===== 外部 metadata 整合 (#52) =====
+
+    /// <summary>啟用外部 metadata 整合（nhentai API 等）。預設關閉。</summary>
+    public bool EnableExternalMetadata { get; set; } = false;
+
+    /// <summary>nhentai API key — DPAPI 加密 base64 字串。
+    /// 直接讀寫請走 AppConfigExtensions.GetNhentaiApiKey / SetNhentaiApiKey 而非此屬性。</summary>
+    public string NhentaiApiKeyProtected { get; set; } = "";
 }
