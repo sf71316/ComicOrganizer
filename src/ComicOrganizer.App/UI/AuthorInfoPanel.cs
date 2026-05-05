@@ -314,6 +314,7 @@ public partial class AuthorInfoPanel : UserControl
                     Margin = new Padding(0, 0, 4, 4),
                     Font = new Font("Microsoft JhengHei UI", 8.5F),
                     CloseIcon = true,
+                    AutoSize = true,
                 };
                 var captured = alias;
                 chip.CloseChanged += (s, e) =>
@@ -365,6 +366,7 @@ public partial class AuthorInfoPanel : UserControl
                         Text = labelText,
                         Margin = new Padding(0, 0, 4, 4),
                         Font = new Font("Microsoft JhengHei UI", 8.5F),
+                        AutoSize = true,
                     };
                     if (!string.IsNullOrEmpty(display))
                     {
@@ -395,6 +397,7 @@ public partial class AuthorInfoPanel : UserControl
             Margin = new Padding(0, 0, 4, 4),
             Font = new Font("Microsoft JhengHei UI", 8.5F),
             CloseIcon = editable,
+            AutoSize = true,
         };
         if (!string.IsNullOrEmpty(display) && display != name)
         {

@@ -272,6 +272,7 @@ public partial class WorkDetailPanel : UserControl
             Margin = new Padding(0, 0, 4, 4),
             Font = new Font("Microsoft JhengHei UI", 8.5F),
             CloseIcon = editable,
+            AutoSize = true,
         };
         // 翻譯後 hover 顯示原文（給使用者識別 slug）
         if (display != name)

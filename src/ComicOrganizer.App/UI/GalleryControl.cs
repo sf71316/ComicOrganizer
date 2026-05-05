@@ -819,7 +819,7 @@ public partial class GalleryControl : UserControl, IThemedControl
 
         // Drawer 量 Content.Size 決定 drawer 大小。每次強制 reset 成 380 × formHeight
         detailDrawerHost.Dock = DockStyle.None;
-        detailDrawerHost.Size = new Size(380, ownerForm.ClientSize.Height);
+        detailDrawerHost.Size = new Size(420, ownerForm.ClientSize.Height);
 
         var config = new AntdUI.Drawer.Config(ownerForm, detailDrawerHost)
         {
