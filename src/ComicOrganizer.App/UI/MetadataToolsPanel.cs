@@ -133,19 +133,20 @@ public partial class MetadataToolsPanel : UserControl, IThemedControl
     public void ApplyThemeColors()
     {
         BackColor = ThemeColors.Surface;
-        statsPanel.BackColor = ThemeColors.Background;
-        reparsePanel.BackColor = ThemeColors.Background;
+        // AntdUI.Panel 用 Back（rounded 填色），不是 BackColor
+        statsPanel.Back = ThemeColors.Background;
+        reparsePanel.Back = ThemeColors.Background;
         lblTitle.ForeColor = ThemeColors.Text;
         lblStatsTitle.ForeColor = ThemeColors.Text;
         lblReparseTitle.ForeColor = ThemeColors.Text;
-        lblReparseDesc.ForeColor = ThemeColors.Secondary;
+        lblReparseDesc.ForeColor = ThemeColors.Text;
         lblStatsTotal.ForeColor = ThemeColors.Text;
         lblStatsParsed.ForeColor = ThemeColors.Text;
         lblStatsUnparsed.ForeColor = ThemeColors.Text;
         lblStatsManual.ForeColor = ThemeColors.Text;
         lblStatsAuto.ForeColor = ThemeColors.Primary;
         lblProgressStatus.ForeColor = ThemeColors.Text;
-        lblProgressCurrent.ForeColor = ThemeColors.Secondary;
+        lblProgressCurrent.ForeColor = ThemeColors.Text;
     }
 
     public void ApplyLocalization()
