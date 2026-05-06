@@ -13,6 +13,11 @@ public class MergeResult
 {
     public string? Title { get; set; }
     public string? AuthorMainName { get; set; }
+
+    /// <summary>nhentai 上的 artist slug（英文 url-friendly key）。AuthorMainName 翻譯成 CJK 後，原 slug
+    /// 進 author_alias 留著供搜尋 / API 對應用。null = 沒外部 slug 來源（使用者選保留本地或自訂）。</summary>
+    public string? AuthorAliasSlug { get; set; }
+
     public string? Series { get; set; }
     public string? Language { get; set; }
     public string? TranslationGroup { get; set; }

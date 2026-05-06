@@ -608,7 +608,16 @@ public partial class GalleryControl : UserControl, IThemedControl
         // 解析作者：result.AuthorMainName 有值 → upsert；null → 保留既有
         long? authorId = detail.AuthorId;
         if (!string.IsNullOrWhiteSpace(result.AuthorMainName))
+        {
             authorId = _metaStore.UpsertAuthor(result.AuthorMainName.Trim());
+            // #53 Phase 6: 主名翻譯成 CJK 後，原 slug 進 alias 留著
+            // （只有跟主名不同 case-insensitive 時才存，避免 "flugel" / "Flugel" 重複）
+            if (!string.IsNullOrEmpty(result.AuthorAliasSlug)
+                && !string.Equals(result.AuthorAliasSlug, result.AuthorMainName.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                _metaStore.AddAuthorAlias(authorId.Value, result.AuthorAliasSlug, "en");
+            }
+        }
 
         var existing = _metaStore.GetMetadata(detail.AssetId);
         var updated = new AssetMetadata

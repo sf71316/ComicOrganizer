@@ -355,7 +355,11 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
                 case var l when l == (LocalizationManager.GetString("MergeFieldTitle") ?? "標題"):
                     result.Title = r.RbExternal.Checked ? r.ExternalValue : null; break;
                 case var l when l == (LocalizationManager.GetString("MergeFieldAuthor") ?? "作者"):
-                    result.AuthorMainName = r.RbExternal.Checked ? r.ExternalValue : null; break;
+                    result.AuthorMainName = r.RbExternal.Checked ? r.ExternalValue : null;
+                    // 使用者選了「外部」並且我們有翻譯後跟 raw 不同的 slug → 把 slug 進 alias 留著
+                    if (r.RbExternal.Checked && !string.IsNullOrEmpty(_selectedArtistSlug))
+                        result.AuthorAliasSlug = _selectedArtistSlug;
+                    break;
                 case var l when l == (LocalizationManager.GetString("MergeFieldLanguage") ?? "語言"):
                     result.Language = r.RbExternal.Checked ? r.ExternalValue : null; break;
                 case var l when l == (LocalizationManager.GetString("MergeFieldPageCount") ?? "頁數"):
@@ -399,12 +403,26 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
         return _external.TitleJapanese;
     }
 
+    /// <summary>取第一個 artist tag 並回傳「給 user 看的顯示名」。
+    /// 有 translator 命中 → 回 CJK 主名（slug 從 _selectedArtistSlug 帶到 result 進 alias）。
+    /// 沒命中 → 回 nhentai raw artist.Name（通常已是英文/羅馬拼音）。</summary>
     private string? ChooseExternalAuthor()
     {
-        // 取第一個 artist tag（v1 簡化方案 B：多 artist 取第一個）
         var artist = _external.Tags.FirstOrDefault(t => t.Type == "artist");
-        return artist?.Name;
+        if (artist == null) return null;
+        _selectedArtistSlug = artist.Slug;
+
+        // 用 EhTag 嘗試 canonicalize 成 CJK 主名（#53 Phase 6）
+        if (_translator != null)
+        {
+            var cjk = _translator.TranslateArtist(artist.Slug);
+            if (!string.IsNullOrEmpty(cjk)) return cjk;
+        }
+        return artist.Name;
     }
+
+    /// <summary>記住目前 dialog 顯示的 artist slug — ConfirmAndClose 時帶進 result.AuthorAliasSlug。</summary>
+    private string? _selectedArtistSlug;
 
     private string? ChooseExternalLanguage()
     {
