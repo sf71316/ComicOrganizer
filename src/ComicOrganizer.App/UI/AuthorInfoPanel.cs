@@ -20,6 +20,22 @@ public partial class AuthorInfoPanel : UserControl
     /// <summary>使用者按「儲存」— host 處理 RenameAuthor / SetAuthorFolderPath / 別名 CRUD / SetAuthorTags。</summary>
     public event Action<AuthorEditData>? RequestSaveEdit;
 
+    /// <summary>使用者按「同步此作者所有作品」(#52 Phase F) — host 處理批次拉取流程。</summary>
+    public event Action<long>? RequestBatchSyncAll;
+
+    private bool _showBatchFetchButton;
+    /// <summary>由 host 設定 — 控制「同步此作者所有作品」按鈕是否顯示（依 config.EnableExternalMetadata）。
+    /// 編輯模式下永遠隱藏；view mode 才看此 flag。</summary>
+    public bool ShowBatchFetchButton
+    {
+        get => _showBatchFetchButton;
+        set
+        {
+            _showBatchFetchButton = value;
+            btnBatchFetch.Visible = value && !_isEditing;
+        }
+    }
+
     /// <summary>當前顯示的 author id（給 reset button 用）；ShowInfo 時設定。</summary>
     private long _currentAuthorId;
     private AuthorInfo? _currentInfo;
@@ -57,6 +73,10 @@ public partial class AuthorInfoPanel : UserControl
         {
             if (_currentAuthorId > 0) RequestResetAuthorReading?.Invoke(_currentAuthorId);
         };
+        btnBatchFetch.Click += (s, e) =>
+        {
+            if (_currentAuthorId > 0) RequestBatchSyncAll?.Invoke(_currentAuthorId);
+        };
         btnEdit.Click += (s, e) => SetEditMode(true);
         btnCancel.Click += (s, e) => SetEditMode(false);
         btnSave.Click += (s, e) => SaveEdit();
@@ -81,6 +101,7 @@ public partial class AuthorInfoPanel : UserControl
         lblRecentHeader.Text = LocalizationManager.GetString("AuthorInfoRecentRead") ?? "最近閱讀";
         lblAllWorksHeader.Text = LocalizationManager.GetString("AuthorInfoAllWorks") ?? "全部作品";
         btnResetAuthorReading.Text = LocalizationManager.GetString("AuthorInfoResetReading") ?? "清除此作者閱讀記錄";
+        btnBatchFetch.Text = LocalizationManager.GetString("BatchSyncBtnText") ?? "同步此作者所有作品";
     }
 
     /// <summary>套用聚合資料 — 顯示完整 panel 內容。</summary>
@@ -282,6 +303,8 @@ public partial class AuthorInfoPanel : UserControl
         // header / actions
         btnEdit.Visible = !editing;
         btnResetAuthorReading.Visible = !editing;
+        // btnBatchFetch 編輯中隱藏，view mode 看 _showBatchFetchButton（host 依 config 設）
+        btnBatchFetch.Visible = !editing && _showBatchFetchButton;
         btnSave.Visible = editing;
         btnCancel.Visible = editing;
 

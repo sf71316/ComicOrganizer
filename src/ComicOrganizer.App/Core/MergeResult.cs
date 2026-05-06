@@ -31,4 +31,8 @@ public class MergeResult
 
     /// <summary>批次模式中此選擇是否套用到剩餘 N-1 本（策略樣板）。</summary>
     public bool ApplyToRemaining { get; set; }
+
+    /// <summary>當 ApplyToRemaining=true 時，由 dialog 從本次選擇生成的策略樣板，
+    /// 給 BatchExternalFetchService 套用到剩餘作品（自動套用，不再 prompt user）。</summary>
+    public BatchSyncStrategy? Strategy { get; set; }
 }

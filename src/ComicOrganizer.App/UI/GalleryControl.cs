@@ -215,6 +215,7 @@ public partial class GalleryControl : UserControl, IThemedControl
         if (detailDrawerHost?.WorkPanel != null)
         {
             detailDrawerHost.WorkPanel.ShowFetchExternalButton = config.EnableExternalMetadata;
+            detailDrawerHost.AuthorPanel.ShowBatchFetchButton = config.EnableExternalMetadata;
             detailDrawerHost.WorkPanel.SetTagTranslator(tagTranslator);
             detailDrawerHost.AuthorPanel.SetTagTranslator(tagTranslator);
         }
@@ -298,9 +299,12 @@ public partial class GalleryControl : UserControl, IThemedControl
     public void OnConfigUpdated(AppConfig config)
     {
         _config = config;
-        // 外部 metadata 啟用狀態變更 → 刷新 WorkDetailPanel 按鈕可見性
+        // 外部 metadata 啟用狀態變更 → 刷新 WorkDetail / AuthorInfo 按鈕可見性
         if (detailDrawerHost?.WorkPanel != null)
+        {
             detailDrawerHost.WorkPanel.ShowFetchExternalButton = _config.EnableExternalMetadata;
+            detailDrawerHost.AuthorPanel.ShowBatchFetchButton = _config.EnableExternalMetadata;
+        }
         _ = LoadTreeAsync();
     }
 
@@ -370,6 +374,13 @@ public partial class GalleryControl : UserControl, IThemedControl
 
         // AuthorInfoPanel 編輯儲存
         detailDrawerHost.AuthorPanel.RequestSaveEdit += data => SaveAuthorEdit(data);
+
+        // 「同步此作者所有作品」批次拉取（#52 Phase F）
+        detailDrawerHost.AuthorPanel.RequestBatchSyncAll += async authorId => await BatchSyncAllForAuthor(authorId);
+
+        // 顯示按鈕：依 config.EnableExternalMetadata
+        detailDrawerHost.AuthorPanel.ShowBatchFetchButton =
+            _prefs != null && _config != null && _config.EnableExternalMetadata;
     }
 
     /// <summary>AuthorInfoPanel「儲存」事件 handler — RenameAuthor + SetAuthorFolderPath + 別名 diff 寫入 + SetAuthorTags。</summary>
@@ -576,6 +587,161 @@ public partial class GalleryControl : UserControl, IThemedControl
             AntdUI.Message.error(form, string.Format(
                 LocalizationManager.GetString("FetchExtErrFmt") ?? "拉取失敗：{0}", ex.Message));
         }
+    }
+
+    /// <summary>批次同步此作者所有作品（#52 Phase F）。流程：
+    ///   1. 列出作者的所有 AllWorks
+    ///   2. 過濾：跳過 manually_edited / 已綁 external_id / 沒檔名 id
+    ///   3. 預檢 dialog 顯示「總 N / 可拉 M / 跳過 K」確認
+    ///   4. 第一本彈 MergeDialog (batchMode=true) → user 勾「套用到剩餘」生成 Strategy
+    ///   5. 開 BatchProgressDialog → 剩餘 N-1 本依 strategy 自動套用 + 顯示進度
+    ///   6. 完成後切到結果模式，user 自己關閉 dialog</summary>
+    private async Task BatchSyncAllForAuthor(long authorId)
+    {
+        if (_metaStore == null || _config == null) return;
+        var form = this.FindForm();
+        if (form == null) return;
+
+        var apiKey = _config.GetNhentaiApiKey();
+        if (string.IsNullOrEmpty(apiKey))
+        {
+            AntdUI.Message.warn(form, LocalizationManager.GetString("FetchExtErrNoKey")
+                ?? "請先在「設定 / 外部資料來源」設定 API key");
+            return;
+        }
+
+        var info = _metaStore.GetAuthorInfo(authorId);
+        if (info == null || info.AllWorks.Count == 0)
+        {
+            AntdUI.Message.info(form, LocalizationManager.GetString("BatchSyncNoWorks")
+                ?? "此作者沒有作品可同步");
+            return;
+        }
+
+        // ── 1+2: 篩選 ─────────────────────────────────────────────
+        var eligible = new List<string>();
+        var skippedReasons = new Dictionary<string, int>();   // reason → count
+        foreach (var w in info.AllWorks)
+        {
+            var path = w.Path;
+            var detail = _metaStore.GetWorkDetail(path);
+            if (detail == null) { Bump(skippedReasons, "資料缺失"); continue; }
+            if (detail.ManuallyEdited) { Bump(skippedReasons, "已手動編輯"); continue; }
+            if (!string.IsNullOrEmpty(detail.ExternalId)) { Bump(skippedReasons, "已綁定 external_id"); continue; }
+            if (string.IsNullOrEmpty(BatchExternalFetchService.ExtractExternalId(path)))
+            { Bump(skippedReasons, "檔名無 nhentai id"); continue; }
+            eligible.Add(path);
+        }
+
+        if (eligible.Count == 0)
+        {
+            var detail = string.Join("、", skippedReasons.Select(kv => $"{kv.Key}({kv.Value})"));
+            AntdUI.Modal.open(new AntdUI.Modal.Config(form,
+                LocalizationManager.GetString("BatchSyncNothingTitle") ?? "沒有可同步的作品",
+                $"{info.AllWorks.Count} 本全部跳過：{detail}",
+                AntdUI.TType.Info));
+            return;
+        }
+
+        // ── 3: 預檢確認 ────────────────────────────────────────────
+        var skipDetail = skippedReasons.Count > 0
+            ? "\n跳過：" + string.Join("、", skippedReasons.Select(kv => $"{kv.Key}({kv.Value})"))
+            : "";
+        var preCheckMsg = string.Format(
+            LocalizationManager.GetString("BatchSyncPreCheckFmt")
+                ?? "作者「{0}」共 {1} 本作品，可同步 {2} 本。{3}\n\n第一本會彈合併視窗讓你決定策略，剩餘 {4} 本依該策略自動套用。",
+            info.Author.MainName, info.AllWorks.Count, eligible.Count, skipDetail, eligible.Count - 1);
+
+        bool proceed = false;
+        AntdUI.Modal.open(new AntdUI.Modal.Config(form,
+            LocalizationManager.GetString("BatchSyncPreCheckTitle") ?? "批次同步預檢",
+            preCheckMsg,
+            AntdUI.TType.Info)
+        {
+            OkText = LocalizationManager.GetString("BatchSyncProceed") ?? "開始",
+            CancelText = LocalizationManager.GetString("DialogCancel") ?? "取消",
+            OnOk = _ => { proceed = true; return true; },
+        });
+        if (!proceed) return;
+
+        // ── 4: 第一本彈 dialog 拿 strategy ────────────────────────
+        BatchSyncStrategy? strategy = null;
+        var firstPath = eligible[0];
+        var firstDetail = _metaStore.GetWorkDetail(firstPath);
+        if (firstDetail == null) return;
+
+        var firstExtId = BatchExternalFetchService.ExtractExternalId(firstPath)!;
+        MetadataLookupResult? firstResult;
+        using (var firstClient = new NhentaiApiClient(apiKey))
+        {
+            try { firstResult = await firstClient.GetByExternalIdAsync(firstExtId); }
+            catch (Exception ex)
+            {
+                AntdUI.Message.error(form, $"第一本拉取失敗：{ex.Message}");
+                return;
+            }
+        }
+        if (firstResult == null)
+        {
+            AntdUI.Message.warn(form, $"第一本（id={firstExtId}）在 nhentai 找不到");
+            return;
+        }
+
+        using (var dlg = new ExternalMetadataMergeDialog(firstDetail, firstResult,
+            batchMode: true, translator: _tagTranslator))
+        {
+            if (dlg.ShowDialog(form) != DialogResult.OK || dlg.Result == null) return;
+
+            ApplyMergeResult(firstDetail, dlg.Result);
+            RefreshCardReadStatusByPath(firstPath);
+
+            if (dlg.Result.ApplyToRemaining && dlg.Result.Strategy != null)
+                strategy = dlg.Result.Strategy;
+            else
+            {
+                // user 沒勾「套用到剩餘」→ 不批次，只套用第一本
+                AntdUI.Message.info(form, LocalizationManager.GetString("BatchSyncOnlyFirst")
+                    ?? "只套用第一本（沒勾選「套用到剩餘」）");
+                return;
+            }
+        }
+
+        // ── 5: 進度 dialog + 剩餘自動套用 ──────────────────────────
+        var remaining = eligible.Skip(1).ToList();
+        var progressDlg = new BatchProgressDialog(remaining.Count);
+        progressDlg.Show(form);
+
+        var service = new BatchExternalFetchService(_metaStore, new NhentaiApiClient(apiKey), _tagTranslator);
+        var ct = progressDlg.CancellationToken;
+
+        try
+        {
+            foreach (var path in remaining)
+            {
+                if (ct.IsCancellationRequested) break;
+                progressDlg.SetCurrent(Path.GetFileName(path));
+
+                var res = await service.ProcessOneAsync(path, strategy, ct);
+                if (res.Status == BatchItemStatus.Applied && res.Merge != null)
+                {
+                    var d = _metaStore.GetWorkDetail(path);
+                    if (d != null) ApplyMergeResult(d, res.Merge);
+                    RefreshCardReadStatusByPath(path);
+                }
+                progressDlg.AppendResult(res);
+            }
+        }
+        catch (OperationCanceledException) { /* 取消 — 正常結束 */ }
+        finally
+        {
+            progressDlg.MarkComplete();
+        }
+    }
+
+    private static void Bump(Dictionary<string, int> counter, string key)
+    {
+        counter.TryGetValue(key, out var v);
+        counter[key] = v + 1;
     }
 
     /// <summary>從檔名建構初始搜尋字串：parser 抽出 title + 加 artist:slug 前綴。</summary>

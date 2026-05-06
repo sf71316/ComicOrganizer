@@ -376,6 +376,21 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
             .Select(kv => kv.Key)
             .ToList();
 
+        // ApplyToRemaining: 從本次選擇生成策略，給後續 N-1 本批次自動套用
+        if (result.ApplyToRemaining)
+        {
+            result.Strategy = new BatchSyncStrategy
+            {
+                TitleSource = SourceFor("MergeFieldTitle", "標題"),
+                AuthorSource = SourceFor("MergeFieldAuthor", "作者"),
+                LanguageSource = SourceFor("MergeFieldLanguage", "語言"),
+                TranslationGroupSource = SourceFor("MergeFieldScanlator", "翻譯組"),
+                PageCountSource = SourceFor("MergeFieldPageCount", "頁數"),
+                // tag 策略：勾本地 tag 全部跟外部聯集 → UnionBoth；只勾外部 → AllExternal；都不勾 → LocalOnly
+                TagsPolicy = DeriveTagsPolicy(),
+            };
+        }
+
         // 外部 source raw_json 永遠寫進去（archive）
         result.ExternalSourceRecord = new AssetExternalSource
         {
@@ -394,6 +409,32 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
     }
 
     // ── Helpers ────────────────────────────────────────────────────────
+
+    /// <summary>找指定 label 的 row，回傳該 row 使用者選的 source。找不到 → Local（保守）。</summary>
+    private FieldSource SourceFor(string locKey, string fallback)
+    {
+        var label = LocalizationManager.GetString(locKey) ?? fallback;
+        var row = _rows.FirstOrDefault(r => r.Label == label);
+        return row != null && row.RbExternal.Checked ? FieldSource.External : FieldSource.Local;
+    }
+
+    /// <summary>從 tag checkbox 狀態推導 tag 策略。本地 + 外部 tags 比對勾選狀況。</summary>
+    private TagsMergePolicy DeriveTagsPolicy()
+    {
+        var localNames = _local.Tags.Select(t => t.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var externalNames = _external.Tags
+            .Where(t => t.Type != "language" && t.Type != "category")
+            .Select(t => t.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var checkedNames = _tagChecks.Where(kv => kv.Value.Checked).Select(kv => kv.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        bool keptAllLocal = localNames.IsSubsetOf(checkedNames);
+        bool keptAnyExternal = externalNames.Any(n => checkedNames.Contains(n));
+
+        if (keptAnyExternal && keptAllLocal) return TagsMergePolicy.UnionBoth;
+        if (keptAnyExternal) return TagsMergePolicy.AllExternal;
+        return TagsMergePolicy.LocalOnly;
+    }
 
     private string? ChooseExternalTitle()
     {

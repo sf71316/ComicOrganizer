@@ -236,6 +236,22 @@ Processed: {0} / Skipped: {1} / Failed: {2}</value></data>
   <data name="MergeNoTags" xml:space="preserve"><value>(no tags)</value></data>
   <data name="WorkDetailFetchExternal" xml:space="preserve"><value>Fetch from nhentai</value></data>
   <data name="FetchExtErrNoKey" xml:space="preserve"><value>Please set API key in Settings / External Source first</value></data>
+  <data name="BatchSyncBtnText" xml:space="preserve"><value>Sync all works of this author</value></data>
+  <data name="BatchSyncDialogTitle" xml:space="preserve"><value>Batch sync</value></data>
+  <data name="BatchSyncProgressFmt" xml:space="preserve"><value>Processing {0} / {1}</value></data>
+  <data name="BatchSyncCurrentFmt" xml:space="preserve"><value>Current: {0}</value></data>
+  <data name="BatchSyncStatsFmt" xml:space="preserve"><value>Applied {0} / Skipped {1} / Not found {2} / Errors {3}</value></data>
+  <data name="BatchSyncDone" xml:space="preserve"><value>Done</value></data>
+  <data name="BatchSyncCancelling" xml:space="preserve"><value>Cancelling…</value></data>
+  <data name="BatchSyncCancelled" xml:space="preserve"><value>Cancelled</value></data>
+  <data name="BatchSyncNoWorks" xml:space="preserve"><value>This author has no works to sync</value></data>
+  <data name="BatchSyncNothingTitle" xml:space="preserve"><value>Nothing to sync</value></data>
+  <data name="BatchSyncPreCheckTitle" xml:space="preserve"><value>Batch sync preview</value></data>
+  <data name="BatchSyncPreCheckFmt" xml:space="preserve"><value>Author "{0}" has {1} works, {2} eligible.{3}
+
+First work will open merge dialog to decide strategy; remaining {4} works will apply that strategy automatically.</value></data>
+  <data name="BatchSyncProceed" xml:space="preserve"><value>Start</value></data>
+  <data name="BatchSyncOnlyFirst" xml:space="preserve"><value>Only first work applied (didn't check "Apply to remaining")</value></data>
   <data name="FetchExtErrNoId" xml:space="preserve"><value>Filename has no 6-7 digit id; search fallback not yet implemented</value></data>
   <data name="FetchExtErrNotFoundFmt" xml:space="preserve"><value>id={0} not found on nhentai (may have been removed)</value></data>
   <data name="FetchExtErrFmt" xml:space="preserve"><value>Fetch failed: {0}</value></data>

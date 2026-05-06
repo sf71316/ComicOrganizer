@@ -671,6 +671,50 @@ FS 掃描 {0} 件 / DB 索引 {1} 件</value>
   <data name="FetchExtErrNoKey" xml:space="preserve">
     <value>請先在「設定 / 外部資料來源」設定 API key</value>
   </data>
+  <data name="BatchSyncBtnText" xml:space="preserve">
+    <value>同步此作者所有作品</value>
+  </data>
+  <data name="BatchSyncDialogTitle" xml:space="preserve">
+    <value>批次同步作品</value>
+  </data>
+  <data name="BatchSyncProgressFmt" xml:space="preserve">
+    <value>處理中 {0} / {1}</value>
+  </data>
+  <data name="BatchSyncCurrentFmt" xml:space="preserve">
+    <value>正在處理：{0}</value>
+  </data>
+  <data name="BatchSyncStatsFmt" xml:space="preserve">
+    <value>套用 {0} / 跳過 {1} / 找不到 {2} / 失敗 {3}</value>
+  </data>
+  <data name="BatchSyncDone" xml:space="preserve">
+    <value>完成</value>
+  </data>
+  <data name="BatchSyncCancelling" xml:space="preserve">
+    <value>取消中…</value>
+  </data>
+  <data name="BatchSyncCancelled" xml:space="preserve">
+    <value>已取消</value>
+  </data>
+  <data name="BatchSyncNoWorks" xml:space="preserve">
+    <value>此作者沒有作品可同步</value>
+  </data>
+  <data name="BatchSyncNothingTitle" xml:space="preserve">
+    <value>沒有可同步的作品</value>
+  </data>
+  <data name="BatchSyncPreCheckTitle" xml:space="preserve">
+    <value>批次同步預檢</value>
+  </data>
+  <data name="BatchSyncPreCheckFmt" xml:space="preserve">
+    <value>作者「{0}」共 {1} 本作品，可同步 {2} 本。{3}
+
+第一本會彈合併視窗讓你決定策略，剩餘 {4} 本依該策略自動套用。</value>
+  </data>
+  <data name="BatchSyncProceed" xml:space="preserve">
+    <value>開始</value>
+  </data>
+  <data name="BatchSyncOnlyFirst" xml:space="preserve">
+    <value>只套用第一本（沒勾選「套用到剩餘」）</value>
+  </data>
   <data name="FetchExtErrNoId" xml:space="preserve">
     <value>檔名沒含 6-7 位數字 id；search fallback 尚未實作</value>
   </data>

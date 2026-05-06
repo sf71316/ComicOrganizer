@@ -39,6 +39,7 @@ partial class AuthorInfoPanel
     private AntdUI.Divider divider5;
     private System.Windows.Forms.FlowLayoutPanel flowActions;
     private AntdUI.Button btnResetAuthorReading;
+    private AntdUI.Button btnBatchFetch;       // 批次同步此作者所有作品（#52 Phase F）
     private AntdUI.Button btnSave;
     private AntdUI.Button btnCancel;
 
@@ -85,6 +86,7 @@ partial class AuthorInfoPanel
         divider5 = new AntdUI.Divider();
         flowActions = new System.Windows.Forms.FlowLayoutPanel();
         btnResetAuthorReading = new AntdUI.Button();
+        btnBatchFetch = new AntdUI.Button();
         btnSave = new AntdUI.Button();
         btnCancel = new AntdUI.Button();
         lblEmpty = new System.Windows.Forms.Label();
@@ -276,6 +278,7 @@ partial class AuthorInfoPanel
         flowActions.Name = "flowActions";
         flowActions.WrapContents = true;
         flowActions.Controls.Add(btnEdit);
+        flowActions.Controls.Add(btnBatchFetch);
         flowActions.Controls.Add(btnResetAuthorReading);
         flowActions.Controls.Add(btnSave);
         flowActions.Controls.Add(btnCancel);
@@ -288,6 +291,16 @@ partial class AuthorInfoPanel
         btnResetAuthorReading.Size = new System.Drawing.Size(180, 30);
         btnResetAuthorReading.Text = "清除此作者閱讀記錄";
         btnResetAuthorReading.Type = AntdUI.TTypeMini.Default;
+
+        //
+        // btnBatchFetch — 同步此作者所有作品（從 nhentai 批次拉取）
+        //
+        btnBatchFetch.IconSvg = "ApiOutlined";
+        btnBatchFetch.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
+        btnBatchFetch.Name = "btnBatchFetch";
+        btnBatchFetch.Size = new System.Drawing.Size(180, 30);
+        btnBatchFetch.Text = "同步此作者所有作品";
+        btnBatchFetch.Visible = false;   // 由 host 依 EnableExternalMetadata config 控制顯示
         //
         // btnSave / btnCancel (edit only)
         //
