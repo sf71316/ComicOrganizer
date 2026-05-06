@@ -251,7 +251,40 @@ Processed: {0} / Skipped: {1} / Failed: {2}</value></data>
 
 First work will open merge dialog to decide strategy; remaining {4} works will apply that strategy automatically.</value></data>
   <data name="BatchSyncProceed" xml:space="preserve"><value>Start</value></data>
+  <data name="BatchSyncPreCheckHeaderFmt" xml:space="preserve"><value>Author "{0}"</value></data>
+  <data name="BatchSyncStatsLabelFmt" xml:space="preserve"><value>{0} works total, {1} eligible.{2}</value></data>
+  <data name="BatchSyncModeHeader" xml:space="preserve"><value>Processing Mode</value></data>
+  <data name="BatchSyncModePerWork" xml:space="preserve"><value>Per-work Confirm</value></data>
+  <data name="BatchSyncModePerWorkDesc" xml:space="preserve"><value>Open dialog for each work (recommended: precise review)</value></data>
+  <data name="BatchSyncModeSmart" xml:space="preserve"><value>Smart Search Batch</value></data>
+  <data name="BatchSyncModeSmartDesc" xml:space="preserve"><value>Auto-search by title, apply overwrite policy to first hit (recommended: large batches with clean filenames)</value></data>
+  <data name="BatchSyncPolicyHeader" xml:space="preserve"><value>Overwrite Policy (after search hit)</value></data>
+  <data name="BatchSyncPolicyKeepAuthor" xml:space="preserve"><value>C. Keep Author</value></data>
+  <data name="BatchSyncPolicyKeepAuthorDesc" xml:space="preserve"><value>Local author stays + others overwritten (recommended: library has author folders)</value></data>
+  <data name="BatchSyncPolicyOnlyTagsLang" xml:space="preserve"><value>E. Only tags / language</value></data>
+  <data name="BatchSyncPolicyOnlyTagsLangDesc" xml:space="preserve"><value>Keep all local, only add external tags (union) + language</value></data>
+  <data name="BatchSyncPolicyKeepTitleAuthor" xml:space="preserve"><value>D. Keep Title and Author</value></data>
+  <data name="BatchSyncPolicyKeepTitleAuthorDesc" xml:space="preserve"><value>Local title + author stay, add language / scanlator / pages / tags</value></data>
+  <data name="BatchSyncPolicyKeepTitle" xml:space="preserve"><value>B. Keep Title</value></data>
+  <data name="BatchSyncPolicyKeepTitleDesc" xml:space="preserve"><value>Local title stays, others overwritten</value></data>
+  <data name="BatchSyncPolicyFull" xml:space="preserve"><value>A. Full Overwrite</value></data>
+  <data name="BatchSyncPolicyFullDesc" xml:space="preserve"><value>Use all external data (title / author / language / tags fully replaced)</value></data>
   <data name="BatchSyncOnlyFirst" xml:space="preserve"><value>Only first work applied (didn't check "Apply to remaining")</value></data>
+  <data name="AuthorWorksHeaderEmpty" xml:space="preserve"><value>Select an author to view works</value></data>
+  <data name="AuthorWorksHeaderFmt" xml:space="preserve"><value>Works of "{0}" ({1} total)</value></data>
+  <data name="AuthorWorksStatusFmt" xml:space="preserve"><value>Showing {0} / Selected {1} / Eligible {2}</value></data>
+  <data name="BtnSelectAll" xml:space="preserve"><value>Select all</value></data>
+  <data name="BtnSelectEligible" xml:space="preserve"><value>Auto-select unsynced</value></data>
+  <data name="BtnDeselectAll" xml:space="preserve"><value>Clear</value></data>
+  <data name="BtnSyncSelected" xml:space="preserve"><value>Sync selected</value></data>
+  <data name="WorksSearchPlaceholder" xml:space="preserve"><value>Search work title...</value></data>
+  <data name="WorksColTitle" xml:space="preserve"><value>Title</value></data>
+  <data name="WorksColLanguage" xml:space="preserve"><value>Lang</value></data>
+  <data name="WorksColPages" xml:space="preserve"><value>Pages</value></data>
+  <data name="WorksColTags" xml:space="preserve"><value>Tags</value></data>
+  <data name="WorksColExtId" xml:space="preserve"><value>external_id</value></data>
+  <data name="WorksColManual" xml:space="preserve"><value>Manual</value></data>
+  <data name="WorksColStatus" xml:space="preserve"><value>Status</value></data>
   <data name="FetchExtErrNoId" xml:space="preserve"><value>Filename has no 6-7 digit id; search fallback not yet implemented</value></data>
   <data name="FetchExtErrNotFoundFmt" xml:space="preserve"><value>id={0} not found on nhentai (may have been removed)</value></data>
   <data name="FetchExtErrFmt" xml:space="preserve"><value>Fetch failed: {0}</value></data>

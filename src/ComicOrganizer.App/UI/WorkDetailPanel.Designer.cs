@@ -10,6 +10,7 @@ partial class WorkDetailPanel
     private AntdUI.Button btnEdit;
     private AntdUI.Button btnFetchExternal;
     private AntdUI.Button btnClose;
+    private AntdUI.Button btnExpandMax;
 
     // 內容
     private System.Windows.Forms.Panel contentPanel;
@@ -76,6 +77,7 @@ partial class WorkDetailPanel
         btnEdit = new AntdUI.Button();
         btnFetchExternal = new AntdUI.Button();
         btnClose = new AntdUI.Button();
+        btnExpandMax = new AntdUI.Button();
         contentPanel = new System.Windows.Forms.Panel();
         layout = new System.Windows.Forms.TableLayoutPanel();
         coverPanel = new System.Windows.Forms.Panel();
@@ -126,6 +128,7 @@ partial class WorkDetailPanel
         headerPanel.Height = 36;
         headerPanel.Padding = new System.Windows.Forms.Padding(8, 4, 4, 4);
         headerPanel.Controls.Add(lblTitle);
+        headerPanel.Controls.Add(btnExpandMax);
         headerPanel.Controls.Add(btnClose);
         //
         // lblTitle
@@ -145,6 +148,16 @@ partial class WorkDetailPanel
         btnClose.Name = "btnClose";
         btnClose.Size = new System.Drawing.Size(28, 28);
         btnClose.Text = "";
+        //
+        // btnExpandMax — 將 drawer 寬度撐到接近螢幕邊（toggle：再點一次回 580）
+        //
+        btnExpandMax.Dock = System.Windows.Forms.DockStyle.Right;
+        btnExpandMax.Ghost = true;
+        btnExpandMax.IconRatio = 0.6F;
+        btnExpandMax.IconSvg = "FullscreenOutlined";
+        btnExpandMax.Name = "btnExpandMax";
+        btnExpandMax.Size = new System.Drawing.Size(28, 28);
+        btnExpandMax.Text = "";
         //
         // btnEdit — 編輯切換（在 action bar，跟 Read/Explorer/ResetReading 同列）
         //

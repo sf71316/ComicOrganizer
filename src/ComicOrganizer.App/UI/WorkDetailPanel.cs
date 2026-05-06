@@ -29,6 +29,15 @@ public partial class WorkDetailPanel : UserControl
     /// <summary>使用者按「從 nhentai 拉取」— host 處理 API 呼叫 + merge dialog + DB 寫入。</summary>
     public event Action<string>? RequestFetchExternal;
 
+    /// <summary>進編輯模式時 fire — host 把 drawer 寬度撐到至少此值（auto-widen）。</summary>
+    public event Action<int>? RequestExpandWidth;
+
+    /// <summary>使用者按「展開最大寬度」 — host 把 drawer 撐到接近螢幕邊（toggle：第二次點回 EditModeMinWidth）。</summary>
+    public event Action? RequestToggleMaximize;
+
+    /// <summary>edit 模式 drawer 至少需要的寬度（涵蓋 title / author / series 長 input + label）。</summary>
+    private const int EditModeMinWidth = 580;
+
     /// <summary>由 host 設定 — 控制「從 nhentai 拉取」按鈕是否顯示（依 config.EnableExternalMetadata）。</summary>
     public bool ShowFetchExternalButton
     {
@@ -74,6 +83,7 @@ public partial class WorkDetailPanel : UserControl
         lblFileInfo.ForeColor = ThemeColors.Border;
 
         btnClose.Click += (s, e) => CloseRequested?.Invoke();
+        btnExpandMax.Click += (s, e) => RequestToggleMaximize?.Invoke();
         btnRead.Click += (s, e) =>
         {
             if (!string.IsNullOrEmpty(_currentPath)) RequestOpenViewer?.Invoke(_currentPath);
@@ -192,6 +202,8 @@ public partial class WorkDetailPanel : UserControl
     private void SetEditMode(bool editing)
     {
         _isEditing = editing;
+        // 進 edit mode → 通知 host 撐寬 drawer（不縮回，尊重 user 中途調整）
+        if (editing) RequestExpandWidth?.Invoke(EditModeMinWidth);
         // view 控件
         lblWorkTitle.Visible = !editing;
         lnkAuthor.Visible = !editing && _currentDetail?.AuthorId.HasValue == true;

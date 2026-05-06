@@ -209,7 +209,7 @@ public partial class TagManagePanel : UserControl, IThemedControl
             // 衝突：名稱已存在 → 詢問合併
             var existing = _allTags.FirstOrDefault(t => t.Name.Equals(newName, StringComparison.OrdinalIgnoreCase));
             if (existing == null) return;
-            AntdUI.Modal.open(new AntdUI.Modal.Config(form,
+            UI.ModalEx.Open(new AntdUI.Modal.Config(form,
                 LocalizationManager.GetString("TagOpRenameConflictTitle") ?? "標籤名稱衝突",
                 string.Format(LocalizationManager.GetString("TagOpRenameConflictMsg") ?? "已有標籤「{0}」，要改為合併嗎？\n合併後 {1} 個關聯會轉移到目標標籤。",
                     newName, row.TotalCount),
@@ -268,7 +268,7 @@ public partial class TagManagePanel : UserControl, IThemedControl
         if (dlg.ShowDialog(form) != DialogResult.OK || dlg.SelectedTag == null) return;
 
         var dest = dlg.SelectedTag;
-        AntdUI.Modal.open(new AntdUI.Modal.Config(form,
+        UI.ModalEx.Open(new AntdUI.Modal.Config(form,
             LocalizationManager.GetString("TagOpMergeConfirmTitle") ?? "確認合併",
             string.Format(
                 LocalizationManager.GetString("TagOpMergeConfirmMsg") ?? "將「{0}」（{1} 關聯）合併到「{2}」（{3} 關聯）。\n來源標籤會被刪除，此動作不可復原。",
@@ -293,7 +293,7 @@ public partial class TagManagePanel : UserControl, IThemedControl
         var form = this.FindForm();
         if (form == null) return;
 
-        AntdUI.Modal.open(new AntdUI.Modal.Config(form,
+        UI.ModalEx.Open(new AntdUI.Modal.Config(form,
             LocalizationManager.GetString("TagOpDeleteTitle") ?? "刪除標籤",
             string.Format(
                 LocalizationManager.GetString("TagOpDeleteMsg") ?? "永久刪除標籤「{0}」與其 {1} 個關聯（{2} 作品 + {3} 作者）。\n此動作不可復原。",

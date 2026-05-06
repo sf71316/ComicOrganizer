@@ -712,8 +712,107 @@ FS 掃描 {0} 件 / DB 索引 {1} 件</value>
   <data name="BatchSyncProceed" xml:space="preserve">
     <value>開始</value>
   </data>
+  <data name="BatchSyncPreCheckHeaderFmt" xml:space="preserve">
+    <value>作者「{0}」</value>
+  </data>
+  <data name="BatchSyncStatsLabelFmt" xml:space="preserve">
+    <value>共 {0} 本，可同步 {1} 本。{2}</value>
+  </data>
+  <data name="BatchSyncModeHeader" xml:space="preserve">
+    <value>處理模式</value>
+  </data>
+  <data name="BatchSyncModePerWork" xml:space="preserve">
+    <value>逐一確認</value>
+  </data>
+  <data name="BatchSyncModePerWorkDesc" xml:space="preserve">
+    <value>每本都跳 dialog 給你確認（推薦：精準審核）</value>
+  </data>
+  <data name="BatchSyncModeSmart" xml:space="preserve">
+    <value>智慧搜尋批次</value>
+  </data>
+  <data name="BatchSyncModeSmartDesc" xml:space="preserve">
+    <value>用作品標題自動搜尋首筆，套用覆蓋策略（推薦：大量、檔名清楚）</value>
+  </data>
+  <data name="BatchSyncPolicyHeader" xml:space="preserve">
+    <value>覆蓋策略（搜尋命中後）</value>
+  </data>
+  <data name="BatchSyncPolicyKeepAuthor" xml:space="preserve">
+    <value>C. 保留作者</value>
+  </data>
+  <data name="BatchSyncPolicyKeepAuthorDesc" xml:space="preserve">
+    <value>本地作者不動 + 其他全覆蓋（推薦：庫已分好作者資料夾）</value>
+  </data>
+  <data name="BatchSyncPolicyOnlyTagsLang" xml:space="preserve">
+    <value>E. 只補 tags / language</value>
+  </data>
+  <data name="BatchSyncPolicyOnlyTagsLangDesc" xml:space="preserve">
+    <value>本地全保留，只加外部 tags（聯集）+ language</value>
+  </data>
+  <data name="BatchSyncPolicyKeepTitleAuthor" xml:space="preserve">
+    <value>D. 保留標題與作者</value>
+  </data>
+  <data name="BatchSyncPolicyKeepTitleAuthorDesc" xml:space="preserve">
+    <value>本地標題 + 作者不動，補 language / scanlator / pages / tags</value>
+  </data>
+  <data name="BatchSyncPolicyKeepTitle" xml:space="preserve">
+    <value>B. 保留標題</value>
+  </data>
+  <data name="BatchSyncPolicyKeepTitleDesc" xml:space="preserve">
+    <value>本地標題不動，其他全覆蓋</value>
+  </data>
+  <data name="BatchSyncPolicyFull" xml:space="preserve">
+    <value>A. 全覆蓋</value>
+  </data>
+  <data name="BatchSyncPolicyFullDesc" xml:space="preserve">
+    <value>全部用外部資料（title / author / language / tags 全替換）</value>
+  </data>
   <data name="BatchSyncOnlyFirst" xml:space="preserve">
     <value>只套用第一本（沒勾選「套用到剩餘」）</value>
+  </data>
+  <data name="AuthorWorksHeaderEmpty" xml:space="preserve">
+    <value>選擇作者以檢視作品</value>
+  </data>
+  <data name="AuthorWorksHeaderFmt" xml:space="preserve">
+    <value>「{0}」的作品（共 {1} 本）</value>
+  </data>
+  <data name="AuthorWorksStatusFmt" xml:space="preserve">
+    <value>顯示 {0} / 已選 {1} / 可同步 {2}</value>
+  </data>
+  <data name="BtnSelectAll" xml:space="preserve">
+    <value>全選</value>
+  </data>
+  <data name="BtnSelectEligible" xml:space="preserve">
+    <value>自動選未同步</value>
+  </data>
+  <data name="BtnDeselectAll" xml:space="preserve">
+    <value>清空</value>
+  </data>
+  <data name="BtnSyncSelected" xml:space="preserve">
+    <value>同步選取作品</value>
+  </data>
+  <data name="WorksSearchPlaceholder" xml:space="preserve">
+    <value>搜尋作品標題...</value>
+  </data>
+  <data name="WorksColTitle" xml:space="preserve">
+    <value>標題</value>
+  </data>
+  <data name="WorksColLanguage" xml:space="preserve">
+    <value>語言</value>
+  </data>
+  <data name="WorksColPages" xml:space="preserve">
+    <value>頁數</value>
+  </data>
+  <data name="WorksColTags" xml:space="preserve">
+    <value>標籤</value>
+  </data>
+  <data name="WorksColExtId" xml:space="preserve">
+    <value>external_id</value>
+  </data>
+  <data name="WorksColManual" xml:space="preserve">
+    <value>手動</value>
+  </data>
+  <data name="WorksColStatus" xml:space="preserve">
+    <value>狀態</value>
   </data>
   <data name="FetchExtErrNoId" xml:space="preserve">
     <value>檔名沒含 6-7 位數字 id；search fallback 尚未實作</value>

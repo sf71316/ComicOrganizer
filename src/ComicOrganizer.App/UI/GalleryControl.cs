@@ -365,6 +365,14 @@ public partial class GalleryControl : UserControl, IThemedControl
         // 從 nhentai 拉取 metadata（外部）
         detailDrawerHost.WorkPanel.RequestFetchExternal += async path => await FetchExternalMetadata(path);
 
+        // 進 edit mode → drawer auto-widen 到 panel 要求的最小寬度（不縮回 — 尊重 user 拖拉的結果）
+        detailDrawerHost.WorkPanel.RequestExpandWidth += minW => ExpandDrawerTo(minW);
+        detailDrawerHost.AuthorPanel.RequestExpandWidth += minW => ExpandDrawerTo(minW);
+
+        // 點 header 「展開最大寬度」按鈕 → toggle maximize
+        detailDrawerHost.WorkPanel.RequestToggleMaximize += () => ToggleDrawerMaximize();
+        detailDrawerHost.AuthorPanel.RequestToggleMaximize += () => ToggleDrawerMaximize();
+
         // 顯示按鈕：依 config.EnableExternalMetadata
         detailDrawerHost.WorkPanel.ShowFetchExternalButton =
             _prefs != null && _config != null && _config.EnableExternalMetadata;
@@ -402,7 +410,7 @@ public partial class GalleryControl : UserControl, IThemedControl
                         var conflict = _metaStore.FindAuthorByMainName(data.MainName);
                         if (conflict != null)
                         {
-                            AntdUI.Modal.open(new AntdUI.Modal.Config(form, "作者名稱衝突",
+                            UI.ModalEx.Open(new AntdUI.Modal.Config(form, "作者名稱衝突",
                                 $"已存在主名為「{data.MainName}」的作者（id={conflict.Id}）。\n要把當前作者的所有作品/別名/標籤合併進去嗎？\n\n此動作不可復原。",
                                 AntdUI.TType.Warn)
                             {
@@ -596,7 +604,17 @@ public partial class GalleryControl : UserControl, IThemedControl
     ///   4. 第一本彈 MergeDialog (batchMode=true) → user 勾「套用到剩餘」生成 Strategy
     ///   5. 開 BatchProgressDialog → 剩餘 N-1 本依 strategy 自動套用 + 顯示進度
     ///   6. 完成後切到結果模式，user 自己關閉 dialog</summary>
-    private async Task BatchSyncAllForAuthor(long authorId)
+    private Task BatchSyncAllForAuthor(long authorId) => BatchSyncForAuthor(authorId, null);
+
+    /// <summary>對單本作品跑跟 Phase E 一樣的單本拉取流程 — 給 AuthorWorksListPanel per-row sync icon 用。</summary>
+    public async Task SyncOneWork(string path)
+    {
+        await FetchExternalMetadata(path);
+    }
+
+    /// <summary>Phase I 入口：使用者在「詮釋資料管理 / 作者」勾選作品 → host 委派到此。
+    /// paths != null 時用該子集；null 表示「全部」(Phase F 流程)。</summary>
+    public async Task BatchSyncForAuthor(long authorId, IReadOnlyList<string>? paths)
     {
         if (_metaStore == null || _config == null) return;
         var form = this.FindForm();
@@ -611,7 +629,18 @@ public partial class GalleryControl : UserControl, IThemedControl
         }
 
         var info = _metaStore.GetAuthorInfo(authorId);
-        if (info == null || info.AllWorks.Count == 0)
+        if (info == null)
+        {
+            AntdUI.Message.info(form, LocalizationManager.GetString("BatchSyncNoWorks")
+                ?? "此作者沒有作品可同步");
+            return;
+        }
+
+        // 來源 paths：Phase F 用 AllWorks；Phase I 用使用者勾選的子集
+        var sourcePaths = paths != null
+            ? paths.ToList()
+            : info.AllWorks.Select(w => w.Path).ToList();
+        if (sourcePaths.Count == 0)
         {
             AntdUI.Message.info(form, LocalizationManager.GetString("BatchSyncNoWorks")
                 ?? "此作者沒有作品可同步");
@@ -619,122 +648,188 @@ public partial class GalleryControl : UserControl, IThemedControl
         }
 
         // ── 1+2: 篩選 ─────────────────────────────────────────────
+        // 篩選 — 沒 id 的不再 skip，會走 search picker fallback（第一本）或在剩餘 batch 中個別 skip
         var eligible = new List<string>();
         var skippedReasons = new Dictionary<string, int>();   // reason → count
-        foreach (var w in info.AllWorks)
+        foreach (var path in sourcePaths)
         {
-            var path = w.Path;
             var detail = _metaStore.GetWorkDetail(path);
             if (detail == null) { Bump(skippedReasons, "資料缺失"); continue; }
             if (detail.ManuallyEdited) { Bump(skippedReasons, "已手動編輯"); continue; }
             if (!string.IsNullOrEmpty(detail.ExternalId)) { Bump(skippedReasons, "已綁定 external_id"); continue; }
-            if (string.IsNullOrEmpty(BatchExternalFetchService.ExtractExternalId(path)))
-            { Bump(skippedReasons, "檔名無 nhentai id"); continue; }
             eligible.Add(path);
         }
 
         if (eligible.Count == 0)
         {
             var detail = string.Join("、", skippedReasons.Select(kv => $"{kv.Key}({kv.Value})"));
-            AntdUI.Modal.open(new AntdUI.Modal.Config(form,
+            UI.ModalEx.Open(new AntdUI.Modal.Config(form,
                 LocalizationManager.GetString("BatchSyncNothingTitle") ?? "沒有可同步的作品",
-                $"{info.AllWorks.Count} 本全部跳過：{detail}",
+                $"{sourcePaths.Count} 本全部跳過：{detail}",
                 AntdUI.TType.Info));
             return;
         }
 
-        // ── 3: 預檢確認 ────────────────────────────────────────────
-        var skipDetail = skippedReasons.Count > 0
-            ? "\n跳過：" + string.Join("、", skippedReasons.Select(kv => $"{kv.Key}({kv.Value})"))
-            : "";
-        var preCheckMsg = string.Format(
-            LocalizationManager.GetString("BatchSyncPreCheckFmt")
-                ?? "作者「{0}」共 {1} 本作品，可同步 {2} 本。{3}\n\n第一本會彈合併視窗讓你決定策略，剩餘 {4} 本依該策略自動套用。",
-            info.Author.MainName, info.AllWorks.Count, eligible.Count, skipDetail, eligible.Count - 1);
-
-        bool proceed = false;
-        AntdUI.Modal.open(new AntdUI.Modal.Config(form,
-            LocalizationManager.GetString("BatchSyncPreCheckTitle") ?? "批次同步預檢",
-            preCheckMsg,
-            AntdUI.TType.Info)
+        // ── 3: 模式選擇 dialog（取代舊預檢 Modal） ────────────────────────
+        BatchSyncMode mode;
+        OverwritePolicyPreset policy;
+        using (var modeDlg = new BatchSyncModeDialog(info.Author.MainName, sourcePaths.Count, eligible.Count, skippedReasons))
         {
-            OkText = LocalizationManager.GetString("BatchSyncProceed") ?? "開始",
-            CancelText = LocalizationManager.GetString("DialogCancel") ?? "取消",
-            OnOk = _ => { proceed = true; return true; },
-        });
-        if (!proceed) return;
-
-        // ── 4: 第一本彈 dialog 拿 strategy ────────────────────────
-        BatchSyncStrategy? strategy = null;
-        var firstPath = eligible[0];
-        var firstDetail = _metaStore.GetWorkDetail(firstPath);
-        if (firstDetail == null) return;
-
-        var firstExtId = BatchExternalFetchService.ExtractExternalId(firstPath)!;
-        MetadataLookupResult? firstResult;
-        using (var firstClient = new NhentaiApiClient(apiKey))
-        {
-            try { firstResult = await firstClient.GetByExternalIdAsync(firstExtId); }
-            catch (Exception ex)
-            {
-                AntdUI.Message.error(form, $"第一本拉取失敗：{ex.Message}");
-                return;
-            }
-        }
-        if (firstResult == null)
-        {
-            AntdUI.Message.warn(form, $"第一本（id={firstExtId}）在 nhentai 找不到");
-            return;
+            if (modeDlg.ShowDialog(form) != DialogResult.OK) return;
+            mode = modeDlg.SelectedMode;
+            policy = modeDlg.SelectedPolicy;
         }
 
-        using (var dlg = new ExternalMetadataMergeDialog(firstDetail, firstResult,
-            batchMode: true, translator: _tagTranslator))
-        {
-            if (dlg.ShowDialog(form) != DialogResult.OK || dlg.Result == null) return;
-
-            ApplyMergeResult(firstDetail, dlg.Result);
-            RefreshCardReadStatusByPath(firstPath);
-
-            if (dlg.Result.ApplyToRemaining && dlg.Result.Strategy != null)
-                strategy = dlg.Result.Strategy;
-            else
-            {
-                // user 沒勾「套用到剩餘」→ 不批次，只套用第一本
-                AntdUI.Message.info(form, LocalizationManager.GetString("BatchSyncOnlyFirst")
-                    ?? "只套用第一本（沒勾選「套用到剩餘」）");
-                return;
-            }
-        }
-
-        // ── 5: 進度 dialog + 剩餘自動套用 ──────────────────────────
-        var remaining = eligible.Skip(1).ToList();
-        var progressDlg = new BatchProgressDialog(remaining.Count);
+        // 共用的 progress dialog
+        var progressDlg = new BatchProgressDialog(eligible.Count);
         progressDlg.Show(form);
-
-        var service = new BatchExternalFetchService(_metaStore, new NhentaiApiClient(apiKey), _tagTranslator);
         var ct = progressDlg.CancellationToken;
 
         try
         {
-            foreach (var path in remaining)
-            {
-                if (ct.IsCancellationRequested) break;
-                progressDlg.SetCurrent(Path.GetFileName(path));
-
-                var res = await service.ProcessOneAsync(path, strategy, ct);
-                if (res.Status == BatchItemStatus.Applied && res.Merge != null)
-                {
-                    var d = _metaStore.GetWorkDetail(path);
-                    if (d != null) ApplyMergeResult(d, res.Merge);
-                    RefreshCardReadStatusByPath(path);
-                }
-                progressDlg.AppendResult(res);
-            }
+            using var client = new NhentaiApiClient(apiKey);
+            if (mode == BatchSyncMode.PerWorkConfirm)
+                await BatchSyncPerWorkConfirm(eligible, client, progressDlg, form, ct);
+            else
+                await BatchSyncSmartBatch(eligible, client, policy, progressDlg, form, ct);
         }
         catch (OperationCanceledException) { /* 取消 — 正常結束 */ }
         finally
         {
             progressDlg.MarkComplete();
+        }
+    }
+
+    /// <summary>逐一確認模式：每本作品 → fetch (id 或 picker) → MergeDialog → ApplyMergeResult。</summary>
+    private async Task BatchSyncPerWorkConfirm(List<string> eligible, NhentaiApiClient client,
+        BatchProgressDialog progressDlg, Form form, CancellationToken ct)
+    {
+        if (_metaStore == null) return;
+
+        foreach (var path in eligible)
+        {
+            if (ct.IsCancellationRequested) break;
+            progressDlg.SetCurrent(Path.GetFileName(path));
+
+            var detail = _metaStore.GetWorkDetail(path);
+            if (detail == null)
+            {
+                progressDlg.AppendResult(BatchItemResult.Skipped(path, "資料缺失"));
+                continue;
+            }
+
+            MetadataLookupResult? result = null;
+            var extId = BatchExternalFetchService.ExtractExternalId(path);
+
+            // 有 id 試 fetch
+            if (!string.IsNullOrEmpty(extId))
+            {
+                try { result = await client.GetByExternalIdAsync(extId, ct); }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    progressDlg.AppendResult(BatchItemResult.Error(path, ex.Message));
+                    continue;
+                }
+            }
+
+            // 沒 id 或 fetch 回 null → search picker
+            if (result == null)
+            {
+                var initialQuery = BuildSearchQueryFromFilename(Path.GetFileName(path));
+                using var picker = new NhentaiSearchPickerDialog(Path.GetFileName(path), initialQuery,
+                    q => client.SearchAsync(q));
+                if (picker.ShowDialog(form) != DialogResult.OK || picker.SelectedHit == null)
+                {
+                    progressDlg.AppendResult(BatchItemResult.Skipped(path, "user 取消 search picker"));
+                    continue;
+                }
+                try { result = await client.GetByExternalIdAsync(picker.SelectedHit.ExternalId, ct); }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    progressDlg.AppendResult(BatchItemResult.Error(path, ex.Message));
+                    continue;
+                }
+                if (result == null)
+                {
+                    progressDlg.AppendResult(BatchItemResult.NotFound(path, picker.SelectedHit.ExternalId));
+                    continue;
+                }
+            }
+
+            // MergeDialog（單本模式 — 無 cbApplyToRemaining）
+            using var dlg = new ExternalMetadataMergeDialog(detail, result, batchMode: false, translator: _tagTranslator);
+            if (dlg.ShowDialog(form) != DialogResult.OK || dlg.Result == null)
+            {
+                progressDlg.AppendResult(BatchItemResult.Skipped(path, "user 取消 MergeDialog"));
+                continue;
+            }
+            ApplyMergeResult(detail, dlg.Result);
+            RefreshCardReadStatusByPath(path);
+            progressDlg.AppendResult(BatchItemResult.Applied(path, result.ExternalId, dlg.Result));
+        }
+    }
+
+    /// <summary>智慧搜尋批次模式：ProcessOneSearchAsync 自動處理；NeedsReview 時開 picker fallback。</summary>
+    private async Task BatchSyncSmartBatch(List<string> eligible, NhentaiApiClient client,
+        OverwritePolicyPreset policy, BatchProgressDialog progressDlg, Form form, CancellationToken ct)
+    {
+        if (_metaStore == null) return;
+
+        var strategy = BatchSyncStrategy.FromPreset(policy);
+        var service = new BatchExternalFetchService(_metaStore, client, _tagTranslator);
+
+        foreach (var path in eligible)
+        {
+            if (ct.IsCancellationRequested) break;
+            progressDlg.SetCurrent(Path.GetFileName(path));
+
+            var query = BuildSearchQueryFromFilename(Path.GetFileName(path));
+            var res = await service.ProcessOneSearchAsync(path, strategy, query, confidenceThreshold: 80, ct);
+
+            if (res.Status == BatchItemStatus.Applied && res.Merge != null)
+            {
+                var d = _metaStore.GetWorkDetail(path);
+                if (d != null) ApplyMergeResult(d, res.Merge);
+                RefreshCardReadStatusByPath(path);
+                progressDlg.AppendResult(res);
+                continue;
+            }
+
+            // NeedsReview → 開 picker 給 user 處理
+            if (res.Status == BatchItemStatus.NeedsReview)
+            {
+                var detail = _metaStore.GetWorkDetail(path);
+                if (detail == null) { progressDlg.AppendResult(BatchItemResult.Skipped(path, "資料缺失")); continue; }
+
+                using var picker = new NhentaiSearchPickerDialog(Path.GetFileName(path), res.Query ?? query,
+                    q => client.SearchAsync(q));
+                if (picker.ShowDialog(form) != DialogResult.OK || picker.SelectedHit == null)
+                {
+                    progressDlg.AppendResult(BatchItemResult.Skipped(path, $"NeedsReview ({res.Message}) → user 取消"));
+                    continue;
+                }
+                try
+                {
+                    var fullResult = await client.GetByExternalIdAsync(picker.SelectedHit.ExternalId, ct);
+                    if (fullResult == null)
+                    {
+                        progressDlg.AppendResult(BatchItemResult.NotFound(path, picker.SelectedHit.ExternalId));
+                        continue;
+                    }
+                    var merge = service.ApplyStrategy(detail, fullResult, strategy);
+                    ApplyMergeResult(detail, merge);
+                    RefreshCardReadStatusByPath(path);
+                    progressDlg.AppendResult(BatchItemResult.Applied(path, picker.SelectedHit.ExternalId, merge));
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex) { progressDlg.AppendResult(BatchItemResult.Error(path, ex.Message)); }
+                continue;
+            }
+
+            // 其他 status (Skipped / NotFound / Error) 直接記
+            progressDlg.AppendResult(res);
         }
     }
 
@@ -770,45 +865,9 @@ public partial class GalleryControl : UserControl, IThemedControl
     private void ApplyMergeResult(WorkDetail detail, MergeResult result)
     {
         if (_metaStore == null) return;
-
-        // 解析作者：result.AuthorMainName 有值 → upsert；null → 保留既有
-        long? authorId = detail.AuthorId;
-        if (!string.IsNullOrWhiteSpace(result.AuthorMainName))
-        {
-            authorId = _metaStore.UpsertAuthor(result.AuthorMainName.Trim());
-            // #53 Phase 6: 主名翻譯成 CJK 後，原 slug 進 alias 留著
-            // （只有跟主名不同 case-insensitive 時才存，避免 "flugel" / "Flugel" 重複）
-            if (!string.IsNullOrEmpty(result.AuthorAliasSlug)
-                && !string.Equals(result.AuthorAliasSlug, result.AuthorMainName.Trim(), StringComparison.OrdinalIgnoreCase))
-            {
-                _metaStore.AddAuthorAlias(authorId.Value, result.AuthorAliasSlug, "en");
-            }
-        }
-
-        var existing = _metaStore.GetMetadata(detail.AssetId);
-        var updated = new AssetMetadata
-        {
-            AssetId = detail.AssetId,
-            AuthorId = authorId,
-            Title = result.Title ?? existing?.Title ?? detail.Title,
-            Series = result.Series ?? existing?.Series ?? detail.Series,
-            ChapterNo = existing?.ChapterNo ?? detail.ChapterNo,
-            Language = result.Language ?? existing?.Language ?? detail.Language,
-            TranslationGroup = result.TranslationGroup ?? existing?.TranslationGroup ?? detail.TranslationGroup,
-            PageCount = result.PageCount ?? existing?.PageCount ?? detail.PageCount,
-            Rating = existing?.Rating ?? detail.Rating,
-            ReadStatus = existing?.ReadStatus ?? ReadStatus.Unread,
-            ReadCount = existing?.ReadCount ?? 0,
-            LastRead = existing?.LastRead,
-            LastPage = existing?.LastPage,
-            ExternalId = result.ExternalSourceRecord?.SourceId ?? existing?.ExternalId,
-            ParsedAt = existing?.ParsedAt ?? DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-            ManuallyEdited = true,   // 使用者剛 review 過外部 metadata，鎖住避免 re-parse 反轉
-        };
-        _metaStore.UpsertMetadata(updated);
-
-        if (result.Tags != null) _metaStore.SetAssetTags(detail.AssetId, result.Tags);
-        if (result.ExternalSourceRecord != null) _metaStore.UpsertExternalSource(result.ExternalSourceRecord);
+        // 委派給 BatchExternalFetchService — 純 store 操作，給單本/批次/Phase I 共用
+        var service = new BatchExternalFetchService(_metaStore, translator: _tagTranslator);
+        service.ApplyMergeResult(detail, result);
     }
 
     private void ConfirmAndResetWorkReading(string path)
@@ -817,7 +876,7 @@ public partial class GalleryControl : UserControl, IThemedControl
         var form = this.FindForm();
         if (form == null) return;
         var name = Path.GetFileName(path);
-        AntdUI.Modal.open(new AntdUI.Modal.Config(form, "重置閱讀記錄",
+        UI.ModalEx.Open(new AntdUI.Modal.Config(form, "重置閱讀記錄",
             $"重置「{name}」的閱讀狀態 / 次數 / 上次閱讀 / 上次頁碼？\n\n此動作不可復原；metadata（標題 / 作者 / 標籤）會保留。",
             AntdUI.TType.Warn)
         {
@@ -846,7 +905,7 @@ public partial class GalleryControl : UserControl, IThemedControl
         if (form == null) return;
         var info = _metaStore.GetAuthorInfo(authorId);
         if (info == null) return;
-        AntdUI.Modal.open(new AntdUI.Modal.Config(form, "清除作者閱讀記錄",
+        UI.ModalEx.Open(new AntdUI.Modal.Config(form, "清除作者閱讀記錄",
             $"清除「{info.Author.MainName}」底下所有 {info.TotalWorks} 件作品的閱讀記錄？\n\n此動作不可復原；metadata 會保留。",
             AntdUI.TType.Warn)
         {
@@ -978,6 +1037,50 @@ public partial class GalleryControl : UserControl, IThemedControl
             });
         }
         catch { /* cover 取不到不影響 panel */ }
+    }
+
+    /// <summary>把 drawer Form 撐寬到至少 minWidth（auto-widen on edit mode）。
+    /// 尊重 user 拖拉：若當前已比 minWidth 寬則不動。Drawer 還沒開時 no-op。</summary>
+    private void ExpandDrawerTo(int minWidth)
+    {
+        if (_detailDrawerForm == null || _detailDrawerForm.IsDisposed) return;
+        if (_detailDrawerForm.Width >= minWidth) return;
+        SetDrawerWidth(minWidth);
+    }
+
+    /// <summary>「展開最大寬度」按鈕 toggle — 已在 max 狀態 → 回 580；不在 → 撐到接近螢幕邊。</summary>
+    private int? _preMaximizedWidth;
+    private void ToggleDrawerMaximize()
+    {
+        if (_detailDrawerForm == null || _detailDrawerForm.IsDisposed) return;
+        var ownerForm = this.FindForm();
+        if (ownerForm == null) return;
+
+        // 接近螢幕邊：留 60 px 給 owner 的左側看得到（避免完全覆蓋）
+        var maxWidth = Math.Max(640, ownerForm.ClientSize.Width - 60);
+        var atMax = _detailDrawerForm.Width >= maxWidth - 4;   // 允許 4 px 容差
+
+        if (atMax)
+        {
+            // 還原：先用記下的值，沒有就回 580（edit-mode 預設）
+            SetDrawerWidth(_preMaximizedWidth ?? 580);
+            _preMaximizedWidth = null;
+        }
+        else
+        {
+            _preMaximizedWidth = _detailDrawerForm.Width;   // 記住，回退能還原
+            SetDrawerWidth(maxWidth);
+        }
+    }
+
+    private void SetDrawerWidth(int newWidth)
+    {
+        if (_detailDrawerForm == null || _detailDrawerForm.IsDisposed) return;
+        var oldWidth = _detailDrawerForm.Width;
+        if (oldWidth == newWidth) return;
+        var deltaX = newWidth - oldWidth;
+        _detailDrawerForm.Left -= deltaX;   // 靠右 dock：寬度增加 → Left 減少才會視覺貼右
+        _detailDrawerForm.Width = newWidth;
     }
 
     /// <summary>共用 Drawer open/refresh 邏輯：已開→Activate；未開→新開 380 寬 Drawer。</summary>

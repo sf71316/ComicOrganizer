@@ -71,6 +71,16 @@ public partial class MainForm : Window, IThemedControl
             galleryControl.Initialize(_config, _coverManager, _metaStore, _readRecordQueue, _prefs, _tagTranslator);
             archiveControl.Initialize(_config, _intelligence, _organizer);
             metadataManageControl.Initialize(_metaStore, _reparseService, _rebuildTracker, _tagTranslator);
+            metadataManageControl.ExternalMetadataEnabled = _config.EnableExternalMetadata;
+
+            // Phase I: 詮釋資料管理 → 作者 → 多選作品 → 「同步選取作品」 → 委派 GalleryControl 走 Phase F 同樣流程
+            metadataManageControl.RequestBatchSync += async (authorId, paths) =>
+                await galleryControl.BatchSyncForAuthor(authorId, paths);
+
+            // Per-row sync icon → 單本拉取（Phase E 流程）
+            metadataManageControl.RequestSyncOne += async path =>
+                await galleryControl.SyncOneWork(path);
+
             ShowGallery();
         };
 
@@ -186,6 +196,7 @@ public partial class MainForm : Window, IThemedControl
             _prefs = settings.Prefs;
             archiveControl.OnConfigUpdated(_config);
             galleryControl.OnConfigUpdated(_config);
+            metadataManageControl.ExternalMetadataEnabled = _config.EnableExternalMetadata;
             galleryControl.OnPrefsUpdated(_prefs);
             AntdUI.Notification.info(this,
                 LocalizationManager.GetString("SettingsSaved") ?? "設定已儲存",

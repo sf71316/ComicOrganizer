@@ -23,6 +23,15 @@ public partial class AuthorInfoPanel : UserControl
     /// <summary>使用者按「同步此作者所有作品」(#52 Phase F) — host 處理批次拉取流程。</summary>
     public event Action<long>? RequestBatchSyncAll;
 
+    /// <summary>進編輯模式時 fire — host 把 drawer 寬度撐到至少此值（auto-widen）。</summary>
+    public event Action<int>? RequestExpandWidth;
+
+    /// <summary>使用者按「展開最大寬度」 — host 把 drawer 撐到接近螢幕邊（toggle）。</summary>
+    public event Action? RequestToggleMaximize;
+
+    /// <summary>edit 模式 drawer 至少需要的寬度（涵蓋 main_name / alias / tag 編輯區）。</summary>
+    private const int EditModeMinWidth = 580;
+
     private bool _showBatchFetchButton;
     /// <summary>由 host 設定 — 控制「同步此作者所有作品」按鈕是否顯示（依 config.EnableExternalMetadata）。
     /// 編輯模式下永遠隱藏；view mode 才看此 flag。</summary>
@@ -69,6 +78,7 @@ public partial class AuthorInfoPanel : UserControl
         lblFolderPath.ForeColor = ThemeColors.Border;  // 次要色
 
         btnClose.Click += (s, e) => CloseRequested?.Invoke();
+        btnExpandMax.Click += (s, e) => RequestToggleMaximize?.Invoke();
         btnResetAuthorReading.Click += (s, e) =>
         {
             if (_currentAuthorId > 0) RequestResetAuthorReading?.Invoke(_currentAuthorId);
@@ -290,6 +300,8 @@ public partial class AuthorInfoPanel : UserControl
     private void SetEditMode(bool editing)
     {
         _isEditing = editing;
+        // 進 edit mode → 通知 host 撐寬 drawer（不縮回，尊重 user 中途調整）
+        if (editing) RequestExpandWidth?.Invoke(EditModeMinWidth);
         // view 控件
         lblMainName.Visible = !editing;
         // folder_path 兩種模式都用 label 顯示（只讀，使用者不能改）

@@ -24,7 +24,7 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
     private readonly List<FieldRow> _rows = new();
     // tag checkboxes
     private readonly Dictionary<string, AntdUI.Checkbox> _tagChecks = new(StringComparer.OrdinalIgnoreCase);
-    private AntdUI.Checkbox? cbApplyToRemaining;
+    // cbApplyToRemaining 已在 #52 Phase I refactor 移除（mode 改在 BatchSyncModeDialog 選）
 
     // 手動 layout cursor
     private int _yCursor = 0;
@@ -99,16 +99,10 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
         btnRow.Controls.Add(btnOk);
         btnRow.Controls.Add(btnCancel);
 
-        if (batchMode)
-        {
-            cbApplyToRemaining = new AntdUI.Checkbox
-            {
-                Text = LocalizationManager.GetString("MergeDialogApplyToRemaining") ?? "套用此選擇到剩餘批次",
-                Dock = DockStyle.Bottom,
-                Height = 28,
-                BackColor = System.Drawing.Color.Transparent,
-            };
-        }
+        // 注意：批次的「套用到剩餘」cbApplyToRemaining 在 #52 Phase I refactor 後移除。
+        // 批次模式改成由 BatchSyncModeDialog 在 dialog 開啟前選擇 mode + 預設策略，
+        // 個別 work dialog 不再有 batch-state checkbox。batchMode 參數保留以便未來擴充。
+        _ = batchMode;   // 暫時保留參數簽名相容，內部不使用
 
         // 主內容：可捲動 Panel + 手動 y 定位（先 Add 進 content 取得 ClientSize）
         _scrollHost = new System.Windows.Forms.Panel
@@ -122,7 +116,6 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
         content.Controls.Add(_scrollHost);   // Fill
         content.Controls.Add(lblPath);       // Top
         content.Controls.Add(lblHeader);     // Top
-        if (cbApplyToRemaining != null) content.Controls.Add(cbApplyToRemaining);
         content.Controls.Add(btnRow);
 
         // 強制 layout 一次拿到實際尺寸再加 row
@@ -339,7 +332,7 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
     {
         var result = new MergeResult
         {
-            ApplyToRemaining = cbApplyToRemaining?.Checked ?? false,
+            ApplyToRemaining = false,   // Phase I refactor 後 dialog 不再驅動策略；mode 在 BatchSyncModeDialog 選
         };
 
         // 每個 row：external radio checked 才填 result（null = 保留本地）

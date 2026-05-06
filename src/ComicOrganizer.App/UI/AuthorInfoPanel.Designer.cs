@@ -9,6 +9,7 @@ partial class AuthorInfoPanel
     private System.Windows.Forms.Label lblTitle;
     private AntdUI.Button btnEdit;
     private AntdUI.Button btnClose;
+    private AntdUI.Button btnExpandMax;
 
     // 資料區（ShowEmpty 時隱藏）
     private System.Windows.Forms.Panel contentPanel;
@@ -58,6 +59,7 @@ partial class AuthorInfoPanel
         lblTitle = new System.Windows.Forms.Label();
         btnEdit = new AntdUI.Button();
         btnClose = new AntdUI.Button();
+        btnExpandMax = new AntdUI.Button();
         contentPanel = new System.Windows.Forms.Panel();
         layout = new System.Windows.Forms.TableLayoutPanel();
         lblMainName = new System.Windows.Forms.Label();
@@ -103,6 +105,7 @@ partial class AuthorInfoPanel
         headerPanel.Height = 36;
         headerPanel.Padding = new System.Windows.Forms.Padding(8, 4, 4, 4);
         headerPanel.Controls.Add(lblTitle);
+        headerPanel.Controls.Add(btnExpandMax);
         headerPanel.Controls.Add(btnClose);
         //
         // lblTitle
@@ -122,6 +125,16 @@ partial class AuthorInfoPanel
         btnClose.Name = "btnClose";
         btnClose.Size = new System.Drawing.Size(28, 28);
         btnClose.Text = "";
+        //
+        // btnExpandMax — drawer 寬度撐到接近螢幕邊（toggle）
+        //
+        btnExpandMax.Dock = System.Windows.Forms.DockStyle.Right;
+        btnExpandMax.Ghost = true;
+        btnExpandMax.IconRatio = 0.6F;
+        btnExpandMax.IconSvg = "FullscreenOutlined";
+        btnExpandMax.Name = "btnExpandMax";
+        btnExpandMax.Size = new System.Drawing.Size(28, 28);
+        btnExpandMax.Text = "";
         //
         // btnEdit — 編輯切換（在 action bar，跟「清除作者閱讀記錄」同列）
         //

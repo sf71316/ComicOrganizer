@@ -25,12 +25,41 @@ public partial class AuthorManagePanel : UserControl, IThemedControl
         BuildFilterDropdown();
         WireEvents();
         this.WireThemeAndLocalization();
+
+        // SplitContainer 在 Designer 時 Size 還是預設 150x100，SplitterDistance=420 會被 clamp。
+        // 等 control 拿到第一次 Size（HandleCreated 後 Layout pass）才能可靠設值。
+        Layout += (s, e) =>
+        {
+            // 只設一次 — 之後尊重 user 拖拉
+            if (_splitterInitialized) return;
+            if (splitContainer.Width < 200) return;   // 還沒撐開
+            splitContainer.SplitterDistance = Math.Min(600, splitContainer.Width - 200);
+            _splitterInitialized = true;
+        };
     }
+    private bool _splitterInitialized;
+
+    /// <summary>使用者按右側「同步選取作品」按鈕 — host 接此事件啟動批次（同 Phase F 流程，
+    /// 但作品集合是 user 在右側勾選的子集，不是整個作者所有作品）。</summary>
+    public event Action<long, IReadOnlyList<string>>? RequestBatchSync;
+
+    /// <summary>使用者點 row 上的 sync icon — 對單本跑 Phase E 流程。</summary>
+    public event Action<string>? RequestSyncOne;
 
     public void Initialize(IAssetMetaStore metaStore, TagTranslator? translator = null)
     {
         _metaStore = metaStore;
         _translator = translator;
+        worksPanel.Initialize(metaStore);
+        worksPanel.RequestBatchSync += (authorId, paths) => RequestBatchSync?.Invoke(authorId, paths);
+        worksPanel.RequestSyncOne += path => RequestSyncOne?.Invoke(path);
+    }
+
+    /// <summary>由 host 設定 — 控制右側「同步選取作品」按鈕是否啟用（依 config.EnableExternalMetadata）。</summary>
+    public bool ExternalMetadataEnabled
+    {
+        get => worksPanel.ExternalMetadataEnabled;
+        set => worksPanel.ExternalMetadataEnabled = value;
     }
 
     public new void Refresh()
@@ -101,6 +130,15 @@ public partial class AuthorManagePanel : UserControl, IThemedControl
                 case "Rename": OnRenameClicked(row); break;
                 case "Merge":  OnMergeClicked(row);  break;
             }
+        };
+
+        // Phase I: 點 row 任何 cell → 載入該作者作品到右側清單。
+        // 用 CellClick.e.Record 直接拿到 AuthorRow，避開 SelectedIndex / BindingList index
+        // 對不上（AntdUI.Table 內部可能含 header / sort 影響）的 off-by-one 問題。
+        tableAuthors.CellClick += (s, e) =>
+        {
+            if (e.Record is AuthorRow row)
+                worksPanel.LoadAuthorWorks(row.Id, row.MainName);
         };
     }
 
@@ -174,7 +212,7 @@ public partial class AuthorManagePanel : UserControl, IThemedControl
             var existing = _allAuthors.FirstOrDefault(a => a.Author.MainName.Equals(newName, StringComparison.OrdinalIgnoreCase));
             if (existing == null) return;
 
-            AntdUI.Modal.open(new AntdUI.Modal.Config(form,
+            UI.ModalEx.Open(new AntdUI.Modal.Config(form,
                 LocalizationManager.GetString("AuthorOpRenameConflictTitle") ?? "作者主名衝突",
                 string.Format(
                     LocalizationManager.GetString("AuthorOpRenameConflictMsg") ?? "已有作者「{0}」（{1} 部作品）。要把當前作者合併進去嗎？",
@@ -207,7 +245,7 @@ public partial class AuthorManagePanel : UserControl, IThemedControl
         if (dlg.ShowDialog(form) != DialogResult.OK || dlg.SelectedAuthor == null) return;
 
         var dest = dlg.SelectedAuthor;
-        AntdUI.Modal.open(new AntdUI.Modal.Config(form,
+        UI.ModalEx.Open(new AntdUI.Modal.Config(form,
             LocalizationManager.GetString("AuthorOpMergeConfirmTitle") ?? "確認合併",
             string.Format(
                 LocalizationManager.GetString("AuthorOpMergeConfirmMsg") ??

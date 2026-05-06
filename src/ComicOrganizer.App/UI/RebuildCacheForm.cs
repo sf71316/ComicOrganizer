@@ -58,14 +58,14 @@ public partial class RebuildCacheForm : Window
         catch (Exception ex)
         {
             _tracker.NotifyEnd(cancelled: true);
-            AntdUI.Modal.open(new AntdUI.Modal.Config(this, "比對失敗", ex.Message, AntdUI.TType.Error));
+            UI.ModalEx.Open(new AntdUI.Modal.Config(this, "比對失敗", ex.Message, AntdUI.TType.Error));
             return;
         }
 
         if (IsDisposed) return;
         if (report == null || report.IsEmpty)
         {
-            AntdUI.Modal.open(new AntdUI.Modal.Config(this,
+            UI.ModalEx.Open(new AntdUI.Modal.Config(this,
                 LocalizationManager.GetString("ReconcileResultTitle") ?? "比對結果",
                 string.Format(
                     LocalizationManager.GetString("ReconcileNoChangeFmt") ??
@@ -130,7 +130,7 @@ public partial class RebuildCacheForm : Window
 
     private void HandleClearReadingRecords()
     {
-        AntdUI.Modal.open(new AntdUI.Modal.Config(this, "清除所有閱讀記錄",
+        UI.ModalEx.Open(new AntdUI.Modal.Config(this, "清除所有閱讀記錄",
             "清除全庫所有作品的閱讀狀態 / 次數 / 上次閱讀 / 上次頁碼？\n\n" +
             "此動作不可復原；metadata（作者 / 標題 / 標籤）會保留。",
             AntdUI.TType.Warn)
@@ -162,7 +162,7 @@ public partial class RebuildCacheForm : Window
             $"DB 目錄索引（catalog）會保留，下次「更新索引資料庫」時會重新建立縮圖。\n\n" +
             $"此動作無法復原。";
 
-        AntdUI.Modal.open(new AntdUI.Modal.Config(this, "清除縮圖快取", msg, AntdUI.TType.Warn)
+        UI.ModalEx.Open(new AntdUI.Modal.Config(this, "清除縮圖快取", msg, AntdUI.TType.Warn)
         {
             OkText = "清除",
             CancelText = "取消",
@@ -192,7 +192,7 @@ public partial class RebuildCacheForm : Window
             $"清除後 DB 與 thumbs 都會回到空白狀態，需重新跑「完整重建」或「更新索引資料庫」才會有資料。\n\n" +
             $"此動作無法復原。";
 
-        AntdUI.Modal.open(new AntdUI.Modal.Config(this, "完整清除", msg, AntdUI.TType.Warn)
+        UI.ModalEx.Open(new AntdUI.Modal.Config(this, "完整清除", msg, AntdUI.TType.Warn)
         {
             OkText = "完整清除",
             CancelText = "取消",
@@ -213,7 +213,7 @@ public partial class RebuildCacheForm : Window
 
     private void AskRunUpdateAfterClear(string clearedMsg)
     {
-        AntdUI.Modal.open(new AntdUI.Modal.Config(this, "清除完成",
+        UI.ModalEx.Open(new AntdUI.Modal.Config(this, "清除完成",
             $"{clearedMsg}。\n\n要立即執行「更新索引資料庫」重新建立嗎？", AntdUI.TType.Info)
         {
             OkText = "立即更新",
@@ -313,7 +313,7 @@ public partial class RebuildCacheForm : Window
         var icon = s.Cancelled ? AntdUI.TType.Warn
                   : s.EvictedCount > 0 ? AntdUI.TType.Warn
                   : AntdUI.TType.Success;
-        AntdUI.Modal.open(new AntdUI.Modal.Config(this, title, content, icon)
+        UI.ModalEx.Open(new AntdUI.Modal.Config(this, title, content, icon)
         {
             CancelText = null,   // 純資訊框，隱藏取消鈕
         });

@@ -224,7 +224,7 @@ public class ReconcileResultDialog : AntdUI.Window, IThemedControl
         var selected = rows.Where(r => r.Selected).ToList();
         if (selected.Count == 0) return;
 
-        AntdUI.Modal.open(new AntdUI.Modal.Config(this,
+        UI.ModalEx.Open(new AntdUI.Modal.Config(this,
             LocalizationManager.GetString("ReconcileApplyConfirmTitle") ?? "確認套用",
             string.Format(
                 LocalizationManager.GetString("ReconcileApplyConfirmMsgFmt") ??
@@ -263,7 +263,7 @@ public class ReconcileResultDialog : AntdUI.Window, IThemedControl
         var selected = rows.Where(r => r.Selected).ToList();
         if (selected.Count == 0) return;
 
-        AntdUI.Modal.open(new AntdUI.Modal.Config(this,
+        UI.ModalEx.Open(new AntdUI.Modal.Config(this,
             LocalizationManager.GetString("ReconcileDeleteConfirmTitle") ?? "確認刪除",
             string.Format(
                 LocalizationManager.GetString("ReconcileDeleteConfirmMsgFmt") ??

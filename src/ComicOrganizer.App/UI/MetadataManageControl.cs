@@ -9,6 +9,13 @@ public partial class MetadataManageControl : UserControl, IThemedControl
     private IAssetMetaStore? _metaStore;
     private bool _initialized;
 
+    /// <summary>Phase I：使用者在「作者」master-detail 右側按「同步選取作品」 — host (MainForm)
+    /// 接此事件，委派到 GalleryControl.BatchSyncForAuthor(authorId, paths)。</summary>
+    public event Action<long, IReadOnlyList<string>>? RequestBatchSync;
+
+    /// <summary>使用者點 row 上的 sync icon — 對單本跑 Phase E 流程（host 委派到 SyncOneWork）。</summary>
+    public event Action<string>? RequestSyncOne;
+
     public MetadataManageControl()
     {
         InitializeComponent();
@@ -16,6 +23,10 @@ public partial class MetadataManageControl : UserControl, IThemedControl
         btnNavTags.Click += (s, e) => SwitchTo(NavSection.Tags);
         btnNavAuthors.Click += (s, e) => SwitchTo(NavSection.Authors);
         btnNavTools.Click += (s, e) => SwitchTo(NavSection.Tools);
+
+        // 把 author panel 的 RequestBatchSync 往上層 bubble — host 由此入口走 Phase F 流程
+        authorPanel.RequestBatchSync += (id, paths) => RequestBatchSync?.Invoke(id, paths);
+        authorPanel.RequestSyncOne += path => RequestSyncOne?.Invoke(path);
 
         this.WireThemeAndLocalization();
     }
@@ -29,6 +40,13 @@ public partial class MetadataManageControl : UserControl, IThemedControl
         authorPanel.Initialize(metaStore, translator);
         toolsPanel.Initialize(metaStore, reparseService, tracker);
         _initialized = true;
+    }
+
+    /// <summary>由 host 設定（依 config.EnableExternalMetadata） — 控制 author 右側「同步選取作品」按鈕啟用。</summary>
+    public bool ExternalMetadataEnabled
+    {
+        get => authorPanel.ExternalMetadataEnabled;
+        set => authorPanel.ExternalMetadataEnabled = value;
     }
 
     /// <summary>由 MainForm.ShowMetadataManage 呼叫，每次切到此 tab 時刷新當前 section。</summary>

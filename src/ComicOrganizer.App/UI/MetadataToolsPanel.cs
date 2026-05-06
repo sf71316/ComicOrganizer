@@ -54,7 +54,7 @@ public partial class MetadataToolsPanel : UserControl, IThemedControl
         var form = this.FindForm();
         if (form == null) return;
 
-        AntdUI.Modal.open(new AntdUI.Modal.Config(form,
+        UI.ModalEx.Open(new AntdUI.Modal.Config(form,
             LocalizationManager.GetString("ToolsReparseConfirmTitle") ?? "整庫重新解析",
             string.Format(
                 LocalizationManager.GetString("ToolsReparseConfirmMsgFmt") ??
@@ -89,7 +89,7 @@ public partial class MetadataToolsPanel : UserControl, IThemedControl
             if (summary.Cancelled)
                 msg = (LocalizationManager.GetString("ToolsReparseCancelled") ?? "重新解析已取消") + "\n\n" + msg;
 
-            AntdUI.Modal.open(new AntdUI.Modal.Config(form,
+            UI.ModalEx.Open(new AntdUI.Modal.Config(form,
                 LocalizationManager.GetString("ToolsReparseDoneTitle") ?? "整庫重新解析完成",
                 msg,
                 summary.Cancelled ? AntdUI.TType.Warn : AntdUI.TType.Success)
