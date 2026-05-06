@@ -14,12 +14,12 @@ partial class AuthorInfoPanel
     private System.Windows.Forms.Panel contentPanel;
     private System.Windows.Forms.TableLayoutPanel layout;
     private System.Windows.Forms.Label lblMainName;
-    private AntdUI.Input txtMainName;            // edit
+    private AntdUI.Select txtMainName;           // edit — Select with EhTag autocomplete
     private System.Windows.Forms.Label lblFolderPath;
     private System.Windows.Forms.Label lblAliases;
     private System.Windows.Forms.FlowLayoutPanel flowAliasesEdit;   // edit：每個別名 chip + 末尾 add
     private System.Windows.Forms.FlowLayoutPanel addAliasPanel;     // edit：txtAddAliasName + lang + button
-    private AntdUI.Input txtAddAliasName;
+    private AntdUI.Select txtAddAliasName;       // Select with EhTag autocomplete
     private AntdUI.Input txtAddAliasLang;
     private AntdUI.Button btnAddAlias;
     private AntdUI.Divider divider1;
@@ -60,12 +60,12 @@ partial class AuthorInfoPanel
         contentPanel = new System.Windows.Forms.Panel();
         layout = new System.Windows.Forms.TableLayoutPanel();
         lblMainName = new System.Windows.Forms.Label();
-        txtMainName = new AntdUI.Input();
+        txtMainName = new AntdUI.Select();
         lblFolderPath = new System.Windows.Forms.Label();
         lblAliases = new System.Windows.Forms.Label();
         flowAliasesEdit = new System.Windows.Forms.FlowLayoutPanel();
         addAliasPanel = new System.Windows.Forms.FlowLayoutPanel();
-        txtAddAliasName = new AntdUI.Input();
+        txtAddAliasName = new AntdUI.Select();
         txtAddAliasLang = new AntdUI.Input();
         btnAddAlias = new AntdUI.Button();
         divider1 = new AntdUI.Divider();

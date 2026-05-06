@@ -12,13 +12,18 @@ namespace ComicOrganizer.App.UI;
 public class SimpleInputDialog : AntdUI.Window, IThemedControl
 {
     private readonly AntdUI.Label lblPrompt;
-    private readonly AntdUI.Input txtInput;
+    private readonly AntdUI.Input txtInput;       // 普通 input mode 用
+    private readonly AntdUI.Select? txtSelect;    // autocomplete mode 用（不為 null 時走 Select）
     private readonly AntdUI.Button btnOk;
     private readonly AntdUI.Button btnCancel;
 
-    public string Value => txtInput.Text?.Trim() ?? "";
+    public string Value => (txtSelect?.Text ?? txtInput.Text)?.Trim() ?? "";
 
     public SimpleInputDialog(string title, string prompt, string initialValue = "")
+        : this(title, prompt, initialValue, autocomplete: null) { }
+
+    /// <summary>autocomplete 模式：傳 translator 進來會用 Select + EhTag artist suggest 取代 Input。</summary>
+    public SimpleInputDialog(string title, string prompt, string initialValue, TagTranslator? autocomplete)
     {
         Text = title;
         Size = new System.Drawing.Size(420, 180);
@@ -54,6 +59,23 @@ public class SimpleInputDialog : AntdUI.Window, IThemedControl
             if (e.KeyCode == Keys.Escape) { e.Handled = true; AcceptCancel(); }
         };
 
+        if (autocomplete != null && autocomplete.IsAvailable)
+        {
+            txtSelect = new AntdUI.Select
+            {
+                Text = initialValue,
+                Dock = DockStyle.Top,
+                Margin = new Padding(0, 6, 0, 0),
+                Size = new System.Drawing.Size(0, 32),
+            };
+            txtSelect.KeyDown += (s, e) =>
+            {
+                if (e.KeyCode == Keys.Enter) { e.Handled = true; AcceptOk(); }
+                if (e.KeyCode == Keys.Escape) { e.Handled = true; AcceptCancel(); }
+            };
+            AutocompleteHelpers.BindArtistAutocomplete(txtSelect, autocomplete);
+        }
+
         var btnRow = new System.Windows.Forms.FlowLayoutPanel
         {
             Dock = DockStyle.Bottom,
@@ -81,7 +103,9 @@ public class SimpleInputDialog : AntdUI.Window, IThemedControl
         btnRow.Controls.Add(btnOk);
         btnRow.Controls.Add(btnCancel);
 
-        content.Controls.Add(txtInput);
+        // autocomplete mode 用 Select 取代 Input；非 autocomplete mode 用 Input
+        if (txtSelect != null) content.Controls.Add(txtSelect);
+        else content.Controls.Add(txtInput);
         content.Controls.Add(lblPrompt);
         content.Controls.Add(btnRow);
 

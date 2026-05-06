@@ -29,6 +29,11 @@ public partial class AuthorInfoPanel : UserControl
     public void SetTagTranslator(TagTranslator? translator)
     {
         _translator = translator;
+        if (translator != null)
+        {
+            AutocompleteHelpers.BindArtistAutocomplete(txtMainName, translator);
+            AutocompleteHelpers.BindArtistAutocomplete(txtAddAliasName, translator);
+        }
         if (_currentInfo != null) RebuildTagsView();
     }
     private bool _isEditing;

@@ -21,7 +21,7 @@ partial class WorkDetailPanel
     private System.Windows.Forms.Label lblWorkTitle;
     private AntdUI.Input txtTitle;        // edit mode 取代 lblWorkTitle
     private System.Windows.Forms.LinkLabel lnkAuthor;
-    private AntdUI.Input txtAuthor;       // edit mode 取代 lnkAuthor（輸入作者名 → save 時 UpsertAuthor）
+    private AntdUI.Select txtAuthor;      // edit mode 取代 lnkAuthor（輸入作者名 → save 時 UpsertAuthor）— Select with EhTag autocomplete
 
     // metadata grid
     private AntdUI.Divider divider1;
@@ -83,7 +83,7 @@ partial class WorkDetailPanel
         lblWorkTitle = new System.Windows.Forms.Label();
         txtTitle = new AntdUI.Input();
         lnkAuthor = new System.Windows.Forms.LinkLabel();
-        txtAuthor = new AntdUI.Input();
+        txtAuthor = new AntdUI.Select();
         divider1 = new AntdUI.Divider();
         lblMetaInfo = new System.Windows.Forms.Label();
         editGrid = new System.Windows.Forms.TableLayoutPanel();

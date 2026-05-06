@@ -46,6 +46,7 @@ public partial class WorkDetailPanel : UserControl
     public void SetTagTranslator(TagTranslator? translator)
     {
         _translator = translator;
+        if (translator != null) AutocompleteHelpers.BindArtistAutocomplete(txtAuthor, translator);
         if (_currentDetail != null) RebuildTagsView();
     }
 

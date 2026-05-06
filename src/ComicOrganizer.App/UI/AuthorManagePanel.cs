@@ -12,6 +12,7 @@ public partial class AuthorManagePanel : UserControl, IThemedControl
     private const string FilterMetadataOnly = "__meta__";    // 沒 folder_path
 
     private IAssetMetaStore? _metaStore;
+    private TagTranslator? _translator;
     private List<AuthorUsage> _allAuthors = new();
     private string _searchText = "";
     private string _filter = FilterAll;
@@ -26,9 +27,10 @@ public partial class AuthorManagePanel : UserControl, IThemedControl
         this.WireThemeAndLocalization();
     }
 
-    public void Initialize(IAssetMetaStore metaStore)
+    public void Initialize(IAssetMetaStore metaStore, TagTranslator? translator = null)
     {
         _metaStore = metaStore;
+        _translator = translator;
     }
 
     public new void Refresh()
@@ -147,7 +149,8 @@ public partial class AuthorManagePanel : UserControl, IThemedControl
         using var dlg = new SimpleInputDialog(
             LocalizationManager.GetString("AuthorOpRenameTitle") ?? "重新命名作者",
             (LocalizationManager.GetString("AuthorOpRenamePrompt") ?? "新主名（{0}）：").Replace("{0}", row.MainName),
-            row.MainName);
+            row.MainName,
+            autocomplete: _translator);
         if (dlg.ShowDialog(form) != DialogResult.OK) return;
         var newName = dlg.Value;
         if (string.IsNullOrWhiteSpace(newName) || newName == row.MainName) return;

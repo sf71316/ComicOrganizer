@@ -26,7 +26,7 @@ public partial class MetadataManageControl : UserControl, IThemedControl
         _metaStore = metaStore;
         tagPanel.Initialize(metaStore);
         tagPanel.SetTagTranslator(translator);
-        authorPanel.Initialize(metaStore);
+        authorPanel.Initialize(metaStore, translator);
         toolsPanel.Initialize(metaStore, reparseService, tracker);
         _initialized = true;
     }
