@@ -426,6 +426,9 @@
   <data name="AuthorColWorks" xml:space="preserve">
     <value>作品數</value>
   </data>
+  <data name="AuthorColLearnedAt" xml:space="preserve">
+    <value>建立時間</value>
+  </data>
   <data name="AuthorOpRenameTitle" xml:space="preserve">
     <value>重新命名作者</value>
   </data>

@@ -48,12 +48,13 @@ public partial class AuthorManagePanel : UserControl, IThemedControl
         tableAuthors.EmptyText = "（無資料）";
         tableAuthors.Columns = new ColumnCollection
         {
-            new Column("MainName",   LocalizationManager.GetString("AuthorColMainName") ?? "主名")    { Width = "26%", SortOrder = true },
-            new Column("FolderPath", LocalizationManager.GetString("AuthorColFolder")   ?? "實體資料夾"){ Width = "30%" },
-            new Column("AliasCount", LocalizationManager.GetString("AuthorColAliases")  ?? "別名數")  { Width = "10%", SortOrder = true, Align = ColumnAlign.Right },
-            new Column("TagCount",   LocalizationManager.GetString("AuthorColTags")     ?? "標籤數")  { Width = "10%", SortOrder = true, Align = ColumnAlign.Right },
-            new Column("WorkCount",  LocalizationManager.GetString("AuthorColWorks")    ?? "作品數")  { Width = "10%", SortOrder = true, Align = ColumnAlign.Right },
-            new Column("Action",     LocalizationManager.GetString("TagColAction")      ?? "操作")    { Width = "14%" },
+            new Column("MainName",   LocalizationManager.GetString("AuthorColMainName")  ?? "主名")    { Width = "20%", SortOrder = true },
+            new Column("FolderPath", LocalizationManager.GetString("AuthorColFolder")    ?? "實體資料夾"){ Width = "21%" },
+            new Column("AliasCount", LocalizationManager.GetString("AuthorColAliases")   ?? "別名數")  { Width = "8%",  SortOrder = true, Align = ColumnAlign.Right },
+            new Column("TagCount",   LocalizationManager.GetString("AuthorColTags")      ?? "標籤數")  { Width = "8%",  SortOrder = true, Align = ColumnAlign.Right },
+            new Column("WorkCount",  LocalizationManager.GetString("AuthorColWorks")     ?? "作品數")  { Width = "9%",  SortOrder = true, Align = ColumnAlign.Right },
+            new Column("LearnedAt",  LocalizationManager.GetString("AuthorColLearnedAt") ?? "建立時間"){ Width = "20%", SortOrder = true },
+            new Column("Action",     LocalizationManager.GetString("TagColAction")       ?? "操作")    { Width = "14%" },
         };
     }
 
@@ -131,6 +132,13 @@ public partial class AuthorManagePanel : UserControl, IThemedControl
         AliasCount = u.AliasCount,
         TagCount = u.TagCount,
         WorkCount = u.WorkCount,
+        // yyyy-MM-dd hh:mm tt — 12-hour AM/PM 標記。InvariantCulture 強制英文
+        // AM/PM（不要被 zh-TW 顯示成「上午/下午」）。注意 12-hour 字串在同一天內
+        // 排序會錯（"03:42 PM" < "11:30 AM" 字典序），跨日期 OK。
+        LearnedAt = u.Author.LearnedAt > 0
+            ? DateTimeOffset.FromUnixTimeSeconds(u.Author.LearnedAt).LocalDateTime
+                .ToString("yyyy-MM-dd hh:mm tt", System.Globalization.CultureInfo.InvariantCulture)
+            : "",
         Action = new CellLink[]
         {
             new CellButton("Rename", "", TTypeMini.Default) { Ghost = true, IconSvg = "EditOutlined"        },
@@ -249,6 +257,7 @@ public partial class AuthorManagePanel : UserControl, IThemedControl
         public int AliasCount { get; set; }
         public int TagCount { get; set; }
         public int WorkCount { get; set; }
+        public string LearnedAt { get; set; } = "";
         public CellLink[]? Action { get; set; }
     }
 }

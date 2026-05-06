@@ -153,6 +153,7 @@
   <data name="AuthorColAliases" xml:space="preserve"><value>Aliases</value></data>
   <data name="AuthorColTags" xml:space="preserve"><value>Tags</value></data>
   <data name="AuthorColWorks" xml:space="preserve"><value>Works</value></data>
+  <data name="AuthorColLearnedAt" xml:space="preserve"><value>Created</value></data>
   <data name="AuthorOpRenameTitle" xml:space="preserve"><value>Rename author</value></data>
   <data name="AuthorOpRenamePrompt" xml:space="preserve"><value>New main name (was: {0}):</value></data>
   <data name="AuthorOpRenameConflictTitle" xml:space="preserve"><value>Author main name conflict</value></data>
