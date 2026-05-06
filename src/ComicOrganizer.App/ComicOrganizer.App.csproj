@@ -12,6 +12,16 @@
     <ApplicationIcon>Assist\comic_5318786.ico</ApplicationIcon>
   </PropertyGroup>
 
+  <!-- Release publish 設定 — 只在 `dotnet publish -c Release` 生效，不影響日常 build/run -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishReadyToRun>true</PublishReadyToRun>          <!-- pre-JIT，啟動 -30~50% -->
+    <PublishSingleFile>true</PublishSingleFile>          <!-- 打包成單一 exe -->
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <SelfContained>false</SelfContained>                 <!-- framework-dependent，~10 MB；user 需有 .NET 8 runtime。要做 self-contained (~80 MB 但免裝 runtime) 改 true -->
+    <DebugType>embedded</DebugType>                      <!-- pdb 嵌入 exe，不留散檔 -->
+  </PropertyGroup>
+
   <ItemGroup>
     <None Remove="UI\PoisonMainForm.resx~RF6dfc1fc.TMP" />
   </ItemGroup>
