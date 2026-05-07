@@ -33,6 +33,13 @@ partial class SettingsForm
     private AntdUI.Button btnTestConnection;
     private AntdUI.Label lblExtStatus;
 
+    // externalPanel 翻譯庫子區塊 (#53 Phase 5-C)
+    private AntdUI.Divider divTrDb;
+    private AntdUI.Label lblTrDbTitle;
+    private AntdUI.Label lblTrDbDesc;
+    private AntdUI.Switch swAutoCheckTrDb;
+    private AntdUI.Label lblTrDbAutoCheck;
+
     // generalPanel 控件
     private AntdUI.Label labelTheme;
     private AntdUI.Select selectTheme;
@@ -140,6 +147,11 @@ partial class SettingsForm
         lblExtEnable = new AntdUI.Label();
         lblExtDesc = new AntdUI.Label();
         lblExtTitle = new AntdUI.Label();
+        divTrDb = new AntdUI.Divider();
+        lblTrDbTitle = new AntdUI.Label();
+        lblTrDbDesc = new AntdUI.Label();
+        swAutoCheckTrDb = new Switch();
+        lblTrDbAutoCheck = new AntdUI.Label();
         footer.SuspendLayout();
         leftMenu.SuspendLayout();
         content.SuspendLayout();
@@ -632,6 +644,11 @@ partial class SettingsForm
         // externalPanel
         // 
         externalPanel.BackColor = Color.Transparent;
+        externalPanel.Controls.Add(lblTrDbAutoCheck);
+        externalPanel.Controls.Add(swAutoCheckTrDb);
+        externalPanel.Controls.Add(lblTrDbDesc);
+        externalPanel.Controls.Add(lblTrDbTitle);
+        externalPanel.Controls.Add(divTrDb);
         externalPanel.Controls.Add(lblExtStatus);
         externalPanel.Controls.Add(btnTestConnection);
         externalPanel.Controls.Add(txtExtKey);
@@ -719,7 +736,49 @@ partial class SettingsForm
         lblExtTitle.Size = new Size(500, 30);
         lblExtTitle.TabIndex = 0;
         lblExtTitle.Text = "nhentai API";
-        // 
+        //
+        // divTrDb — 翻譯庫子區塊分隔線
+        //
+        divTrDb.Location = new Point(40, 360);
+        divTrDb.Name = "divTrDb";
+        divTrDb.Size = new Size(620, 12);
+        divTrDb.TabIndex = 8;
+        //
+        // lblTrDbTitle
+        //
+        lblTrDbTitle.BackColor = Color.Transparent;
+        lblTrDbTitle.Font = new Font("Microsoft JhengHei UI", 12F, FontStyle.Bold);
+        lblTrDbTitle.Location = new Point(40, 380);
+        lblTrDbTitle.Name = "lblTrDbTitle";
+        lblTrDbTitle.Size = new Size(500, 30);
+        lblTrDbTitle.TabIndex = 9;
+        lblTrDbTitle.Text = "翻譯庫線上更新";
+        //
+        // lblTrDbDesc
+        //
+        lblTrDbDesc.BackColor = Color.Transparent;
+        lblTrDbDesc.Location = new Point(40, 415);
+        lblTrDbDesc.Name = "lblTrDbDesc";
+        lblTrDbDesc.Size = new Size(620, 50);
+        lblTrDbDesc.TabIndex = 10;
+        lblTrDbDesc.Text = "啟動時自動檢查 EhTag 翻譯庫是否有新版（每天最多檢查一次）。關掉只影響背景檢查；工具頁的「立即檢查更新」按鈕仍可用。";
+        //
+        // lblTrDbAutoCheck
+        //
+        lblTrDbAutoCheck.BackColor = Color.Transparent;
+        lblTrDbAutoCheck.Location = new Point(40, 480);
+        lblTrDbAutoCheck.Name = "lblTrDbAutoCheck";
+        lblTrDbAutoCheck.Size = new Size(150, 30);
+        lblTrDbAutoCheck.TabIndex = 11;
+        lblTrDbAutoCheck.Text = "自動檢查：";
+        //
+        // swAutoCheckTrDb
+        //
+        swAutoCheckTrDb.Location = new Point(190, 485);
+        swAutoCheckTrDb.Name = "swAutoCheckTrDb";
+        swAutoCheckTrDb.Size = new Size(50, 25);
+        swAutoCheckTrDb.TabIndex = 12;
+        //
         // SettingsForm
         // 
         BackColor = Color.FromArgb(30, 30, 30);

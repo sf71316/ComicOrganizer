@@ -336,6 +336,34 @@ First work will open merge dialog to decide strategy; remaining {4} works will a
   <data name="ChipClearAll" xml:space="preserve"><value>Clear All</value></data>
   <data name="TagFilterEmpty" xml:space="preserve"><value>Tag Filter</value></data>
   <data name="TagFilterEmptyHint" xml:space="preserve"><value>Pick one or more tags from the tree</value></data>
+  <data name="TranslationDbTitle" xml:space="preserve"><value>Translation DB</value></data>
+  <data name="TranslationDbVersionFmt" xml:space="preserve"><value>Current version: {0}</value></data>
+  <data name="TranslationDbCountFmt" xml:space="preserve"><value>Entries: {0}</value></data>
+  <data name="TranslationDbSourceFmt" xml:space="preserve"><value>Source: {0}</value></data>
+  <data name="TranslationDbSourceEmbedded" xml:space="preserve"><value>bundled</value></data>
+  <data name="TranslationDbSourceDiskCache" xml:space="preserve"><value>downloaded</value></data>
+  <data name="TranslationDbCheckUpdate" xml:space="preserve"><value>Check for Updates</value></data>
+  <data name="TranslationDbUpToDateTitle" xml:space="preserve"><value>Up to date</value></data>
+  <data name="TranslationDbUpToDateMsg" xml:space="preserve"><value>Current {0} is the latest (tag {1})</value></data>
+  <data name="TranslationDbCheckFailedTitle" xml:space="preserve"><value>Update check failed</value></data>
+  <data name="TranslationDbCheckFailedMsg" xml:space="preserve"><value>Unable to reach GitHub. Please check your network and try again.</value></data>
+  <data name="TranslationDbUpdateAvailable" xml:space="preserve"><value>Translation DB update available</value></data>
+  <data name="TranslationDbUpdateAvailableMsgFmt" xml:space="preserve"><value>From {0} to {1} (tag {2})</value></data>
+  <data name="TranslationDbUpdateLink" xml:space="preserve"><value>Update</value></data>
+  <data name="TranslationDbUpdateDialogTitle" xml:space="preserve"><value>Update Translation DB</value></data>
+  <data name="TranslationDbVersionDiffFmt" xml:space="preserve"><value>Current {0} → latest {1} ({2})</value></data>
+  <data name="TranslationDbSizeFmt" xml:space="preserve"><value>Download size: {0:F1} MB</value></data>
+  <data name="TranslationDbDownload" xml:space="preserve"><value>Download</value></data>
+  <data name="TranslationDbDownloadCancel" xml:space="preserve"><value>Cancel Download</value></data>
+  <data name="TranslationDbDownloading" xml:space="preserve"><value>Downloading…</value></data>
+  <data name="TranslationDbDownloadCancelled" xml:space="preserve"><value>Cancelled</value></data>
+  <data name="TranslationDbDownloadFailed" xml:space="preserve"><value>Download failed (network?)</value></data>
+  <data name="TranslationDbDownloadDone" xml:space="preserve"><value>Download complete. Restart app to apply.</value></data>
+  <data name="TranslationDbDownloadDoneTitle" xml:space="preserve"><value>Download complete</value></data>
+  <data name="TranslationDbRestartToApply" xml:space="preserve"><value>Restart app to apply.</value></data>
+  <data name="SettingsTrDbTitle" xml:space="preserve"><value>Translation DB Auto-Update</value></data>
+  <data name="SettingsTrDbDesc" xml:space="preserve"><value>Check for EhTag Translation DB updates on startup (at most once per day). Disabling only affects background check; the manual "Check for Updates" button on the Tools page still works.</value></data>
+  <data name="SettingsTrDbAutoCheckLabel" xml:space="preserve"><value>Auto-check:</value></data>
   <data name="SettingsThumbCacheMax" xml:space="preserve"><value>Thumb cache size limit (LRU eviction)</value></data>
   <data name="MenuAuthorInfo" xml:space="preserve"><value>Author Info</value></data>
   <data name="AuthorInfoTitle" xml:space="preserve"><value>Author Info</value></data>

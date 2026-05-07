@@ -25,6 +25,8 @@ public partial class MainForm : Window, IThemedControl
     private readonly CatalogReconcileService _reconcileService;
     private readonly ReparseAllService _reparseService;
     private readonly TagTranslator _tagTranslator;
+    private readonly TagTranslationUpdater _translationUpdater;
+    private readonly string _translationDbPath;
 
     // 閱讀記錄延遲提交 queue（#49 Phase 1.0）
     private readonly ReadRecordQueue _readRecordQueue;
@@ -61,8 +63,9 @@ public partial class MainForm : Window, IThemedControl
         _reconcileService = new CatalogReconcileService(_config, _metaStore);
         _reparseService = new ReparseAllService(_metaStore, _rebuildTracker);
         // 翻譯庫：disk cache 優先（BaseDirectory/translations/db.text.json.gz）→ fallback embedded
-        var translationDbPath = Path.Combine(baseDir, "translations", "db.text.json.gz");
-        _tagTranslator = new TagTranslator(translationDbPath);
+        _translationDbPath = Path.Combine(baseDir, "translations", "db.text.json.gz");
+        _tagTranslator = new TagTranslator(_translationDbPath);
+        _translationUpdater = new TagTranslationUpdater();
         _readRecordQueue = new ReadRecordQueue(_metaStore, _config.ReadCountThresholdSeconds);
         // Tracker 改變時，statusBar 自動同步顯示（背景任務全域可見）
         _rebuildTracker.StateChanged += (s, e) => UpdateStatusFromTracker();
@@ -73,7 +76,11 @@ public partial class MainForm : Window, IThemedControl
             galleryControl.Initialize(_config, _coverManager, _metaStore, _readRecordQueue, _prefs, _tagTranslator);
             archiveControl.Initialize(_config, _intelligence, _organizer);
             metadataManageControl.Initialize(_metaStore, _reparseService, _rebuildTracker, _tagTranslator);
+            metadataManageControl.InitializeTranslationDb(_tagTranslator, _translationUpdater, _translationDbPath);
             metadataManageControl.ExternalMetadataEnabled = _config.EnableExternalMetadata;
+
+            // 啟動後背景檢查翻譯庫更新（24h 防 spam GitHub）— fire-and-forget，網路錯靜默吞
+            _ = CheckTranslationDbUpdateInBackground();
 
             // Phase I: 詮釋資料管理 → 作者 → 多選作品 → 「同步選取作品」 → 委派 GalleryControl 走 Phase F 同樣流程
             metadataManageControl.RequestBatchSync += async (authorId, paths) =>
@@ -135,6 +142,61 @@ public partial class MainForm : Window, IThemedControl
         else if (!string.IsNullOrEmpty(_rebuildTracker.Phase))
         {
             statusLabel.Text = "重建完成";
+        }
+    }
+
+    /// <summary>啟動時背景檢查翻譯庫更新。
+    /// AutoCheckTranslationDbUpdate=false → skip（user 在設定頁關掉了）；
+    /// 距上次成功檢查 &lt; 24h → skip；網路錯靜默吞（不打擾 user）；
+    /// 有更新 → 右下角 Notification.Config + SetLink → 點連結開更新 dialog。</summary>
+    private async Task CheckTranslationDbUpdateInBackground()
+    {
+        if (!_config.AutoCheckTranslationDbUpdate) return;
+
+        const long DayMs = 24L * 60 * 60 * 1000;
+        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        if (nowMs - _config.LastTranslationDbCheckTime < DayMs) return;
+
+        try
+        {
+            var info = await _translationUpdater.CheckLatestAsync().ConfigureAwait(false);
+            if (info == null) return;   // 網路 / 解析失敗 — 不更新時間戳，下次啟動會重試
+
+            // 成功拿到資訊就記時間戳，避免每次啟動打 API
+            _config.LastTranslationDbCheckTime = nowMs;
+            try { _configManager.Save(_config); } catch { /* IO 錯不要中斷流程 */ }
+
+            if (!TagTranslationUpdater.IsUpdateAvailable(_tagTranslator.HeadSha, info.Sha)) return;
+
+            // 切回 UI thread 顯示 Notification
+            if (IsDisposed) return;
+            BeginInvoke(new Action(() =>
+            {
+                if (IsDisposed) return;
+                var localShort = _tagTranslator.HeadSha.Length > 7 ? _tagTranslator.HeadSha[..7] : _tagTranslator.HeadSha;
+                var remoteShort = info.Sha.Length > 7 ? info.Sha[..7] : info.Sha;
+                var title = LocalizationManager.GetString("TranslationDbUpdateAvailable") ?? "翻譯庫有新版可用";
+                var msg = string.Format(
+                    LocalizationManager.GetString("TranslationDbUpdateAvailableMsgFmt") ?? "從 {0} 更新到 {1}（tag {2}）",
+                    string.IsNullOrEmpty(localShort) ? "—" : localShort, remoteShort, info.Tag);
+                var linkText = LocalizationManager.GetString("TranslationDbUpdateLink") ?? "更新";
+
+                var cfg = new AntdUI.Notification.Config(this, title, msg, AntdUI.TType.Info, AntdUI.TAlignFrom.BR)
+                {
+                    AutoClose = 0,   // 不自動關 — user 自己點連結或關
+                };
+                cfg.SetLink(linkText, () =>
+                {
+                    using var dlg = new UpdateTranslationDbDialog(info, _tagTranslator.HeadSha, _translationDbPath, _translationUpdater);
+                    dlg.ShowDialog(this);
+                    return true;   // SetLink return true → 點完關掉 notification
+                });
+                cfg.open();   // AntdUI extension method（小寫 open）
+            }));
+        }
+        catch
+        {
+            // CheckLatestAsync 自身已 catch all，這裡是雙重保險（避免任何意外往 fire-and-forget 外漏）
         }
     }
 

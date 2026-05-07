@@ -42,6 +42,12 @@ public partial class MetadataManageControl : UserControl, IThemedControl
         _initialized = true;
     }
 
+    /// <summary>由 host 注入翻譯庫線上更新所需的 service + path（可獨立呼叫，不強制走 Initialize）。</summary>
+    public void InitializeTranslationDb(TagTranslator translator, TagTranslationUpdater updater, string diskPath)
+    {
+        toolsPanel.InitializeTranslationDb(translator, updater, diskPath);
+    }
+
     /// <summary>由 host 設定（依 config.EnableExternalMetadata） — 控制 author 右側「同步選取作品」按鈕啟用。</summary>
     public bool ExternalMetadataEnabled
     {

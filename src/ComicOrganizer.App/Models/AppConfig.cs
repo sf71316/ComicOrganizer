@@ -83,4 +83,8 @@ public class AppConfig
     /// <summary>上次成功檢查 EhTag 翻譯庫更新的時間（unix ms，0 = 從未）。
     /// 啟動背景檢查若距上次 &lt; 24h 就 skip，避免每次啟動都打 GitHub API。</summary>
     public long LastTranslationDbCheckTime { get; set; }
+
+    /// <summary>啟用啟動時的翻譯庫自動更新檢查（預設 on）。
+    /// 關掉只影響背景檢查；工具頁的「立即檢查更新」按鈕仍可主動觸發。</summary>
+    public bool AutoCheckTranslationDbUpdate { get; set; } = true;
 }

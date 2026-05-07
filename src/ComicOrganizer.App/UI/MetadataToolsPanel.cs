@@ -9,6 +9,9 @@ public partial class MetadataToolsPanel : UserControl, IThemedControl
     private IAssetMetaStore? _metaStore;
     private ReparseAllService? _reparseService;
     private RebuildProgressTracker? _tracker;
+    private TagTranslator? _tagTranslator;
+    private TagTranslationUpdater? _updater;
+    private string? _translationDbPath;
 
     public MetadataToolsPanel()
     {
@@ -24,6 +27,38 @@ public partial class MetadataToolsPanel : UserControl, IThemedControl
         _reparseService = reparseService;
         _tracker = tracker;
         _tracker.StateChanged += OnTrackerStateChanged;
+    }
+
+    /// <summary>翻譯庫區塊用 — 由 host 注入 translator + 更新服務 + disk 寫入路徑。
+    /// 不在 Initialize 是為了 keep 既有 caller 不需改 signature；新功能拆方法注入。</summary>
+    public void InitializeTranslationDb(TagTranslator translator, TagTranslationUpdater updater, string diskPath)
+    {
+        _tagTranslator = translator;
+        _updater = updater;
+        _translationDbPath = diskPath;
+        RefreshTranslationDbInfo();
+    }
+
+    private void RefreshTranslationDbInfo()
+    {
+        if (_tagTranslator == null) return;
+        var sha = _tagTranslator.HeadSha;
+        var shaShort = string.IsNullOrEmpty(sha) ? "—" : (sha.Length > 7 ? sha[..7] : sha);
+
+        lblTranslationVersion.Text = string.Format(
+            LocalizationManager.GetString("TranslationDbVersionFmt") ?? "目前版本：{0}",
+            shaShort);
+        lblTranslationCount.Text = string.Format(
+            LocalizationManager.GetString("TranslationDbCountFmt") ?? "條目：{0}",
+            _tagTranslator.Count);
+
+        var srcKey = _tagTranslator.Source == TagTranslationDbSource.DiskCache
+            ? "TranslationDbSourceDiskCache" : "TranslationDbSourceEmbedded";
+        var srcDefault = _tagTranslator.Source == TagTranslationDbSource.DiskCache
+            ? "已下載" : "bundled";
+        lblTranslationSource.Text = string.Format(
+            LocalizationManager.GetString("TranslationDbSourceFmt") ?? "來源：{0}",
+            LocalizationManager.GetString(srcKey) ?? srcDefault);
     }
 
     public new void Refresh()
@@ -43,6 +78,56 @@ public partial class MetadataToolsPanel : UserControl, IThemedControl
         btnRefreshStats.Click += (s, e) => Refresh();
         btnReparse.Click += async (s, e) => await ExecuteReparseAsync();
         btnCancel.Click += (s, e) => _tracker?.Cancel();
+        btnCheckUpdate.Click += async (s, e) => await CheckUpdateClicked();
+    }
+
+    /// <summary>使用者主動點「立即檢查更新」 — 繞過 24h 限制，網路錯也要顯示提示（背景檢查才靜默）。</summary>
+    private async Task CheckUpdateClicked()
+    {
+        if (_updater == null || _tagTranslator == null || _translationDbPath == null) return;
+        var form = this.FindForm();
+        if (form == null) return;
+
+        btnCheckUpdate.Loading = true;
+        try
+        {
+            var info = await _updater.CheckLatestAsync();
+            if (info == null)
+            {
+                AntdUI.Notification.warn(form,
+                    LocalizationManager.GetString("TranslationDbCheckFailedTitle") ?? "檢查更新失敗",
+                    LocalizationManager.GetString("TranslationDbCheckFailedMsg") ?? "無法連到 GitHub，請檢查網路後再試。",
+                    autoClose: 4, align: AntdUI.TAlignFrom.TR);
+                return;
+            }
+
+            var local = _tagTranslator.HeadSha;
+            if (!TagTranslationUpdater.IsUpdateAvailable(local, info.Sha))
+            {
+                AntdUI.Notification.success(form,
+                    LocalizationManager.GetString("TranslationDbUpToDateTitle") ?? "已是最新版本",
+                    string.Format(
+                        LocalizationManager.GetString("TranslationDbUpToDateMsg") ?? "目前 {0} 為最新（tag {1}）",
+                        local.Length > 7 ? local[..7] : local, info.Tag),
+                    autoClose: 3, align: AntdUI.TAlignFrom.TR);
+                return;
+            }
+
+            using var dlg = new UpdateTranslationDbDialog(info, local, _translationDbPath, _updater);
+            dlg.ShowDialog(form);
+            if (dlg.IsCompletedSuccessfully)
+            {
+                // 下載完成 → 提示重啟（dialog 內已有訊息，這裡再 toast 一次提醒）
+                AntdUI.Notification.success(form,
+                    LocalizationManager.GetString("TranslationDbDownloadDoneTitle") ?? "下載完成",
+                    LocalizationManager.GetString("TranslationDbRestartToApply") ?? "重啟 app 後生效",
+                    autoClose: 5, align: AntdUI.TAlignFrom.TR);
+            }
+        }
+        finally
+        {
+            btnCheckUpdate.Loading = false;
+        }
     }
 
     private async Task ExecuteReparseAsync()
@@ -136,6 +221,7 @@ public partial class MetadataToolsPanel : UserControl, IThemedControl
         // AntdUI.Panel 用 Back（rounded 填色），不是 BackColor
         statsPanel.Back = ThemeColors.Background;
         reparsePanel.Back = ThemeColors.Background;
+        translationPanel.Back = ThemeColors.Background;
         lblTitle.ForeColor = ThemeColors.Text;
         lblStatsTitle.ForeColor = ThemeColors.Text;
         lblReparseTitle.ForeColor = ThemeColors.Text;
@@ -147,6 +233,10 @@ public partial class MetadataToolsPanel : UserControl, IThemedControl
         lblStatsAuto.ForeColor = ThemeColors.Primary;
         lblProgressStatus.ForeColor = ThemeColors.Text;
         lblProgressCurrent.ForeColor = ThemeColors.Text;
+        lblTranslationTitle.ForeColor = ThemeColors.Text;
+        lblTranslationVersion.ForeColor = ThemeColors.Text;
+        lblTranslationCount.ForeColor = ThemeColors.Text;
+        lblTranslationSource.ForeColor = ThemeColors.Text;
     }
 
     public void ApplyLocalization()
@@ -159,5 +249,9 @@ public partial class MetadataToolsPanel : UserControl, IThemedControl
         btnRefreshStats.Text = LocalizationManager.GetString("TagManageRefresh") ?? "重新整理";
         btnReparse.Text = LocalizationManager.GetString("ToolsReparseButton") ?? "整庫重新解析";
         btnCancel.Text = LocalizationManager.GetString("DialogCancel") ?? "取消";
+        lblTranslationTitle.Text = LocalizationManager.GetString("TranslationDbTitle") ?? "翻譯庫";
+        btnCheckUpdate.Text = LocalizationManager.GetString("TranslationDbCheckUpdate") ?? "立即檢查更新";
+        // 版本 / 條目 / 來源 三行依當前 _tagTranslator 狀態重新格式化
+        if (_tagTranslator != null) RefreshTranslationDbInfo();
     }
 }

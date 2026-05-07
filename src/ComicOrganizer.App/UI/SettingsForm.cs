@@ -94,6 +94,9 @@ public partial class SettingsForm : Window, IThemedControl
         txtExtKey.PlaceholderText = hasKey
             ? (LocalizationManager.GetString("ExtKeyPlaceholderSet") ?? "(已儲存 — 留空保持原值)")
             : (LocalizationManager.GetString("ExtKeyPlaceholderEmpty") ?? "nhk_...");
+
+        // 翻譯庫線上更新 (#53 Phase 5-C)
+        swAutoCheckTrDb.Checked = Config.AutoCheckTranslationDbUpdate;
     }
 
     private void WireEvents()
@@ -200,6 +203,12 @@ public partial class SettingsForm : Window, IThemedControl
         lblExtEnable.Text = LocalizationManager.GetString("ExtEnableLabel") ?? "啟用：";
         lblExtKey.Text   = LocalizationManager.GetString("ExtKeyLabel") ?? "API Key:";
         btnTestConnection.Text = LocalizationManager.GetString("ExtTestConnection") ?? "測試連線";
+
+        // 翻譯庫子區塊（#53 Phase 5-C）
+        lblTrDbTitle.Text = LocalizationManager.GetString("SettingsTrDbTitle") ?? "翻譯庫線上更新";
+        lblTrDbDesc.Text = LocalizationManager.GetString("SettingsTrDbDesc")
+            ?? "啟動時自動檢查 EhTag 翻譯庫是否有新版（每天最多檢查一次）。關掉只影響背景檢查；工具頁的「立即檢查更新」按鈕仍可用。";
+        lblTrDbAutoCheck.Text = LocalizationManager.GetString("SettingsTrDbAutoCheckLabel") ?? "自動檢查：";
 
         // 閱讀器分頁
         cbUseBuiltInReader.Text = LocalizationManager.GetString("SettingsUseBuiltInReader") ?? "使用內建閱讀器（取代外部 viewer）";
@@ -321,6 +330,9 @@ public partial class SettingsForm : Window, IThemedControl
         // 空字串 = 不變動（避免使用者沒輸入就 Save 把舊 key 清掉）
         if (!string.IsNullOrEmpty(newKey))
             Config.SetNhentaiApiKey(newKey);
+
+        // 翻譯庫線上更新 (#53 Phase 5-C)
+        Config.AutoCheckTranslationDbUpdate = swAutoCheckTrDb.Checked;
 
         // Theme + Language 寫到 preferences.json（與 appsettings.json 分檔）
         if (selectTheme.SelectedIndex >= 0)

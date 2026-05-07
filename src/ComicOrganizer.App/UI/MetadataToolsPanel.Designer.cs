@@ -29,6 +29,13 @@ partial class MetadataToolsPanel
     private System.Windows.Forms.Label lblProgressCurrent;
     private AntdUI.Button btnCancel;
 
+    // 翻譯庫區塊（#53 Phase 5-C）
+    private AntdUI.Panel translationPanel;
+    private System.Windows.Forms.Label lblTranslationTitle;
+    private System.Windows.Forms.Label lblTranslationVersion;
+    private System.Windows.Forms.Label lblTranslationCount;
+    private System.Windows.Forms.Label lblTranslationSource;
+    private AntdUI.Button btnCheckUpdate;
 
     protected override void Dispose(bool disposing)
     {
@@ -58,8 +65,15 @@ partial class MetadataToolsPanel
         btnReparse = new AntdUI.Button();
         lblReparseDesc = new System.Windows.Forms.Label();
         lblReparseTitle = new System.Windows.Forms.Label();
+        translationPanel = new AntdUI.Panel();
+        btnCheckUpdate = new AntdUI.Button();
+        lblTranslationSource = new System.Windows.Forms.Label();
+        lblTranslationCount = new System.Windows.Forms.Label();
+        lblTranslationVersion = new System.Windows.Forms.Label();
+        lblTranslationTitle = new System.Windows.Forms.Label();
         statsPanel.SuspendLayout();
         reparsePanel.SuspendLayout();
+        translationPanel.SuspendLayout();
         SuspendLayout();
         // 
         // lblTitle
@@ -246,19 +260,89 @@ partial class MetadataToolsPanel
         lblReparseTitle.TabIndex = 0;
         lblReparseTitle.Text = "整庫重新解析 metadata";
         //
+        // translationPanel
+        //
+        translationPanel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        translationPanel.Controls.Add(btnCheckUpdate);
+        translationPanel.Controls.Add(lblTranslationSource);
+        translationPanel.Controls.Add(lblTranslationCount);
+        translationPanel.Controls.Add(lblTranslationVersion);
+        translationPanel.Controls.Add(lblTranslationTitle);
+        translationPanel.Location = new Point(20, 595);
+        translationPanel.Name = "translationPanel";
+        translationPanel.Padding = new Padding(20, 16, 20, 16);
+        translationPanel.Radius = 8;
+        translationPanel.Size = new Size(805, 150);
+        translationPanel.TabIndex = 3;
+        //
+        // lblTranslationTitle
+        //
+        lblTranslationTitle.AutoSize = true;
+        lblTranslationTitle.BackColor = Color.Transparent;
+        lblTranslationTitle.Font = new Font("Microsoft JhengHei UI", 11F, FontStyle.Bold);
+        lblTranslationTitle.Location = new Point(20, 16);
+        lblTranslationTitle.Name = "lblTranslationTitle";
+        lblTranslationTitle.Size = new Size(60, 19);
+        lblTranslationTitle.TabIndex = 0;
+        lblTranslationTitle.Text = "翻譯庫";
+        //
+        // lblTranslationVersion
+        //
+        lblTranslationVersion.AutoSize = true;
+        lblTranslationVersion.BackColor = Color.Transparent;
+        lblTranslationVersion.Location = new Point(20, 50);
+        lblTranslationVersion.Name = "lblTranslationVersion";
+        lblTranslationVersion.Size = new Size(80, 15);
+        lblTranslationVersion.TabIndex = 1;
+        lblTranslationVersion.Text = "目前版本：—";
+        //
+        // lblTranslationCount
+        //
+        lblTranslationCount.AutoSize = true;
+        lblTranslationCount.BackColor = Color.Transparent;
+        lblTranslationCount.Location = new Point(20, 75);
+        lblTranslationCount.Name = "lblTranslationCount";
+        lblTranslationCount.Size = new Size(60, 15);
+        lblTranslationCount.TabIndex = 2;
+        lblTranslationCount.Text = "條目：—";
+        //
+        // lblTranslationSource
+        //
+        lblTranslationSource.AutoSize = true;
+        lblTranslationSource.BackColor = Color.Transparent;
+        lblTranslationSource.Location = new Point(20, 100);
+        lblTranslationSource.Name = "lblTranslationSource";
+        lblTranslationSource.Size = new Size(60, 15);
+        lblTranslationSource.TabIndex = 3;
+        lblTranslationSource.Text = "來源：—";
+        //
+        // btnCheckUpdate
+        //
+        btnCheckUpdate.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        btnCheckUpdate.IconSvg = "CloudDownloadOutlined";
+        btnCheckUpdate.Location = new Point(632, 50);
+        btnCheckUpdate.Name = "btnCheckUpdate";
+        btnCheckUpdate.Size = new Size(150, 36);
+        btnCheckUpdate.TabIndex = 4;
+        btnCheckUpdate.Text = "立即檢查更新";
+        btnCheckUpdate.Type = TTypeMini.Primary;
+        //
         // MetadataToolsPanel
         //
         AutoScaleDimensions = new SizeF(7F, 15F);
         AutoScaleMode = AutoScaleMode.Font;
+        Controls.Add(translationPanel);
         Controls.Add(reparsePanel);
         Controls.Add(statsPanel);
         Controls.Add(lblTitle);
         Name = "MetadataToolsPanel";
-        Size = new Size(851, 614);
+        Size = new Size(851, 760);
         statsPanel.ResumeLayout(false);
         statsPanel.PerformLayout();
         reparsePanel.ResumeLayout(false);
         reparsePanel.PerformLayout();
+        translationPanel.ResumeLayout(false);
+        translationPanel.PerformLayout();
         ResumeLayout(false);
         PerformLayout();
     }

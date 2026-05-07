@@ -933,6 +933,90 @@ FS 掃描 {0} 件 / DB 索引 {1} 件</value>
   <data name="TagFilterEmptyHint" xml:space="preserve">
     <value>點 tree 選一個或多個標籤</value>
   </data>
+  <data name="TranslationDbTitle" xml:space="preserve">
+    <value>翻譯庫</value>
+  </data>
+  <data name="TranslationDbVersionFmt" xml:space="preserve">
+    <value>目前版本：{0}</value>
+  </data>
+  <data name="TranslationDbCountFmt" xml:space="preserve">
+    <value>條目：{0}</value>
+  </data>
+  <data name="TranslationDbSourceFmt" xml:space="preserve">
+    <value>來源：{0}</value>
+  </data>
+  <data name="TranslationDbSourceEmbedded" xml:space="preserve">
+    <value>內建</value>
+  </data>
+  <data name="TranslationDbSourceDiskCache" xml:space="preserve">
+    <value>已下載</value>
+  </data>
+  <data name="TranslationDbCheckUpdate" xml:space="preserve">
+    <value>立即檢查更新</value>
+  </data>
+  <data name="TranslationDbUpToDateTitle" xml:space="preserve">
+    <value>已是最新版本</value>
+  </data>
+  <data name="TranslationDbUpToDateMsg" xml:space="preserve">
+    <value>目前 {0} 為最新（tag {1}）</value>
+  </data>
+  <data name="TranslationDbCheckFailedTitle" xml:space="preserve">
+    <value>檢查更新失敗</value>
+  </data>
+  <data name="TranslationDbCheckFailedMsg" xml:space="preserve">
+    <value>無法連到 GitHub，請檢查網路後再試。</value>
+  </data>
+  <data name="TranslationDbUpdateAvailable" xml:space="preserve">
+    <value>翻譯庫有新版可用</value>
+  </data>
+  <data name="TranslationDbUpdateAvailableMsgFmt" xml:space="preserve">
+    <value>從 {0} 更新到 {1}（tag {2}）</value>
+  </data>
+  <data name="TranslationDbUpdateLink" xml:space="preserve">
+    <value>更新</value>
+  </data>
+  <data name="TranslationDbUpdateDialogTitle" xml:space="preserve">
+    <value>更新翻譯庫</value>
+  </data>
+  <data name="TranslationDbVersionDiffFmt" xml:space="preserve">
+    <value>目前 {0} → 最新 {1}（{2}）</value>
+  </data>
+  <data name="TranslationDbSizeFmt" xml:space="preserve">
+    <value>下載大小：{0:F1} MB</value>
+  </data>
+  <data name="TranslationDbDownload" xml:space="preserve">
+    <value>下載</value>
+  </data>
+  <data name="TranslationDbDownloadCancel" xml:space="preserve">
+    <value>取消下載</value>
+  </data>
+  <data name="TranslationDbDownloading" xml:space="preserve">
+    <value>下載中…</value>
+  </data>
+  <data name="TranslationDbDownloadCancelled" xml:space="preserve">
+    <value>已取消</value>
+  </data>
+  <data name="TranslationDbDownloadFailed" xml:space="preserve">
+    <value>下載失敗（網路？）</value>
+  </data>
+  <data name="TranslationDbDownloadDone" xml:space="preserve">
+    <value>下載完成，重啟 app 後生效</value>
+  </data>
+  <data name="TranslationDbDownloadDoneTitle" xml:space="preserve">
+    <value>下載完成</value>
+  </data>
+  <data name="TranslationDbRestartToApply" xml:space="preserve">
+    <value>重啟 app 後生效</value>
+  </data>
+  <data name="SettingsTrDbTitle" xml:space="preserve">
+    <value>翻譯庫線上更新</value>
+  </data>
+  <data name="SettingsTrDbDesc" xml:space="preserve">
+    <value>啟動時自動檢查 EhTag 翻譯庫是否有新版（每天最多檢查一次）。關掉只影響背景檢查；工具頁的「立即檢查更新」按鈕仍可用。</value>
+  </data>
+  <data name="SettingsTrDbAutoCheckLabel" xml:space="preserve">
+    <value>自動檢查：</value>
+  </data>
   <data name="SettingsThumbCacheMax" xml:space="preserve">
     <value>縮圖快取上限 (超過會 LRU 淘汰最舊)</value>
   </data>
