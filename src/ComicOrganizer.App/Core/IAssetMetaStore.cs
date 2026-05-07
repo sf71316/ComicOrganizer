@@ -273,7 +273,37 @@ public interface IAssetMetaStore : IDisposable
 
     /// <summary>最常閱讀 tag top N（依帶該 tag 的作品 SUM(read_count) DESC）。回 (Tag, TotalReads)。</summary>
     IReadOnlyList<MostReadTag> ListMostReadTags(int limit = 10);
+
+    // ===== Tag translations (#48 schema v6) =====
+
+    /// <summary>取 tag 在指定語言的譯文 — 沒就回 null（caller fallback 原文）。</summary>
+    string? GetTagTranslation(long tagId, string lang);
+
+    /// <summary>批次取多個 tag 在指定語言的譯文（給 UI 大量顯示用，避免 N+1 query）。
+    /// 沒譯文的 tag 不出現在結果 dict。</summary>
+    IReadOnlyDictionary<long, string> GetTagTranslations(IReadOnlyList<long> tagIds, string lang);
+
+    /// <summary>upsert tag 譯文（同 tag_id + lang 已存在會覆蓋）。
+    /// source = 'ehtag' (自動翻譯庫) / 'manual' (使用者) / 'nhentai' (平台來源)。</summary>
+    void UpsertTagTranslation(long tagId, string lang, string translatedName, string source);
+
+    /// <summary>刪除 tag 在指定語言的譯文（回退用原文）。</summary>
+    void DeleteTagTranslation(long tagId, string lang);
+
+    /// <summary>用譯名搜 tag id 列表（中文 / 日文搜尋的核心）。
+    /// LIKE %keyword% case-insensitive；可指定 lang 過濾，null = 任何語言。</summary>
+    IReadOnlyList<long> SearchTagIdsByTranslatedName(string keyword, string? lang = null, int limit = 50);
+
+    /// <summary>列出 tag 的所有譯文（給 Tag 管理頁編輯用）。</summary>
+    IReadOnlyList<TagTranslation> ListTagTranslations(long tagId);
+
+    /// <summary>批次依 name 反查 tag id（精準 case-insensitive 比對；給 SetAssetTags 後補譯文用）。
+    /// 沒找到的 name 不出現在結果 dict。</summary>
+    IReadOnlyDictionary<string, long> GetTagIdsByNames(IReadOnlyList<string> names);
 }
+
+/// <summary>tag 譯文紀錄。</summary>
+public record TagTranslation(long TagId, string Lang, string Name, string? Source, long? UpdatedAt);
 
 // ===== Virtual Library DTOs =====
 

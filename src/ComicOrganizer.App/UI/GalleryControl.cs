@@ -176,6 +176,13 @@ public partial class GalleryControl : UserControl, IThemedControl
         tabsContent.ScrollBack = Core.ThemeColors.Text;
         tabsContent.FillActive = Core.ThemeColors.Border;
 
+        // segViewMode（虛擬庫 ViewMode toggle）— 高亮色用主題 Primary
+        segViewMode.BackColor = Core.ThemeColors.Surface;
+        segViewMode.BackActive = Core.ThemeColors.Primary;
+        segViewMode.ForeActive = Core.ThemeColors.HeaderText;
+        segViewMode.ForeColor = Core.ThemeColors.Text;
+        flowChipBar.BackColor = Core.ThemeColors.Surface;
+
         // 動態建立的 Tab 內 panel 也要重套
         foreach (AntdUI.TabPage page in tabsContent.Pages)
         {
@@ -230,6 +237,8 @@ public partial class GalleryControl : UserControl, IThemedControl
             detailDrawerHost.AuthorPanel.ShowBatchFetchButton = config.EnableExternalMetadata;
             detailDrawerHost.WorkPanel.SetTagTranslator(tagTranslator);
             detailDrawerHost.AuthorPanel.SetTagTranslator(tagTranslator);
+            // schema v6: WorkDetailPanel chip 顯示譯名時優先讀 tag_translation
+            detailDrawerHost.WorkPanel.SetMetaStore(metaStore);
         }
 
         // Recorded fired from background thread → marshal to UI 同步卡片 icon

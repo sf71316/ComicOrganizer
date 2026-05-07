@@ -84,10 +84,11 @@ public partial class TagManagePanel : UserControl, IThemedControl
             if (e.Record is not TagRow row) return;
             switch (e.Btn.Id)
             {
-                case "Rename":   OnRenameClicked(row);   break;
-                case "Category": OnCategoryClicked(row); break;
-                case "Merge":    OnMergeClicked(row);    break;
-                case "Delete":   OnDeleteClicked(row);   break;
+                case "Rename":    OnRenameClicked(row);    break;
+                case "Translate": OnTranslateClicked(row); break;
+                case "Category":  OnCategoryClicked(row);  break;
+                case "Merge":     OnMergeClicked(row);     break;
+                case "Delete":    OnDeleteClicked(row);    break;
             }
         };
     }
@@ -130,6 +131,19 @@ public partial class TagManagePanel : UserControl, IThemedControl
         selectCategory.SelectedIndex = restoreIdx >= 0 ? restoreIdx : 0;
     }
 
+    private string CurrentLang
+    {
+        get
+        {
+            var lang = System.Globalization.CultureInfo.CurrentUICulture.Name;
+            if (lang.StartsWith("zh-CN", StringComparison.OrdinalIgnoreCase)) return "zh-CN";
+            if (lang.StartsWith("zh", StringComparison.OrdinalIgnoreCase)) return "zh-TW";
+            return lang;
+        }
+    }
+
+    private IReadOnlyDictionary<long, string> _dbTranslationCache = new Dictionary<long, string>();
+
     private void ApplyFilter()
     {
         IEnumerable<TagUsage> q = _allTags;
@@ -142,7 +156,13 @@ public partial class TagManagePanel : UserControl, IThemedControl
         else if (_categoryFilter != CategoryAllToken)
             q = q.Where(t => t.Category == _categoryFilter);
 
-        var rows = q.Select(ToRow).ToList();
+        var filtered = q.ToList();
+
+        // batch 抓 DB 譯文（schema v6），優先順序：DB > runtime translator > 空
+        if (_metaStore != null)
+            _dbTranslationCache = _metaStore.GetTagTranslations(filtered.Select(t => t.Id).ToList(), CurrentLang);
+
+        var rows = filtered.Select(ToRow).ToList();
         tableTags.DataSource = new BindingList<TagRow>(rows);
         lblCount.Text = string.Format(
             LocalizationManager.GetString("TagManageCountFmt") ?? "共 {0} 個標籤",
@@ -152,15 +172,21 @@ public partial class TagManagePanel : UserControl, IThemedControl
     private TagRow ToRow(TagUsage t)
     {
         var uncatLabel = LocalizationManager.GetString("TagCategoryUncategorized") ?? "(未分類)";
-        // 翻譯：有 category 用 Translate，否則 TranslateAny
+
+        // 譯文順序：DB (manual / ehtag cached) > runtime translator > 空
         string localized = "";
-        if (_translator != null)
+        if (_dbTranslationCache.TryGetValue(t.Id, out var fromDb))
+        {
+            localized = fromDb;
+        }
+        else if (_translator != null)
         {
             var zh = !string.IsNullOrEmpty(t.Category)
                 ? _translator.Translate(t.Category!, t.Name)
                 : _translator.TranslateAny(t.Name);
             localized = zh ?? "";
         }
+
         return new TagRow
         {
             Id = t.Id,
@@ -173,15 +199,43 @@ public partial class TagManagePanel : UserControl, IThemedControl
             TotalCount = t.TotalCount,
             Action = new CellLink[]
             {
-                new CellButton("Rename",   "", TTypeMini.Default) { Ghost = true, IconSvg = "EditOutlined"      },
-                new CellButton("Category", "", TTypeMini.Default) { Ghost = true, IconSvg = "AppstoreOutlined" },
-                new CellButton("Merge",    "", TTypeMini.Default) { Ghost = true, IconSvg = "MergeCellsOutlined"},
-                new CellButton("Delete",   "", TTypeMini.Error)   { Ghost = true, IconSvg = "DeleteOutlined"   },
+                new CellButton("Rename",     "", TTypeMini.Default) { Ghost = true, IconSvg = "EditOutlined"      },
+                new CellButton("Translate",  "", TTypeMini.Default) { Ghost = true, IconSvg = "TranslationOutlined" },
+                new CellButton("Category",   "", TTypeMini.Default) { Ghost = true, IconSvg = "AppstoreOutlined" },
+                new CellButton("Merge",      "", TTypeMini.Default) { Ghost = true, IconSvg = "MergeCellsOutlined"},
+                new CellButton("Delete",     "", TTypeMini.Error)   { Ghost = true, IconSvg = "DeleteOutlined"   },
             }
         };
     }
 
     // ── 列操作 ─────────────────────────────────────────────────────────
+
+    private void OnTranslateClicked(TagRow row)
+    {
+        if (_metaStore == null) return;
+        var form = this.FindForm();
+        if (form == null) return;
+
+        var lang = CurrentLang;
+        var current = _metaStore.GetTagTranslation(row.Id, lang) ?? "";
+
+        using var dlg = new SimpleInputDialog(
+            LocalizationManager.GetString("TagOpTranslateTitle") ?? $"編輯譯文 ({lang})",
+            (LocalizationManager.GetString("TagOpTranslatePrompt") ?? "「{0}」的 {1} 譯文（留空 = 移除譯文）：")
+                .Replace("{0}", row.Name).Replace("{1}", lang),
+            current);
+        if (dlg.ShowDialog(form) != DialogResult.OK) return;
+
+        var newValue = dlg.Value;
+        if (newValue == current) return;
+
+        if (string.IsNullOrWhiteSpace(newValue))
+            _metaStore.DeleteTagTranslation(row.Id, lang);
+        else
+            _metaStore.UpsertTagTranslation(row.Id, lang, newValue, "manual");
+
+        Refresh();
+    }
 
     private void OnRenameClicked(TagRow row)
     {

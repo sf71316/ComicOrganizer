@@ -50,6 +50,12 @@ public partial class WorkDetailPanel : UserControl
     private WorkDetail? _currentDetail;
     private readonly List<string> _editTags = new();
     private TagTranslator? _translator;
+    private IAssetMetaStore? _store;
+    /// <summary>RebuildTagsView 一次 batch 查的 DB tag_translation 快取（tag.id → 譯文）。</summary>
+    private IReadOnlyDictionary<long, string> _tagTranslationCache = new Dictionary<long, string>();
+
+    /// <summary>由 host 注入 store — chip 顯示譯名時優先讀 schema v6 tag_translation（覆蓋 user 手動譯文）。</summary>
+    public void SetMetaStore(IAssetMetaStore? store) => _store = store;
 
     /// <summary>由 host 注入翻譯器 — null 時 chip 顯示原文。</summary>
     public void SetTagTranslator(TagTranslator? translator)
@@ -250,28 +256,45 @@ public partial class WorkDetailPanel : UserControl
     {
         flowTags.SuspendLayout();
         flowTags.Controls.Clear();
+
+        // 先 batch 查 DB tag_translation 快取（schema v6）— 避免 BuildChip N+1
+        var detailTags = _currentDetail?.Tags ?? new List<Tag>();
+        if (_store != null && detailTags.Count > 0)
+        {
+            var lang = System.Globalization.CultureInfo.CurrentUICulture.Name;
+            if (lang.StartsWith("zh-CN", StringComparison.OrdinalIgnoreCase)) lang = "zh-CN";
+            else if (lang.StartsWith("zh", StringComparison.OrdinalIgnoreCase)) lang = "zh-TW";
+            _tagTranslationCache = _store.GetTagTranslations(detailTags.Select(t => t.Id).ToList(), lang);
+        }
+        else _tagTranslationCache = new Dictionary<long, string>();
+
         // view: 用 detail.Tags（含 category 給 translator 用）；edit: 純 string list
         if (_isEditing)
         {
             if (_editTags.Count == 0)
                 flowTags.Controls.Add(BuildEmptyHint("(無標籤，下方新增)"));
-            else foreach (var name in _editTags) flowTags.Controls.Add(BuildChip(name, null, true));
+            else foreach (var name in _editTags) flowTags.Controls.Add(BuildChip(name, null, null, true));
         }
         else
         {
-            var tags = _currentDetail?.Tags ?? new List<Tag>();
-            if (tags.Count == 0)
+            if (detailTags.Count == 0)
                 flowTags.Controls.Add(BuildEmptyHint("(無標籤)"));
-            else foreach (var t in tags) flowTags.Controls.Add(BuildChip(t.Name, t.Category, false));
+            else foreach (var t in detailTags) flowTags.Controls.Add(BuildChip(t.Name, t.Category, t.Id, false));
         }
         flowTags.ResumeLayout(true);
     }
 
-    private AntdUI.Tag BuildChip(string name, string? category, bool editable)
+    private AntdUI.Tag BuildChip(string name, string? category, long? tagId, bool editable)
     {
-        // 翻譯顯示：有 translator + 命中 → 中文；否則原文
+        // 翻譯顯示優先級：1. DB tag_translation 快取（user manual 或 ehtag cached）
+        //                   2. runtime translator（EhTag in-memory）
+        //                   3. 原文
         string display = name;
-        if (_translator != null)
+        if (tagId.HasValue && _tagTranslationCache.TryGetValue(tagId.Value, out var fromDb))
+        {
+            display = fromDb;
+        }
+        else if (_translator != null)
         {
             var zh = !string.IsNullOrEmpty(category)
                 ? _translator.Translate(category!, name)

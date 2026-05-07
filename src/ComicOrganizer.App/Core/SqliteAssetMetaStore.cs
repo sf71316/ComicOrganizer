@@ -13,7 +13,7 @@ public class SqliteAssetMetaStore : IAssetMetaStore
     private readonly SqliteConnection _conn;
     private readonly object _lock = new();
     private SqliteTransaction? _currentTx;
-    private const int CurrentSchemaVersion = 5;
+    private const int CurrentSchemaVersion = 6;
 
     static SqliteAssetMetaStore()
     {
@@ -49,6 +49,7 @@ public class SqliteAssetMetaStore : IAssetMetaStore
             ApplyV3Additions();
             ApplyV4Additions();
             ApplyV5Additions();
+            ApplyV6Additions();
             _conn.Execute("INSERT INTO schema_version (version) VALUES (@v);", new { v = CurrentSchemaVersion });
             return;
         }
@@ -70,6 +71,11 @@ public class SqliteAssetMetaStore : IAssetMetaStore
         if (currentVersion == 4)
         {
             ApplyV5Additions();
+            currentVersion = 5;
+        }
+        if (currentVersion == 5)
+        {
+            ApplyV6Additions();
         }
         _conn.Execute("DELETE FROM schema_version; INSERT INTO schema_version (version) VALUES (@v);",
             new { v = CurrentSchemaVersion });
@@ -123,6 +129,29 @@ CREATE TABLE IF NOT EXISTS asset_external_source (
     FOREIGN KEY (asset_id) REFERENCES asset(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_aes_source ON asset_external_source(source, source_id);
+");
+    }
+
+    /// <summary>v5 → v6：tag 多語譯文支援。
+    /// - tag.name 仍是「原文 / canonical」（通常英文 / romaji），UNIQUE 不變
+    /// - tag_translation 一個 tag 可有多筆譯文（zh-TW / zh-CN / ja / en / ...）
+    /// - source 區分 'ehtag' (自動翻譯庫) / 'manual' (使用者手動編輯) / 'nhentai' (來源平台帶的)
+    ///   refresh 翻譯庫時只覆蓋 source='ehtag'，'manual' 永遠保留。
+    /// </summary>
+    private void ApplyV6Additions()
+    {
+        _conn.Execute(@"
+CREATE TABLE IF NOT EXISTS tag_translation (
+    tag_id     INTEGER NOT NULL,
+    lang       TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    source     TEXT,
+    updated_at INTEGER,
+    PRIMARY KEY (tag_id, lang),
+    FOREIGN KEY (tag_id) REFERENCES tag(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_tag_translation_name ON tag_translation(name COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_tag_translation_lang ON tag_translation(lang);
 ");
     }
 
@@ -1437,6 +1466,99 @@ LIMIT @lim;",
             return rows.Select(r => new MostReadTag(
                 new Tag { Id = r.Id, Name = r.Name, Category = r.Category },
                 r.TotalReads)).ToList();
+        }
+    }
+
+    // ===== Tag translations (schema v6) =====
+
+    public string? GetTagTranslation(long tagId, string lang)
+    {
+        lock (_lock)
+            return _conn.QuerySingleOrDefault<string?>(
+                "SELECT name FROM tag_translation WHERE tag_id = @id AND lang = @l;",
+                new { id = tagId, l = lang }, _currentTx);
+    }
+
+    public IReadOnlyDictionary<long, string> GetTagTranslations(IReadOnlyList<long> tagIds, string lang)
+    {
+        if (tagIds.Count == 0) return new Dictionary<long, string>();
+        lock (_lock)
+        {
+            var rows = _conn.Query<(long TagId, string Name)>(
+                "SELECT tag_id AS TagId, name AS Name FROM tag_translation WHERE tag_id IN @ids AND lang = @l;",
+                new { ids = tagIds, l = lang }, _currentTx);
+            return rows.ToDictionary(r => r.TagId, r => r.Name);
+        }
+    }
+
+    public void UpsertTagTranslation(long tagId, string lang, string translatedName, string source)
+    {
+        lock (_lock)
+            _conn.Execute(@"
+INSERT INTO tag_translation (tag_id, lang, name, source, updated_at)
+VALUES (@id, @l, @n, @s, @t)
+ON CONFLICT(tag_id, lang) DO UPDATE SET
+    name = excluded.name,
+    source = excluded.source,
+    updated_at = excluded.updated_at;",
+                new
+                {
+                    id = tagId,
+                    l = lang,
+                    n = translatedName,
+                    s = source,
+                    t = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                }, _currentTx);
+    }
+
+    public void DeleteTagTranslation(long tagId, string lang)
+    {
+        lock (_lock)
+            _conn.Execute(
+                "DELETE FROM tag_translation WHERE tag_id = @id AND lang = @l;",
+                new { id = tagId, l = lang }, _currentTx);
+    }
+
+    public IReadOnlyList<long> SearchTagIdsByTranslatedName(string keyword, string? lang = null, int limit = 50)
+    {
+        if (string.IsNullOrWhiteSpace(keyword)) return Array.Empty<long>();
+        var pattern = "%" + keyword + "%";
+        lock (_lock)
+        {
+            return _conn.Query<long>(lang == null ? @"
+SELECT DISTINCT tag_id FROM tag_translation
+WHERE name LIKE @p COLLATE NOCASE
+LIMIT @lim;" : @"
+SELECT tag_id FROM tag_translation
+WHERE name LIKE @p COLLATE NOCASE AND lang = @l
+LIMIT @lim;",
+                new { p = pattern, l = lang, lim = limit }, _currentTx).AsList();
+        }
+    }
+
+    public IReadOnlyList<TagTranslation> ListTagTranslations(long tagId)
+    {
+        lock (_lock)
+            return _conn.Query<TagTranslation>(@"
+SELECT tag_id AS TagId, lang AS Lang, name AS Name, source AS Source, updated_at AS UpdatedAt
+FROM tag_translation
+WHERE tag_id = @id
+ORDER BY lang;",
+                new { id = tagId }, _currentTx).AsList();
+    }
+
+    public IReadOnlyDictionary<string, long> GetTagIdsByNames(IReadOnlyList<string> names)
+    {
+        if (names.Count == 0) return new Dictionary<string, long>();
+        lock (_lock)
+        {
+            var rows = _conn.Query<(long Id, string Name)>(
+                "SELECT id AS Id, name AS Name FROM tag WHERE name COLLATE NOCASE IN @names;",
+                new { names }, _currentTx);
+            // 用 user 輸入的 name 當 key（不論大小寫，以 DB 名為值）
+            var dict = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in rows) dict[r.Name] = r.Id;
+            return dict;
         }
     }
 

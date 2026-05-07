@@ -157,6 +157,36 @@ public class TagTranslator
         }
         return result;
     }
+
+    /// <summary>把一批 tag (id+name) 的譯文同步到 DB tag_translation 表（schema v6）。
+    /// 使用 TranslateAny — 不知道每個 tag 的 namespace 也能跨 namespace 找。
+    /// 只覆寫 source != 'manual' 的紀錄（user 手動編輯的譯文受保護）。
+    /// 回傳實際寫入 / 更新筆數。</summary>
+    public int SyncTranslationsToDb(IAssetMetaStore store, string lang,
+        IReadOnlyDictionary<string, long> nameToId)
+    {
+        if (!IsAvailable || nameToId.Count == 0) return 0;
+
+        // 預讀現有 manual 紀錄，避免覆蓋
+        var existingManual = new HashSet<long>();
+        foreach (var (_, tagId) in nameToId)
+        {
+            var existing = store.ListTagTranslations(tagId);
+            if (existing.Any(t => t.Lang == lang && t.Source == "manual"))
+                existingManual.Add(tagId);
+        }
+
+        int written = 0;
+        foreach (var (name, tagId) in nameToId)
+        {
+            if (existingManual.Contains(tagId)) continue;   // 手動的不動
+            var zh = TranslateAny(name);
+            if (string.IsNullOrEmpty(zh) || zh == name) continue;   // 沒翻譯 / 跟原文相同 → 不寫
+            store.UpsertTagTranslation(tagId, lang, zh, "ehtag");
+            written++;
+        }
+        return written;
+    }
 }
 
 /// <summary>autocomplete 結果。</summary>

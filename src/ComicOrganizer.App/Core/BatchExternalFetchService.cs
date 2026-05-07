@@ -181,6 +181,17 @@ public class BatchExternalFetchService
 
         if (result.Tags != null) _store.SetAssetTags(detail.AssetId, result.Tags);
         if (result.ExternalSourceRecord != null) _store.UpsertExternalSource(result.ExternalSourceRecord);
+
+        // schema v6：寫 tag 後同步翻譯到 tag_translation 表（user 手動的不動）
+        if (result.Tags != null && _translator != null && _translator.IsAvailable && result.Tags.Count > 0)
+        {
+            var lang = System.Globalization.CultureInfo.CurrentUICulture.Name;
+            // EhTag 是簡體，UI 是繁體環境統一存 zh-TW；其他語系直接用當前 lang
+            if (lang.StartsWith("zh-CN", StringComparison.OrdinalIgnoreCase)) lang = "zh-CN";
+            else if (lang.StartsWith("zh", StringComparison.OrdinalIgnoreCase)) lang = "zh-TW";
+            var idMap = _store.GetTagIdsByNames(result.Tags);
+            _translator.SyncTranslationsToDb(_store, lang, idMap);
+        }
     }
 
     /// <summary>把外部結果依策略合併成 MergeResult。caller 用此 result 走跟單本同樣的 ApplyMergeResult 流程寫 DB。</summary>

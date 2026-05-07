@@ -86,10 +86,14 @@ partial class GalleryControl
         //
         segViewMode.Dock = DockStyle.Top;
         segViewMode.Font = new Font("Microsoft JhengHei UI", 9F);
-        segViewMode.Height = 32;
+        segViewMode.Height = 55;
         segViewMode.Margin = new Padding(0);
+        segViewMode.Padding = new Padding(0);
         segViewMode.Name = "segViewMode";
         segViewMode.TabIndex = 1;
+        segViewMode.Radius = 0;        // 無圓角
+        segViewMode.BarRadius = 0;     // 選中底色也無圓角
+        segViewMode.Full = true;       // items 平均填滿寬度
         // Items 由 GalleryControl.cs WireViewMode 動態填（要 i18n + ENUM 對應）
         //
         // flowChipBar — Tag mode 多選 chip 區（預設 Visible=false，只在 ByTag mode 顯示）

@@ -56,7 +56,7 @@ public class MigrationV1V2Test : IDisposable
 
         // === Phase 3: 驗 v2 表結構存在 ===
         AssertV2TablesExist(_dbPath);
-        AssertSchemaVersionIs(_dbPath, 5);
+        AssertSchemaVersionIs(_dbPath, 6);
     }
 
     [Fact]
@@ -80,7 +80,7 @@ public class MigrationV1V2Test : IDisposable
             Assert.NotNull(got);
         }
         AssertV2TablesExist(_dbPath);
-        AssertSchemaVersionIs(_dbPath, 5);
+        AssertSchemaVersionIs(_dbPath, 6);
     }
 
     // ===== Helpers =====
@@ -136,7 +136,7 @@ VALUES
     {
         using var conn = new SqliteConnection($"Data Source={dbPath};");
         conn.Open();
-        var expected = new[] { "asset", "asset_thumb", "asset_meta", "author", "author_alias", "tag", "asset_tag", "author_tag", "asset_external_source", "schema_version", "app_state", "folder_role" };
+        var expected = new[] { "asset", "asset_thumb", "asset_meta", "author", "author_alias", "tag", "tag_translation", "asset_tag", "author_tag", "asset_external_source", "schema_version", "app_state", "folder_role" };
         foreach (var name in expected)
         {
             using var cmd = conn.CreateCommand();
