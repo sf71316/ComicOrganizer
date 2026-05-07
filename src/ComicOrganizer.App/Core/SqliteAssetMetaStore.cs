@@ -1301,6 +1301,145 @@ WHERE source = @s AND source_id = @sid LIMIT 1;",
                 new { s = source, sid = sourceId }, _currentTx);
     }
 
+    // ===== Virtual Library queries (#48 Phase 1) =====
+
+    public IReadOnlyList<string> ListWorksByAuthor(long authorId)
+    {
+        lock (_lock)
+            return _conn.Query<string>(@"
+SELECT a.path FROM asset a
+JOIN asset_meta am ON a.id = am.asset_id
+WHERE am.author_id = @id
+ORDER BY am.title COLLATE NOCASE, a.path;",
+                new { id = authorId }, _currentTx).AsList();
+    }
+
+    public IReadOnlyList<string> ListWorksByTags(IReadOnlyList<long> tagIds, bool intersect = true)
+    {
+        if (tagIds.Count == 0) return Array.Empty<string>();
+        lock (_lock)
+        {
+            if (intersect)
+            {
+                // AND: 作品要同時帶所有 tag — GROUP BY + HAVING COUNT(distinct) = N
+                return _conn.Query<string>(@"
+SELECT a.path FROM asset a
+JOIN asset_tag at ON a.id = at.asset_id
+WHERE at.tag_id IN @ids
+GROUP BY a.id
+HAVING COUNT(DISTINCT at.tag_id) = @n
+ORDER BY a.path;",
+                    new { ids = tagIds, n = tagIds.Count }, _currentTx).AsList();
+            }
+            else
+            {
+                // OR: 帶任一 tag 即可
+                return _conn.Query<string>(@"
+SELECT DISTINCT a.path FROM asset a
+JOIN asset_tag at ON a.id = at.asset_id
+WHERE at.tag_id IN @ids
+ORDER BY a.path;",
+                    new { ids = tagIds }, _currentTx).AsList();
+            }
+        }
+    }
+
+    public IReadOnlyList<LanguageBucket> ListLanguageBuckets()
+    {
+        lock (_lock)
+        {
+            // Dapper 對 record 的 ctor signature 要嚴格 match，COUNT(*) 在 SQLite 回 long → 顯式 CAST 成 int
+            var rows = _conn.Query<(string? Language, int WorkCount)>(@"
+SELECT language AS Language, CAST(COUNT(*) AS INTEGER) AS WorkCount
+FROM asset_meta
+GROUP BY language
+ORDER BY WorkCount DESC, language;",
+                transaction: _currentTx).AsList();
+            return rows.Select(r => new LanguageBucket(r.Language, r.WorkCount)).ToList();
+        }
+    }
+
+    public IReadOnlyList<string> ListWorksByLanguage(string? language)
+    {
+        lock (_lock)
+            return _conn.Query<string>(language == null ? @"
+SELECT a.path FROM asset a
+JOIN asset_meta am ON a.id = am.asset_id
+WHERE am.language IS NULL
+ORDER BY am.title COLLATE NOCASE, a.path;" : @"
+SELECT a.path FROM asset a
+JOIN asset_meta am ON a.id = am.asset_id
+WHERE am.language = @lang
+ORDER BY am.title COLLATE NOCASE, a.path;",
+                new { lang = language }, _currentTx).AsList();
+    }
+
+    // ── 閱讀軌跡 ────────────────────────────────────────────
+
+    public IReadOnlyList<string> ListRecentlyRead(int limit = 10)
+    {
+        lock (_lock)
+            return _conn.Query<string>(@"
+SELECT a.path FROM asset a
+JOIN asset_meta am ON a.id = am.asset_id
+WHERE am.last_read IS NOT NULL
+ORDER BY am.last_read DESC
+LIMIT @lim;",
+                new { lim = limit }, _currentTx).AsList();
+    }
+
+    public IReadOnlyList<string> ListReadingInProgress()
+    {
+        lock (_lock)
+            return _conn.Query<string>(@"
+SELECT a.path FROM asset a
+JOIN asset_meta am ON a.id = am.asset_id
+WHERE am.read_status = @s
+ORDER BY am.last_read DESC, am.title COLLATE NOCASE;",
+                new { s = (int)ReadStatus.Reading }, _currentTx).AsList();
+    }
+
+    public IReadOnlyList<MostReadAuthor> ListMostReadAuthors(int limit = 10)
+    {
+        lock (_lock)
+        {
+            var rows = _conn.Query<(long Id, string MainName, string? FolderPath, long? LearnedAt, int TotalReads)>(@"
+SELECT au.id AS Id, au.main_name AS MainName, au.folder_path AS FolderPath,
+       au.learned_at AS LearnedAt, SUM(am.read_count) AS TotalReads
+FROM author au
+JOIN asset_meta am ON am.author_id = au.id
+WHERE am.read_count > 0
+GROUP BY au.id
+ORDER BY TotalReads DESC, au.main_name
+LIMIT @lim;",
+                new { lim = limit }, _currentTx).AsList();
+            return rows.Select(r => new MostReadAuthor(
+                new Author { Id = r.Id, MainName = r.MainName, FolderPath = r.FolderPath, LearnedAt = r.LearnedAt ?? 0 },
+                r.TotalReads)).ToList();
+        }
+    }
+
+    public IReadOnlyList<MostReadTag> ListMostReadTags(int limit = 10)
+    {
+        lock (_lock)
+        {
+            var rows = _conn.Query<(long Id, string Name, string? Category, int TotalReads)>(@"
+SELECT t.id AS Id, t.name AS Name, t.category AS Category,
+       SUM(am.read_count) AS TotalReads
+FROM tag t
+JOIN asset_tag at ON at.tag_id = t.id
+JOIN asset_meta am ON am.asset_id = at.asset_id
+WHERE am.read_count > 0
+GROUP BY t.id
+ORDER BY TotalReads DESC, t.name
+LIMIT @lim;",
+                new { lim = limit }, _currentTx).AsList();
+            return rows.Select(r => new MostReadTag(
+                new Tag { Id = r.Id, Name = r.Name, Category = r.Category },
+                r.TotalReads)).ToList();
+        }
+    }
+
     public void Dispose()
     {
         lock (_lock) _conn.Dispose();

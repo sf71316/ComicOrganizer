@@ -236,6 +236,11 @@ Processed: {0} / Skipped: {1} / Failed: {2}</value></data>
   <data name="MergeNoTags" xml:space="preserve"><value>(no tags)</value></data>
   <data name="WorkDetailFetchExternal" xml:space="preserve"><value>Fetch from nhentai</value></data>
   <data name="FetchExtErrNoKey" xml:space="preserve"><value>Please set API key in Settings / External Source first</value></data>
+  <data name="ViewModeFolder" xml:space="preserve"><value>Folders</value></data>
+  <data name="ViewModeAuthor" xml:space="preserve"><value>Authors</value></data>
+  <data name="ViewModeTag" xml:space="preserve"><value>Tags</value></data>
+  <data name="ViewModeLanguage" xml:space="preserve"><value>Languages</value></data>
+  <data name="ViewModeReadingTrack" xml:space="preserve"><value>Reading Track</value></data>
   <data name="BatchSyncBtnText" xml:space="preserve"><value>Sync all works of this author</value></data>
   <data name="BatchSyncDialogTitle" xml:space="preserve"><value>Batch sync</value></data>
   <data name="BatchSyncProgressFmt" xml:space="preserve"><value>Processing {0} / {1}</value></data>

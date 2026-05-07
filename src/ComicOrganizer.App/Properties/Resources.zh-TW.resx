@@ -671,6 +671,11 @@ FS 掃描 {0} 件 / DB 索引 {1} 件</value>
   <data name="FetchExtErrNoKey" xml:space="preserve">
     <value>請先在「設定 / 外部資料來源」設定 API key</value>
   </data>
+  <data name="ViewModeFolder" xml:space="preserve"><value>資料夾</value></data>
+  <data name="ViewModeAuthor" xml:space="preserve"><value>作者</value></data>
+  <data name="ViewModeTag" xml:space="preserve"><value>標籤</value></data>
+  <data name="ViewModeLanguage" xml:space="preserve"><value>語言</value></data>
+  <data name="ViewModeReadingTrack" xml:space="preserve"><value>閱讀軌跡</value></data>
   <data name="BatchSyncBtnText" xml:space="preserve">
     <value>同步此作者所有作品</value>
   </data>

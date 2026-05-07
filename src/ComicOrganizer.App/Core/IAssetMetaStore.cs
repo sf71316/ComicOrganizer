@@ -241,4 +241,47 @@ public interface IAssetMetaStore : IDisposable
 
     /// <summary>用 (source, source_id) 反查已綁定到哪個 asset（給批次 dedup 避免重複拉）。</summary>
     long? FindAssetByExternalId(string source, string sourceId);
+
+    // ===== Virtual Library queries (#48 Phase 1) =====
+    // 純 metadata-driven 查詢，不依物理目錄階層，給虛擬庫 ViewMode 用。
+    // 設計刻意避開 _config.RootDirectory — 為未來 multi-source 架構保留路徑：
+    // 全部從 asset / asset_meta / asset_tag / asset_author 推，DB 沒「root」概念。
+
+    /// <summary>列該作者所有作品 path（依 title 排序）。給「依作者」mode 用。</summary>
+    IReadOnlyList<string> ListWorksByAuthor(long authorId);
+
+    /// <summary>多 tag 過濾。intersect=true → AND（所有 tag 都要有）；false → OR（任一即可）。
+    /// 給「依標籤」mode 多選 chip bar 用。</summary>
+    IReadOnlyList<string> ListWorksByTags(IReadOnlyList<long> tagIds, bool intersect = true);
+
+    /// <summary>列所有出現的 language 碼 + 該語言作品數。null 表示「未標記」（asset_meta.language IS NULL）。</summary>
+    IReadOnlyList<LanguageBucket> ListLanguageBuckets();
+
+    /// <summary>列特定語言作品 path。null = 取未標記的。</summary>
+    IReadOnlyList<string> ListWorksByLanguage(string? language);
+
+    // ── 閱讀軌跡（#48 Phase 1）─────────────────────────────────
+
+    /// <summary>最近 N 次讀過（依 last_read DESC）。</summary>
+    IReadOnlyList<string> ListRecentlyRead(int limit = 10);
+
+    /// <summary>未讀完的（read_status = Reading）。依 last_read DESC。</summary>
+    IReadOnlyList<string> ListReadingInProgress();
+
+    /// <summary>最常閱讀作者 top N（依該作者所有作品 SUM(read_count) DESC）。回 (Author, TotalReads)。</summary>
+    IReadOnlyList<MostReadAuthor> ListMostReadAuthors(int limit = 10);
+
+    /// <summary>最常閱讀 tag top N（依帶該 tag 的作品 SUM(read_count) DESC）。回 (Tag, TotalReads)。</summary>
+    IReadOnlyList<MostReadTag> ListMostReadTags(int limit = 10);
 }
+
+// ===== Virtual Library DTOs =====
+
+/// <summary>語言桶 — null Language 表示「未標記」。</summary>
+public record LanguageBucket(string? Language, int WorkCount);
+
+/// <summary>最常閱讀作者統計。</summary>
+public record MostReadAuthor(Author Author, int TotalReads);
+
+/// <summary>最常閱讀 tag 統計。</summary>
+public record MostReadTag(Tag Tag, int TotalReads);

@@ -65,6 +65,17 @@ public partial class GalleryControl : UserControl, IThemedControl
     /// <summary>當前 drawer 的點擊外部偵測 filter（drawer 開時 Add，關時 Remove）。</summary>
     private DrawerOutsideClickFilter? _drawerClickFilter;
 
+    /// <summary>tree 顯示模式（#48 Phase 1）— Folder 是現有 file system tree；其他 4 種是虛擬庫。</summary>
+    public enum TreeViewMode { Folder, ByAuthor, ByTag, ByLanguage, ReadingTrack }
+
+    private TreeViewMode _currentViewMode = TreeViewMode.Folder;
+
+    /// <summary>Tag mode 多選 chip 累積的 tag id（AND filter）。</summary>
+    private readonly HashSet<long> _selectedTagIds = new();
+
+    /// <summary>Tag mode chip → tag name 對應（chip remove 時用）。</summary>
+    private readonly Dictionary<long, string> _selectedTagNames = new();
+
     public GalleryControl()
     {
         InitializeComponent();
@@ -73,6 +84,7 @@ public partial class GalleryControl : UserControl, IThemedControl
         DoubleBuffered = true;
 
         WireDrawerEvents();
+        WireViewModeToggle();
 
         // 設定內容頁籤樣式
         if (tabsContent.Style is AntdUI.Tabs.StyleCard style)
@@ -1144,6 +1156,20 @@ public partial class GalleryControl : UserControl, IThemedControl
 
     private Task LoadTreeAsync()
     {
+        // 依 ViewMode 分流：Folder 走原本邏輯；其他 mode 走虛擬庫
+        return _currentViewMode switch
+        {
+            TreeViewMode.Folder => LoadFolderTreeAsync(),
+            TreeViewMode.ByAuthor => LoadAuthorTreeAsync(),
+            TreeViewMode.ByTag => LoadTagTreeAsync(),
+            TreeViewMode.ByLanguage => LoadLanguageTreeAsync(),
+            TreeViewMode.ReadingTrack => LoadReadingTrackTreeAsync(),
+            _ => Task.CompletedTask,
+        };
+    }
+
+    private Task LoadFolderTreeAsync()
+    {
         if (string.IsNullOrEmpty(_config.RootDirectory) || !Directory.Exists(_config.RootDirectory)) return Task.CompletedTask;
 
         treeFolders.Items.Clear();
@@ -1158,6 +1184,291 @@ public partial class GalleryControl : UserControl, IThemedControl
                 LoadSubDirectories(rootNode, rootDir.FullName);
                 UpdateTreeWidth();
             });
+        });
+        return Task.CompletedTask;
+    }
+
+    /// <summary>「依作者」mode tree — 一個作者一個 node。</summary>
+    private Task LoadAuthorTreeAsync()
+    {
+        if (_metaStore == null) return Task.CompletedTask;
+        treeFolders.Items.Clear();
+        var authors = VirtualLibraryProvider.GetAuthorNodes(_metaStore);
+        foreach (var node in authors)
+        {
+            var item = new AntdUI.TreeItem($"{node.DisplayName} ({node.WorkCount})") { IconSvg = node.IconSvg, Tag = node };
+            treeFolders.Items.Add(item);
+        }
+        UpdateTreeWidth();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>「依標籤」mode tree — 依 category 分群顯示。</summary>
+    private Task LoadTagTreeAsync()
+    {
+        if (_metaStore == null) return Task.CompletedTask;
+        treeFolders.Items.Clear();
+        var tags = VirtualLibraryProvider.GetTagNodes(_metaStore);
+
+        // 依 category 分群（null=未分類最後）
+        var groups = tags.GroupBy(t => t.Category ?? "(未分類)")
+                         .OrderBy(g => g.Key == "(未分類)" ? 1 : 0)
+                         .ThenBy(g => g.Key);
+        foreach (var group in groups)
+        {
+            var groupNode = new AntdUI.TreeItem(group.Key) { IconSvg = "FolderOutlined" };
+            foreach (var t in group.OrderByDescending(x => x.WorkCount).ThenBy(x => x.Name))
+            {
+                var child = new AntdUI.TreeItem($"{t.Name} ({t.WorkCount})") { IconSvg = t.IconSvg, Tag = t };
+                groupNode.Sub.Add(child);
+            }
+            groupNode.Expand = true;
+            treeFolders.Items.Add(groupNode);
+        }
+        UpdateTreeWidth();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>「依語言」mode tree。</summary>
+    private Task LoadLanguageTreeAsync()
+    {
+        if (_metaStore == null) return Task.CompletedTask;
+        treeFolders.Items.Clear();
+        var langs = VirtualLibraryProvider.GetLanguageNodes(_metaStore);
+        foreach (var node in langs)
+        {
+            var item = new AntdUI.TreeItem($"{node.DisplayName} ({node.WorkCount})") { IconSvg = node.IconSvg, Tag = node };
+            treeFolders.Items.Add(item);
+        }
+        UpdateTreeWidth();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>「閱讀軌跡」mode tree — 4 個 fixed sub-node。
+    /// MostReadAuthors / MostReadTags 是 group header — 展開為 top10 child。</summary>
+    private Task LoadReadingTrackTreeAsync()
+    {
+        if (_metaStore == null) return Task.CompletedTask;
+        treeFolders.Items.Clear();
+        var nodes = VirtualLibraryProvider.GetReadingTrackNodes(_metaStore);
+        foreach (var node in nodes)
+        {
+            var label = node.WorkCount.HasValue ? $"{node.DisplayName} ({node.WorkCount})" : node.DisplayName;
+            var item = new AntdUI.TreeItem(label) { IconSvg = node.IconSvg, Tag = node };
+
+            // MostReadAuthors / MostReadTags 展開 children
+            if (node.Kind == ReadingTrackKind.MostReadAuthors)
+            {
+                var top = _metaStore.ListMostReadAuthors(10);
+                foreach (var a in top)
+                {
+                    var child = new AntdUI.TreeItem($"{a.Author.MainName} (讀 {a.TotalReads} 次)")
+                    {
+                        IconSvg = "UserOutlined",
+                        Tag = new AuthorVirtualNode(a.Author.Id, a.Author.MainName, 0),
+                    };
+                    item.Sub.Add(child);
+                }
+                item.Expand = true;
+            }
+            else if (node.Kind == ReadingTrackKind.MostReadTags)
+            {
+                var top = _metaStore.ListMostReadTags(10);
+                foreach (var t in top)
+                {
+                    var child = new AntdUI.TreeItem($"{t.Tag.Name} (讀 {t.TotalReads} 次)")
+                    {
+                        IconSvg = "TagOutlined",
+                        Tag = new TagVirtualNode(t.Tag.Id, t.Tag.Name, t.Tag.Category, 0),
+                    };
+                    item.Sub.Add(child);
+                }
+                item.Expand = true;
+            }
+            treeFolders.Items.Add(item);
+        }
+        UpdateTreeWidth();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>WireViewModeToggle — 註冊 segViewMode 點擊 + tree click 路由。</summary>
+    private void WireViewModeToggle()
+    {
+        // segViewMode items 動態建（要 i18n）。SegmentedItem 只有 parameterless ctor，用 init 設 Text + IconSvg
+        segViewMode.Items.Clear();
+        segViewMode.Items.Add(new AntdUI.SegmentedItem { Text = LocalizationManager.GetString("ViewModeFolder") ?? "資料夾", IconSvg = "FolderOutlined" });
+        segViewMode.Items.Add(new AntdUI.SegmentedItem { Text = LocalizationManager.GetString("ViewModeAuthor") ?? "作者", IconSvg = "UserOutlined" });
+        segViewMode.Items.Add(new AntdUI.SegmentedItem { Text = LocalizationManager.GetString("ViewModeTag") ?? "標籤", IconSvg = "TagOutlined" });
+        segViewMode.Items.Add(new AntdUI.SegmentedItem { Text = LocalizationManager.GetString("ViewModeLanguage") ?? "語言", IconSvg = "GlobalOutlined" });
+        segViewMode.Items.Add(new AntdUI.SegmentedItem { Text = LocalizationManager.GetString("ViewModeReadingTrack") ?? "閱讀軌跡", IconSvg = "HistoryOutlined" });
+        segViewMode.SelectIndex = 0;
+        // SelectIndexChanged: IntEventHandler — (sender, IntEventArgs e)，e.Value 是新 index
+        segViewMode.SelectIndexChanged += (s, e) =>
+        {
+            _currentViewMode = (TreeViewMode)e.Value;
+            // 切到 Tag mode 才顯示 chip bar；其他 mode 隱藏並清空
+            flowChipBar.Visible = _currentViewMode == TreeViewMode.ByTag;
+            if (_currentViewMode != TreeViewMode.ByTag)
+            {
+                _selectedTagIds.Clear();
+                _selectedTagNames.Clear();
+                flowChipBar.Controls.Clear();
+            }
+            _ = LoadTreeAsync();
+        };
+
+        // Tree click → 依 Item.Tag 型別分流（Folder mode 走原本 Tag = string 路徑；虛擬庫走 IVirtualLibraryNode）
+        // TreeSelectEventArgs.Item 是 TreeItem，.Item.Tag 才是綁定的物件
+        treeFolders.NodeMouseClick += (s, e) =>
+        {
+            if (e.Item?.Tag is IVirtualLibraryNode vnode)
+            {
+                _treeRightOnNode = e.Button == MouseButtons.Right;
+                if (e.Button == MouseButtons.Left)
+                    OnVirtualNodeClicked(vnode);
+            }
+        };
+    }
+
+    /// <summary>左鍵點到虛擬庫 node — 依 mode 跟 node 類型決定行為。
+    /// Tag node 在 Tag mode 下加入 chip 多選；其他都是直接開 tab 顯示作品。</summary>
+    private void OnVirtualNodeClicked(IVirtualLibraryNode vnode)
+    {
+        if (_metaStore == null) return;
+
+        if (_currentViewMode == TreeViewMode.ByTag && vnode is TagVirtualNode tag)
+        {
+            // 累積 chip — 已在 set 中代表 toggle off
+            if (_selectedTagIds.Contains(tag.TagId))
+            {
+                _selectedTagIds.Remove(tag.TagId);
+                _selectedTagNames.Remove(tag.TagId);
+            }
+            else
+            {
+                _selectedTagIds.Add(tag.TagId);
+                _selectedTagNames[tag.TagId] = tag.Name;
+            }
+            RebuildChipBar();
+            ApplyTagFilter();
+            return;
+        }
+
+        // 其他 mode：直接開 tab 顯示作品
+        var paths = vnode.ResolveWorks(_metaStore);
+        OpenVirtualWorksTab(vnode.DisplayName, paths);
+    }
+
+    /// <summary>重建 chip bar — 每個 tag 一個 X 可移除。</summary>
+    private void RebuildChipBar()
+    {
+        flowChipBar.SuspendLayout();
+        flowChipBar.Controls.Clear();
+        foreach (var (id, name) in _selectedTagNames)
+        {
+            var capturedId = id;
+            var chip = new AntdUI.Tag
+            {
+                Text = name,
+                CloseIcon = true,
+                Margin = new Padding(2),
+            };
+            chip.CloseChanged += (s, e) =>
+            {
+                _selectedTagIds.Remove(capturedId);
+                _selectedTagNames.Remove(capturedId);
+                BeginInvoke(new Action(() => { RebuildChipBar(); ApplyTagFilter(); }));
+                return true;
+            };
+            flowChipBar.Controls.Add(chip);
+        }
+        flowChipBar.ResumeLayout(true);
+    }
+
+    /// <summary>用 _selectedTagIds 跑 ListWorksByTags(AND) 並更新 / 開 tab 顯示。</summary>
+    private void ApplyTagFilter()
+    {
+        if (_metaStore == null) return;
+        if (_selectedTagIds.Count == 0)
+        {
+            // 沒勾任何 tag — 不開 tab，等 user 加
+            return;
+        }
+        var paths = _metaStore.ListWorksByTags(_selectedTagIds.ToList(), intersect: true);
+        var title = string.Join(" + ", _selectedTagNames.Values);
+        OpenVirtualWorksTab(title, paths);
+    }
+
+    /// <summary>開新 tab 顯示一組 work paths（虛擬庫共用）。</summary>
+    private void OpenVirtualWorksTab(string title, IReadOnlyList<string> paths)
+    {
+        // 重用既有 OpenFolderTab 機制 — 但 path 不是 directory，用 paths list
+        // 先簡化：直接呼 LoadGalleryFromPathsAsync 進當前 tab
+        var page = tabsContent.SelectedTab;
+        var flow = FindTabFlowLayout(page);
+        if (flow == null) return;
+        // 更新 breadcrumb 跟 tab 標題
+        if (page != null) page.Text = title;
+        var bc = FindTabBreadcrumb(page);
+        if (bc != null)
+        {
+            bc.Items.Clear();
+            bc.Items.Add(new AntdUI.BreadcrumbItem { Text = " " + title + " ", IconSvg = "TagOutlined" });
+        }
+        _ = LoadGalleryFromPathsAsync(flow, paths, GetTabMode(page));
+    }
+
+    /// <summary>非 folder 模式的 gallery 載入 — 直接吃 path list（asset.path），不走 DirectoryInfo 列舉。</summary>
+    private Task LoadGalleryFromPathsAsync(FlowLayoutPanel container, IReadOnlyList<string> paths, GalleryViewMode mode)
+    {
+        container.Controls.Clear();
+        AntdUI.Spin.open(container, async config =>
+        {
+            const int ChunkSize = 8;
+            for (int i = 0; i < paths.Count; i += ChunkSize)
+            {
+                var chunk = paths.Skip(i).Take(ChunkSize).ToList();
+                this.Invoke(() =>
+                {
+                    container.SuspendLayout();
+                    foreach (var p in chunk)
+                    {
+                        FileSystemInfo? fsi = Directory.Exists(p) ? new DirectoryInfo(p) : (File.Exists(p) ? new FileInfo(p) : null);
+                        if (fsi == null) continue;   // path 失效（檔案被刪 / 移動）— skip
+                        bool isFolderNode = fsi is DirectoryInfo;
+                        var card = new ComicCardControl();
+                        card.SetData(fsi, isFolderNode);
+                        // 虛擬庫 mode：把 title + author 副標套到卡片（folder mode 不套，folder tree 已暗示作者）
+                        var view = _metaStore?.GetMetadataView(p);
+                        if (view != null) card.SetMetadata(view);
+                        card.ApplyViewMode(mode);
+                        card.ReadStatusProvider = pp => _metaStore?.GetReadStatus(pp);
+                        var c = card;
+                        card.RequestOpenFolder += pp => { EnqueueReadIfEnabled(pp); OpenFolderTab(pp, false); };
+                        card.RequestOpenViewer += pp => { EnqueueReadIfEnabled(pp); OpenForReading(pp); };
+                        card.RequestNewTab += (pp, forceNew) => { EnqueueReadIfEnabled(pp); OpenFolderTab(pp, forceNew); };
+                        card.RequestExplorer += pp => OpenInExplorer(pp);
+                        card.RequestAuthorInfo += pp => ShowAuthorInfo(pp);
+                        card.RequestWorkDetail += pp => ShowWorkDetail(pp);
+                        card.RequestOpenWithExternal += pp =>
+                        {
+                            EnqueueReadIfEnabled(pp);
+                            if (CanUseBuiltInReader(pp)) OpenWithExternalViewer(pp);
+                            else OpenWithSystemDefault(pp);
+                        };
+                        card.RequestSetReadStatus += (pp, status) =>
+                        {
+                            _metaStore?.SetReadStatus(pp, status);
+                            c.RefreshReadStatusIcon();
+                        };
+                        container.Controls.Add(card);
+                        var capturedCard = card;
+                        _ = LoadCoverInBackgroundAsync(fsi.FullName, MaxCardCoverWidth, img => capturedCard.SetCover(img));
+                    }
+                    container.ResumeLayout(true);
+                });
+                await Task.Delay(1);
+            }
         });
         return Task.CompletedTask;
     }

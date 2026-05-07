@@ -7,6 +7,8 @@ partial class GalleryControl
     private System.ComponentModel.IContainer components = null;
 
     private AntdUI.Splitter splitter2;
+    private AntdUI.Segmented segViewMode;
+    private System.Windows.Forms.FlowLayoutPanel flowChipBar;   // Tag mode 多選 chip 區（其他 mode 隱藏）
     private AntdUI.Tree treeFolders;
     private AntdUI.Tabs tabsContent;
     private DetailDrawerHost detailDrawerHost;
@@ -24,6 +26,8 @@ partial class GalleryControl
     {
         Tabs.StyleCard styleCard1 = new Tabs.StyleCard();
         splitter2 = new AntdUI.Splitter();
+        segViewMode = new AntdUI.Segmented();
+        flowChipBar = new System.Windows.Forms.FlowLayoutPanel();
         treeFolders = new Tree();
         tabsContent = new Tabs();
         detailDrawerHost = new DetailDrawerHost();
@@ -43,7 +47,10 @@ partial class GalleryControl
         // splitter2.Panel1
         //
         splitter2.Panel1.BackColor = Core.ThemeColors.Border;
+        // 順序：treeFolders Fill 最先 add，flowChipBar Top 之後（顯示在 tree 上方），segViewMode Top 最後（在最頂）
         splitter2.Panel1.Controls.Add(treeFolders);
+        splitter2.Panel1.Controls.Add(flowChipBar);
+        splitter2.Panel1.Controls.Add(segViewMode);
         splitter2.Panel1.Padding = new Padding(1);
         splitter2.Panel1MinSize = 5;
         //
@@ -74,6 +81,27 @@ partial class GalleryControl
         treeFolders.Text = "tree1";
         treeFolders.BeforeExpand += treeFolders_BeforeExpand;
         treeFolders.NodeMouseDoubleClick += treeFolders_NodeMouseDoubleClick;
+        //
+        // segViewMode — sidebar 上方 ViewMode 切換（#48 Phase 1）
+        //
+        segViewMode.Dock = DockStyle.Top;
+        segViewMode.Font = new Font("Microsoft JhengHei UI", 9F);
+        segViewMode.Height = 32;
+        segViewMode.Margin = new Padding(0);
+        segViewMode.Name = "segViewMode";
+        segViewMode.TabIndex = 1;
+        // Items 由 GalleryControl.cs WireViewMode 動態填（要 i18n + ENUM 對應）
+        //
+        // flowChipBar — Tag mode 多選 chip 區（預設 Visible=false，只在 ByTag mode 顯示）
+        //
+        flowChipBar.AutoSize = true;
+        flowChipBar.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+        flowChipBar.Dock = DockStyle.Top;
+        flowChipBar.FlowDirection = System.Windows.Forms.FlowDirection.LeftToRight;
+        flowChipBar.WrapContents = true;
+        flowChipBar.Padding = new Padding(4, 4, 4, 4);
+        flowChipBar.Name = "flowChipBar";
+        flowChipBar.Visible = false;
         //
         // detailDrawerHost — 不掛在 splitter2.Panel2 內，由 AntdUI.Drawer 動態彈出
         // 內含 AuthorInfoPanel + WorkDetailPanel，互斥顯示
