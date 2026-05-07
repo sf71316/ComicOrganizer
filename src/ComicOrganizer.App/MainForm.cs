@@ -60,7 +60,9 @@ public partial class MainForm : Window, IThemedControl
         _rebuildService = new CacheRebuildService(_config, _coverManager, _metaStore, _thumbStore, _integrityChecker, _rebuildTracker, _cacheWriter);
         _reconcileService = new CatalogReconcileService(_config, _metaStore);
         _reparseService = new ReparseAllService(_metaStore, _rebuildTracker);
-        _tagTranslator = new TagTranslator();
+        // 翻譯庫：disk cache 優先（BaseDirectory/translations/db.text.json.gz）→ fallback embedded
+        var translationDbPath = Path.Combine(baseDir, "translations", "db.text.json.gz");
+        _tagTranslator = new TagTranslator(translationDbPath);
         _readRecordQueue = new ReadRecordQueue(_metaStore, _config.ReadCountThresholdSeconds);
         // Tracker 改變時，statusBar 自動同步顯示（背景任務全域可見）
         _rebuildTracker.StateChanged += (s, e) => UpdateStatusFromTracker();

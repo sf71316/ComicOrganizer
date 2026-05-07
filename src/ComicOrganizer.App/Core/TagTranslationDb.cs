@@ -24,6 +24,9 @@ public class TagTranslationDb
     /// <summary>條目總數（13 個 namespace 加總）。</summary>
     public int Count => _entries.Count;
 
+    /// <summary>本筆 DB 的來源（給 UI「來源」欄位用）。</summary>
+    public TagTranslationDbSource Source { get; private set; } = TagTranslationDbSource.Embedded;
+
     /// <summary>從 stream（gzip 壓縮的 JSON）載入。</summary>
     public static TagTranslationDb LoadFromGzipStream(Stream gzippedJson)
     {
@@ -43,7 +46,7 @@ public class TagTranslationDb
         return db;
     }
 
-    /// <summary>從 app embedded resource 載入 bundled 版本。</summary>
+    /// <summary>從 app embedded resource 載入 bundled 版本（隨 exe 一起發布的 fallback）。</summary>
     public static TagTranslationDb LoadFromEmbedded()
     {
         var asm = Assembly.GetExecutingAssembly();
@@ -52,7 +55,19 @@ public class TagTranslationDb
         if (stream == null)
             throw new InvalidOperationException(
                 $"Embedded resource '{name}' not found. Check .csproj EmbeddedResource entry.");
-        return LoadFromGzipStream(stream);
+        var db = LoadFromGzipStream(stream);
+        db.Source = TagTranslationDbSource.Embedded;
+        return db;
+    }
+
+    /// <summary>從磁碟檔（gzipped JSON，由 Updater 下載至 BaseDirectory/translations/）載入。
+    /// 檔案損壞 / 不存在 / IO 失敗 → 由 caller 自行 fallback 到 LoadFromEmbedded。</summary>
+    public static TagTranslationDb LoadFromFile(string path)
+    {
+        using var fs = File.OpenRead(path);
+        var db = LoadFromGzipStream(fs);
+        db.Source = TagTranslationDbSource.DiskCache;
+        return db;
     }
 
     private void LoadFromDocument(JsonDocument doc)
@@ -140,3 +155,12 @@ public class TagTranslationDb
 
 /// <summary>翻譯庫單筆條目。</summary>
 public record TranslationEntry(string Namespace, string Slug, string Name, string Intro, string Links);
+
+/// <summary>翻譯庫來源 — UI「來源」欄位用，並讓 Updater 知道是不是已載入 disk cache。</summary>
+public enum TagTranslationDbSource
+{
+    /// <summary>隨 exe 一起 bundle 的 embedded resource。</summary>
+    Embedded,
+    /// <summary>使用者下載到 BaseDirectory/translations/ 的 disk cache。</summary>
+    DiskCache
+}

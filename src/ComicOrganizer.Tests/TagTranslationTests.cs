@@ -174,4 +174,87 @@ public class TagTranslationTests
     {
         Assert.Equal(expected, ZhConverter.ToSimplified(traditional));
     }
+
+    // ── Phase 5-A：disk cache → embedded fallback ───────────────────────
+
+    /// <summary>把 embedded resource 抄一份到指定 path（給 disk cache 測試用）。</summary>
+    private static void CopyEmbeddedToFile(string destPath)
+    {
+        var asm = typeof(TagTranslationDb).Assembly;
+        using var src = asm.GetManifestResourceStream("ComicOrganizer.App.Resources.db.text.json.gz")!;
+        Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
+        using var dst = File.Create(destPath);
+        src.CopyTo(dst);
+    }
+
+    [Fact]
+    public void DiskFile_LoadFromFile_HasDiskCacheSource()
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), $"tt_disk_{Guid.NewGuid():N}.gz");
+        try
+        {
+            CopyEmbeddedToFile(tmp);
+            var db = TagTranslationDb.LoadFromFile(tmp);
+            Assert.True(db.Count > 30000);
+            Assert.Equal(TagTranslationDbSource.DiskCache, db.Source);
+        }
+        finally { if (File.Exists(tmp)) File.Delete(tmp); }
+    }
+
+    [Fact]
+    public void Embedded_HasEmbeddedSource()
+    {
+        var db = TagTranslationDb.LoadFromEmbedded();
+        Assert.Equal(TagTranslationDbSource.Embedded, db.Source);
+    }
+
+    [Fact]
+    public void Translator_DiskPath_PrioritizesDiskOverEmbedded()
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), $"tt_pri_{Guid.NewGuid():N}.gz");
+        try
+        {
+            CopyEmbeddedToFile(tmp);
+            var t = new TagTranslator(tmp);
+            Assert.True(t.IsAvailable);
+            Assert.Equal(TagTranslationDbSource.DiskCache, t.Source);
+            // 仍能正常翻譯
+            Assert.Equal("Flugel", t.TranslateArtist("flugel"));
+        }
+        finally { if (File.Exists(tmp)) File.Delete(tmp); }
+    }
+
+    [Fact]
+    public void Translator_DiskPathMissing_FallsBackToEmbedded()
+    {
+        var nope = Path.Combine(Path.GetTempPath(), $"tt_nope_{Guid.NewGuid():N}.gz");
+        Assert.False(File.Exists(nope));
+        var t = new TagTranslator(nope);
+        Assert.True(t.IsAvailable);
+        Assert.Equal(TagTranslationDbSource.Embedded, t.Source);
+        Assert.Equal("Flugel", t.TranslateArtist("flugel"));
+    }
+
+    [Fact]
+    public void Translator_DiskPathCorrupt_FallsBackToEmbedded()
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), $"tt_bad_{Guid.NewGuid():N}.gz");
+        try
+        {
+            File.WriteAllBytes(tmp, new byte[] { 0x00, 0x01, 0x02, 0x03 });   // 不是合法 gzip
+            var t = new TagTranslator(tmp);
+            Assert.True(t.IsAvailable);
+            Assert.Equal(TagTranslationDbSource.Embedded, t.Source);
+            Assert.Equal("Flugel", t.TranslateArtist("flugel"));
+        }
+        finally { if (File.Exists(tmp)) File.Delete(tmp); }
+    }
+
+    [Fact]
+    public void Translator_NullDiskPath_UsesEmbedded()
+    {
+        var t = new TagTranslator((string?)null);
+        Assert.True(t.IsAvailable);
+        Assert.Equal(TagTranslationDbSource.Embedded, t.Source);
+    }
 }

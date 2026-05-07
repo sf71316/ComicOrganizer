@@ -43,8 +43,22 @@ public class TagTranslator
         });
     }
 
-    /// <summary>預設建構子：從 embedded resource 載入。</summary>
+    /// <summary>預設建構子：只載入 embedded resource（給測試 / 不需 disk cache 的場景用）。</summary>
     public TagTranslator() : this(() => TagTranslationDb.LoadFromEmbedded()) { }
+
+    /// <summary>主要建構子：disk cache 優先，找不到 / 損壞 → fallback embedded（永遠可用）。
+    /// MainForm 注入 <c>BaseDirectory/translations/db.text.json.gz</c>。</summary>
+    public TagTranslator(string? diskPath) : this(() => LoadDiskOrEmbedded(diskPath)) { }
+
+    private static TagTranslationDb LoadDiskOrEmbedded(string? diskPath)
+    {
+        if (!string.IsNullOrEmpty(diskPath) && File.Exists(diskPath))
+        {
+            try { return TagTranslationDb.LoadFromFile(diskPath); }
+            catch { /* 損壞 / IO 錯 → embedded fallback */ }
+        }
+        return TagTranslationDb.LoadFromEmbedded();
+    }
 
     /// <summary>翻譯庫是否成功載入。Lazy — 觸發載入。</summary>
     public bool IsAvailable => _db.Value != null;
@@ -54,6 +68,9 @@ public class TagTranslator
 
     /// <summary>翻譯庫條目總數。</summary>
     public int Count => _db.Value?.Count ?? 0;
+
+    /// <summary>當前載入的來源（給 UI 顯示「來源：bundled / cache」用）。</summary>
+    public TagTranslationDbSource Source => _db.Value?.Source ?? TagTranslationDbSource.Embedded;
 
     /// <summary>nhentai (type, slug) → 中文翻譯名。找不到回 null。
     /// 當前 UI 語言是 zh-TW 自動將簡體轉繁體（EhTag 是中國社群簡體翻譯）。</summary>
