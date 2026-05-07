@@ -676,6 +676,16 @@ FS 掃描 {0} 件 / DB 索引 {1} 件</value>
   <data name="ViewModeTag" xml:space="preserve"><value>標籤</value></data>
   <data name="ViewModeLanguage" xml:space="preserve"><value>語言</value></data>
   <data name="ViewModeReadingTrack" xml:space="preserve"><value>閱讀軌跡</value></data>
+  <data name="TagCategoryArtist" xml:space="preserve"><value>作者</value></data>
+  <data name="TagCategoryGroup" xml:space="preserve"><value>社團</value></data>
+  <data name="TagCategoryParody" xml:space="preserve"><value>原作</value></data>
+  <data name="TagCategoryCharacter" xml:space="preserve"><value>角色</value></data>
+  <data name="TagCategoryLanguage" xml:space="preserve"><value>語言</value></data>
+  <data name="TagCategoryCategory" xml:space="preserve"><value>類別</value></data>
+  <data name="TagCategoryTag" xml:space="preserve"><value>主題</value></data>
+  <data name="TagManageTranslateAll" xml:space="preserve"><value>自動翻譯所有</value></data>
+  <data name="TagTranslateAllRunning" xml:space="preserve"><value>翻譯中…</value></data>
+  <data name="TagTranslateAllDoneFmt" xml:space="preserve"><value>翻譯完成：補了 {0} 個（共 {1} 個 tag）</value></data>
   <data name="TagOpTranslateTitle" xml:space="preserve"><value>編輯譯文</value></data>
   <data name="TagOpTranslatePrompt" xml:space="preserve"><value>「{0}」的 {1} 譯文（留空 = 移除譯文，回退用原文 / 自動翻譯）：</value></data>
   <data name="BatchSyncBtnText" xml:space="preserve">

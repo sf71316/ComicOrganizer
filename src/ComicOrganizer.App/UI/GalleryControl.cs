@@ -1212,23 +1212,60 @@ public partial class GalleryControl : UserControl, IThemedControl
         return Task.CompletedTask;
     }
 
-    /// <summary>「依標籤」mode tree — 依 category 分群顯示。</summary>
+    /// <summary>取當前 UI 語系 — 跟 store v6 tag_translation lang 對齊（zh-TW / zh-CN / 其他原樣）。</summary>
+    private static string GetCurrentTagLang()
+    {
+        var lang = System.Globalization.CultureInfo.CurrentUICulture.Name;
+        if (lang.StartsWith("zh-CN", StringComparison.OrdinalIgnoreCase)) return "zh-CN";
+        if (lang.StartsWith("zh", StringComparison.OrdinalIgnoreCase)) return "zh-TW";
+        return lang;
+    }
+
+    /// <summary>category 群組標題的本地化對照（給 tag tree group header 用）。</summary>
+    private static string LocalizeTagCategory(string category)
+    {
+        // 已知 nhentai category 有 i18n key 就走 i18n，否則原樣
+        var key = category.ToLowerInvariant() switch
+        {
+            "artist" => "TagCategoryArtist",
+            "group" => "TagCategoryGroup",
+            "parody" => "TagCategoryParody",
+            "character" => "TagCategoryCharacter",
+            "language" => "TagCategoryLanguage",
+            "category" => "TagCategoryCategory",
+            "tag" => "TagCategoryTag",
+            _ => "",
+        };
+        return string.IsNullOrEmpty(key)
+            ? category
+            : (LocalizationManager.GetString(key) ?? category);
+    }
+
+    /// <summary>「依標籤」mode tree — 依 category 分群顯示，依當前語系翻譯 tag 名 + group header。</summary>
     private Task LoadTagTreeAsync()
     {
         if (_metaStore == null) return Task.CompletedTask;
         treeFolders.Items.Clear();
         var tags = VirtualLibraryProvider.GetTagNodes(_metaStore);
 
-        // 依 category 分群（null=未分類最後）
-        var groups = tags.GroupBy(t => t.Category ?? "(未分類)")
-                         .OrderBy(g => g.Key == "(未分類)" ? 1 : 0)
+        // schema v6 batch 查譯文，避免 N+1
+        var lang = GetCurrentTagLang();
+        var translations = _metaStore.GetTagTranslations(tags.Select(t => t.TagId).ToList(), lang);
+        var uncatLabel = LocalizationManager.GetString("TagCategoryUncategorized") ?? "(未分類)";
+
+        // 依 category 分群（null=未分類最後），group header 也本地化
+        var groups = tags.GroupBy(t => t.Category ?? uncatLabel)
+                         .OrderBy(g => g.Key == uncatLabel ? 1 : 0)
                          .ThenBy(g => g.Key);
         foreach (var group in groups)
         {
-            var groupNode = new AntdUI.TreeItem(group.Key) { IconSvg = "FolderOutlined" };
+            var groupHeader = group.Key == uncatLabel ? uncatLabel : LocalizeTagCategory(group.Key);
+            var groupNode = new AntdUI.TreeItem(groupHeader) { IconSvg = "FolderOutlined" };
             foreach (var t in group.OrderByDescending(x => x.WorkCount).ThenBy(x => x.Name))
             {
-                var child = new AntdUI.TreeItem($"{t.Name} ({t.WorkCount})") { IconSvg = t.IconSvg, Tag = t };
+                // 顯示譯名（命中）或原文（未命中）
+                var display = translations.TryGetValue(t.TagId, out var zh) ? zh : t.Name;
+                var child = new AntdUI.TreeItem($"{display} ({t.WorkCount})") { IconSvg = t.IconSvg, Tag = t };
                 groupNode.Sub.Add(child);
             }
             groupNode.Expand = true;
@@ -1356,7 +1393,10 @@ public partial class GalleryControl : UserControl, IThemedControl
             else
             {
                 _selectedTagIds.Add(tag.TagId);
-                _selectedTagNames[tag.TagId] = tag.Name;
+                // 取譯名（有就用，沒有就原文）— 跟 tree 顯示一致
+                var lang = GetCurrentTagLang();
+                var zh = _metaStore.GetTagTranslation(tag.TagId, lang);
+                _selectedTagNames[tag.TagId] = !string.IsNullOrEmpty(zh) ? zh : tag.Name;
             }
             RebuildChipBar();
             ApplyTagFilter();

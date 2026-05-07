@@ -11,6 +11,7 @@ partial class TagManagePanel
     private AntdUI.Input txtSearch;
     private AntdUI.Select selectCategory;
     private AntdUI.Button btnRefresh;
+    private AntdUI.Button btnTranslateAll;
     private System.Windows.Forms.Label lblCount;
 
     private AntdUI.Table tableTags;
@@ -31,6 +32,7 @@ partial class TagManagePanel
         txtSearch = new AntdUI.Input();
         selectCategory = new AntdUI.Select();
         btnRefresh = new AntdUI.Button();
+        btnTranslateAll = new AntdUI.Button();
         lblCount = new System.Windows.Forms.Label();
         tableTags = new AntdUI.Table();
 
@@ -40,6 +42,7 @@ partial class TagManagePanel
         // toolbarPanel
         //
         toolbarPanel.Controls.Add(lblCount);
+        toolbarPanel.Controls.Add(btnTranslateAll);
         toolbarPanel.Controls.Add(btnRefresh);
         toolbarPanel.Controls.Add(selectCategory);
         toolbarPanel.Controls.Add(txtSearch);
@@ -87,10 +90,19 @@ partial class TagManagePanel
         btnRefresh.TabIndex = 3;
         btnRefresh.Text = "重新整理";
         //
+        // btnTranslateAll — 對所有 tag 跑 EhTag 翻譯庫一次補進 tag_translation
+        //
+        btnTranslateAll.IconSvg = "TranslationOutlined";
+        btnTranslateAll.Location = new System.Drawing.Point(590, 50);
+        btnTranslateAll.Name = "btnTranslateAll";
+        btnTranslateAll.Size = new System.Drawing.Size(120, 32);
+        btnTranslateAll.TabIndex = 4;
+        btnTranslateAll.Text = "自動翻譯所有";
+        //
         // lblCount
         //
         lblCount.AutoSize = true;
-        lblCount.Location = new System.Drawing.Point(600, 58);
+        lblCount.Location = new System.Drawing.Point(720, 58);
         lblCount.Name = "lblCount";
         lblCount.Size = new System.Drawing.Size(60, 17);
         lblCount.TabIndex = 4;

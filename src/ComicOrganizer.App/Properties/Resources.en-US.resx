@@ -241,6 +241,16 @@ Processed: {0} / Skipped: {1} / Failed: {2}</value></data>
   <data name="ViewModeTag" xml:space="preserve"><value>Tags</value></data>
   <data name="ViewModeLanguage" xml:space="preserve"><value>Languages</value></data>
   <data name="ViewModeReadingTrack" xml:space="preserve"><value>Reading Track</value></data>
+  <data name="TagCategoryArtist" xml:space="preserve"><value>Artist</value></data>
+  <data name="TagCategoryGroup" xml:space="preserve"><value>Group</value></data>
+  <data name="TagCategoryParody" xml:space="preserve"><value>Parody</value></data>
+  <data name="TagCategoryCharacter" xml:space="preserve"><value>Character</value></data>
+  <data name="TagCategoryLanguage" xml:space="preserve"><value>Language</value></data>
+  <data name="TagCategoryCategory" xml:space="preserve"><value>Category</value></data>
+  <data name="TagCategoryTag" xml:space="preserve"><value>Tag</value></data>
+  <data name="TagManageTranslateAll" xml:space="preserve"><value>Auto-translate All</value></data>
+  <data name="TagTranslateAllRunning" xml:space="preserve"><value>Translating…</value></data>
+  <data name="TagTranslateAllDoneFmt" xml:space="preserve"><value>Done: filled {0} translations ({1} tags total)</value></data>
   <data name="TagOpTranslateTitle" xml:space="preserve"><value>Edit Translation</value></data>
   <data name="TagOpTranslatePrompt" xml:space="preserve"><value>"{0}" translation for {1} (empty = remove, fallback to original / auto):</value></data>
   <data name="BatchSyncBtnText" xml:space="preserve"><value>Sync all works of this author</value></data>

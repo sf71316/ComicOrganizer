@@ -64,6 +64,7 @@ public partial class TagManagePanel : UserControl, IThemedControl
     private void WireEvents()
     {
         btnRefresh.Click += (s, e) => Refresh();
+        btnTranslateAll.Click += (s, e) => OnTranslateAllClicked();
 
         txtSearch.TextChanged += (s, e) =>
         {
@@ -209,6 +210,29 @@ public partial class TagManagePanel : UserControl, IThemedControl
     }
 
     // ── 列操作 ─────────────────────────────────────────────────────────
+
+    /// <summary>對所有 tag 跑 EhTag 翻譯庫一次補進 tag_translation（manual 標記不動）。</summary>
+    private void OnTranslateAllClicked()
+    {
+        if (_metaStore == null || _translator == null || !_translator.IsAvailable) return;
+        var form = this.FindForm();
+        if (form == null) return;
+
+        // 進度提示（同步操作，所有 tag 即使 1000 個也是 in-memory dict lookup，幾百 ms）
+        AntdUI.Message.info(form,
+            LocalizationManager.GetString("TagTranslateAllRunning") ?? "翻譯中…", autoClose: 1);
+
+        var lang = CurrentLang;
+        // 用全部 tag (含已 manual 的)；SyncTranslationsToDb 內會跳過 manual
+        var nameToId = _allTags.ToDictionary(t => t.Name, t => t.Id, StringComparer.OrdinalIgnoreCase);
+        int written = _translator.SyncTranslationsToDb(_metaStore, lang, nameToId);
+
+        // refresh 顯示新譯文
+        Refresh();
+        AntdUI.Message.success(form, string.Format(
+            LocalizationManager.GetString("TagTranslateAllDoneFmt") ?? "翻譯完成：補了 {0} 個（共 {1} 個 tag）",
+            written, _allTags.Count));
+    }
 
     private void OnTranslateClicked(TagRow row)
     {
@@ -383,6 +407,7 @@ public partial class TagManagePanel : UserControl, IThemedControl
         txtSearch.PlaceholderText = LocalizationManager.GetString("TagManageSearchPlaceholder") ?? "搜尋標籤名稱...";
         selectCategory.PlaceholderText = LocalizationManager.GetString("TagManageCategoryAll") ?? "全部分類";
         btnRefresh.Text = LocalizationManager.GetString("TagManageRefresh") ?? "重新整理";
+        btnTranslateAll.Text = LocalizationManager.GetString("TagManageTranslateAll") ?? "自動翻譯所有";
     }
 
     // ── DTO for table row ─────────────────────────────────────────────────
