@@ -921,6 +921,18 @@ FS 掃描 {0} 件 / DB 索引 {1} 件</value>
   <data name="MenuOpenInNewTab" xml:space="preserve">
     <value>另開新頁籤</value>
   </data>
+  <data name="MenuCopyName" xml:space="preserve">
+    <value>複製名稱</value>
+  </data>
+  <data name="ChipClearAll" xml:space="preserve">
+    <value>清除全部</value>
+  </data>
+  <data name="TagFilterEmpty" xml:space="preserve">
+    <value>標籤篩選</value>
+  </data>
+  <data name="TagFilterEmptyHint" xml:space="preserve">
+    <value>點 tree 選一個或多個標籤</value>
+  </data>
   <data name="SettingsThumbCacheMax" xml:space="preserve">
     <value>縮圖快取上限 (超過會 LRU 淘汰最舊)</value>
   </data>

@@ -332,6 +332,10 @@ First work will open merge dialog to decide strategy; remaining {4} works will a
   <data name="MenuOpenInExplorer" xml:space="preserve"><value>Open in Explorer</value></data>
   <data name="MenuOpenInCurrentTab" xml:space="preserve"><value>Open in Current Tab</value></data>
   <data name="MenuOpenInNewTab" xml:space="preserve"><value>Open in New Tab</value></data>
+  <data name="MenuCopyName" xml:space="preserve"><value>Copy Name</value></data>
+  <data name="ChipClearAll" xml:space="preserve"><value>Clear All</value></data>
+  <data name="TagFilterEmpty" xml:space="preserve"><value>Tag Filter</value></data>
+  <data name="TagFilterEmptyHint" xml:space="preserve"><value>Pick one or more tags from the tree</value></data>
   <data name="SettingsThumbCacheMax" xml:space="preserve"><value>Thumb cache size limit (LRU eviction)</value></data>
   <data name="MenuAuthorInfo" xml:space="preserve"><value>Author Info</value></data>
   <data name="AuthorInfoTitle" xml:space="preserve"><value>Author Info</value></data>

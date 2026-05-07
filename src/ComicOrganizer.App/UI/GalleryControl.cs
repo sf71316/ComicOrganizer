@@ -1370,10 +1370,48 @@ public partial class GalleryControl : UserControl, IThemedControl
             if (e.Item?.Tag is IVirtualLibraryNode vnode)
             {
                 _treeRightOnNode = e.Button == MouseButtons.Right;
-                if (e.Button == MouseButtons.Left)
-                    OnVirtualNodeClicked(vnode);
+                if (e.Button == MouseButtons.Left) OnVirtualNodeClicked(vnode);
+                else if (e.Button == MouseButtons.Middle) OpenVirtualNodeInNewTab(vnode);
+                else if (e.Button == MouseButtons.Right) ShowVirtualNodeContextMenu(vnode);
             }
         };
+    }
+
+    /// <summary>虛擬庫 node 右鍵選單 — 另開頁籤 / 複製名稱（語言、作者 mode 共用同樣兩項）。
+    /// Tag mode 多一項「加入篩選」當作 left-click toggle 的等效。</summary>
+    private void ShowVirtualNodeContextMenu(IVirtualLibraryNode vnode)
+    {
+        var openNewTabText = "🔗 " + (LocalizationManager.GetString("MenuOpenInNewTab") ?? "另開頁籤");
+        var copyText = "📋 " + (LocalizationManager.GetString("MenuCopyName") ?? "複製名稱");
+
+        var items = new List<AntdUI.IContextMenuStripItem>
+        {
+            new AntdUI.ContextMenuStripItem(openNewTabText),
+            new AntdUI.ContextMenuStripItem(copyText),
+        };
+
+        AntdUI.ContextMenuStrip.open(treeFolders, mi =>
+        {
+            if (mi.Text == openNewTabText) OpenVirtualNodeInNewTab(vnode);
+            else if (mi.Text == copyText)
+            {
+                try { Clipboard.SetText(vnode.DisplayName); } catch { /* 剪貼簿被別 app 占用 — 忽略 */ }
+            }
+        }, items.ToArray());
+    }
+
+    /// <summary>把虛擬庫 node 的作品另開到新 tab（Tag mode 仍走 chip 過濾，其餘 mode 直接開）。</summary>
+    private void OpenVirtualNodeInNewTab(IVirtualLibraryNode vnode)
+    {
+        if (_metaStore == null) return;
+        // Tag mode 在 chip 多選上沒有「另開頁籤」概念 → 退化為 left-click 行為
+        if (_currentViewMode == TreeViewMode.ByTag && vnode is TagVirtualNode)
+        {
+            OnVirtualNodeClicked(vnode);
+            return;
+        }
+        var paths = vnode.ResolveWorks(_metaStore);
+        OpenVirtualWorksTab(vnode.DisplayName, paths, forceNew: true);
     }
 
     /// <summary>左鍵點到虛擬庫 node — 依 mode 跟 node 類型決定行為。
@@ -1408,7 +1446,8 @@ public partial class GalleryControl : UserControl, IThemedControl
         OpenVirtualWorksTab(vnode.DisplayName, paths);
     }
 
-    /// <summary>重建 chip bar — 每個 tag 一個 X 可移除。</summary>
+    /// <summary>重建 chip bar — 每個 tag 一個 X 可移除；末端「✕ 清除全部」按鈕。
+    /// AntdUI.Tag 必須 AutoSize=true，否則 FlowLayoutPanel 會把它算成 ~4px 高（X 點不到）— 見 commit 1248450。</summary>
     private void RebuildChipBar()
     {
         flowChipBar.SuspendLayout();
@@ -1420,7 +1459,9 @@ public partial class GalleryControl : UserControl, IThemedControl
             {
                 Text = name,
                 CloseIcon = true,
+                AutoSize = true,
                 Margin = new Padding(2),
+                Font = new Font("Microsoft JhengHei UI", 9F),
             };
             chip.CloseChanged += (s, e) =>
             {
@@ -1431,16 +1472,51 @@ public partial class GalleryControl : UserControl, IThemedControl
             };
             flowChipBar.Controls.Add(chip);
         }
+        // 清除全部按鈕 — 至少 2 個 chip 才顯示
+        if (_selectedTagNames.Count >= 2)
+        {
+            var btnClear = new AntdUI.Button
+            {
+                Text = LocalizationManager.GetString("ChipClearAll") ?? "清除全部",
+                IconSvg = "CloseCircleOutlined",
+                Type = AntdUI.TTypeMini.Default,
+                Ghost = true,
+                Margin = new Padding(4, 2, 2, 2),
+                AutoSize = true,
+            };
+            btnClear.Click += (s, e) =>
+            {
+                _selectedTagIds.Clear();
+                _selectedTagNames.Clear();
+                BeginInvoke(new Action(() => { RebuildChipBar(); ApplyTagFilter(); }));
+            };
+            flowChipBar.Controls.Add(btnClear);
+        }
         flowChipBar.ResumeLayout(true);
     }
 
-    /// <summary>用 _selectedTagIds 跑 ListWorksByTags(AND) 並更新 / 開 tab 顯示。</summary>
+    /// <summary>用 _selectedTagIds 跑 ListWorksByTags(AND) 並更新 tab 顯示。
+    /// 0 chip 時清空當前 tab 並把標題改回提示文字（避免顯示舊結果造成「沒反應」錯覺）。</summary>
     private void ApplyTagFilter()
     {
         if (_metaStore == null) return;
         if (_selectedTagIds.Count == 0)
         {
-            // 沒勾任何 tag — 不開 tab，等 user 加
+            var page = tabsContent.SelectedTab;
+            if (page == null) return;
+            var flow = FindTabFlowLayout(page);
+            if (flow != null) flow.Controls.Clear();
+            page.Text = LocalizationManager.GetString("TagFilterEmpty") ?? "標籤篩選";
+            var bc = FindTabBreadcrumb(page);
+            if (bc != null)
+            {
+                bc.Items.Clear();
+                bc.Items.Add(new AntdUI.BreadcrumbItem
+                {
+                    Text = " " + (LocalizationManager.GetString("TagFilterEmptyHint") ?? "點 tree 選一個或多個標籤") + " ",
+                    IconSvg = "TagOutlined"
+                });
+            }
             return;
         }
         var paths = _metaStore.ListWorksByTags(_selectedTagIds.ToList(), intersect: true);
@@ -1448,16 +1524,16 @@ public partial class GalleryControl : UserControl, IThemedControl
         OpenVirtualWorksTab(title, paths);
     }
 
-    /// <summary>開新 tab 顯示一組 work paths（虛擬庫共用）。</summary>
-    private void OpenVirtualWorksTab(string title, IReadOnlyList<string> paths)
+    /// <summary>開 tab 顯示一組 work paths（虛擬庫共用）。
+    /// 沒有開啟中的 tab 時自動建一個（CreateNewTabPage helper），不再像之前靜默 return。</summary>
+    private void OpenVirtualWorksTab(string title, IReadOnlyList<string> paths, bool forceNew = false)
     {
-        // 重用既有 OpenFolderTab 機制 — 但 path 不是 directory，用 paths list
-        // 先簡化：直接呼 LoadGalleryFromPathsAsync 進當前 tab
-        var page = tabsContent.SelectedTab;
+        var page = (!forceNew ? tabsContent.SelectedTab : null) ?? CreateNewTabPage(title);
         var flow = FindTabFlowLayout(page);
         if (flow == null) return;
-        // 更新 breadcrumb 跟 tab 標題
-        if (page != null) page.Text = title;
+        // 更新 tab 標題、清掉 folder Tag（避免後續 OpenFolderTab 把同 path 認成已開）
+        page.Text = title;
+        page.Tag = null;
         var bc = FindTabBreadcrumb(page);
         if (bc != null)
         {
@@ -1690,11 +1766,20 @@ public partial class GalleryControl : UserControl, IThemedControl
             return;
         }
 
-        // 新 Tab 結構：headerPanel (Dock=Top, 麵包屑 + refresh + view mode) + FlowLayoutPanel (Dock=Fill, 卡片區)
+        var newPage = CreateNewTabPage(folderName);
+        newPage.Tag = path;
+        UpdateBreadcrumb(path);
+        LoadCurrentViewMode(newPage, path);
+    }
+
+    /// <summary>建一個空 TabPage（含 header / breadcrumb / refresh / S/M/L/List segView / contentHost / flow / table 完整結構），
+    /// 加進 tabsContent 並選中。caller 自行填 Tag / breadcrumb / 內容。
+    /// virtual lib（無實體 path 的 tab）跟 folder mode 共用此 helper，避免「沒開過 tab → click 沒反應」。</summary>
+    private AntdUI.TabPage CreateNewTabPage(string title)
+    {
         var newPage = new AntdUI.TabPage
         {
-            Text = folderName,
-            Tag = path,
+            Text = title,
             BackColor = Core.ThemeColors.Surface
         };
 
@@ -1866,9 +1951,7 @@ public partial class GalleryControl : UserControl, IThemedControl
         newPage.Controls.Add(headerPanel);
         tabsContent.Pages.Add(newPage);
         tabsContent.SelectedTab = newPage;
-
-        UpdateBreadcrumb(path);
-        LoadCurrentViewMode(newPage, path);
+        return newPage;
     }
 
     private AntdUI.Table CreateTabTable()
