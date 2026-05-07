@@ -77,4 +77,10 @@ public class AppConfig
     /// <summary>nhentai API key — DPAPI 加密 base64 字串。
     /// 直接讀寫請走 AppConfigExtensions.GetNhentaiApiKey / SetNhentaiApiKey 而非此屬性。</summary>
     public string NhentaiApiKeyProtected { get; set; } = "";
+
+    // ===== 翻譯庫線上更新 (#53 Phase 5) =====
+
+    /// <summary>上次成功檢查 EhTag 翻譯庫更新的時間（unix ms，0 = 從未）。
+    /// 啟動背景檢查若距上次 &lt; 24h 就 skip，避免每次啟動都打 GitHub API。</summary>
+    public long LastTranslationDbCheckTime { get; set; }
 }
