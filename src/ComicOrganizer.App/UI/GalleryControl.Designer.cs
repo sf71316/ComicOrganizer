@@ -9,7 +9,9 @@ partial class GalleryControl
     private AntdUI.Splitter splitter2;
     private System.Windows.Forms.Panel searchBoxPanel;          // 搜尋 DSL input 容器（#48 Phase C-3）
     private AntdUI.Input txtSearchDsl;
+    private AntdUI.Panel searchHintBarHost;                     // 包 searchHintBar 顯示圓角（AntdUI.Panel 原生支援 Radius）
     private System.Windows.Forms.FlowLayoutPanel searchHintBar; // DSL 輔助提示（輸入 1+ 字才顯示）
+    private System.Windows.Forms.Panel segViewModeHost;          // 包 segViewMode 顯示上下 1px 框線
     private AntdUI.Segmented segViewMode;
     private System.Windows.Forms.FlowLayoutPanel flowChipBar;   // Tag mode 多選 chip 區（其他 mode 隱藏）
     private AntdUI.Tree treeFolders;
@@ -31,7 +33,9 @@ partial class GalleryControl
         splitter2 = new AntdUI.Splitter();
         searchBoxPanel = new System.Windows.Forms.Panel();
         txtSearchDsl = new AntdUI.Input();
+        searchHintBarHost = new AntdUI.Panel();
         searchHintBar = new System.Windows.Forms.FlowLayoutPanel();
+        segViewModeHost = new System.Windows.Forms.Panel();
         segViewMode = new AntdUI.Segmented();
         flowChipBar = new System.Windows.Forms.FlowLayoutPanel();
         treeFolders = new Tree();
@@ -53,13 +57,13 @@ partial class GalleryControl
         // splitter2.Panel1
         //
         splitter2.Panel1.BackColor = Core.ThemeColors.Border;
-        // 順序（Forms 反 z 序：先 add 在底）：tree Fill / chip Top / segView Top / searchBox Top（最頂）
+        // 順序（Forms 反 z 序：先 add 在底）：tree Fill / chip Top / segViewHost Top / searchBox Top（最頂）
         // searchHintBar 是 floating overlay（Dock=None），最後 add 確保 z 序在最前，蓋在 segViewMode 上
         splitter2.Panel1.Controls.Add(treeFolders);
         splitter2.Panel1.Controls.Add(flowChipBar);
-        splitter2.Panel1.Controls.Add(segViewMode);
+        splitter2.Panel1.Controls.Add(segViewModeHost);
         splitter2.Panel1.Controls.Add(searchBoxPanel);
-        splitter2.Panel1.Controls.Add(searchHintBar);
+        splitter2.Panel1.Controls.Add(searchHintBarHost);
         splitter2.Panel1.Padding = new Padding(1);
         splitter2.Panel1MinSize = 5;
         //
@@ -107,21 +111,36 @@ partial class GalleryControl
         txtSearchDsl.Name = "txtSearchDsl";
         txtSearchDsl.TabIndex = 0;
         //
-        // searchHintBar — DSL 輔助提示，floating overlay（蓋在 segViewMode 上不擠版面），預設隱藏
+        // searchHintBarHost — floating overlay 包 searchHintBar；AntdUI.Panel 原生 Radius+Border
         //
-        searchHintBar.Dock = DockStyle.None;
-        searchHintBar.Height = 28;
+        searchHintBarHost.Dock = DockStyle.None;
+        searchHintBarHost.Height = 30;
+        searchHintBarHost.Radius = 0;
+        searchHintBarHost.BorderWidth = 1;
+        searchHintBarHost.Name = "searchHintBarHost";
+        searchHintBarHost.Controls.Add(searchHintBar);
+        searchHintBarHost.Visible = false;
+        //
+        // searchHintBar — DSL 輔助提示（輸入 1+ 字才顯示）
+        //
+        searchHintBar.Dock = DockStyle.Fill;
         searchHintBar.Padding = new Padding(8, 2, 8, 2);
         searchHintBar.FlowDirection = System.Windows.Forms.FlowDirection.LeftToRight;
         searchHintBar.WrapContents = false;
         searchHintBar.Name = "searchHintBar";
-        searchHintBar.Visible = false;
+        //
+        // segViewModeHost — 包 segViewMode 顯示上下 1px 框線（用 Padding+BackColor 露邊技法）
+        //
+        segViewModeHost.Dock = DockStyle.Top;
+        segViewModeHost.Height = 57;   // 55 segView + 1px top border + 1px bottom border
+        segViewModeHost.Padding = new Padding(0, 1, 0, 1);
+        segViewModeHost.Name = "segViewModeHost";
+        segViewModeHost.Controls.Add(segViewMode);
         //
         // segViewMode — sidebar 上方 ViewMode 切換（#48 Phase 1）
         //
-        segViewMode.Dock = DockStyle.Top;
+        segViewMode.Dock = DockStyle.Fill;
         segViewMode.Font = new Font("Microsoft JhengHei UI", 9F);
-        segViewMode.Height = 55;
         segViewMode.Margin = new Padding(0);
         segViewMode.Padding = new Padding(0);
         segViewMode.Name = "segViewMode";

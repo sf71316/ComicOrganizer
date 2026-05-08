@@ -182,6 +182,8 @@ public partial class GalleryControl : UserControl, IThemedControl
         tabsContent.FillActive = Core.ThemeColors.Border;
 
         // segViewMode（虛擬庫 ViewMode toggle）— 高亮色用主題 Primary
+        // segViewModeHost 用 Padding+BackColor 露 1px 邊技法做上下框線
+        segViewModeHost.BackColor = Core.ThemeColors.Border;
         segViewMode.BackColor = Core.ThemeColors.Surface;
         segViewMode.BackActive = Core.ThemeColors.Primary;
         segViewMode.ForeActive = Core.ThemeColors.HeaderText;
@@ -192,7 +194,11 @@ public partial class GalleryControl : UserControl, IThemedControl
         searchBoxPanel.BackColor = Core.ThemeColors.Surface;
         txtSearchDsl.BackColor = Core.ThemeColors.Background;
         txtSearchDsl.ForeColor = Core.ThemeColors.Text;
-        searchHintBar.BackColor = Core.ThemeColors.Surface;
+        // searchHintBarHost：AntdUI.Panel 圓角白底 + 1px 邊框
+        searchHintBarHost.BackColor = Color.White;
+        searchHintBarHost.Back = Color.White;
+        searchHintBarHost.BorderColor = Core.ThemeColors.Border;
+        searchHintBar.BackColor = Color.Transparent;
         // chip 內部會在 OnPaint 取 ThemeColors，這裡只重畫
         foreach (var c in searchHintBar.Controls.OfType<SearchHintChip>()) c.Invalidate();
 

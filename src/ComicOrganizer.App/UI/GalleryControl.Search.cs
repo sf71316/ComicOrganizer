@@ -27,16 +27,17 @@ public partial class GalleryControl
         BuildSearchHintChips();
     }
 
-    /// <summary>把 floating hintBar 對齊到 searchBoxPanel 下方，寬度撐滿 sidebar。</summary>
+    /// <summary>把 floating hintBar host 貼到 txtSearchDsl 下緣（searchBoxPanel.Bottom − Padding.Bottom），
+    /// 寬度跟 txtSearchDsl 一致。</summary>
     private void RepositionSearchHintBar()
     {
         var parent = splitter2.Panel1;
-        searchHintBar.SetBounds(
-            parent.Padding.Left,
-            searchBoxPanel.Bottom,
-            parent.ClientSize.Width - parent.Padding.Horizontal,
-            searchHintBar.Height);
-        searchHintBar.BringToFront();
+        var sb = searchBoxPanel;
+        var left = parent.Padding.Left + sb.Padding.Left;
+        var width = parent.ClientSize.Width - parent.Padding.Horizontal - sb.Padding.Horizontal;
+        var top = sb.Bottom - sb.Padding.Bottom;
+        searchHintBarHost.SetBounds(left, top, width, searchHintBarHost.Height);
+        searchHintBarHost.BringToFront();
     }
 
     private void BuildSearchHintChips()
@@ -60,7 +61,7 @@ public partial class GalleryControl
         var text = txtSearchDsl.Text ?? "";
         if (string.IsNullOrEmpty(text))
         {
-            searchHintBar.Visible = false;
+            searchHintBarHost.Visible = false;
             return;
         }
 
@@ -74,9 +75,9 @@ public partial class GalleryControl
         var hasColon = lastToken.Contains(':');
         var prefix = hasColon ? "" : lastToken.ToLowerInvariant();
 
-        if (!searchHintBar.Visible)
+        if (!searchHintBarHost.Visible)
         {
-            searchHintBar.Visible = true;
+            searchHintBarHost.Visible = true;
             RepositionSearchHintBar();
         }
         foreach (var ctrl in searchHintBar.Controls.OfType<SearchHintChip>())
