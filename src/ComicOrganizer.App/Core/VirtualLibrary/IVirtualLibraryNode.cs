@@ -42,19 +42,24 @@ public class AuthorVirtualNode : IVirtualLibraryNode
     public IReadOnlyList<string> ResolveWorks(IAssetMetaStore store) => store.ListWorksByAuthor(AuthorId);
 }
 
-/// <summary>「依語言」mode 的 tree node — 對應一個 language code（null = 未標記）。</summary>
-public class LanguageVirtualNode : IVirtualLibraryNode
+/// <summary>「我的閱讀清單」mode 的 tree node — 對應一個自訂虛擬庫（#54）。
+/// ResolveWorks runtime parse + execute；新作品自動納入，不快取結果。</summary>
+public class MyVirtualLibraryNode : IVirtualLibraryNode
 {
-    public string? Language { get; }
-    public int? WorkCount { get; }
-    public LanguageVirtualNode(string? language, int workCount)
+    public VirtualLibrary Library { get; }
+    public int? WorkCount => null;   // 不預先計數（要跑 query 才知道，太貴）
+    public MyVirtualLibraryNode(VirtualLibrary library) { Library = library; }
+    public string DisplayName => Library.Name;
+    public string? IconSvg => Library.IconSvg ?? "BookOutlined";
+    public IReadOnlyList<string> ResolveWorks(IAssetMetaStore store)
     {
-        Language = language;
-        WorkCount = workCount;
+        var query = SearchQueryParser.Parse(Library.Dsl);
+        if (query.IsEmpty) return Array.Empty<string>();
+        // 走預設 culture lang（DSL tag 譯名搜尋）— 跟 ExecuteDslSearch 一致
+        var lang = System.Globalization.CultureInfo.CurrentUICulture.Name.StartsWith("zh", StringComparison.OrdinalIgnoreCase)
+            ? "zh-TW" : null;
+        return new SearchExecutor(store, lang).Execute(query);
     }
-    public string DisplayName => Language ?? "(未標記)";
-    public string? IconSvg => "GlobalOutlined";
-    public IReadOnlyList<string> ResolveWorks(IAssetMetaStore store) => store.ListWorksByLanguage(Language);
 }
 
 /// <summary>「依標籤」mode 的 tree node — 對應一個 tag。

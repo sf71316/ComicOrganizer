@@ -382,6 +382,16 @@ First work will open merge dialog to decide strategy; remaining {4} works will a
   <data name="SaveVLibErrNoDsl" xml:space="preserve"><value>Please enter a query</value></data>
   <data name="SaveVLibErrInvalidDsl" xml:space="preserve"><value>Query is not parseable</value></data>
   <data name="DialogSave" xml:space="preserve"><value>Save</value></data>
+  <data name="ViewModeMyLib" xml:space="preserve"><value>My Lists</value></data>
+  <data name="MyLibEmptyHint" xml:space="preserve"><value>No custom lists yet; right-click to add</value></data>
+  <data name="MenuEdit" xml:space="preserve"><value>Edit</value></data>
+  <data name="MenuDelete" xml:space="preserve"><value>Delete</value></data>
+  <data name="MenuPin" xml:space="preserve"><value>Pin</value></data>
+  <data name="MenuUnpin" xml:space="preserve"><value>Unpin</value></data>
+  <data name="MenuCopyDsl" xml:space="preserve"><value>Copy DSL</value></data>
+  <data name="MenuAddVirtualLib" xml:space="preserve"><value>New List</value></data>
+  <data name="MyLibDeleteTitle" xml:space="preserve"><value>Delete List</value></data>
+  <data name="MyLibDeleteMsgFmt" xml:space="preserve"><value>Delete "{0}"? This cannot be undone.</value></data>
   <data name="SettingsThumbCacheMax" xml:space="preserve"><value>Thumb cache size limit (LRU eviction)</value></data>
   <data name="MenuAuthorInfo" xml:space="preserve"><value>Author Info</value></data>
   <data name="AuthorInfoTitle" xml:space="preserve"><value>Author Info</value></data>

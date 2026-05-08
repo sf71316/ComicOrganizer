@@ -1105,6 +1105,36 @@ FS 掃描 {0} 件 / DB 索引 {1} 件</value>
   <data name="DialogSave" xml:space="preserve">
     <value>儲存</value>
   </data>
+  <data name="ViewModeMyLib" xml:space="preserve">
+    <value>我的閱讀清單</value>
+  </data>
+  <data name="MyLibEmptyHint" xml:space="preserve">
+    <value>尚無自訂閱讀清單；右鍵新增</value>
+  </data>
+  <data name="MenuEdit" xml:space="preserve">
+    <value>編輯</value>
+  </data>
+  <data name="MenuDelete" xml:space="preserve">
+    <value>刪除</value>
+  </data>
+  <data name="MenuPin" xml:space="preserve">
+    <value>釘選</value>
+  </data>
+  <data name="MenuUnpin" xml:space="preserve">
+    <value>取消釘選</value>
+  </data>
+  <data name="MenuCopyDsl" xml:space="preserve">
+    <value>複製 DSL</value>
+  </data>
+  <data name="MenuAddVirtualLib" xml:space="preserve">
+    <value>新增閱讀清單</value>
+  </data>
+  <data name="MyLibDeleteTitle" xml:space="preserve">
+    <value>刪除閱讀清單</value>
+  </data>
+  <data name="MyLibDeleteMsgFmt" xml:space="preserve">
+    <value>確定刪除「{0}」？此動作不可復原。</value>
+  </data>
   <data name="SettingsThumbCacheMax" xml:space="preserve">
     <value>縮圖快取上限 (超過會 LRU 淘汰最舊)</value>
   </data>

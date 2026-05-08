@@ -26,11 +26,12 @@ public static class VirtualLibraryProvider
             .ToList();
     }
 
-    /// <summary>「依語言」mode：列出語言桶（含未標記）。</summary>
-    public static IReadOnlyList<LanguageVirtualNode> GetLanguageNodes(IAssetMetaStore store)
+    /// <summary>「我的閱讀清單」mode：列出所有自訂虛擬庫（已依 pinned + sort_order 排序）。</summary>
+    public static IReadOnlyList<MyVirtualLibraryNode> GetMyLibraryNodes(IAssetMetaStore store)
     {
-        var buckets = store.ListLanguageBuckets();
-        return buckets.Select(b => new LanguageVirtualNode(b.Language, b.WorkCount)).ToList();
+        return store.ListVirtualLibraries()
+            .Select(v => new MyVirtualLibraryNode(v))
+            .ToList();
     }
 
     /// <summary>「閱讀軌跡」mode：4 個 fixed sub-node。

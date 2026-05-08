@@ -72,7 +72,7 @@ public partial class GalleryControl
             TreeViewMode.Folder => LoadFolderTreeAsync(),
             TreeViewMode.ByAuthor => LoadAuthorTreeAsync(),
             TreeViewMode.ByTag => LoadTagTreeAsync(),
-            TreeViewMode.ByLanguage => LoadLanguageTreeAsync(),
+            TreeViewMode.MyLib => LoadMyLibTreeAsync(),
             TreeViewMode.ReadingTrack => LoadReadingTrackTreeAsync(),
             _ => Task.CompletedTask,
         };
@@ -177,16 +177,36 @@ public partial class GalleryControl
     }
 
     /// <summary>「依語言」mode tree。</summary>
-    private Task LoadLanguageTreeAsync()
+    /// <summary>「我的閱讀清單」mode tree — 列出所有自訂虛擬庫（#54 Phase 3）。
+    /// pinned 的放最上方加分隔；節點 right-click 開 context menu（編輯 / 刪除 / 釘選 / 複製 DSL）。</summary>
+    private Task LoadMyLibTreeAsync()
     {
         if (_metaStore == null) return Task.CompletedTask;
         treeFolders.Items.Clear();
-        var langs = VirtualLibraryProvider.GetLanguageNodes(_metaStore);
-        foreach (var node in langs)
+        var nodes = VirtualLibraryProvider.GetMyLibraryNodes(_metaStore);
+        bool seenUnpinned = false;
+        foreach (var node in nodes)
         {
-            var item = new AntdUI.TreeItem($"{node.DisplayName} ({node.WorkCount})") { IconSvg = node.IconSvg, Tag = node };
+            // pinned 區塊 → unpinned 區塊之間加 divider（第一個非釘選的 item 前）
+            if (!seenUnpinned && !node.Library.Pinned && treeFolders.Items.Count > 0)
+            {
+                seenUnpinned = true;
+                // 視覺上用一個禁用、無 tag 的虛擬節點當分隔
+                treeFolders.Items.Add(new AntdUI.TreeItem("─────") { Enabled = false });
+            }
+            var label = node.Library.Pinned ? $"📌 {node.DisplayName}" : node.DisplayName;
+            var item = new AntdUI.TreeItem(label) { IconSvg = node.IconSvg, Tag = node };
             treeFolders.Items.Add(item);
         }
+
+        // 沒任何虛擬庫 → 顯示提示節點（disabled）
+        if (nodes.Count == 0)
+        {
+            treeFolders.Items.Add(new AntdUI.TreeItem(
+                LocalizationManager.GetString("MyLibEmptyHint")
+                    ?? "尚無自訂閱讀清單；右鍵新增") { Enabled = false });
+        }
+
         UpdateTreeWidth();
         return Task.CompletedTask;
     }
@@ -246,7 +266,7 @@ public partial class GalleryControl
         segViewMode.Items.Add(new AntdUI.SegmentedItem { Text = LocalizationManager.GetString("ViewModeFolder") ?? "資料夾", IconSvg = "FolderOutlined" });
         segViewMode.Items.Add(new AntdUI.SegmentedItem { Text = LocalizationManager.GetString("ViewModeAuthor") ?? "作者", IconSvg = "UserOutlined" });
         segViewMode.Items.Add(new AntdUI.SegmentedItem { Text = LocalizationManager.GetString("ViewModeTag") ?? "標籤", IconSvg = "TagOutlined" });
-        segViewMode.Items.Add(new AntdUI.SegmentedItem { Text = LocalizationManager.GetString("ViewModeLanguage") ?? "語言", IconSvg = "GlobalOutlined" });
+        segViewMode.Items.Add(new AntdUI.SegmentedItem { Text = LocalizationManager.GetString("ViewModeMyLib") ?? "我的閱讀清單", IconSvg = "BookOutlined" });
         segViewMode.Items.Add(new AntdUI.SegmentedItem { Text = LocalizationManager.GetString("ViewModeReadingTrack") ?? "閱讀軌跡", IconSvg = "HistoryOutlined" });
         segViewMode.SelectIndex = 0;
         // SelectIndexChanged: IntEventHandler — (sender, IntEventArgs e)，e.Value 是新 index
@@ -278,8 +298,8 @@ public partial class GalleryControl
         };
     }
 
-    /// <summary>虛擬庫 node 右鍵選單 — 另開頁籤 / 複製名稱（語言、作者 mode 共用同樣兩項）。
-    /// Tag mode 多一項「加入篩選」當作 left-click toggle 的等效。</summary>
+    /// <summary>虛擬庫 node 右鍵選單 — 通用兩項（另開頁籤 / 複製名稱）；
+    /// MyVirtualLibraryNode 加管理項（編輯 / 釘選 / 刪除 / 複製 DSL）。</summary>
     private void ShowVirtualNodeContextMenu(IVirtualLibraryNode vnode)
     {
         var openNewTabText = "🔗 " + (LocalizationManager.GetString("MenuOpenInNewTab") ?? "另開頁籤");
@@ -291,14 +311,116 @@ public partial class GalleryControl
             new AntdUI.ContextMenuStripItem(copyText),
         };
 
+        // MyVirtualLibraryNode 額外管理項
+        string? editText = null, pinText = null, copyDslText = null, deleteText = null;
+        if (vnode is MyVirtualLibraryNode my)
+        {
+            editText = "✏ " + (LocalizationManager.GetString("MenuEdit") ?? "編輯");
+            pinText = my.Library.Pinned
+                ? ("📍 " + (LocalizationManager.GetString("MenuUnpin") ?? "取消釘選"))
+                : ("📌 " + (LocalizationManager.GetString("MenuPin") ?? "釘選"));
+            copyDslText = "🧬 " + (LocalizationManager.GetString("MenuCopyDsl") ?? "複製 DSL");
+            deleteText = "🗑 " + (LocalizationManager.GetString("MenuDelete") ?? "刪除");
+            items.Add(new AntdUI.ContextMenuStripItem(editText));
+            items.Add(new AntdUI.ContextMenuStripItem(pinText));
+            items.Add(new AntdUI.ContextMenuStripItem(copyDslText));
+            items.Add(new AntdUI.ContextMenuStripItem(deleteText));
+        }
+
         AntdUI.ContextMenuStrip.open(treeFolders, mi =>
         {
-            if (mi.Text == openNewTabText) OpenVirtualNodeInNewTab(vnode);
-            else if (mi.Text == copyText)
+            var t = mi.Text;
+            if (t == openNewTabText) OpenVirtualNodeInNewTab(vnode);
+            else if (t == copyText)
             {
-                try { Clipboard.SetText(vnode.DisplayName); } catch { /* 剪貼簿被別 app 占用 — 忽略 */ }
+                try { Clipboard.SetText(vnode.DisplayName); } catch { }
             }
+            else if (t == editText && vnode is MyVirtualLibraryNode em) EditMyVirtualLibrary(em.Library);
+            else if (t == pinText && vnode is MyVirtualLibraryNode pm)
+            {
+                _metaStore?.SetVirtualLibraryPinned(pm.Library.Id, !pm.Library.Pinned);
+                _ = LoadTreeAsync();
+            }
+            else if (t == copyDslText && vnode is MyVirtualLibraryNode cm)
+            {
+                try { Clipboard.SetText(cm.Library.Dsl); } catch { }
+            }
+            else if (t == deleteText && vnode is MyVirtualLibraryNode dm) DeleteMyVirtualLibrary(dm.Library);
         }, items.ToArray());
+    }
+
+    /// <summary>tree 空白處（或非 node）右鍵時，在 MyLib mode 下加「新增」選項。</summary>
+    private void ShowMyLibBlankContextMenu()
+    {
+        var addText = "➕ " + (LocalizationManager.GetString("MenuAddVirtualLib") ?? "新增閱讀清單");
+        var refreshText = "🔄 " + (LocalizationManager.GetString("MenuRefresh") ?? "重新整理");
+        var items = new AntdUI.IContextMenuStripItem[]
+        {
+            new AntdUI.ContextMenuStripItem(addText),
+            new AntdUI.ContextMenuStripItem(refreshText),
+        };
+        AntdUI.ContextMenuStrip.open(treeFolders, mi =>
+        {
+            if (mi.Text == addText) AddMyVirtualLibrary();
+            else if (mi.Text == refreshText) _ = LoadTreeAsync();
+        }, items);
+    }
+
+    private void AddMyVirtualLibrary()
+    {
+        if (_metaStore == null) return;
+        var form = this.FindForm();
+        if (form == null) return;
+        using var dlg = new SaveVirtualLibraryDialog(_metaStore);
+        if (dlg.ShowDialog(form) != DialogResult.OK) return;
+        _metaStore.CreateVirtualLibrary(dlg.ResultName, dlg.ResultDsl, dlg.ResultIconSvg);
+        _ = LoadTreeAsync();
+    }
+
+    private void EditMyVirtualLibrary(VirtualLibrary existing)
+    {
+        if (_metaStore == null) return;
+        var form = this.FindForm();
+        if (form == null) return;
+        using var dlg = new SaveVirtualLibraryDialog(_metaStore, existing);
+        if (dlg.ShowDialog(form) != DialogResult.OK) return;
+        _metaStore.UpdateVirtualLibrary(existing.Id, dlg.ResultName, dlg.ResultDsl, dlg.ResultIconSvg);
+        _ = LoadTreeAsync();
+    }
+
+    private void DeleteMyVirtualLibrary(VirtualLibrary vlib)
+    {
+        if (_metaStore == null) return;
+        var form = this.FindForm();
+        if (form == null) return;
+        UI.ModalEx.Open(new AntdUI.Modal.Config(form,
+            LocalizationManager.GetString("MyLibDeleteTitle") ?? "刪除閱讀清單",
+            string.Format(
+                LocalizationManager.GetString("MyLibDeleteMsgFmt") ?? "確定刪除「{0}」？此動作不可復原。",
+                vlib.Name),
+            AntdUI.TType.Warn)
+        {
+            OkText = LocalizationManager.GetString("MenuDelete") ?? "刪除",
+            CancelText = LocalizationManager.GetString("DialogCancel") ?? "取消",
+            OnOk = _ => OnConfirmDeleteMyVirtualLibrary(vlib),
+        });
+    }
+
+    /// <summary>實際刪除虛擬庫 + 刷 tree（marshal 回 UI thread）；OnOk 從 worker thread 呼叫。</summary>
+    private bool OnConfirmDeleteMyVirtualLibrary(VirtualLibrary vlib)
+    {
+        if (_metaStore == null) return true;
+        try { _metaStore.DeleteVirtualLibrary(vlib.Id); }
+        catch { return true; }
+        Action refresh = ReloadMyLibTree;
+        BeginInvoke(refresh);
+        return true;
+    }
+
+    private void ReloadMyLibTree()
+    {
+        if (IsDisposed) return;
+        _ = LoadTreeAsync();
     }
 
     /// <summary>把虛擬庫 node 的作品另開到新 tab（Tag mode 仍走 chip 過濾，其餘 mode 直接開）。</summary>

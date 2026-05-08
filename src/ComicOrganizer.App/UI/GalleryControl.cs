@@ -66,7 +66,7 @@ public partial class GalleryControl : UserControl, IThemedControl
     private DrawerOutsideClickFilter? _drawerClickFilter;
 
     /// <summary>tree 顯示模式（#48 Phase 1）— Folder 是現有 file system tree；其他 4 種是虛擬庫。</summary>
-    public enum TreeViewMode { Folder, ByAuthor, ByTag, ByLanguage, ReadingTrack }
+    public enum TreeViewMode { Folder, ByAuthor, ByTag, MyLib, ReadingTrack }
 
     private TreeViewMode _currentViewMode = TreeViewMode.Folder;
 
@@ -128,7 +128,9 @@ public partial class GalleryControl : UserControl, IThemedControl
                 _treeRightOnNode = false;
                 return;
             }
-            ShowTreeBlankContextMenu();
+            // MyLib mode 空白右鍵 → 「新增閱讀清單」選單；其餘 mode → refresh-only
+            if (_currentViewMode == TreeViewMode.MyLib) ShowMyLibBlankContextMenu();
+            else ShowTreeBlankContextMenu();
         };
 
         // 處理頁籤關閉事件 — 清掉 _tabViewModes 內對應的 entry 避免 dispose 後 reference 殘留
