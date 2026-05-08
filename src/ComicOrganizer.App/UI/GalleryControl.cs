@@ -149,7 +149,7 @@ public partial class GalleryControl : UserControl, IThemedControl
         txtSearchDsl.PlaceholderText = LocalizationManager.GetString("SearchDslPlaceholder")
             ?? "搜尋…  例：artist:flugel tag:xx -tag:DL版";
 
-        // 更新 Tree 中的 "Loading..." 節點文字（如果存在）
+        // 更新 Tree 中的 "Loading..." 節點文字（如果存在） 
         UpdateTreeLoadingText(treeFolders.Items);
 
         // 更新所有已開 Tab 的 Segmented Tooltip + btnRefresh Tooltip（語言切換時同步）

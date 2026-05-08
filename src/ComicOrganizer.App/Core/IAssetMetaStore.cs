@@ -313,6 +313,26 @@ public interface IAssetMetaStore : IDisposable
     /// <summary>列所有 asset.path（給 DSL only-negative 查詢起始集合用）。
     /// 沒 asset_meta 的也列入；依 path 排序。</summary>
     IReadOnlyList<string> ListAllAssetPaths();
+
+    // ===== 自訂虛擬庫（#54 Phase 1）=====
+
+    /// <summary>建一個新自訂虛擬庫，回新 id。created_at / updated_at 用 now ms。</summary>
+    long CreateVirtualLibrary(string name, string dsl, string? iconSvg);
+
+    /// <summary>更新指定 id 的虛擬庫（name / dsl / icon_svg）。updated_at 自動刷成 now ms。</summary>
+    void UpdateVirtualLibrary(long id, string name, string dsl, string? iconSvg);
+
+    /// <summary>刪除指定 id 的虛擬庫。</summary>
+    void DeleteVirtualLibrary(long id);
+
+    /// <summary>切換釘選狀態（pinned 1/0）。pinned 的會排在最上方。</summary>
+    void SetVirtualLibraryPinned(long id, bool pinned);
+
+    /// <summary>列所有虛擬庫，依 (pinned DESC, sort_order, name) 排序。</summary>
+    IReadOnlyList<VirtualLibrary> ListVirtualLibraries();
+
+    /// <summary>取單一筆 — 編輯 dialog 用。找不到回 null。</summary>
+    VirtualLibrary? GetVirtualLibrary(long id);
 }
 
 /// <summary>tag 譯文紀錄。</summary>

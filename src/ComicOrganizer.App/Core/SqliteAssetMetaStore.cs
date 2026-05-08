@@ -13,7 +13,7 @@ public class SqliteAssetMetaStore : IAssetMetaStore
     private readonly SqliteConnection _conn;
     private readonly object _lock = new();
     private SqliteTransaction? _currentTx;
-    private const int CurrentSchemaVersion = 6;
+    private const int CurrentSchemaVersion = 7;
 
     static SqliteAssetMetaStore()
     {
@@ -50,6 +50,7 @@ public class SqliteAssetMetaStore : IAssetMetaStore
             ApplyV4Additions();
             ApplyV5Additions();
             ApplyV6Additions();
+            ApplyV7Additions();
             _conn.Execute("INSERT INTO schema_version (version) VALUES (@v);", new { v = CurrentSchemaVersion });
             return;
         }
@@ -76,6 +77,11 @@ public class SqliteAssetMetaStore : IAssetMetaStore
         if (currentVersion == 5)
         {
             ApplyV6Additions();
+            currentVersion = 6;
+        }
+        if (currentVersion == 6)
+        {
+            ApplyV7Additions();
         }
         _conn.Execute("DELETE FROM schema_version; INSERT INTO schema_version (version) VALUES (@v);",
             new { v = CurrentSchemaVersion });
@@ -152,6 +158,31 @@ CREATE TABLE IF NOT EXISTS tag_translation (
 );
 CREATE INDEX IF NOT EXISTS idx_tag_translation_name ON tag_translation(name COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS idx_tag_translation_lang ON tag_translation(lang);
+");
+    }
+
+    /// <summary>v6 → v7：自訂虛擬庫（#54）。
+    /// - 使用者把 DSL query 存起來給名稱／圖示
+    /// - 沒 FK 引用 — 引用的 tag/author 重命名 / 刪除不會破壞 virtual_library，
+    ///   runtime parse + execute 找不到就回 0 結果
+    /// - sort_order：使用者拖曳排序用（暫時 0=預設，未來 UI 可改）
+    /// - pinned：1=釘選到 tree 上方
+    /// </summary>
+    private void ApplyV7Additions()
+    {
+        _conn.Execute(@"
+CREATE TABLE IF NOT EXISTS virtual_library (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    dsl         TEXT NOT NULL,
+    icon_svg    TEXT,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    pinned      INTEGER NOT NULL DEFAULT 0,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_virtual_library_sort
+    ON virtual_library(pinned DESC, sort_order, name COLLATE NOCASE);
 ");
     }
 
@@ -1463,6 +1494,77 @@ LIMIT @limit;",
             return _conn.Query<string>(
                 "SELECT path FROM asset ORDER BY path COLLATE NOCASE;",
                 transaction: _currentTx).AsList();
+    }
+
+    // ── 自訂虛擬庫（#54 Phase 1）────────────────────────────────
+
+    public long CreateVirtualLibrary(string name, string dsl, string? iconSvg)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        lock (_lock)
+            return _conn.ExecuteScalar<long>(@"
+INSERT INTO virtual_library (name, dsl, icon_svg, sort_order, pinned, created_at, updated_at)
+VALUES (@name, @dsl, @icon, 0, 0, @now, @now);
+SELECT last_insert_rowid();",
+                new { name, dsl, icon = iconSvg, now }, _currentTx);
+    }
+
+    public void UpdateVirtualLibrary(long id, string name, string dsl, string? iconSvg)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        lock (_lock)
+            _conn.Execute(@"
+UPDATE virtual_library SET name = @name, dsl = @dsl, icon_svg = @icon, updated_at = @now
+WHERE id = @id;",
+                new { id, name, dsl, icon = iconSvg, now }, _currentTx);
+    }
+
+    public void DeleteVirtualLibrary(long id)
+    {
+        lock (_lock)
+            _conn.Execute("DELETE FROM virtual_library WHERE id = @id;", new { id }, _currentTx);
+    }
+
+    public void SetVirtualLibraryPinned(long id, bool pinned)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        lock (_lock)
+            _conn.Execute(
+                "UPDATE virtual_library SET pinned = @p, updated_at = @now WHERE id = @id;",
+                new { id, p = pinned ? 1 : 0, now }, _currentTx);
+    }
+
+    public IReadOnlyList<VirtualLibrary> ListVirtualLibraries()
+    {
+        lock (_lock)
+        {
+            // Dapper 不直接 map 到 record + bool；先撈 tuple 再轉
+            var rows = _conn.Query<(long Id, string Name, string Dsl, string? IconSvg,
+                int SortOrder, int Pinned, long CreatedAt, long UpdatedAt)>(@"
+SELECT id, name, dsl, icon_svg, sort_order, pinned, created_at, updated_at
+FROM virtual_library
+ORDER BY pinned DESC, sort_order, name COLLATE NOCASE;",
+                transaction: _currentTx);
+            return rows.Select(r => new VirtualLibrary(
+                r.Id, r.Name, r.Dsl, r.IconSvg, r.SortOrder, r.Pinned != 0,
+                r.CreatedAt, r.UpdatedAt)).ToList();
+        }
+    }
+
+    public VirtualLibrary? GetVirtualLibrary(long id)
+    {
+        lock (_lock)
+        {
+            var r = _conn.QuerySingleOrDefault<(long Id, string Name, string Dsl, string? IconSvg,
+                int SortOrder, int Pinned, long CreatedAt, long UpdatedAt)?>(@"
+SELECT id, name, dsl, icon_svg, sort_order, pinned, created_at, updated_at
+FROM virtual_library WHERE id = @id;",
+                new { id }, _currentTx);
+            return r == null ? null : new VirtualLibrary(
+                r.Value.Id, r.Value.Name, r.Value.Dsl, r.Value.IconSvg,
+                r.Value.SortOrder, r.Value.Pinned != 0,
+                r.Value.CreatedAt, r.Value.UpdatedAt);
+        }
     }
 
     public IReadOnlyList<MostReadAuthor> ListMostReadAuthors(int limit = 10)
