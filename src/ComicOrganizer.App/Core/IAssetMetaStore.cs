@@ -300,6 +300,19 @@ public interface IAssetMetaStore : IDisposable
     /// <summary>批次依 name 反查 tag id（精準 case-insensitive 比對；給 SetAssetTags 後補譯文用）。
     /// 沒找到的 name 不出現在結果 dict。</summary>
     IReadOnlyDictionary<string, long> GetTagIdsByNames(IReadOnlyList<string> names);
+
+    // ===== 搜尋 DSL 後端（Phase C）— 給 SearchExecutor 用 =====
+
+    /// <summary>列指定 read_status 的所有作品（依 last_read DESC, title）。</summary>
+    IReadOnlyList<string> ListWorksByReadStatus(ReadStatus status);
+
+    /// <summary>title / filename 子字串模糊搜尋（給 DSL 純文字 token 用）。
+    /// asset_meta.title 跟 asset.path basename 任一含 keyword 即命中（case-insensitive）。</summary>
+    IReadOnlyList<string> SearchWorksByTitleOrFilename(string keyword, int limit = 500);
+
+    /// <summary>列所有 asset.path（給 DSL only-negative 查詢起始集合用）。
+    /// 沒 asset_meta 的也列入；依 path 排序。</summary>
+    IReadOnlyList<string> ListAllAssetPaths();
 }
 
 /// <summary>tag 譯文紀錄。</summary>

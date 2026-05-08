@@ -1417,15 +1417,52 @@ LIMIT @lim;",
                 new { lim = limit }, _currentTx).AsList();
     }
 
-    public IReadOnlyList<string> ListReadingInProgress()
+    public IReadOnlyList<string> ListReadingInProgress() => ListWorksByReadStatus(ReadStatus.Reading);
+
+    public IReadOnlyList<string> ListWorksByReadStatus(ReadStatus status)
     {
+        // Unread 特殊：包含「沒 asset_meta」的 asset（從未開過 → 視同未讀）
+        if (status == ReadStatus.Unread)
+        {
+            lock (_lock)
+                return _conn.Query<string>(@"
+SELECT a.path FROM asset a
+LEFT JOIN asset_meta am ON a.id = am.asset_id
+WHERE am.asset_id IS NULL OR am.read_status = @s
+ORDER BY a.path COLLATE NOCASE;",
+                    new { s = (int)ReadStatus.Unread }, _currentTx).AsList();
+        }
         lock (_lock)
             return _conn.Query<string>(@"
 SELECT a.path FROM asset a
 JOIN asset_meta am ON a.id = am.asset_id
 WHERE am.read_status = @s
 ORDER BY am.last_read DESC, am.title COLLATE NOCASE;",
-                new { s = (int)ReadStatus.Reading }, _currentTx).AsList();
+                new { s = (int)status }, _currentTx).AsList();
+    }
+
+    public IReadOnlyList<string> SearchWorksByTitleOrFilename(string keyword, int limit = 500)
+    {
+        if (string.IsNullOrWhiteSpace(keyword)) return Array.Empty<string>();
+        // SQLite LIKE 對 ASCII 預設 case-insensitive；CJK 字元 substring 比對也直接 work（不需 case fold）
+        var pattern = "%" + keyword.Trim() + "%";
+        lock (_lock)
+            return _conn.Query<string>(@"
+SELECT DISTINCT a.path FROM asset a
+LEFT JOIN asset_meta am ON a.id = am.asset_id
+WHERE a.path LIKE @p
+   OR am.title LIKE @p
+ORDER BY a.path COLLATE NOCASE
+LIMIT @limit;",
+                new { p = pattern, limit }, _currentTx).AsList();
+    }
+
+    public IReadOnlyList<string> ListAllAssetPaths()
+    {
+        lock (_lock)
+            return _conn.Query<string>(
+                "SELECT path FROM asset ORDER BY path COLLATE NOCASE;",
+                transaction: _currentTx).AsList();
     }
 
     public IReadOnlyList<MostReadAuthor> ListMostReadAuthors(int limit = 10)
