@@ -1063,6 +1063,48 @@ FS 掃描 {0} 件 / DB 索引 {1} 件</value>
   <data name="SearchNoResultsMsgFmt" xml:space="preserve">
     <value>「{0}」找不到符合的作品</value>
   </data>
+  <data name="SaveVLibCreateTitle" xml:space="preserve">
+    <value>新增自訂虛擬庫</value>
+  </data>
+  <data name="SaveVLibEditTitle" xml:space="preserve">
+    <value>編輯自訂虛擬庫</value>
+  </data>
+  <data name="SaveVLibNameLabel" xml:space="preserve">
+    <value>名稱</value>
+  </data>
+  <data name="SaveVLibNamePlaceholder" xml:space="preserve">
+    <value>例：Flugel 中文版</value>
+  </data>
+  <data name="SaveVLibDslLabel" xml:space="preserve">
+    <value>條件 (DSL)</value>
+  </data>
+  <data name="SaveVLibDslPlaceholder" xml:space="preserve">
+    <value>artist:flugel language:zh -tag:DL版</value>
+  </data>
+  <data name="SaveVLibIconLabel" xml:space="preserve">
+    <value>圖示</value>
+  </data>
+  <data name="SaveVLibPreviewFmt" xml:space="preserve">
+    <value>✓ 找到 {0} 件</value>
+  </data>
+  <data name="SaveVLibPreviewErrFmt" xml:space="preserve">
+    <value>（錯誤：{0}）</value>
+  </data>
+  <data name="SaveVLibInvalidQuery" xml:space="preserve">
+    <value>（條件無法解析）</value>
+  </data>
+  <data name="SaveVLibErrNoName" xml:space="preserve">
+    <value>請輸入名稱</value>
+  </data>
+  <data name="SaveVLibErrNoDsl" xml:space="preserve">
+    <value>請輸入查詢條件</value>
+  </data>
+  <data name="SaveVLibErrInvalidDsl" xml:space="preserve">
+    <value>查詢條件無法解析</value>
+  </data>
+  <data name="DialogSave" xml:space="preserve">
+    <value>儲存</value>
+  </data>
   <data name="SettingsThumbCacheMax" xml:space="preserve">
     <value>縮圖快取上限 (超過會 LRU 淘汰最舊)</value>
   </data>

@@ -368,6 +368,20 @@ First work will open merge dialog to decide strategy; remaining {4} works will a
   <data name="SearchFailedTitle" xml:space="preserve"><value>Search failed</value></data>
   <data name="SearchNoResultsTitle" xml:space="preserve"><value>No results</value></data>
   <data name="SearchNoResultsMsgFmt" xml:space="preserve"><value>"{0}" matched no works</value></data>
+  <data name="SaveVLibCreateTitle" xml:space="preserve"><value>New Custom Library</value></data>
+  <data name="SaveVLibEditTitle" xml:space="preserve"><value>Edit Custom Library</value></data>
+  <data name="SaveVLibNameLabel" xml:space="preserve"><value>Name</value></data>
+  <data name="SaveVLibNamePlaceholder" xml:space="preserve"><value>e.g. Flugel - Chinese</value></data>
+  <data name="SaveVLibDslLabel" xml:space="preserve"><value>Query (DSL)</value></data>
+  <data name="SaveVLibDslPlaceholder" xml:space="preserve"><value>artist:flugel language:zh -tag:DL</value></data>
+  <data name="SaveVLibIconLabel" xml:space="preserve"><value>Icon</value></data>
+  <data name="SaveVLibPreviewFmt" xml:space="preserve"><value>✓ {0} works</value></data>
+  <data name="SaveVLibPreviewErrFmt" xml:space="preserve"><value>(error: {0})</value></data>
+  <data name="SaveVLibInvalidQuery" xml:space="preserve"><value>(query invalid)</value></data>
+  <data name="SaveVLibErrNoName" xml:space="preserve"><value>Please enter a name</value></data>
+  <data name="SaveVLibErrNoDsl" xml:space="preserve"><value>Please enter a query</value></data>
+  <data name="SaveVLibErrInvalidDsl" xml:space="preserve"><value>Query is not parseable</value></data>
+  <data name="DialogSave" xml:space="preserve"><value>Save</value></data>
   <data name="SettingsThumbCacheMax" xml:space="preserve"><value>Thumb cache size limit (LRU eviction)</value></data>
   <data name="MenuAuthorInfo" xml:space="preserve"><value>Author Info</value></data>
   <data name="AuthorInfoTitle" xml:space="preserve"><value>Author Info</value></data>
