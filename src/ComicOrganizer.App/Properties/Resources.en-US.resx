@@ -364,6 +364,10 @@ First work will open merge dialog to decide strategy; remaining {4} works will a
   <data name="SettingsTrDbTitle" xml:space="preserve"><value>Translation DB Auto-Update</value></data>
   <data name="SettingsTrDbDesc" xml:space="preserve"><value>Check for EhTag Translation DB updates on startup (at most once per day). Disabling only affects background check; the manual "Check for Updates" button on the Tools page still works.</value></data>
   <data name="SettingsTrDbAutoCheckLabel" xml:space="preserve"><value>Auto-check:</value></data>
+  <data name="SearchDslPlaceholder" xml:space="preserve"><value>Search…  e.g. artist:flugel tag:big-breasts -tag:DL</value></data>
+  <data name="SearchFailedTitle" xml:space="preserve"><value>Search failed</value></data>
+  <data name="SearchNoResultsTitle" xml:space="preserve"><value>No results</value></data>
+  <data name="SearchNoResultsMsgFmt" xml:space="preserve"><value>"{0}" matched no works</value></data>
   <data name="SettingsThumbCacheMax" xml:space="preserve"><value>Thumb cache size limit (LRU eviction)</value></data>
   <data name="MenuAuthorInfo" xml:space="preserve"><value>Author Info</value></data>
   <data name="AuthorInfoTitle" xml:space="preserve"><value>Author Info</value></data>

@@ -7,6 +7,9 @@ partial class GalleryControl
     private System.ComponentModel.IContainer components = null;
 
     private AntdUI.Splitter splitter2;
+    private System.Windows.Forms.Panel searchBoxPanel;          // 搜尋 DSL input 容器（#48 Phase C-3）
+    private AntdUI.Input txtSearchDsl;
+    private System.Windows.Forms.FlowLayoutPanel searchHintBar; // DSL 輔助提示（輸入 1+ 字才顯示）
     private AntdUI.Segmented segViewMode;
     private System.Windows.Forms.FlowLayoutPanel flowChipBar;   // Tag mode 多選 chip 區（其他 mode 隱藏）
     private AntdUI.Tree treeFolders;
@@ -26,6 +29,9 @@ partial class GalleryControl
     {
         Tabs.StyleCard styleCard1 = new Tabs.StyleCard();
         splitter2 = new AntdUI.Splitter();
+        searchBoxPanel = new System.Windows.Forms.Panel();
+        txtSearchDsl = new AntdUI.Input();
+        searchHintBar = new System.Windows.Forms.FlowLayoutPanel();
         segViewMode = new AntdUI.Segmented();
         flowChipBar = new System.Windows.Forms.FlowLayoutPanel();
         treeFolders = new Tree();
@@ -47,10 +53,13 @@ partial class GalleryControl
         // splitter2.Panel1
         //
         splitter2.Panel1.BackColor = Core.ThemeColors.Border;
-        // 順序：treeFolders Fill 最先 add，flowChipBar Top 之後（顯示在 tree 上方），segViewMode Top 最後（在最頂）
+        // 順序（Forms 反 z 序：先 add 在底）：tree Fill / chip Top / segView Top / searchBox Top（最頂）
+        // searchHintBar 是 floating overlay（Dock=None），最後 add 確保 z 序在最前，蓋在 segViewMode 上
         splitter2.Panel1.Controls.Add(treeFolders);
         splitter2.Panel1.Controls.Add(flowChipBar);
         splitter2.Panel1.Controls.Add(segViewMode);
+        splitter2.Panel1.Controls.Add(searchBoxPanel);
+        splitter2.Panel1.Controls.Add(searchHintBar);
         splitter2.Panel1.Padding = new Padding(1);
         splitter2.Panel1MinSize = 5;
         //
@@ -81,6 +90,32 @@ partial class GalleryControl
         treeFolders.Text = "tree1";
         treeFolders.BeforeExpand += treeFolders_BeforeExpand;
         treeFolders.NodeMouseDoubleClick += treeFolders_NodeMouseDoubleClick;
+        //
+        // searchBoxPanel — DSL 搜尋 input 容器（#48 Phase C-3）
+        //
+        searchBoxPanel.Dock = DockStyle.Top;
+        searchBoxPanel.Height = 48;
+        searchBoxPanel.Padding = new Padding(6, 8, 6, 6);
+        searchBoxPanel.Name = "searchBoxPanel";
+        searchBoxPanel.Controls.Add(txtSearchDsl);
+        //
+        // txtSearchDsl — Enter 觸發搜尋；placeholder 提示 DSL 範例
+        //
+        txtSearchDsl.Dock = DockStyle.Fill;
+        txtSearchDsl.PrefixSvg = "SearchOutlined";
+        txtSearchDsl.PlaceholderText = "搜尋…  例：artist:flugel tag:巨乳 -tag:DL版";
+        txtSearchDsl.Name = "txtSearchDsl";
+        txtSearchDsl.TabIndex = 0;
+        //
+        // searchHintBar — DSL 輔助提示，floating overlay（蓋在 segViewMode 上不擠版面），預設隱藏
+        //
+        searchHintBar.Dock = DockStyle.None;
+        searchHintBar.Height = 28;
+        searchHintBar.Padding = new Padding(8, 2, 8, 2);
+        searchHintBar.FlowDirection = System.Windows.Forms.FlowDirection.LeftToRight;
+        searchHintBar.WrapContents = false;
+        searchHintBar.Name = "searchHintBar";
+        searchHintBar.Visible = false;
         //
         // segViewMode — sidebar 上方 ViewMode 切換（#48 Phase 1）
         //
