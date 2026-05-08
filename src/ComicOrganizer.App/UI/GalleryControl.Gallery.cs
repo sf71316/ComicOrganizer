@@ -411,12 +411,16 @@ public partial class GalleryControl
     private static readonly HashSet<string> BuiltInReaderArchiveExts =
         new(StringComparer.OrdinalIgnoreCase) { ".zip", ".cbz", ".rar", ".cbr", ".7z" };
 
+    private static readonly HashSet<string> BuiltInReaderPdfExts =
+        new(StringComparer.OrdinalIgnoreCase) { ".pdf" };
+
     private static bool CanUseBuiltInReader(string path)
     {
         if (Directory.Exists(path)) return true;   // FolderReaderSource 會檢查內含圖
         if (!File.Exists(path)) return false;
         var ext = Path.GetExtension(path);
         if (BuiltInReaderArchiveExts.Contains(ext)) return true;
+        if (BuiltInReaderPdfExts.Contains(ext)) return true;
         // 單檔圖檔也支援 — FolderReaderSource 會 enumerate 同層 (Honeyview 行為)
         return _imageExts.Contains(ext);
     }
@@ -427,6 +431,8 @@ public partial class GalleryControl
         var ext = Path.GetExtension(path);
         if (BuiltInReaderArchiveExts.Contains(ext) && File.Exists(path))
             source = new ArchiveReaderSource(path);
+        else if (BuiltInReaderPdfExts.Contains(ext) && File.Exists(path))
+            source = new PdfReaderSource(path);
         else
             source = new FolderReaderSource(path);
 
