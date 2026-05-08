@@ -74,16 +74,22 @@ public partial class GalleryControl
         }
     }
 
-    /// <summary>非 folder 模式的 gallery 載入 — 直接吃 path list（asset.path），不走 DirectoryInfo 列舉。</summary>
+    /// <summary>非 folder 模式的 gallery 載入 — 直接吃 path list（asset.path），不走 DirectoryInfo 列舉。
+    /// 過濾「page-in-folder」：若 path 的父目錄也在 list，視為某 work 的內頁，跳過。
+    /// 避免目錄 + 該目錄內的單張圖檔同時出現造成卡片重疊。</summary>
     private Task LoadGalleryFromPathsAsync(FlowLayoutPanel container, IReadOnlyList<string> paths, GalleryViewMode mode)
     {
         container.Controls.Clear();
+        // 預建 path set 給 O(1) 查父目錄是否也在結果 — case-insensitive (Windows fs)
+        var pathSet = new HashSet<string>(paths, StringComparer.OrdinalIgnoreCase);
+        var filtered = paths.Where(p => !IsPageInsideFolderResult(p, pathSet)).ToList();
+
         AntdUI.Spin.open(container, async config =>
         {
             const int ChunkSize = 8;
-            for (int i = 0; i < paths.Count; i += ChunkSize)
+            for (int i = 0; i < filtered.Count; i += ChunkSize)
             {
-                var chunk = paths.Skip(i).Take(ChunkSize).ToList();
+                var chunk = filtered.Skip(i).Take(ChunkSize).ToList();
                 this.Invoke(() =>
                 {
                     container.SuspendLayout();
@@ -100,6 +106,19 @@ public partial class GalleryControl
             }
         });
         return Task.CompletedTask;
+    }
+
+    /// <summary>檢查 path 是否為「某個也在結果集裡的目錄」之內頁（檔案）— 避免目錄 + 內頁圖檔同時出現重疊。
+    /// 規則：
+    ///   path 是檔案 + parent 路徑在結果集 → page-in-folder（true）
+    ///   path 是目錄 → 不視為 page（保留）
+    ///   path 是檔案 + parent 不在結果集 → 是頂層 work（保留）</summary>
+    private static bool IsPageInsideFolderResult(string path, HashSet<string> pathSet)
+    {
+        if (Directory.Exists(path)) return false;   // 目錄一定保留
+        var parent = Path.GetDirectoryName(path);
+        if (string.IsNullOrEmpty(parent)) return false;
+        return pathSet.Contains(parent);
     }
 
     private async Task LoadPreviewAsync(System.Windows.Forms.PictureBox pic, string path)
