@@ -10,6 +10,55 @@ namespace ComicOrganizer.App.UI;
 /// </summary>
 public partial class GalleryControl
 {
+    /// <summary>建一張完整 wired 的 ComicCardControl — folder mode + virtual mode 共用。
+    /// 把 ~22 行 event handler 連線從 LoadGalleryAsync / LoadGalleryFromPathsAsync 抽出，
+    /// 順帶 fire-and-forget 載入封面。
+    /// </summary>
+    /// <param name="fsi">file/dir info（卡片資料來源）。</param>
+    /// <param name="mode">S/M/L/List view mode（影響卡片 size + 內部 layout）。</param>
+    /// <param name="showMetadata">虛擬庫 mode 套作品 metadata view 在卡片上（folder mode 不套，
+    /// 因為 folder tree 已暗示作者，重複顯示冗餘）。</param>
+    private ComicCardControl BuildCardForGallery(FileSystemInfo fsi, GalleryViewMode mode, bool showMetadata)
+    {
+        bool isFolderNode = fsi is DirectoryInfo;
+        var card = new ComicCardControl();
+        card.SetData(fsi, isFolderNode);
+
+        if (showMetadata)
+        {
+            var view = _metaStore?.GetMetadataView(fsi.FullName);
+            if (view != null) card.SetMetadata(view);
+        }
+        card.ApplyViewMode(mode);
+        card.ReadStatusProvider = p => _metaStore?.GetReadStatus(p);
+
+        var c = card;   // 給 lambda capture 用，避免 foreach var closure 疑慮
+        // 透過 queue 延遲 RecordRead；queue.Recorded event 會 RefreshCardReadStatusByPath
+        card.RequestOpenFolder += p => { EnqueueReadIfEnabled(p); OpenFolderTab(p, false); };
+        card.RequestOpenViewer += p => { EnqueueReadIfEnabled(p); OpenForReading(p); };
+        card.RequestNewTab += (p, forceNew) => { EnqueueReadIfEnabled(p); OpenFolderTab(p, forceNew); };
+        card.RequestExplorer += p => OpenInExplorer(p);
+        card.RequestAuthorInfo += p => ShowAuthorInfo(p);
+        card.RequestWorkDetail += p => ShowWorkDetail(p);
+        // 強制走外部開啟（不看 UseBuiltInReader 偏好）：漫畫格式 → 外部 viewer；其他 → 系統預設
+        card.RequestOpenWithExternal += p =>
+        {
+            EnqueueReadIfEnabled(p);
+            if (CanUseBuiltInReader(p)) OpenWithExternalViewer(p);
+            else OpenWithSystemDefault(p);
+        };
+        card.RequestSetReadStatus += (p, status) =>
+        {
+            _metaStore?.SetReadStatus(p, status);
+            c.RefreshReadStatusIcon();
+        };
+
+        // 目錄與檔案都試著載封面：CoverManager 對目錄會遞迴往下找首張圖檔（受 MaxScanDepth 限制）
+        // 統一以 Large 寬度載入，切換 view mode 時 pic.ImageFit=Contain 縮放顯示，不需重新載
+        _ = LoadCoverInBackgroundAsync(fsi.FullName, MaxCardCoverWidth, img => card.SetCover(img));
+        return card;
+    }
+
     /// <summary>掃所有 tab 的卡片，找 ItemPath 相符者刷 read status icon。</summary>
     private void RefreshCardReadStatusByPath(string path)
     {
@@ -42,35 +91,8 @@ public partial class GalleryControl
                     {
                         FileSystemInfo? fsi = Directory.Exists(p) ? new DirectoryInfo(p) : (File.Exists(p) ? new FileInfo(p) : null);
                         if (fsi == null) continue;   // path 失效（檔案被刪 / 移動）— skip
-                        bool isFolderNode = fsi is DirectoryInfo;
-                        var card = new ComicCardControl();
-                        card.SetData(fsi, isFolderNode);
-                        // 虛擬庫 mode：把 title + author 副標套到卡片（folder mode 不套，folder tree 已暗示作者）
-                        var view = _metaStore?.GetMetadataView(p);
-                        if (view != null) card.SetMetadata(view);
-                        card.ApplyViewMode(mode);
-                        card.ReadStatusProvider = pp => _metaStore?.GetReadStatus(pp);
-                        var c = card;
-                        card.RequestOpenFolder += pp => { EnqueueReadIfEnabled(pp); OpenFolderTab(pp, false); };
-                        card.RequestOpenViewer += pp => { EnqueueReadIfEnabled(pp); OpenForReading(pp); };
-                        card.RequestNewTab += (pp, forceNew) => { EnqueueReadIfEnabled(pp); OpenFolderTab(pp, forceNew); };
-                        card.RequestExplorer += pp => OpenInExplorer(pp);
-                        card.RequestAuthorInfo += pp => ShowAuthorInfo(pp);
-                        card.RequestWorkDetail += pp => ShowWorkDetail(pp);
-                        card.RequestOpenWithExternal += pp =>
-                        {
-                            EnqueueReadIfEnabled(pp);
-                            if (CanUseBuiltInReader(pp)) OpenWithExternalViewer(pp);
-                            else OpenWithSystemDefault(pp);
-                        };
-                        card.RequestSetReadStatus += (pp, status) =>
-                        {
-                            _metaStore?.SetReadStatus(pp, status);
-                            c.RefreshReadStatusIcon();
-                        };
-                        container.Controls.Add(card);
-                        var capturedCard = card;
-                        _ = LoadCoverInBackgroundAsync(fsi.FullName, MaxCardCoverWidth, img => capturedCard.SetCover(img));
+                        // 虛擬庫 mode：showMetadata=true → 卡片下方顯示 author 副標
+                        container.Controls.Add(BuildCardForGallery(fsi, mode, showMetadata: true));
                     }
                     container.ResumeLayout(true);
                 });
@@ -312,42 +334,8 @@ public partial class GalleryControl
                     container.SuspendLayout();
                     foreach (var item in chunk)
                     {
-                        bool isFolderNode = item is DirectoryInfo;
-                        var card = new ComicCardControl();
-                        card.SetData(item, isFolderNode);
-                        // 註：Phase 3-A 嘗試在卡片下方加 "— Author" 副標但被回退 —
-                        // 良好整理過的庫從左側 tree 就知道 author，副標冗餘。metadata 留給未來
-                        // 「平鋪虛擬庫」/「搜尋結果」等沒明確 hierarchy 的場景再用 SetMetadata。
-                        card.ApplyViewMode(mode);
-                        // 卡片用此 provider 查當前 read_status（icon 顯示 + menu disable）
-                        card.ReadStatusProvider = p => _metaStore?.GetReadStatus(p);
-                        var c = card;   // 給 lambda capture 用，避免 foreach var closure 疑慮
-                        // 透過 queue 延遲 RecordRead；queue.Recorded event 會 RefreshCardReadStatusByPath
-                        card.RequestOpenFolder += p => { EnqueueReadIfEnabled(p); OpenFolderTab(p, false); };
-                        card.RequestOpenViewer += p => { EnqueueReadIfEnabled(p); OpenForReading(p); };
-                        card.RequestNewTab += (p, forceNew) => { EnqueueReadIfEnabled(p); OpenFolderTab(p, forceNew); };
-                        card.RequestExplorer += p => OpenInExplorer(p);
-                        card.RequestAuthorInfo += p => ShowAuthorInfo(p);
-                        card.RequestWorkDetail += p => ShowWorkDetail(p);
-                        // 強制走外部開啟（不看 UseBuiltInReader 偏好）：
-                        // 漫畫格式 → 設定的外部 viewer；其他格式 → 系統預設程式
-                        card.RequestOpenWithExternal += p =>
-                        {
-                            EnqueueReadIfEnabled(p);
-                            if (CanUseBuiltInReader(p)) OpenWithExternalViewer(p);
-                            else OpenWithSystemDefault(p);
-                        };
-                        card.RequestSetReadStatus += (p, status) =>
-                        {
-                            _metaStore?.SetReadStatus(p, status);
-                            c.RefreshReadStatusIcon();
-                        };
-                        container.Controls.Add(card);
-
-                        // 目錄與檔案都試著載封面：CoverManager 對目錄會遞迴往下找首張圖檔（受 MaxScanDepth 限制）
-                        // 統一以 Large 寬度載入，切換 view mode 時 pic.ImageFit=Contain 縮放顯示，不需重新載
-                        var capturedCard = card;
-                        _ = LoadCoverInBackgroundAsync(item.FullName, MaxCardCoverWidth, img => capturedCard.SetCover(img));
+                        // folder mode：showMetadata=false（folder tree 已暗示 author，副標冗餘）
+                        container.Controls.Add(BuildCardForGallery(item, mode, showMetadata: false));
                     }
                     container.ResumeLayout(true);   // 該 chunk 的 cards 立刻 layout + paint
                 });

@@ -232,6 +232,23 @@ public partial class GalleryControl
         var tableList = CreateTabTable();
         tableList.Visible = isList;
 
+        // List view 表格的 mouse / click 行為（hover preview / OpenFolder button / 右鍵選單）
+        WireTabTableHandlers(tableList);
+
+        contentHost.Controls.Add(flowLayout);
+        contentHost.Controls.Add(tableList);
+
+        newPage.Controls.Add(contentHost);
+        newPage.Controls.Add(headerPanel);
+        tabsContent.Pages.Add(newPage);
+        tabsContent.SelectedTab = newPage;
+        return newPage;
+    }
+
+    /// <summary>List view 表格的 mouse handler 連線（hover preview popup / OpenFolder cell button / 右鍵選單）。
+    /// 從 CreateNewTabPage 抽出 — 純設定 event，不持有狀態（currentPreviewPath 用 closure local var）。</summary>
+    private void WireTabTableHandlers(AntdUI.Table tableList)
+    {
         // 縮圖 hover → 滑鼠附近 floating preview popup
         // 用 AntdUI.Table.HitTest 取 cell；
         //  - 資料：cell.Row.RECORD 直接讀綁定物件，避開 i_row 索引偏移
@@ -303,15 +320,6 @@ public partial class GalleryControl
                 else if (mi.Text == "🔗 另開頁籤") OpenFolderTab(item.FullPath, true);
             }, items.ToArray());
         };
-
-        contentHost.Controls.Add(flowLayout);
-        contentHost.Controls.Add(tableList);
-
-        newPage.Controls.Add(contentHost);
-        newPage.Controls.Add(headerPanel);
-        tabsContent.Pages.Add(newPage);
-        tabsContent.SelectedTab = newPage;
-        return newPage;
     }
 
     private AntdUI.Table CreateTabTable()
