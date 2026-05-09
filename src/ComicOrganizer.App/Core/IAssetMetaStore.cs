@@ -333,6 +333,27 @@ public interface IAssetMetaStore : IDisposable
 
     /// <summary>取單一筆 — 編輯 dialog 用。找不到回 null。</summary>
     VirtualLibrary? GetVirtualLibrary(long id);
+
+    // ===== Reader 書籤（#51 Phase 2-B）=====
+
+    /// <summary>新增書籤。同 (asset_id, page_index) 已存在則 throw（caller 走 DeleteBookmarkByPage 先 toggle）。回新 id。</summary>
+    long AddBookmark(long assetId, int pageIndex, string? label);
+
+    /// <summary>依 id 刪書籤。</summary>
+    void DeleteBookmark(long bookmarkId);
+
+    /// <summary>依 (asset_id, page_index) 刪書籤 — toggle 用（reader 按書籤鍵移除當頁書籤）。
+    /// 沒紀錄 no-op。</summary>
+    void DeleteBookmarkByPage(long assetId, int pageIndex);
+
+    /// <summary>更新書籤 label。null = 清空 label。</summary>
+    void RenameBookmark(long bookmarkId, string? label);
+
+    /// <summary>列 asset 所有書籤，依 page_index 升序。</summary>
+    IReadOnlyList<Bookmark> ListBookmarks(long assetId);
+
+    /// <summary>判斷 asset 某頁是否已有書籤（reader UI 顯示填色 icon 用）。</summary>
+    bool HasBookmarkOnPage(long assetId, int pageIndex);
 }
 
 /// <summary>tag 譯文紀錄。</summary>

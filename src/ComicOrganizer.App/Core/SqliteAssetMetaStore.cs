@@ -13,7 +13,7 @@ public class SqliteAssetMetaStore : IAssetMetaStore
     private readonly SqliteConnection _conn;
     private readonly object _lock = new();
     private SqliteTransaction? _currentTx;
-    private const int CurrentSchemaVersion = 7;
+    private const int CurrentSchemaVersion = 8;
 
     static SqliteAssetMetaStore()
     {
@@ -51,6 +51,7 @@ public class SqliteAssetMetaStore : IAssetMetaStore
             ApplyV5Additions();
             ApplyV6Additions();
             ApplyV7Additions();
+            ApplyV8Additions();
             _conn.Execute("INSERT INTO schema_version (version) VALUES (@v);", new { v = CurrentSchemaVersion });
             return;
         }
@@ -82,6 +83,11 @@ public class SqliteAssetMetaStore : IAssetMetaStore
         if (currentVersion == 6)
         {
             ApplyV7Additions();
+            currentVersion = 7;
+        }
+        if (currentVersion == 7)
+        {
+            ApplyV8Additions();
         }
         _conn.Execute("DELETE FROM schema_version; INSERT INTO schema_version (version) VALUES (@v);",
             new { v = CurrentSchemaVersion });
@@ -158,6 +164,27 @@ CREATE TABLE IF NOT EXISTS tag_translation (
 );
 CREATE INDEX IF NOT EXISTS idx_tag_translation_name ON tag_translation(name COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS idx_tag_translation_lang ON tag_translation(lang);
+");
+    }
+
+    /// <summary>v7 → v8：reader 書籤（#51 Phase 2-B）。
+    /// - 一個 asset 一頁可有 0 or 1 個書籤（UNIQUE(asset_id, page_index)）
+    /// - asset 刪除 → bookmark 連帶刪（FK CASCADE）
+    /// - label 可空（純頁碼書籤），使用者可後補命名
+    /// </summary>
+    private void ApplyV8Additions()
+    {
+        _conn.Execute(@"
+CREATE TABLE IF NOT EXISTS bookmark (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    asset_id    INTEGER NOT NULL,
+    page_index  INTEGER NOT NULL,
+    label       TEXT,
+    created_at  INTEGER NOT NULL,
+    UNIQUE (asset_id, page_index),
+    FOREIGN KEY (asset_id) REFERENCES asset(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_bookmark_asset ON bookmark(asset_id);
 ");
     }
 
@@ -1699,6 +1726,64 @@ ORDER BY lang;",
             foreach (var r in rows) dict[r.Name] = r.Id;
             return dict;
         }
+    }
+
+    // ── Reader 書籤（#51 Phase 2-B）─────────────────────────────
+
+    public long AddBookmark(long assetId, int pageIndex, string? label)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        lock (_lock)
+            return _conn.ExecuteScalar<long>(@"
+INSERT INTO bookmark (asset_id, page_index, label, created_at)
+VALUES (@assetId, @pageIndex, @label, @now);
+SELECT last_insert_rowid();",
+                new { assetId, pageIndex, label, now }, _currentTx);
+    }
+
+    public void DeleteBookmark(long bookmarkId)
+    {
+        lock (_lock)
+            _conn.Execute("DELETE FROM bookmark WHERE id = @id;",
+                new { id = bookmarkId }, _currentTx);
+    }
+
+    public void DeleteBookmarkByPage(long assetId, int pageIndex)
+    {
+        lock (_lock)
+            _conn.Execute(
+                "DELETE FROM bookmark WHERE asset_id = @assetId AND page_index = @pageIndex;",
+                new { assetId, pageIndex }, _currentTx);
+    }
+
+    public void RenameBookmark(long bookmarkId, string? label)
+    {
+        lock (_lock)
+            _conn.Execute("UPDATE bookmark SET label = @label WHERE id = @id;",
+                new { id = bookmarkId, label }, _currentTx);
+    }
+
+    public IReadOnlyList<Bookmark> ListBookmarks(long assetId)
+    {
+        lock (_lock)
+        {
+            var rows = _conn.Query<(long Id, long AssetId, int PageIndex, string? Label, long CreatedAt)>(@"
+SELECT id, asset_id, page_index, label, created_at
+FROM bookmark
+WHERE asset_id = @assetId
+ORDER BY page_index;",
+                new { assetId }, _currentTx);
+            return rows.Select(r => new Bookmark(r.Id, r.AssetId, r.PageIndex, r.Label, r.CreatedAt)).ToList();
+        }
+    }
+
+    public bool HasBookmarkOnPage(long assetId, int pageIndex)
+    {
+        lock (_lock)
+            return _conn.ExecuteScalar<long>(@"
+SELECT COUNT(*) FROM bookmark
+WHERE asset_id = @assetId AND page_index = @pageIndex;",
+                new { assetId, pageIndex }, _currentTx) > 0;
     }
 
     public void Dispose()
