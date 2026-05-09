@@ -1213,4 +1213,25 @@ FS 掃描 {0} 件 / DB 索引 {1} 件</value>
   <data name="MenuWorkDetail" xml:space="preserve">
     <value>詳細資訊</value>
   </data>
+  <data name="BookmarkListTitle" xml:space="preserve">
+    <value>書籤</value>
+  </data>
+  <data name="BookmarkPageFmt" xml:space="preserve">
+    <value>第 {0} 頁</value>
+  </data>
+  <data name="BookmarkUnnamed" xml:space="preserve">
+    <value>(未命名)</value>
+  </data>
+  <data name="BookmarkEmptyHint" xml:space="preserve">
+    <value>(尚無書籤)</value>
+  </data>
+  <data name="BookmarkRename" xml:space="preserve">
+    <value>重新命名</value>
+  </data>
+  <data name="BookmarkDelete" xml:space="preserve">
+    <value>刪除</value>
+  </data>
+  <data name="BookmarkRenamePrompt" xml:space="preserve">
+    <value>輸入書籤名稱（留白清除）</value>
+  </data>
 </root>

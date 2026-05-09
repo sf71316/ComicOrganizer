@@ -11,6 +11,8 @@ partial class ReaderForm
     private AntdUI.Slider sliderZoom;       // 連續捲動模式時顯示，取代 segZoomMode
     private AntdUI.Switch switchSeamless;   // 連續捲動模式：開啟 = 圖與圖無隔間
     private System.Windows.Forms.Label lblSeamless;
+    private AntdUI.Button btnBookmarkToggle;
+    private AntdUI.Button btnBookmarkList;
     private AntdUI.Button btnFullscreen;
     private System.Windows.Forms.Panel scrollHost;
     private System.Windows.Forms.PictureBox picPage;
@@ -35,6 +37,8 @@ partial class ReaderForm
         AntdUI.SegmentedItem segZoomItem3 = new AntdUI.SegmentedItem();
         windowBar = new AntdUI.PageHeader();
         toolbar = new System.Windows.Forms.Panel();
+        btnBookmarkToggle = new AntdUI.Button();
+        btnBookmarkList = new AntdUI.Button();
         btnFullscreen = new AntdUI.Button();
         segZoomMode = new AntdUI.Segmented();
         sliderZoom = new AntdUI.Slider();
@@ -81,6 +85,8 @@ partial class ReaderForm
         // toolbar
         //
         toolbar.Controls.Add(btnFullscreen);
+        toolbar.Controls.Add(btnBookmarkList);
+        toolbar.Controls.Add(btnBookmarkToggle);
         toolbar.Controls.Add(switchSeamless);
         toolbar.Controls.Add(lblSeamless);
         toolbar.Controls.Add(sliderZoom);
@@ -90,6 +96,22 @@ partial class ReaderForm
         toolbar.Name = "toolbar";
         toolbar.Padding = new System.Windows.Forms.Padding(8, 4, 8, 4);
         toolbar.Size = new System.Drawing.Size(1024, 40);
+        //
+        // btnBookmarkToggle — 左側、toggle 當前頁書籤；icon 隨狀態切換
+        //
+        btnBookmarkToggle.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left;
+        btnBookmarkToggle.IconSvg = "StarOutlined";
+        btnBookmarkToggle.Location = new System.Drawing.Point(8, 4);
+        btnBookmarkToggle.Name = "btnBookmarkToggle";
+        btnBookmarkToggle.Size = new System.Drawing.Size(40, 32);
+        //
+        // btnBookmarkList — 左側、開書籤列表
+        //
+        btnBookmarkList.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left;
+        btnBookmarkList.IconSvg = "UnorderedListOutlined";
+        btnBookmarkList.Location = new System.Drawing.Point(52, 4);
+        btnBookmarkList.Name = "btnBookmarkList";
+        btnBookmarkList.Size = new System.Drawing.Size(40, 32);
         //
         // btnFullscreen
         //

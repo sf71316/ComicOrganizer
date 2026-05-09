@@ -418,4 +418,11 @@ First work will open merge dialog to decide strategy; remaining {4} works will a
   <data name="AuthorInfoResetReading" xml:space="preserve"><value>Clear Author Reading</value></data>
   <data name="WorkDetailNoData" xml:space="preserve"><value>No work detail available</value></data>
   <data name="MenuWorkDetail" xml:space="preserve"><value>Detail</value></data>
+  <data name="BookmarkListTitle" xml:space="preserve"><value>Bookmarks</value></data>
+  <data name="BookmarkPageFmt" xml:space="preserve"><value>Page {0}</value></data>
+  <data name="BookmarkUnnamed" xml:space="preserve"><value>(unnamed)</value></data>
+  <data name="BookmarkEmptyHint" xml:space="preserve"><value>(no bookmarks yet)</value></data>
+  <data name="BookmarkRename" xml:space="preserve"><value>Rename</value></data>
+  <data name="BookmarkDelete" xml:space="preserve"><value>Delete</value></data>
+  <data name="BookmarkRenamePrompt" xml:space="preserve"><value>Enter bookmark name (blank to clear)</value></data>
 </root>

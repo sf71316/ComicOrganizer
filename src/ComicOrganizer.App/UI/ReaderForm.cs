@@ -60,6 +60,14 @@ public partial class ReaderForm : Window, IThemedControl
     private FormWindowState _prevWindowState;
     private bool _isFullscreen;
 
+    // 書籤狀態（#51 Phase 2-C）— _assetId 在 ctor 撈一次；null = asset 不在 DB（Author folder 等）
+    // 此情境兩個書籤按鈕 disabled，所有書籤快捷鍵 no-op
+    private long? _assetId;
+    private int _bookmarkCursor = -1;        // session-only cursor，跨 reader 開啟不持久化
+
+    /// <summary>書籤選單 Tag — 區分主項（跳頁）與 Sub 子項（rename / delete）。</summary>
+    private record BookmarkMenuTag(string Action, Bookmark Bookmark, int CursorIndex);
+
     public ReaderForm(IReaderSource source, bool rightToLeft = true,
                       bool dualPageSpreadFromCover = false,
                       IAssetMetaStore? metaStore = null,
@@ -93,6 +101,9 @@ public partial class ReaderForm : Window, IThemedControl
         var resume = _metaStore?.GetLastPage(source.RootPath);
         _currentIndex = (resume.HasValue && resume.Value >= 0 && resume.Value < source.PageCount)
             ? resume.Value : 0;
+
+        // 書籤功能：asset 必須在 DB 裡才能用（FK 需要）
+        _assetId = _metaStore?.GetAssetId(source.RootPath);
 
         Text = source.DisplayName;
         // PageHeader：Text = 分頁資訊（UpdatePageInfo 會更新），SubText = 作品名（固定）
@@ -144,6 +155,14 @@ public partial class ReaderForm : Window, IThemedControl
         sliderZoom.Value = (sliderZoom.MinValue + sliderZoom.MaxValue) / 2;   // 預設 slider 中央
 
         btnFullscreen.Click += (s, e) => ToggleFullscreen();
+        btnBookmarkToggle.Click += (s, e) => ToggleBookmarkOnCurrentPage();
+        btnBookmarkList.Click += (s, e) => OpenBookmarkList();
+        // 沒 asset_id（asset 不在 catalog）→ 整個書籤功能停用
+        if (_assetId == null)
+        {
+            btnBookmarkToggle.Enabled = false;
+            btnBookmarkList.Enabled = false;
+        }
         segViewMode.SelectIndexChanged += (s, e) => OnViewModeChanged(e.Value);
         segZoomMode.SelectIndexChanged += (s, e) => OnZoomModeChanged(e.Value);
         sliderZoom.ValueChanged += (s, e) => OnSliderZoomChanged();
@@ -275,6 +294,25 @@ public partial class ReaderForm : Window, IThemedControl
                 case Keys.Oemplus: case Keys.Add: AdjustCustomZoom(1.1f); e.Handled = true; return;
                 case Keys.OemMinus: case Keys.Subtract: AdjustCustomZoom(1f / 1.1f); e.Handled = true; return;
             }
+        }
+
+        // Shift 組合 — 書籤導覽（cursor 模型，wrap-around）
+        if (e.Shift && !e.Control && !e.Alt)
+        {
+            switch (e.KeyCode)
+            {
+                case Keys.B: OpenBookmarkList(); e.Handled = true; return;
+                case Keys.V: GoToNextBookmark(); e.Handled = true; return;
+                case Keys.C: GoToPrevBookmark(); e.Handled = true; return;
+            }
+        }
+
+        // 純 B（無 modifier）：toggle 當前頁書籤
+        if (!e.Shift && !e.Control && !e.Alt && e.KeyCode == Keys.B)
+        {
+            ToggleBookmarkOnCurrentPage();
+            e.Handled = true;
+            return;
         }
 
         switch (e.KeyCode)
@@ -925,6 +963,175 @@ public partial class ReaderForm : Window, IThemedControl
             : $"{start + 1}-{start + 2} / {_source.PageCount}";
         // PageHeader 主標 = 分頁資訊；SubText（DisplayName）在 ctor 已設好不變
         windowBar.Text = pageStr;
+        RefreshBookmarkIcon();
+    }
+
+    // ============================================================
+    // 書籤（#51 Phase 2-C）
+    // ============================================================
+
+    /// <summary>依當前頁書籤狀態切換 toggle 按鈕的 icon（StarFilled vs StarOutlined）。</summary>
+    private void RefreshBookmarkIcon()
+    {
+        if (_assetId == null || _metaStore == null) return;
+        var has = _metaStore.HasBookmarkOnPage(_assetId.Value, _currentIndex);
+        btnBookmarkToggle.IconSvg = has ? "StarFilled" : "StarOutlined";
+    }
+
+    /// <summary>當前頁有書籤就刪、沒有就加（label=null）。Add 後 cursor 對齊新書籤位置。</summary>
+    private void ToggleBookmarkOnCurrentPage()
+    {
+        if (_assetId == null || _metaStore == null) return;
+        var assetId = _assetId.Value;
+        if (_metaStore.HasBookmarkOnPage(assetId, _currentIndex))
+        {
+            _metaStore.DeleteBookmarkByPage(assetId, _currentIndex);
+            _bookmarkCursor = -1;   // toggle 移除 → cursor reset
+        }
+        else
+        {
+            _metaStore.AddBookmark(assetId, _currentIndex, label: null);
+            // 新書籤的 index = 排序後的位置
+            var list = _metaStore.ListBookmarks(assetId);
+            _bookmarkCursor = list.ToList().FindIndex(b => b.PageIndex == _currentIndex);
+        }
+        RefreshBookmarkIcon();
+    }
+
+    /// <summary>Shift+V — cursor++ wrap，跳到對應書籤頁。</summary>
+    private void GoToNextBookmark()
+    {
+        if (_assetId == null || _metaStore == null) return;
+        var list = _metaStore.ListBookmarks(_assetId.Value);
+        if (list.Count == 0) return;
+        _bookmarkCursor = (_bookmarkCursor < 0) ? 0 : (_bookmarkCursor + 1) % list.Count;
+        GoToPage(list[_bookmarkCursor].PageIndex);
+    }
+
+    /// <summary>Shift+C — cursor-- wrap，跳到對應書籤頁。</summary>
+    private void GoToPrevBookmark()
+    {
+        if (_assetId == null || _metaStore == null) return;
+        var list = _metaStore.ListBookmarks(_assetId.Value);
+        if (list.Count == 0) return;
+        _bookmarkCursor = (_bookmarkCursor < 0)
+            ? list.Count - 1
+            : (_bookmarkCursor - 1 + list.Count) % list.Count;
+        GoToPage(list[_bookmarkCursor].PageIndex);
+    }
+
+    /// <summary>開書籤選單（AntdUI ContextMenuStrip with Sub）— 主項點即跳頁、子選單管理。</summary>
+    private void OpenBookmarkList()
+    {
+        if (_assetId == null || _metaStore == null) return;
+        var assetId = _assetId.Value;
+        var bookmarks = _metaStore.ListBookmarks(assetId).ToList();
+
+        var pageFmt = LocalizationManager.GetString("BookmarkPageFmt") ?? "第 {0} 頁";
+        var unnamed = LocalizationManager.GetString("BookmarkUnnamed") ?? "(未命名)";
+        var emptyHint = LocalizationManager.GetString("BookmarkEmptyHint") ?? "(尚無書籤)";
+        var renameLbl = LocalizationManager.GetString("BookmarkRename") ?? "重新命名";
+        var deleteLbl = LocalizationManager.GetString("BookmarkDelete") ?? "刪除";
+
+        AntdUI.IContextMenuStripItem[] items;
+        if (bookmarks.Count == 0)
+        {
+            // 空集合 — 顯示一條 disabled 提示
+            items = new AntdUI.IContextMenuStripItem[]
+            {
+                new AntdUI.ContextMenuStripItem(emptyHint) { Enabled = false }
+            };
+        }
+        else
+        {
+            items = bookmarks.Select((b, idx) =>
+            {
+                var pageStr = string.Format(pageFmt, b.PageIndex + 1);
+                var labelPart = string.IsNullOrWhiteSpace(b.Label) ? unnamed : b.Label;
+                var item = new AntdUI.ContextMenuStripItem($"{pageStr}  ·  {labelPart}")
+                {
+                    IconSvg = "BookOutlined",
+                    Tag = new BookmarkMenuTag("nav", b, idx),
+                    Sub = new AntdUI.IContextMenuStripItem[]
+                    {
+                        new AntdUI.ContextMenuStripItem(renameLbl)
+                        {
+                            IconSvg = "EditOutlined",
+                            Tag = new BookmarkMenuTag("rename", b, idx),
+                        },
+                        new AntdUI.ContextMenuStripItem(deleteLbl)
+                        {
+                            IconSvg = "DeleteOutlined",
+                            Tag = new BookmarkMenuTag("delete", b, idx),
+                        },
+                    },
+                };
+                return (AntdUI.IContextMenuStripItem)item;
+            }).ToArray();
+        }
+
+        AntdUI.ContextMenuStrip.open(btnBookmarkList, mi =>
+        {
+            if (mi is not AntdUI.ContextMenuStripItem citem) return;
+            if (citem.Tag is not BookmarkMenuTag tag) return;
+            switch (tag.Action)
+            {
+                case "nav":
+                    _bookmarkCursor = tag.CursorIndex;
+                    GoToPage(tag.Bookmark.PageIndex);
+                    break;
+                case "rename":
+                    RenameBookmarkInline(tag.Bookmark);
+                    break;
+                case "delete":
+                    _metaStore.DeleteBookmark(tag.Bookmark.Id);
+                    _bookmarkCursor = -1;
+                    RefreshBookmarkIcon();
+                    break;
+            }
+        }, items);
+    }
+
+    private void RenameBookmarkInline(Bookmark b)
+    {
+        if (_metaStore == null) return;
+        var prompt = LocalizationManager.GetString("BookmarkRenamePrompt") ?? "輸入書籤名稱（留白清除）";
+        var input = PromptForText(this, prompt, b.Label ?? "");
+        if (input == null) return;   // 取消
+        var trimmed = input.Trim();
+        _metaStore.RenameBookmark(b.Id, string.IsNullOrEmpty(trimmed) ? null : trimmed);
+    }
+
+    /// <summary>輕量 input prompt — AntdUI 沒提供 InputDialog，自寫 mini dialog。
+    /// 取消回 null、確定回輸入字串（可能為空字串 = 清空 label）。</summary>
+    private static string? PromptForText(IWin32Window parent, string title, string defaultValue)
+    {
+        using var dlg = new Form
+        {
+            Text = title,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            StartPosition = FormStartPosition.CenterParent,
+            ClientSize = new Size(360, 92),
+            ShowInTaskbar = false,
+        };
+        var tb = new TextBox
+        {
+            Text = defaultValue,
+            Font = new Font("Microsoft JhengHei UI", 10F),
+            Location = new Point(12, 12),
+            Width = 336,
+        };
+        var btnOk = new System.Windows.Forms.Button { Text = "OK", DialogResult = DialogResult.OK, Location = new Point(192, 52), Width = 75 };
+        var btnCancel = new System.Windows.Forms.Button { Text = "Cancel", DialogResult = DialogResult.Cancel, Location = new Point(273, 52), Width = 75 };
+        dlg.Controls.Add(tb);
+        dlg.Controls.Add(btnOk);
+        dlg.Controls.Add(btnCancel);
+        dlg.AcceptButton = btnOk;
+        dlg.CancelButton = btnCancel;
+        tb.SelectAll();
+        return dlg.ShowDialog(parent) == DialogResult.OK ? tb.Text : null;
     }
 
     private void UpdateStatusBar()
