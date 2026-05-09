@@ -55,10 +55,8 @@ public class FolderRoleDetector
     private readonly string _libraryRoot;
     private readonly Dictionary<string, FolderRole> _cache = new(StringComparer.OrdinalIgnoreCase);
 
-    private static readonly HashSet<string> ImageExts = new(StringComparer.OrdinalIgnoreCase)
-        { ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif" };
-    private static readonly HashSet<string> ArchiveExts = new(StringComparer.OrdinalIgnoreCase)
-        { ".zip", ".cbz", ".rar", ".cbr", ".7z" };
+    private static readonly HashSet<string> ImageExts = SupportedExtensions.Image;
+    private static readonly HashSet<string> ArchiveExts = SupportedExtensions.Archive;
 
     /// <summary>取樣子目錄上限 — 取前 N 個 detect 角色推父節點，避免大目錄全掃。</summary>
     private const int SampleChildCount = 5;

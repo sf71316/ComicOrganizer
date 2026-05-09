@@ -11,10 +11,7 @@ namespace ComicOrganizer.App.Core;
 /// </summary>
 public class ArchiveReaderSource : IReaderSource
 {
-    private static readonly HashSet<string> ImageExts = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif",
-    };
+    private static readonly HashSet<string> ImageExts = SupportedExtensions.Image;
 
     private readonly IArchive _archive;
     private readonly IArchiveEntry[] _entries;   // 已過濾 + 自然排序的圖片 entries

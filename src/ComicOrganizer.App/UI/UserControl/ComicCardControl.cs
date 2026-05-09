@@ -556,8 +556,7 @@ public partial class ComicCardControl : UserControl
     }
 
     /// <summary>
-    /// 是否能用內建閱讀器開啟。reader 支援：壓縮檔（.zip/.cbz/.rar/.cbr/.7z）/ 單張圖檔 / 含圖資料夾。
-    /// PDF / EPUB 等 Phase 2+ 才支援，目前 false。
+    /// 是否能用內建閱讀器開啟。reader 支援：壓縮檔（SupportedExtensions.Archive）/ PDF / 單張圖檔 / 含圖資料夾。
     /// </summary>
     private static bool CanUseBuiltInReader(string path)
     {
@@ -566,22 +565,22 @@ public partial class ComicCardControl : UserControl
             // 含至少 1 張圖即可（FolderReaderSource enumerate 直接子檔）
             foreach (var f in Directory.EnumerateFiles(path))
             {
-                var e = Path.GetExtension(f).ToLowerInvariant();
-                if (e is ".jpg" or ".jpeg" or ".png" or ".webp" or ".bmp" or ".gif")
+                if (SupportedExtensions.Image.Contains(Path.GetExtension(f)))
                     return true;
             }
             return false;
         }
         if (!File.Exists(path)) return false;
-        var ext = Path.GetExtension(path).ToLowerInvariant();
-        if (ext is ".zip" or ".cbz" or ".rar" or ".cbr" or ".7z") return true;
-        if (ext is ".jpg" or ".jpeg" or ".png" or ".webp" or ".bmp" or ".gif") return true;
+        var ext = Path.GetExtension(path);
+        if (SupportedExtensions.Archive.Contains(ext)) return true;
+        if (SupportedExtensions.Pdf.Contains(ext)) return true;
+        if (SupportedExtensions.Image.Contains(ext)) return true;
         return false;
     }
 
     /// <summary>
     /// 是否為「Work」asset（可被閱讀、可被標 read_status）。判定條件：
-    /// (1) 檔案副檔名為 archive/pdf：.zip/.cbz/.cbr/.rar/.7z/.pdf
+    /// (1) 檔案副檔名為 archive/pdf
     /// (2) 目錄無子目錄且含 ≥2 張圖檔
     /// 其他（Author folder / Library / Category / 純空目錄）→ false
     /// </summary>
@@ -592,8 +591,8 @@ public partial class ComicCardControl : UserControl
         {
             if (File.Exists(path))
             {
-                var ext = Path.GetExtension(path).ToLowerInvariant();
-                return ext is ".zip" or ".cbz" or ".cbr" or ".rar" or ".7z" or ".pdf";
+                var ext = Path.GetExtension(path);
+                return SupportedExtensions.Archive.Contains(ext) || SupportedExtensions.Pdf.Contains(ext);
             }
             if (Directory.Exists(path))
             {
@@ -602,8 +601,7 @@ public partial class ComicCardControl : UserControl
                 int imgCount = 0;
                 foreach (var f in Directory.EnumerateFiles(path))
                 {
-                    var ext = Path.GetExtension(f).ToLowerInvariant();
-                    if (ext is ".jpg" or ".jpeg" or ".png" or ".webp" or ".bmp" or ".gif")
+                    if (SupportedExtensions.Image.Contains(Path.GetExtension(f)))
                     {
                         if (++imgCount >= 2) return true;   // 達標早退
                     }

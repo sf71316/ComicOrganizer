@@ -7,6 +7,7 @@ using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using SharpCompress.Archives;
 using SixLabors.ImageSharp.PixelFormats;
 
 namespace ComicOrganizer.App.Core;
@@ -14,7 +15,7 @@ namespace ComicOrganizer.App.Core;
 public class CoverManager
 {
     private readonly AppConfig _config;
-    private static readonly string[] ImageExtensions = { ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif" };
+    private static readonly HashSet<string> ImageExtensions = SupportedExtensions.Image;
 
     // Cache 服務（optional — 沒接 cache 時 GetCoverAsync 走純 decode 路徑，與舊版相容）
     private IAssetMetaStore? _metaStore;
@@ -135,10 +136,10 @@ public class CoverManager
                 else if (File.Exists(path))
                 {
                     string ext = Path.GetExtension(path).ToLower();
-                    if (ext == ".zip" || ext == ".cbz")
+                    if (SupportedExtensions.Archive.Contains(ext))
                     {
-                        kind = "ZIP-direct";
-                        result = GetZipCover(path, maxWidth);
+                        kind = "ARCHIVE-direct";
+                        result = GetArchiveCover(path, maxWidth);
                     }
                     else if (ImageExtensions.Contains(ext))
                     {
@@ -312,17 +313,13 @@ public class CoverManager
                 return LoadAndResizeImage(fb, maxWidth);
             }
 
-            // 3. 字典序第一個 zip/cbz (zip 不過濾大小 — entry 內部過濾)
+            // 3. 字典序第一個 archive (.zip / .cbz / .rar / .cbr / .7z / .cb7) — entry 內部過濾大小
             var firstArchive = files.OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
-                .FirstOrDefault(f =>
-                {
-                    string ext = Path.GetExtension(f).ToLower();
-                    return ext == ".zip" || ext == ".cbz";
-                });
+                .FirstOrDefault(f => SupportedExtensions.Archive.Contains(Path.GetExtension(f)));
             if (firstArchive != null)
             {
-                Log($"  rule=FIRST_ZIP picked '{Short(firstArchive)}'");
-                var img = GetZipCover(firstArchive, maxWidth);
+                Log($"  rule=FIRST_ARCHIVE picked '{Short(firstArchive)}'");
+                var img = GetArchiveCover(firstArchive, maxWidth);
                 if (img != null) return img;
             }
 
@@ -344,34 +341,35 @@ public class CoverManager
         return null;
     }
 
-    private Image? GetZipCover(string zipPath, int maxWidth)
+    /// <summary>從歸檔抽第一張圖作封面。SharpCompress 統一處理 zip / rar / 7z 等格式。
+    /// entry 排序用 Key，過濾規則同既有：先套大小過濾，全被刷掉就退回字典序首張。</summary>
+    private Image? GetArchiveCover(string archivePath, int maxWidth)
     {
         try
         {
             var swOpen = Stopwatch.StartNew();
-            using (var archive = ZipFile.OpenRead(zipPath))
+            using (var archive = ArchiveFactory.OpenArchive(archivePath))
             {
                 swOpen.Stop();
-                // entry 套大小過濾，但若候選全被過濾則 fallback 不過濾
                 var sortedImages = archive.Entries
-                    .Where(e => ImageExtensions.Contains(Path.GetExtension(e.FullName).ToLower()))
-                    .OrderBy(e => e.FullName)
+                    .Where(e => !e.IsDirectory && e.Key != null && ImageExtensions.Contains(Path.GetExtension(e.Key).ToLower()))
+                    .OrderBy(e => e.Key, StringComparer.OrdinalIgnoreCase)
                     .ToList();
                 var entry = sortedImages
-                    .FirstOrDefault(e => e.Length >= _config.MinCoverFileSizeBytes && e.Length <= _config.MaxCoverFileSizeBytes);
+                    .FirstOrDefault(e => e.Size >= _config.MinCoverFileSizeBytes && e.Size <= _config.MaxCoverFileSizeBytes);
                 if (entry == null && sortedImages.Count > 0)
                 {
                     entry = sortedImages[0];
-                    Log($"  zip='{Short(zipPath)}' fallback (候選都被大小過濾掉) → '{entry.FullName}'");
+                    Log($"  archive='{Short(archivePath)}' fallback (候選都被大小過濾掉) → '{entry.Key}'");
                 }
 
                 if (entry != null)
                 {
-                    string ext = Path.GetExtension(entry.FullName).ToLower();
-                    string method = entry.CompressedLength == entry.Length ? "stored" : "deflate";
+                    string ext = Path.GetExtension(entry.Key!).ToLower();
+                    string method = entry.CompressionType.ToString();
 
                     var swExtract = Stopwatch.StartNew();
-                    using (var stream = entry.Open())
+                    using (var stream = entry.OpenEntryStream())
                     using (var ms = new MemoryStream())
                     {
                         stream.CopyTo(ms);
@@ -386,19 +384,19 @@ public class CoverManager
                             var resized = ResizeImage(img, maxWidth);
                             swResize.Stop();
 
-                            Log($"  zip='{Short(zipPath)}' entry='{entry.FullName}' size={entry.Length / 1024}KB method={method}" +
+                            Log($"  archive='{Short(archivePath)}' entry='{entry.Key}' size={entry.Size / 1024}KB method={method}" +
                                 $" open={swOpen.ElapsedMilliseconds}ms extract={swExtract.ElapsedMilliseconds}ms" +
                                 $" decode={swDecode.ElapsedMilliseconds}ms resize={swResize.ElapsedMilliseconds}ms");
                             return resized;
                         }
                     }
                 }
-                Log($"  zip='{Short(zipPath)}' has no image entries");
+                Log($"  archive='{Short(archivePath)}' has no image entries");
             }
         }
         catch (Exception ex)
         {
-            Log($"  zip EX '{Short(zipPath)}': {ex.Message}");
+            Log($"  archive EX '{Short(archivePath)}': {ex.Message}");
         }
         return null;
     }

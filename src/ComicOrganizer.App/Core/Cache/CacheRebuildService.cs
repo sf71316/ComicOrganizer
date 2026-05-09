@@ -25,8 +25,8 @@ public class CacheRebuildService
     // 只收 archive / pdf。image 不獨立成 asset — 那是 page 內容，歸屬其父 folder。
     // 把 .jpg 等放進來會讓每個 page 都被 ProduceMetadataOp 當成 Work，產生大量
     // 假 asset_meta（title="1", "01" 之類，根本是頁碼）。
-    private static readonly string[] AllowedExtensions =
-        { ".zip", ".cbz", ".cbr", ".rar", ".7z", ".pdf" };
+    private static readonly HashSet<string> AllowedExtensions = new(
+        SupportedExtensions.Archive.Concat(SupportedExtensions.Pdf), StringComparer.OrdinalIgnoreCase);
 
     public class Progress
     {

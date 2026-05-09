@@ -24,19 +24,11 @@ public partial class GalleryControl : UserControl, IThemedControl
     // 代價：每張 bitmap 多 ~250KB，100 張多 ~25MB，可接受。
     private const int MaxCardCoverWidth = 330;
 
-    // Gallery 顯示的檔案副檔名 (目錄一律顯示)：圖片 + 壓縮檔 + pdf
-    private static readonly HashSet<string> GalleryAllowedExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif",
-        ".zip", ".cbz",
-        ".pdf",
-    };
-
     private static bool ShouldShowInGallery(FileSystemInfo fi)
     {
         if ((fi.Attributes & FileAttributes.Hidden) != 0) return false;
         if (fi is DirectoryInfo) return true;
-        return GalleryAllowedExtensions.Contains(fi.Extension);
+        return SupportedExtensions.Gallery.Contains(fi.Extension);
     }
 
     /// <summary>

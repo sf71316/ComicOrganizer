@@ -6,10 +6,7 @@ namespace ComicOrganizer.App.Core;
 /// </summary>
 public class FolderReaderSource : IReaderSource
 {
-    private static readonly HashSet<string> ImageExts = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif",
-    };
+    private static readonly HashSet<string> ImageExts = SupportedExtensions.Image;
 
     private readonly string[] _files;
 

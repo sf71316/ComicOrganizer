@@ -365,11 +365,6 @@ public partial class GalleryControl
         return Task.CompletedTask;
     }
 
-    private static readonly HashSet<string> _imageExts = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif"
-    };
-
     /// <summary>
     /// 「在檔案總管中開啟」共用邏輯：
     /// 目錄 → explorer 直接開該目錄、看裡面內容
@@ -408,30 +403,24 @@ public partial class GalleryControl
         OpenWithExternalViewer(path);
     }
 
-    private static readonly HashSet<string> BuiltInReaderArchiveExts =
-        new(StringComparer.OrdinalIgnoreCase) { ".zip", ".cbz", ".rar", ".cbr", ".7z" };
-
-    private static readonly HashSet<string> BuiltInReaderPdfExts =
-        new(StringComparer.OrdinalIgnoreCase) { ".pdf" };
-
     private static bool CanUseBuiltInReader(string path)
     {
         if (Directory.Exists(path)) return true;   // FolderReaderSource 會檢查內含圖
         if (!File.Exists(path)) return false;
         var ext = Path.GetExtension(path);
-        if (BuiltInReaderArchiveExts.Contains(ext)) return true;
-        if (BuiltInReaderPdfExts.Contains(ext)) return true;
+        if (SupportedExtensions.Archive.Contains(ext)) return true;
+        if (SupportedExtensions.Pdf.Contains(ext)) return true;
         // 單檔圖檔也支援 — FolderReaderSource 會 enumerate 同層 (Honeyview 行為)
-        return _imageExts.Contains(ext);
+        return SupportedExtensions.Image.Contains(ext);
     }
 
     private void OpenInBuiltInReader(string path)
     {
         IReaderSource source;
         var ext = Path.GetExtension(path);
-        if (BuiltInReaderArchiveExts.Contains(ext) && File.Exists(path))
+        if (SupportedExtensions.Archive.Contains(ext) && File.Exists(path))
             source = new ArchiveReaderSource(path);
-        else if (BuiltInReaderPdfExts.Contains(ext) && File.Exists(path))
+        else if (SupportedExtensions.Pdf.Contains(ext) && File.Exists(path))
             source = new PdfReaderSource(path);
         else
             source = new FolderReaderSource(path);
@@ -484,7 +473,7 @@ public partial class GalleryControl
             if (Directory.Exists(filePath))
             {
                 var firstImage = Directory.EnumerateFiles(filePath)
-                    .Where(f => _imageExts.Contains(Path.GetExtension(f)))
+                    .Where(f => SupportedExtensions.Image.Contains(Path.GetExtension(f)))
                     .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
                     .FirstOrDefault();
                 if (firstImage != null) targetPath = firstImage;
