@@ -425,4 +425,5 @@ First work will open merge dialog to decide strategy; remaining {4} works will a
   <data name="BookmarkRename" xml:space="preserve"><value>Rename</value></data>
   <data name="BookmarkDelete" xml:space="preserve"><value>Delete</value></data>
   <data name="BookmarkRenamePrompt" xml:space="preserve"><value>Enter bookmark name (blank to clear)</value></data>
+  <data name="PreviewFetchMetaCheckbox" xml:space="preserve"><value>Fetch nhentai metadata after archive (keep author)</value></data>
 </root>

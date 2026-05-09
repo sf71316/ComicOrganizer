@@ -10,6 +10,8 @@ public partial class ArchiveControl : UserControl, IThemedControl
     private AppConfig? _config;
     private MappingIntelligence? _intelligence;
     private ArchiveOrganizer? _organizer;
+    private IAssetMetaStore? _metaStore;
+    private TagTranslator? _tagTranslator;
 
     public ArchiveControl()
     {
@@ -19,11 +21,14 @@ public partial class ArchiveControl : UserControl, IThemedControl
         this.WireThemeAndLocalization();
     }
 
-    public void Initialize(AppConfig config, MappingIntelligence intelligence, ArchiveOrganizer organizer)
+    public void Initialize(AppConfig config, MappingIntelligence intelligence, ArchiveOrganizer organizer,
+        IAssetMetaStore? metaStore = null, TagTranslator? tagTranslator = null)
     {
         _config = config;
         _intelligence = intelligence;
         _organizer = organizer;
+        _metaStore = metaStore;
+        _tagTranslator = tagTranslator;
     }
 
     public void ApplyThemeColors()
@@ -122,7 +127,8 @@ public partial class ArchiveControl : UserControl, IThemedControl
         if (_config == null || _intelligence == null || _organizer == null) return;
         if (tableArchive.DataSource is not BindingList<ArchiveItem> items || items.Count == 0) return;
 
-        using var preview = new PreviewForm(items.ToList(), _config.RootDirectory, _intelligence, _organizer);
+        using var preview = new PreviewForm(items.ToList(), _config.RootDirectory, _intelligence, _organizer,
+            _config, _metaStore, _tagTranslator);
         preview.ShowDialog(this.FindForm());
     }
 }

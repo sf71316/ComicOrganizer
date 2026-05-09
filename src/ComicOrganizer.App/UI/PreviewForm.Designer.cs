@@ -9,6 +9,7 @@ partial class PreviewForm
     private AntdUI.Button btnCancel;
     private AntdUI.Progress progress;
     private AntdUI.Label lblProgress;
+    private AntdUI.Checkbox cbFetchMetadata;
 
     protected override void Dispose(bool disposing)
     {
@@ -27,6 +28,7 @@ partial class PreviewForm
         progress = new AntdUI.Progress();
         btnCancel = new AntdUI.Button();
         btnExecute = new AntdUI.Button();
+        cbFetchMetadata = new AntdUI.Checkbox();
         splitter1 = new AntdUI.Splitter();
         collapseMain = new AntdUI.Collapse();
         footer.SuspendLayout();
@@ -51,6 +53,7 @@ partial class PreviewForm
         // 
         footer.Controls.Add(lblProgress);
         footer.Controls.Add(progress);
+        footer.Controls.Add(cbFetchMetadata);
         footer.Controls.Add(btnCancel);
         footer.Controls.Add(btnExecute);
         footer.Dock = DockStyle.Bottom;
@@ -85,9 +88,9 @@ partial class PreviewForm
         btnCancel.Size = new Size(120, 45);
         btnCancel.TabIndex = 2;
         btnCancel.Text = "取消";
-        // 
+        //
         // btnExecute
-        // 
+        //
         btnExecute.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
         btnExecute.Enabled = false;
         btnExecute.Location = new Point(878, 30);
@@ -96,6 +99,16 @@ partial class PreviewForm
         btnExecute.TabIndex = 3;
         btnExecute.Text = "執行歸檔";
         btnExecute.Type = AntdUI.TTypeMini.Success;
+        //
+        // cbFetchMetadata — 同時抓 nhentai metadata（依 EnableExternalMetadata 啟用）
+        //
+        cbFetchMetadata.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+        cbFetchMetadata.Location = new Point(490, 40);
+        cbFetchMetadata.Name = "cbFetchMetadata";
+        cbFetchMetadata.Size = new Size(250, 25);
+        cbFetchMetadata.TabIndex = 4;
+        cbFetchMetadata.Text = "搬完抓 metadata";
+        cbFetchMetadata.Enabled = false;
         // 
         // splitter1
         // 

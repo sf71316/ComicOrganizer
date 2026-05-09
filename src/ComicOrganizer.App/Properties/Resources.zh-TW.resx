@@ -1234,4 +1234,7 @@ FS 掃描 {0} 件 / DB 索引 {1} 件</value>
   <data name="BookmarkRenamePrompt" xml:space="preserve">
     <value>輸入書籤名稱（留白清除）</value>
   </data>
+  <data name="PreviewFetchMetaCheckbox" xml:space="preserve">
+    <value>搬完同時抓 nhentai metadata（保留作者）</value>
+  </data>
 </root>
