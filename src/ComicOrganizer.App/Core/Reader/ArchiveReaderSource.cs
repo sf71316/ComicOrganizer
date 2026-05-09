@@ -33,7 +33,7 @@ public class ArchiveReaderSource : IReaderSource
         RootPath = archivePath;
         DisplayName = Path.GetFileName(archivePath);
 
-        _archive = ArchiveFactory.OpenArchive(new FileInfo(archivePath));
+        _archive = ArchiveFactory.OpenArchive(archivePath);
         _entries = _archive.Entries
             .Where(e => !e.IsDirectory && e.Key != null && ImageExts.Contains(Path.GetExtension(e.Key)))
             .OrderBy(e => e.Key ?? "", NaturalStringComparer.Instance)

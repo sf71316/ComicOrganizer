@@ -38,14 +38,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="AntdUI" Version="2.3.11" />
-    <PackageReference Include="Dapper" Version="2.1.66" />
+    <PackageReference Include="AntdUI" Version="2.3.12" />
+    <PackageReference Include="Dapper" Version="2.1.72" />
     <PackageReference Include="FuzzySharp" Version="2.0.2" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.7" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="OpenCCNET" Version="1.1.0" />
     <PackageReference Include="PDFtoImage" Version="5.2.1" />
-    <PackageReference Include="SharpCompress" Version="0.47.4" />
+    <PackageReference Include="SharpCompress" Version="0.48.0" />
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
+    <PackageReference Include="System.Drawing.Common" Version="6.0.0" />
   </ItemGroup>
 
   <ItemGroup>
