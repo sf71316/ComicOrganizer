@@ -56,7 +56,7 @@ public class MigrationV1V2Test : IDisposable
 
         // === Phase 3: 驗 v2 表結構存在 ===
         AssertV2TablesExist(_dbPath);
-        AssertSchemaVersionIs(_dbPath, 7);
+        AssertSchemaVersionIs(_dbPath, 8);
     }
 
     [Fact]
@@ -80,7 +80,7 @@ public class MigrationV1V2Test : IDisposable
             Assert.NotNull(got);
         }
         AssertV2TablesExist(_dbPath);
-        AssertSchemaVersionIs(_dbPath, 7);
+        AssertSchemaVersionIs(_dbPath, 8);
     }
 
     // ===== Helpers =====

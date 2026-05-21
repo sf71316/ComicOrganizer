@@ -22,6 +22,11 @@ public class FullRealDataBatchTest
         var organizer = new ArchiveOrganizer(intel, config);
 
         string testPath = @"E:\Project\ComicOrganizer\src\ComicOrganizer.Tests\Tests\H";
+        if (!Directory.Exists(testPath))
+        {
+            _output.WriteLine($"[Skip] Test directory not found: {testPath}");
+            return;
+        }
         var files = Directory.GetFileSystemEntries(testPath);
         
         // 建立模擬目標庫 (從檔名中提取可能的作者名)

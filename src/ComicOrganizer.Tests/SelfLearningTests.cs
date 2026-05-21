@@ -53,7 +53,18 @@ public class SelfLearningTests
         
         // Step 1: 學習日文作者標籤
         var firstSource = "[新海誠] すずめの戸締まり";
-        organizer.FindBestMatch(firstSource, targets);
+        var firstResult = organizer.FindBestMatch(firstSource, targets);
+        Assert.NotNull(firstResult);
+        
+        // 模擬 PreviewForm 歸檔成功時的 Learn 邏輯
+        var kws = organizer.ExtractAllKeywords(firstSource);
+        foreach (var kw in kws)
+        {
+            if (organizer.IsKeywordValidForTarget(kw, firstResult.FolderName))
+            {
+                intel.Learn(kw, firstResult.FolderName);
+            }
+        }
 
         // Step 2: 測試另一個完全不同的日文檔名，但包含相同作者標籤
         var secondSource = "[新海誠] 君の名は。"; 

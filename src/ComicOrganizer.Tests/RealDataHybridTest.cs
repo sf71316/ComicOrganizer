@@ -24,7 +24,11 @@ public class RealDataHybridTest
         _output.WriteLine("=== Step 1: Initial Learning ===");
         
         var richSource = "[いもむや - Singleton (あずまゆき)] 塾の上のマッサージ屋さん";
-        organizer.FindBestMatch(richSource, targetLibrary);
+        var firstResult = organizer.FindBestMatch(richSource, targetLibrary);
+        Assert.NotNull(firstResult);
+
+        // 模擬歸檔確認後，將いもむや與あずまゆき的映射學習進知識庫
+        intel.Learn("いもむや", firstResult.FolderName);
         
         // 印出學習到的內容
         _output.WriteLine("Knowledge Base Content:");
