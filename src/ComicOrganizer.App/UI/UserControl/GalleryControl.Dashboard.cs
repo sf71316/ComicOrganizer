@@ -76,19 +76,19 @@ public partial class GalleryControl
         bannerFlow.Controls.Add(lblStats);
         banner.Controls.Add(bannerFlow);
 
-        // Section 1: In Progress
-        var lblInProgressTitle = new System.Windows.Forms.Label
+        // Section 1: Recently Read
+        var lblRecentlyReadTitle = new System.Windows.Forms.Label
         {
-            Name = "dbLblInProgressTitle",
-            Text = "📖 繼續閱讀",
+            Name = "dbLblRecentlyReadTitle",
+            Text = "🕒 最近看過",
             Font = new Font("Microsoft JhengHei UI", 12F, FontStyle.Bold),
             ForeColor = Core.ThemeColors.Text,
             AutoSize = true,
             Margin = new Padding(0, 8, 0, 8),
         };
-        var flowInProgress = new BufferedFlowLayoutPanel
+        var flowRecentlyRead = new BufferedFlowLayoutPanel
         {
-            Name = "dbFlowInProgress",
+            Name = "dbFlowRecentlyRead",
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = true,
             AutoSize = true,
@@ -100,7 +100,7 @@ public partial class GalleryControl
         var lblRecentlyAddedTitle = new System.Windows.Forms.Label
         {
             Name = "dbLblRecentlyAddedTitle",
-            Text = "🕒 最近新增",
+            Text = "✨ 最近新增",
             Font = new Font("Microsoft JhengHei UI", 12F, FontStyle.Bold),
             ForeColor = Core.ThemeColors.Text,
             AutoSize = true,
@@ -117,8 +117,8 @@ public partial class GalleryControl
         };
 
         flowMain.Controls.Add(banner);
-        flowMain.Controls.Add(lblInProgressTitle);
-        flowMain.Controls.Add(flowInProgress);
+        flowMain.Controls.Add(lblRecentlyReadTitle);
+        flowMain.Controls.Add(flowRecentlyRead);
         flowMain.Controls.Add(lblRecentlyAddedTitle);
         flowMain.Controls.Add(flowRecentlyAdded);
 
@@ -142,11 +142,11 @@ public partial class GalleryControl
         var flowMain = page.Controls.Find("dbFlowMain", true).FirstOrDefault() as FlowLayoutPanel;
         var banner = page.Controls.Find("dbBanner", true).FirstOrDefault() as AntdUI.Panel;
         var lblStats = page.Controls.Find("dbLblStats", true).FirstOrDefault() as System.Windows.Forms.Label;
-        var lblInProgressTitle = page.Controls.Find("dbLblInProgressTitle", true).FirstOrDefault() as System.Windows.Forms.Label;
-        var flowInProgress = page.Controls.Find("dbFlowInProgress", true).FirstOrDefault() as FlowLayoutPanel;
+        var lblRecentlyReadTitle = page.Controls.Find("dbLblRecentlyReadTitle", true).FirstOrDefault() as System.Windows.Forms.Label;
+        var flowRecentlyRead = page.Controls.Find("dbFlowRecentlyRead", true).FirstOrDefault() as FlowLayoutPanel;
         var flowRecentlyAdded = page.Controls.Find("dbFlowRecentlyAdded", true).FirstOrDefault() as FlowLayoutPanel;
 
-        if (flowMain == null || flowInProgress == null || flowRecentlyAdded == null) return;
+        if (flowMain == null || flowRecentlyRead == null || flowRecentlyAdded == null) return;
 
         // 1. 載入統計資訊
         long total = 0;
@@ -164,35 +164,34 @@ public partial class GalleryControl
             lblStats.Text = $"目前漫畫庫內共有 {total} 部作品，已看完了 {completed} 部，有 {reading} 部正在閱讀中。";
         }
 
-        // 2. 載入 In Progress (最多 6 個)
-        IReadOnlyList<string> inProgressPaths = Array.Empty<string>();
+        // 2. 載入 Recently Read (最多 6 個)
+        IReadOnlyList<string> recentlyReadPaths = Array.Empty<string>();
         await Task.Run(() =>
         {
-            inProgressPaths = _metaStore.ListReadingInProgress();
+            recentlyReadPaths = _metaStore.ListRecentlyRead(6);
         });
 
-        if (inProgressPaths.Count == 0)
+        if (recentlyReadPaths.Count == 0)
         {
-            if (lblInProgressTitle != null) lblInProgressTitle.Visible = false;
-            flowInProgress.Visible = false;
+            if (lblRecentlyReadTitle != null) lblRecentlyReadTitle.Visible = false;
+            flowRecentlyRead.Visible = false;
         }
         else
         {
-            if (lblInProgressTitle != null) lblInProgressTitle.Visible = true;
-            flowInProgress.Visible = true;
-            flowInProgress.Controls.Clear();
-            var displayPaths = inProgressPaths.Take(6).ToList();
-            
-            flowInProgress.SuspendLayout();
-            foreach (var p in displayPaths)
+            if (lblRecentlyReadTitle != null) lblRecentlyReadTitle.Visible = true;
+            flowRecentlyRead.Visible = true;
+            flowRecentlyRead.Controls.Clear();
+
+            flowRecentlyRead.SuspendLayout();
+            foreach (var p in recentlyReadPaths)
             {
                 FileSystemInfo? fsi = Directory.Exists(p) ? new DirectoryInfo(p) : (File.Exists(p) ? new FileInfo(p) : null);
                 if (fsi == null) continue;
                 // Dashboard 卡片顯示 meta (showMetadata=true)
                 var card = BuildCardForGallery(fsi, GalleryViewMode.Medium, showMetadata: true);
-                flowInProgress.Controls.Add(card);
+                flowRecentlyRead.Controls.Add(card);
             }
-            flowInProgress.ResumeLayout(true);
+            flowRecentlyRead.ResumeLayout(true);
         }
 
         // 3. 載入 Recently Added (最多 12 個)

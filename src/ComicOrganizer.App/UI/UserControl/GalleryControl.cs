@@ -221,8 +221,8 @@ public partial class GalleryControl : UserControl, IThemedControl
                 if (lblWelcome != null) lblWelcome.ForeColor = Core.ThemeColors.Text;
                 var lblStats = page.Controls.Find("dbLblStats", true).OfType<System.Windows.Forms.Label>().FirstOrDefault();
                 if (lblStats != null) lblStats.ForeColor = Core.ThemeColors.Text;
-                var lblInProgressTitle = page.Controls.Find("dbLblInProgressTitle", true).OfType<System.Windows.Forms.Label>().FirstOrDefault();
-                if (lblInProgressTitle != null) lblInProgressTitle.ForeColor = Core.ThemeColors.Text;
+                var lblRecentlyReadTitle = page.Controls.Find("dbLblRecentlyReadTitle", true).OfType<System.Windows.Forms.Label>().FirstOrDefault();
+                if (lblRecentlyReadTitle != null) lblRecentlyReadTitle.ForeColor = Core.ThemeColors.Text;
                 var lblRecentlyAddedTitle = page.Controls.Find("dbLblRecentlyAddedTitle", true).OfType<System.Windows.Forms.Label>().FirstOrDefault();
                 if (lblRecentlyAddedTitle != null) lblRecentlyAddedTitle.ForeColor = Core.ThemeColors.Text;
             }
