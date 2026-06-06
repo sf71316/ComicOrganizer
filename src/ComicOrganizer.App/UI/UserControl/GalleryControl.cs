@@ -216,11 +216,28 @@ public partial class GalleryControl : UserControl, IThemedControl
             if (page.Tag as string == "DASHBOARD")
             {
                 var banner = page.Controls.Find("dbBanner", true).OfType<AntdUI.Panel>().FirstOrDefault();
-                if (banner != null) banner.Back = Core.ThemeColors.TabHeader;
+                if (banner != null)
+                {
+                    banner.BackColor = Core.ThemeColors.Surface;
+                    banner.Back = Core.ThemeColors.TabHeader;
+                }
+                var bannerFlow = banner?.Controls.OfType<BufferedFlowLayoutPanel>().FirstOrDefault();
+                if (bannerFlow != null)
+                {
+                    bannerFlow.BackColor = Core.ThemeColors.TabHeader;
+                }
                 var lblWelcome = page.Controls.Find("dbLblWelcome", true).OfType<System.Windows.Forms.Label>().FirstOrDefault();
-                if (lblWelcome != null) lblWelcome.ForeColor = Core.ThemeColors.Text;
+                if (lblWelcome != null)
+                {
+                    lblWelcome.ForeColor = Core.ThemeColors.Text;
+                    lblWelcome.BackColor = Core.ThemeColors.TabHeader;
+                }
                 var lblStats = page.Controls.Find("dbLblStats", true).OfType<System.Windows.Forms.Label>().FirstOrDefault();
-                if (lblStats != null) lblStats.ForeColor = Core.ThemeColors.Text;
+                if (lblStats != null)
+                {
+                    lblStats.ForeColor = Core.ThemeColors.Text;
+                    lblStats.BackColor = Core.ThemeColors.TabHeader;
+                }
                 var lblRecentlyReadTitle = page.Controls.Find("dbLblRecentlyReadTitle", true).OfType<System.Windows.Forms.Label>().FirstOrDefault();
                 if (lblRecentlyReadTitle != null) lblRecentlyReadTitle.ForeColor = Core.ThemeColors.Text;
                 var lblRecentlyAddedTitle = page.Controls.Find("dbLblRecentlyAddedTitle", true).OfType<System.Windows.Forms.Label>().FirstOrDefault();

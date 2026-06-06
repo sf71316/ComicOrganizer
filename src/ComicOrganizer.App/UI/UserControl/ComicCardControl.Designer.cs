@@ -13,9 +13,10 @@ partial class ComicCardControl
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing && (components != null))
+        if (disposing)
         {
-            components.Dispose();
+            components?.Dispose();
+            DisposeGdiResources();
         }
         base.Dispose(disposing);
     }

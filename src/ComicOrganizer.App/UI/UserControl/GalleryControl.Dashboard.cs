@@ -37,19 +37,20 @@ public partial class GalleryControl
             Name = "dbBanner",
             Dock = DockStyle.Top,
             Height = LogicalToDeviceUnits(80),
-            BackColor = Color.Transparent,
+            BackColor = Core.ThemeColors.Surface,
             Back = Core.ThemeColors.TabHeader,
             Radius = 8,
             Padding = new Padding(16, 12, 16, 12),
             Margin = new Padding(0, 0, 0, 16),
         };
 
-        var bannerFlow = new FlowLayoutPanel
+        // 改用 BufferedFlowLayoutPanel 以啟用 DoubleBuffered，背景色設為與 banner 內底色一樣
+        var bannerFlow = new BufferedFlowLayoutPanel
         {
             Dock = DockStyle.Fill,
             FlowDirection = FlowDirection.TopDown,
             WrapContents = false,
-            BackColor = Color.Transparent,
+            BackColor = Core.ThemeColors.TabHeader,
             Padding = new Padding(0),
             Margin = new Padding(0),
         };
@@ -60,6 +61,7 @@ public partial class GalleryControl
             Text = "歡迎回來！",
             Font = new Font("Microsoft JhengHei UI", 16F, FontStyle.Bold),
             ForeColor = Core.ThemeColors.Text,
+            BackColor = Core.ThemeColors.TabHeader,
             AutoSize = true,
             Margin = new Padding(0, 0, 0, 4),
         };
@@ -69,6 +71,7 @@ public partial class GalleryControl
             Text = "正在載入漫畫庫統計資訊...",
             Font = new Font("Microsoft JhengHei UI", 10F),
             ForeColor = Core.ThemeColors.Text,
+            BackColor = Core.ThemeColors.TabHeader,
             AutoSize = true,
             Margin = new Padding(0, 2, 0, 0),
         };

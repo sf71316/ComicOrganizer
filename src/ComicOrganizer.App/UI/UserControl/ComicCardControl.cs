@@ -47,6 +47,16 @@ public partial class ComicCardControl : UserControl
     private System.Windows.Forms.Label? typeIconLbl;
     private System.Windows.Forms.Label? readStatusLbl;   // typeStrip 右側的閱讀狀態 icon
     private bool _hoverControlsCreated = false;
+    private Size _lastSize;
+
+    private GraphicsPath? _bgPath;
+    private int _lastPathWidth;
+    private int _lastPathHeight;
+    private int _lastPathRadius;
+
+    private SolidBrush? _bgBrush;
+    private SolidBrush? _borderBrush;
+    private Pen? _borderPen;
 
     private int? _lastPage;
     private int? _pageCount;
@@ -95,7 +105,11 @@ public partial class ComicCardControl : UserControl
     protected override void OnResize(EventArgs e)
     {
         base.OnResize(e);
-        Invalidate();
+        if (Size != _lastSize)
+        {
+            _lastSize = Size;
+            Invalidate();
+        }
     }
 
     /// <summary>
@@ -111,38 +125,77 @@ public partial class ComicCardControl : UserControl
         int r = CornerRadius;
         int d = r * 2;
 
-        // === 步驟 1：圓角 bg fill (AA) ===
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-        using (var bgPath = new GraphicsPath())
+        // === 步驟 1：圓角 bg path 快取更新與 fill (AA) ===
+        if (_bgPath == null || _lastPathWidth != Width || _lastPathHeight != Height || _lastPathRadius != r)
         {
-            bgPath.AddArc(0, 0, d, d, 180, 90);
-            bgPath.AddArc(Width - d, 0, d, d, 270, 90);
-            bgPath.AddArc(Width - d, Height - d, d, d, 0, 90);
-            bgPath.AddArc(0, Height - d, d, d, 90, 90);
-            bgPath.CloseFigure();
-            using var bgBrush = new SolidBrush(_currentBgColor);
-            g.FillPath(bgBrush, bgPath);
+            _bgPath?.Dispose();
+            _bgPath = new GraphicsPath();
+            _bgPath.AddArc(0, 0, d, d, 180, 90);
+            _bgPath.AddArc(Width - d, 0, d, d, 270, 90);
+            _bgPath.AddArc(Width - d, Height - d, d, d, 0, 90);
+            _bgPath.AddArc(0, Height - d, d, d, 90, 90);
+            _bgPath.CloseFigure();
+
+            _lastPathWidth = Width;
+            _lastPathHeight = Height;
+            _lastPathRadius = r;
         }
+
+        if (_bgBrush == null)
+        {
+            _bgBrush = new SolidBrush(_currentBgColor);
+        }
+        else
+        {
+            _bgBrush.Color = _currentBgColor;
+        }
+
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.FillPath(_bgBrush, _bgPath);
 
         // === 步驟 2：4 個圓角弧 stroke (AA，1px) ===
         var borderColor = ComicOrganizer.App.Core.ThemeColors.Border;
-        using (var pen = new Pen(borderColor, 1))
+        if (_borderPen == null)
         {
-            g.DrawArc(pen, 0, 0, d, d, 180, 90);                         // top-left
-            g.DrawArc(pen, Width - d - 1, 0, d, d, 270, 90);              // top-right
-            g.DrawArc(pen, Width - d - 1, Height - d - 1, d, d, 0, 90);   // bottom-right
-            g.DrawArc(pen, 0, Height - d - 1, d, d, 90, 90);              // bottom-left
+            _borderPen = new Pen(borderColor, 1);
+        }
+        else
+        {
+            _borderPen.Color = borderColor;
         }
 
+        g.DrawArc(_borderPen, 0, 0, d, d, 180, 90);                         // top-left
+        g.DrawArc(_borderPen, Width - d - 1, 0, d, d, 270, 90);              // top-right
+        g.DrawArc(_borderPen, Width - d - 1, Height - d - 1, d, d, 0, 90);   // bottom-right
+        g.DrawArc(_borderPen, 0, Height - d - 1, d, d, 90, 90);              // bottom-left
+
         // === 步驟 3：4 條直邊 (NO AA, pixel-perfect 1px) ===
-        g.SmoothingMode = SmoothingMode.None;
-        using (var brush = new SolidBrush(borderColor))
+        if (_borderBrush == null)
         {
-            g.FillRectangle(brush, r, 0, Width - d, 1);                   // top
-            g.FillRectangle(brush, r, Height - 1, Width - d, 1);          // bottom
-            g.FillRectangle(brush, 0, r, 1, Height - d);                  // left
-            g.FillRectangle(brush, Width - 1, r, 1, Height - d);          // right
+            _borderBrush = new SolidBrush(borderColor);
         }
+        else
+        {
+            _borderBrush.Color = borderColor;
+        }
+
+        g.SmoothingMode = SmoothingMode.None;
+        g.FillRectangle(_borderBrush, r, 0, Width - d, 1);                   // top
+        g.FillRectangle(_borderBrush, r, Height - 1, Width - d, 1);          // bottom
+        g.FillRectangle(_borderBrush, 0, r, 1, Height - d);                  // left
+        g.FillRectangle(_borderBrush, Width - 1, r, 1, Height - d);          // right
+    }
+
+    private void DisposeGdiResources()
+    {
+        _bgPath?.Dispose();
+        _bgPath = null;
+        _bgBrush?.Dispose();
+        _bgBrush = null;
+        _borderBrush?.Dispose();
+        _borderBrush = null;
+        _borderPen?.Dispose();
+        _borderPen = null;
     }
 
     /// <summary>
