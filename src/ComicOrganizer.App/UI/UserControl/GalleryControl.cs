@@ -128,7 +128,11 @@ public partial class GalleryControl : UserControl, IThemedControl
         // 處理頁籤關閉事件 — 清掉 _tabViewModes 內對應的 entry 避免 dispose 後 reference 殘留
         tabsContent.ClosingPage += (s, e) =>
         {
-            if (e.Value != null) _tabViewModes.Remove(e.Value);
+            if (e.Value != null)
+            {
+                if (e.Value.Tag as string == "DASHBOARD") return false;
+                _tabViewModes.Remove(e.Value);
+            }
             return true;
         };
 
@@ -208,6 +212,20 @@ public partial class GalleryControl : UserControl, IThemedControl
                 f.BackColor = Core.ThemeColors.Surface;
             foreach (var t in page.Controls.Find("tabTableList", true).OfType<AntdUI.Table>())
                 t.BackColor = Core.ThemeColors.Surface;
+
+            if (page.Tag as string == "DASHBOARD")
+            {
+                var banner = page.Controls.Find("dbBanner", true).OfType<AntdUI.Panel>().FirstOrDefault();
+                if (banner != null) banner.Back = Core.ThemeColors.TabHeader;
+                var lblWelcome = page.Controls.Find("dbLblWelcome", true).OfType<System.Windows.Forms.Label>().FirstOrDefault();
+                if (lblWelcome != null) lblWelcome.ForeColor = Core.ThemeColors.Text;
+                var lblStats = page.Controls.Find("dbLblStats", true).OfType<System.Windows.Forms.Label>().FirstOrDefault();
+                if (lblStats != null) lblStats.ForeColor = Core.ThemeColors.Text;
+                var lblInProgressTitle = page.Controls.Find("dbLblInProgressTitle", true).OfType<System.Windows.Forms.Label>().FirstOrDefault();
+                if (lblInProgressTitle != null) lblInProgressTitle.ForeColor = Core.ThemeColors.Text;
+                var lblRecentlyAddedTitle = page.Controls.Find("dbLblRecentlyAddedTitle", true).OfType<System.Windows.Forms.Label>().FirstOrDefault();
+                if (lblRecentlyAddedTitle != null) lblRecentlyAddedTitle.ForeColor = Core.ThemeColors.Text;
+            }
         }
         this.Refresh();
     }
@@ -254,6 +272,7 @@ public partial class GalleryControl : UserControl, IThemedControl
         }
 
         _ = LoadTreeAsync();
+        CreateDashboardTabPage();
     }
 
     /// <summary>

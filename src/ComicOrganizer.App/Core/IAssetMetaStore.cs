@@ -262,6 +262,9 @@ public interface IAssetMetaStore : IDisposable
 
     // ── 閱讀軌跡（#48 Phase 1）─────────────────────────────────
 
+    /// <summary>最近新增的作品（依 added_at DESC）。</summary>
+    IReadOnlyList<string> ListRecentlyAdded(int limit = 10);
+
     /// <summary>最近 N 次讀過（依 last_read DESC）。</summary>
     IReadOnlyList<string> ListRecentlyRead(int limit = 10);
 

@@ -210,4 +210,37 @@ public class VirtualLibraryQueryTests : IDisposable
         var minor = top.First(t => t.Tag.Name == "minor");
         Assert.Equal(3, minor.TotalReads);
     }
+
+    // ===== ListRecentlyAdded =====
+
+    [Fact]
+    public void ListRecentlyAdded_OrdersByAddedAtDesc()
+    {
+        // 利用 LastScanned 來控制 added_at
+        _store.Upsert(new AssetMeta { Path = @"C:\L\a1.zip", Name = "a1.zip", IsFolder = false, FileSize = 1, Mtime = 1, LastScanned = 1000 });
+        _store.Upsert(new AssetMeta { Path = @"C:\L\a2.zip", Name = "a2.zip", IsFolder = false, FileSize = 1, Mtime = 1, LastScanned = 3000 });
+        _store.Upsert(new AssetMeta { Path = @"C:\L\a3.zip", Name = "a3.zip", IsFolder = false, FileSize = 1, Mtime = 1, LastScanned = 2000 });
+        
+        // 資料夾不應出現在最近新增作品列表中 (WHERE is_folder = 0)
+        _store.Upsert(new AssetMeta { Path = @"C:\L\folder", Name = "folder", IsFolder = true, FileSize = 0, Mtime = 1, LastScanned = 4000 });
+
+        var recent = _store.ListRecentlyAdded(10);
+        Assert.Equal(3, recent.Count);
+        Assert.Equal(@"C:\L\a2.zip", recent[0]); // 3000
+        Assert.Equal(@"C:\L\a3.zip", recent[1]); // 2000
+        Assert.Equal(@"C:\L\a1.zip", recent[2]); // 1000
+    }
+
+    [Fact]
+    public void ListRecentlyAdded_RespectsLimit()
+    {
+        for (int i = 0; i < 15; i++)
+        {
+            _store.Upsert(new AssetMeta { Path = $@"C:\L\w{i}.zip", Name = $"w{i}.zip", IsFolder = false, FileSize = 1, Mtime = 1, LastScanned = 1000 + i });
+        }
+
+        var top5 = _store.ListRecentlyAdded(5);
+        Assert.Equal(5, top5.Count);
+        Assert.Equal(@"C:\L\w14.zip", top5[0]); // 最新的
+    }
 }

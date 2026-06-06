@@ -35,7 +35,10 @@ public partial class GalleryControl
     /// 沒有開啟中的 tab 時自動建一個（CreateNewTabPage helper），不再像之前靜默 return。</summary>
     private void OpenVirtualWorksTab(string title, IReadOnlyList<string> paths, bool forceNew = false)
     {
-        var page = (!forceNew ? tabsContent.SelectedTab : null) ?? CreateNewTabPage(title);
+        var page = (!forceNew && tabsContent.SelectedTab != null && tabsContent.SelectedTab.Tag as string != "DASHBOARD"
+                    ? tabsContent.SelectedTab
+                    : null)
+                   ?? CreateNewTabPage(title);
         var flow = FindTabFlowLayout(page);
         if (flow == null) return;
         // 更新 tab 標題、清掉 folder Tag（避免後續 OpenFolderTab 把同 path 認成已開）
@@ -112,11 +115,14 @@ public partial class GalleryControl
             var currentTab = tabsContent.SelectedTab;
             if ((string?)currentTab.Tag == path) return;
 
-            currentTab.Text = folderName;
-            currentTab.Tag = path;
-            UpdateBreadcrumb(path);
-            LoadCurrentViewMode(currentTab, path);
-            return;
+            if (currentTab.Tag as string != "DASHBOARD")
+            {
+                currentTab.Text = folderName;
+                currentTab.Tag = path;
+                UpdateBreadcrumb(path);
+                LoadCurrentViewMode(currentTab, path);
+                return;
+            }
         }
 
         var existingTab = tabsContent.Pages.Cast<AntdUI.TabPage>().FirstOrDefault(p => (string?)p.Tag == path);

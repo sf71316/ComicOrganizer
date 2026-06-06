@@ -48,6 +48,12 @@ public partial class ComicCardControl : UserControl
     private System.Windows.Forms.Label? readStatusLbl;   // typeStrip 右側的閱讀狀態 icon
     private bool _hoverControlsCreated = false;
 
+    private int? _lastPage;
+    private int? _pageCount;
+
+    /// <summary>查詢卡片當前閱讀進度的 callback（由 GalleryControl 注入）。</summary>
+    public Func<string, (int? lastPage, int? pageCount)?>? ProgressProvider { get; set; }
+
     /// <summary>查詢卡片當前 read_status 的 callback（由 GalleryControl 注入）。</summary>
     public Func<string, ReadStatus?>? ReadStatusProvider { get; set; }
     public ComicCardControl()
@@ -264,6 +270,24 @@ public partial class ComicCardControl : UserControl
         if (oldImg != null && !ReferenceEquals(oldImg, readStatusLbl.Image)) oldImg.Dispose();
     }
 
+    /// <summary>讀 ProgressProvider 結果，更新閱讀進度，並使封面重繪以渲染進度條。</summary>
+    public void RefreshProgress()
+    {
+        if (ProgressProvider == null) return;
+        var prog = ProgressProvider(ItemPath);
+        if (prog.HasValue)
+        {
+            _lastPage = prog.Value.lastPage;
+            _pageCount = prog.Value.pageCount;
+        }
+        else
+        {
+            _lastPage = null;
+            _pageCount = null;
+        }
+        pic.Invalidate();
+    }
+
     private const int IconSize = 16;
     private const int SuperSampleFactor = 3;   // SVG 在 16×16 太小 anti-alias 不夠 → 3× 渲染再 HQ 下縮
 
@@ -382,6 +406,8 @@ public partial class ComicCardControl : UserControl
         HookHover(pic);
         HookHover(lbl);
 
+        pic.Paint += OnPicPaint;
+
         // 點擊
         MouseEventHandler clickHandler = (s, e) =>
         {
@@ -391,6 +417,33 @@ public partial class ComicCardControl : UserControl
         pic.MouseClick += clickHandler;
         lbl.MouseClick += clickHandler;
         this.MouseClick += clickHandler;
+    }
+
+    private void OnPicPaint(object? sender, PaintEventArgs e)
+    {
+        if (_lastPage.HasValue && _pageCount.HasValue && _pageCount.Value > 0)
+        {
+            int lastPage = _lastPage.Value;
+            int pageCount = _pageCount.Value;
+            float ratio = (float)(lastPage + 1) / pageCount;
+            ratio = Math.Clamp(ratio, 0f, 1f);
+
+            int barHeight = LogicalToDeviceUnits(6);
+            var g = e.Graphics;
+
+            // 畫背景 (半透明黑底)
+            using var bgBrush = new SolidBrush(Color.FromArgb(120, 0, 0, 0));
+            g.FillRectangle(bgBrush, 0, pic.Height - barHeight, pic.Width, barHeight);
+
+            // 畫前景 (已完成為綠色，否則用主題 Primary)
+            var status = ReadStatusProvider?.Invoke(ItemPath);
+            Color barColor = status == ReadStatus.Completed
+                ? Color.FromArgb(82, 196, 26)
+                : ComicOrganizer.App.Core.ThemeColors.Primary;
+
+            using var fgBrush = new SolidBrush(barColor);
+            g.FillRectangle(fgBrush, 0, pic.Height - barHeight, (int)(pic.Width * ratio), barHeight);
+        }
     }
 
     public void SetData(FileSystemInfo item, bool isFolderNode)

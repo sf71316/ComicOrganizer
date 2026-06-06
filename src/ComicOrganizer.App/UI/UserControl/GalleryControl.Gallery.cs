@@ -31,6 +31,14 @@ public partial class GalleryControl
         }
         card.ApplyViewMode(mode);
         card.ReadStatusProvider = p => _metaStore?.GetReadStatus(p);
+        card.ProgressProvider = p =>
+        {
+            if (_metaStore == null) return null;
+            var lp = _metaStore.GetLastPage(p);
+            var view = _metaStore.GetMetadataView(p);
+            return (lp, view?.PageCount);
+        };
+        card.RefreshProgress();
 
         var c = card;   // 給 lambda capture 用，避免 foreach var closure 疑慮
         // 透過 queue 延遲 RecordRead；queue.Recorded event 會 RefreshCardReadStatusByPath
@@ -51,6 +59,7 @@ public partial class GalleryControl
         {
             _metaStore?.SetReadStatus(p, status);
             c.RefreshReadStatusIcon();
+            c.RefreshProgress();
         };
 
         // 目錄與檔案都試著載封面：CoverManager 對目錄會遞迴往下找首張圖檔（受 MaxScanDepth 限制）
@@ -59,7 +68,7 @@ public partial class GalleryControl
         return card;
     }
 
-    /// <summary>掃所有 tab 的卡片，找 ItemPath 相符者刷 read status icon。</summary>
+    /// <summary>掃所有 tab 的卡片，找 ItemPath 相符者刷 read status icon 與進度條。</summary>
     private void RefreshCardReadStatusByPath(string path)
     {
         foreach (AntdUI.TabPage page in tabsContent.Pages)
@@ -69,7 +78,10 @@ public partial class GalleryControl
             foreach (var c in flow.Controls.OfType<ComicCardControl>())
             {
                 if (string.Equals(c.ItemPath, path, StringComparison.OrdinalIgnoreCase))
+                {
                     c.RefreshReadStatusIcon();
+                    c.RefreshProgress();
+                }
             }
         }
     }

@@ -1461,7 +1461,16 @@ ORDER BY am.title COLLATE NOCASE, a.path;",
                 new { lang = language }, _currentTx).AsList();
     }
 
-    // ── 閱讀軌跡 ────────────────────────────────────────────
+    public IReadOnlyList<string> ListRecentlyAdded(int limit = 10)
+    {
+        lock (_lock)
+            return _conn.Query<string>(@"
+SELECT path FROM asset
+WHERE is_folder = 0
+ORDER BY added_at DESC
+LIMIT @lim;",
+                new { lim = limit }, _currentTx).AsList();
+    }
 
     public IReadOnlyList<string> ListRecentlyRead(int limit = 10)
     {
