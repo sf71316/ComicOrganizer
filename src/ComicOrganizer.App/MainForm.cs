@@ -314,21 +314,4 @@ public partial class MainForm : Window, IThemedControl
 
         // 檢視模式選單已移除，改放每個 Tab header 內的 Segmented
     }
-
-    protected override void WndProc(ref System.Windows.Forms.Message m)
-    {
-        const int WM_ENTERSIZEMOVE = 0x0231;
-        const int WM_EXITSIZEMOVE = 0x0232;
-
-        if (m.Msg == WM_ENTERSIZEMOVE)
-        {
-            galleryControl?.SuspendFlowLayout();
-        }
-        else if (m.Msg == WM_EXITSIZEMOVE)
-        {
-            galleryControl?.ResumeFlowLayout();
-        }
-
-        base.WndProc(ref m);
-    }
 }

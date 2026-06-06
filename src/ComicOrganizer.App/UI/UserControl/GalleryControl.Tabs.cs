@@ -382,22 +382,4 @@ public partial class GalleryControl
             if (flow != null) _ = LoadGalleryAsync(flow, path, mode);
         }
     }
-
-    public void SuspendFlowLayout()
-    {
-        foreach (AntdUI.TabPage page in tabsContent.Pages)
-        {
-            var flow = FindTabFlowLayout(page);
-            flow?.SuspendLayout();
-        }
-    }
-
-    public void ResumeFlowLayout()
-    {
-        foreach (AntdUI.TabPage page in tabsContent.Pages)
-        {
-            var flow = FindTabFlowLayout(page);
-            flow?.ResumeLayout(true);
-        }
-    }
 }
