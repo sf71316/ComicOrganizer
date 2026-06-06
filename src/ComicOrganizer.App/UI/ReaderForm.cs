@@ -47,7 +47,8 @@ public partial class ReaderForm : Window, IThemedControl
     private readonly Dictionary<int, Image> _cache = new();
     private readonly HashSet<int> _loading = new();
     private readonly object _cacheLock = new();
-    private const int PreloadRadius = 2;
+    private const int PreloadRadius = 6;
+    private const int MaxCacheSize = 24;
 
     // 當前要顯示的圖（直接 ref _cache 的 bitmap，不複製）：
     // _leftImage 必有值；_rightImage 只有雙頁模式 spread size=2 才設
@@ -641,7 +642,7 @@ public partial class ReaderForm : Window, IThemedControl
 
         // 預讀 + evict
         var spreadSize = SpreadSize(_currentIndex);
-        EvictOutsideWindow(spreadSize);
+        EvictCacheIfNeeded(_currentIndex, _currentIndex + spreadSize - 1);
         for (int d = 0; d < spreadSize; d++) _ = LoadPageAsync(_currentIndex + d);
         for (int d = 1; d <= PreloadRadius; d++)
         {
@@ -884,27 +885,43 @@ public partial class ReaderForm : Window, IThemedControl
     {
         int lo = Math.Max(0, first - PreloadRadius);
         int hi = Math.Min(_source.PageCount - 1, last + PreloadRadius);
-        EvictCacheOutside(lo, hi);
+        EvictCacheIfNeeded(first, last);
         for (int i = lo; i <= hi; i++) _ = LoadPageAsync(i);
     }
 
-    /// <summary>釋放 spread 視窗 ± PreloadRadius 之外的 cache。</summary>
-    private void EvictOutsideWindow(int spreadSize)
-    {
-        int lo = _currentIndex - PreloadRadius;
-        int hi = _currentIndex + spreadSize - 1 + PreloadRadius;
-        EvictCacheOutside(lo, hi);
-    }
-
-    /// <summary>釋放 [lo, hi] 範圍外所有已 cache 的頁（dispose bitmap + 從 dict 移除）。</summary>
-    private void EvictCacheOutside(int lo, int hi)
+    /// <summary>依據當前顯示的頁面範圍智慧淘汰快取，只保留距離最接近的圖片，最多保留 MaxCacheSize 張。</summary>
+    private void EvictCacheIfNeeded(int activeFirst, int activeLast)
     {
         lock (_cacheLock)
         {
-            var toEvict = _cache.Keys.Where(k => k < lo || k > hi).ToList();
-            foreach (var k in toEvict)
+            if (_cache.Count <= MaxCacheSize) return;
+
+            var items = _cache.Keys.Select(k =>
             {
-                if (_cache.TryGetValue(k, out var img)) { img.Dispose(); _cache.Remove(k); }
+                int dist = 0;
+                if (k < activeFirst) dist = activeFirst - k;
+                else if (k > activeLast) dist = k - activeLast;
+                return new { Key = k, Distance = dist };
+            })
+            .OrderByDescending(x => x.Distance)
+            .ToList();
+
+            int toEvictCount = _cache.Count - MaxCacheSize;
+            int evicted = 0;
+
+            foreach (var item in items)
+            {
+                if (evicted >= toEvictCount) break;
+
+                // 正在顯示的頁面不可釋放
+                if (item.Distance == 0) continue;
+
+                if (_cache.TryGetValue(item.Key, out var img))
+                {
+                    img.Dispose();
+                    _cache.Remove(item.Key);
+                    evicted++;
+                }
             }
         }
     }
