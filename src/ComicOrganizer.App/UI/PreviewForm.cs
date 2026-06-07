@@ -7,6 +7,7 @@ namespace ComicOrganizer.App.UI;
 
 public partial class PreviewForm : Window, IThemedControl
 {
+    public bool IsExecuted { get; private set; } = false;
     private List<ArchiveGroup> _groups;
     private readonly MappingIntelligence _intelligence;
     private readonly ArchiveOrganizer _organizer;
@@ -188,12 +189,14 @@ public partial class PreviewForm : Window, IThemedControl
         btnCancel.Enabled = false;
         cbFetchMetadata.Enabled = false;
         progress.Visible = true;
+        IsExecuted = true;
 
         // 是否抓 metadata：勾選 + checkbox 啟用前提（config + store + API key）已在 ctor 驗證
         bool fetchEnabled = cbFetchMetadata.Checked && _metaStore != null && _config != null;
         NhentaiApiClient? client = null;
         BatchExternalFetchService? fetchService = null;
         BatchSyncStrategy? strategy = null;
+        bool hasFailure = false;
         if (fetchEnabled)
         {
             var apiKey = _config!.GetNhentaiApiKey();
@@ -225,7 +228,7 @@ public partial class PreviewForm : Window, IThemedControl
                     {
                         string destDir = Path.GetDirectoryName(targetPath)!;
                         if (!Directory.Exists(destDir)) Directory.CreateDirectory(destDir);
-                        if (Directory.Exists(item.FullPath)) Directory.Move(item.FullPath, targetPath);
+                        if (Directory.Exists(item.FullPath)) MoveDirectory(item.FullPath, targetPath);
                         else File.Move(item.FullPath, targetPath);
                         moved = true;
 
@@ -245,6 +248,7 @@ public partial class PreviewForm : Window, IThemedControl
                     catch (Exception ex)
                     {
                         moveStatus = "失敗: " + ex.Message;
+                        hasFailure = true;
                     }
 
                     // 抓 metadata（搬成功 + 勾選 + 服務就緒）
@@ -288,7 +292,14 @@ public partial class PreviewForm : Window, IThemedControl
             client?.Dispose();
         }
 
-        AntdUI.Message.success(this, "歸檔處理完畢");
+        if (hasFailure)
+        {
+            AntdUI.Message.warn(this, "歸檔處理完畢，但有部分項目處理失敗！");
+        }
+        else
+        {
+            AntdUI.Message.success(this, "歸檔處理完畢");
+        }
         btnExecute.Loading = false;
         btnCancel.Text = "關閉";
         btnCancel.Enabled = true;
@@ -324,5 +335,42 @@ public partial class PreviewForm : Window, IThemedControl
             });
         }
         catch { /* catalog 寫失敗不致命；下次 UpdateIndex 會補 */ }
+    }
+
+    private static void MoveDirectory(string sourceDir, string destDir)
+    {
+        string sourceRoot = Path.GetPathRoot(Path.GetFullPath(sourceDir)) ?? "";
+        string destRoot = Path.GetPathRoot(Path.GetFullPath(destDir)) ?? "";
+
+        if (string.Equals(sourceRoot, destRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            Directory.Move(sourceDir, destDir);
+        }
+        else
+        {
+            CopyDirectory(sourceDir, destDir);
+            Directory.Delete(sourceDir, true);
+        }
+    }
+
+    private static void CopyDirectory(string sourceDir, string destDir)
+    {
+        var dir = new DirectoryInfo(sourceDir);
+        if (!dir.Exists)
+            throw new DirectoryNotFoundException($"Source directory not found: {sourceDir}");
+
+        Directory.CreateDirectory(destDir);
+
+        foreach (FileInfo file in dir.GetFiles())
+        {
+            string targetFilePath = Path.Combine(destDir, file.Name);
+            file.CopyTo(targetFilePath, true);
+        }
+
+        foreach (DirectoryInfo subDir in dir.GetDirectories())
+        {
+            string targetSubDirPath = Path.Combine(destDir, subDir.Name);
+            CopyDirectory(subDir.FullName, targetSubDirPath);
+        }
     }
 }

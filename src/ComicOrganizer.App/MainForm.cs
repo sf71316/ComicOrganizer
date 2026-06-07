@@ -74,7 +74,7 @@ public partial class MainForm : Window, IThemedControl
         this.Load += (s, e) =>
         {
             galleryControl.Initialize(_config, _coverManager, _metaStore, _readRecordQueue, _prefs, _tagTranslator);
-            archiveControl.Initialize(_config, _intelligence, _organizer, _metaStore, _tagTranslator);
+            archiveControl.Initialize(_config, _intelligence, _organizer, _metaStore, _tagTranslator, _prefs, _readRecordQueue);
             metadataManageControl.Initialize(_metaStore, _reparseService, _rebuildTracker, _tagTranslator);
             metadataManageControl.InitializeTranslationDb(_tagTranslator, _translationUpdater, _translationDbPath);
             metadataManageControl.ExternalMetadataEnabled = _config.EnableExternalMetadata;

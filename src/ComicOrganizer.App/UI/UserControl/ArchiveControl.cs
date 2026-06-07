@@ -12,8 +12,12 @@ public partial class ArchiveControl : UserControl, IThemedControl
     private ArchiveOrganizer? _organizer;
     private IAssetMetaStore? _metaStore;
     private TagTranslator? _tagTranslator;
+    private UserPreferences? _prefs;
+    private ReadRecordQueue? _readRecordQueue;
     private ToolStripMenuItem? _menuItemCheck;
     private ToolStripMenuItem? _menuItemUncheck;
+    private ToolStripMenuItem? _menuItemViewComic;
+    private ToolStripMenuItem? _menuItemViewDestDir;
 
     public ArchiveControl()
     {
@@ -41,8 +45,14 @@ public partial class ArchiveControl : UserControl, IThemedControl
         var menu = new System.Windows.Forms.ContextMenuStrip();
         _menuItemCheck = new ToolStripMenuItem("勾選選取項目", null, (s, e) => SetSelectedRowsChecked(true));
         _menuItemUncheck = new ToolStripMenuItem("取消勾選選取項目", null, (s, e) => SetSelectedRowsChecked(false));
+        _menuItemViewComic = new ToolStripMenuItem("瀏覽欲歸檔漫畫", null, (s, e) => ViewSelectedComic());
+        _menuItemViewDestDir = new ToolStripMenuItem("瀏覽歸檔目錄", null, (s, e) => OpenSelectedDestDir());
+
         menu.Items.Add(_menuItemCheck);
         menu.Items.Add(_menuItemUncheck);
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(_menuItemViewComic);
+        menu.Items.Add(_menuItemViewDestDir);
 
         menu.Opening += (s, e) =>
         {
@@ -50,6 +60,10 @@ public partial class ArchiveControl : UserControl, IThemedControl
             bool hasSelection = (indices != null && indices.Length > 0) || tableArchive.SelectedIndex >= 0;
             _menuItemCheck.Enabled = hasSelection;
             _menuItemUncheck.Enabled = hasSelection;
+
+            var item = GetFirstSelectedItem();
+            _menuItemViewComic.Enabled = item != null && !string.IsNullOrEmpty(item.FullPath);
+            _menuItemViewDestDir.Enabled = item != null && !string.IsNullOrEmpty(item.DestinationPath);
         };
 
         tableArchive.ContextMenuStrip = menu;
@@ -143,13 +157,16 @@ public partial class ArchiveControl : UserControl, IThemedControl
     }
 
     public void Initialize(AppConfig config, MappingIntelligence intelligence, ArchiveOrganizer organizer,
-        IAssetMetaStore? metaStore = null, TagTranslator? tagTranslator = null)
+        IAssetMetaStore? metaStore = null, TagTranslator? tagTranslator = null,
+        UserPreferences? prefs = null, ReadRecordQueue? readRecordQueue = null)
     {
         _config = config;
         _intelligence = intelligence;
         _organizer = organizer;
         _metaStore = metaStore;
         _tagTranslator = tagTranslator;
+        _prefs = prefs;
+        _readRecordQueue = readRecordQueue;
     }
 
     public void ApplyThemeColors()
@@ -164,24 +181,59 @@ public partial class ArchiveControl : UserControl, IThemedControl
     {
         btnScan.Text = LocalizationManager.GetString("ArchiveScan");
         btnExecute.Text = LocalizationManager.GetString("ArchivePreview");
-        lblStatus.Text = LocalizationManager.GetString("StatusReady");
         tableArchive.EmptyText = LocalizationManager.GetString("NoData");
 
-        if (tableArchive.Columns != null && tableArchive.Columns.Count >= 6)
+        // Headers
+        if (tableArchive.Columns != null && tableArchive.Columns.Count >= 7)
         {
             tableArchive.Columns[1].Title = LocalizationManager.GetString("ArchiveColSource") ?? "來源名稱";
             tableArchive.Columns[2].Title = LocalizationManager.GetString("ArchiveColTarget") ?? "目標資料夾";
-            tableArchive.Columns[3].Title = LocalizationManager.GetString("ArchiveColConfidence") ?? "置信度";
-            tableArchive.Columns[4].Title = LocalizationManager.GetString("ArchiveColStatus") ?? "狀態";
-            tableArchive.Columns[5].Title = LocalizationManager.GetString("ArchiveColAction") ?? "操作";
+
+            tableArchive.Columns[3].Title = LocalizationManager.GetString("ArchiveColDestinationPath");
+            if (tableArchive.Columns[3].Title == "ArchiveColDestinationPath")
+            {
+                tableArchive.Columns[3].Title = System.Threading.Thread.CurrentThread.CurrentUICulture.Name.StartsWith("zh")
+                    ? "預計歸檔路徑"
+                    : "Destination Path";
+            }
+
+            tableArchive.Columns[4].Title = LocalizationManager.GetString("ArchiveColConfidence") ?? "置信度";
+            tableArchive.Columns[5].Title = LocalizationManager.GetString("ArchiveColStatus") ?? "狀態";
+            tableArchive.Columns[6].Title = LocalizationManager.GetString("ArchiveColAction") ?? "操作";
         }
 
-        if (_menuItemCheck != null)
-            _menuItemCheck.Text = LocalizationManager.GetString("ArchiveMenuCheck") ?? "勾選選取項目";
-        if (_menuItemUncheck != null)
-            _menuItemUncheck.Text = LocalizationManager.GetString("ArchiveMenuUncheck") ?? "取消勾選選取項目";
-    }
+        lblStatus.Text = LocalizationManager.GetString("StatusReady");
 
+        // Context menu items
+        if (_menuItemCheck != null)
+        {
+            _menuItemCheck.Text = LocalizationManager.GetString("ArchiveMenuCheck") ?? "勾選選取項目";
+        }
+        if (_menuItemUncheck != null)
+        {
+            _menuItemUncheck.Text = LocalizationManager.GetString("ArchiveMenuUncheck") ?? "取消勾選選取項目";
+        }
+        if (_menuItemViewComic != null)
+        {
+            _menuItemViewComic.Text = LocalizationManager.GetString("ArchiveMenuItemViewComic");
+            if (_menuItemViewComic.Text == "ArchiveMenuItemViewComic")
+            {
+                _menuItemViewComic.Text = System.Threading.Thread.CurrentThread.CurrentUICulture.Name.StartsWith("zh")
+                    ? "瀏覽欲歸檔漫畫"
+                    : "View comic to archive";
+            }
+        }
+        if (_menuItemViewDestDir != null)
+        {
+            _menuItemViewDestDir.Text = LocalizationManager.GetString("ArchiveMenuItemViewDestDir");
+            if (_menuItemViewDestDir.Text == "ArchiveMenuItemViewDestDir")
+            {
+                _menuItemViewDestDir.Text = System.Threading.Thread.CurrentThread.CurrentUICulture.Name.StartsWith("zh")
+                    ? "瀏覽歸檔目錄"
+                    : "Open destination directory";
+            }
+        }
+    }
     public void OnConfigUpdated(AppConfig config)
     {
         _config = config;
@@ -257,7 +309,7 @@ public partial class ArchiveControl : UserControl, IThemedControl
         }
     }
 
-    private void OpenPreview()
+    private async void OpenPreview()
     {
         if (_config == null || _intelligence == null || _organizer == null) return;
         if (tableArchive.DataSource is not BindingList<ArchiveItem> items || items.Count == 0) return;
@@ -283,5 +335,109 @@ public partial class ArchiveControl : UserControl, IThemedControl
         using var preview = new PreviewForm(checkedItems, _config.RootDirectory, _intelligence, _organizer,
             _config, _metaStore, _tagTranslator);
         preview.ShowDialog(this.FindForm());
+
+        if (preview.IsExecuted)
+        {
+            await ScanAsync();
+        }
+    }
+
+    private ArchiveItem? GetFirstSelectedItem()
+    {
+        if (tableArchive.DataSource is not BindingList<ArchiveItem> items || items.Count == 0) return null;
+        var indices = tableArchive.SelectedIndexs;
+        if (indices == null || indices.Length == 0)
+        {
+            int singleIdx = tableArchive.SelectedIndex;
+            if (singleIdx >= 0) indices = new int[] { singleIdx };
+        }
+        if (indices != null && indices.Length > 0)
+        {
+            foreach (var idx in indices)
+            {
+                int dataIdx = idx - 1;
+                if (dataIdx >= 0 && dataIdx < items.Count)
+                {
+                    return items[dataIdx];
+                }
+            }
+        }
+        return null;
+    }
+
+    private void ViewSelectedComic()
+    {
+        var item = GetFirstSelectedItem();
+        if (item == null || string.IsNullOrEmpty(item.FullPath)) return;
+
+        var path = item.FullPath;
+        if (!System.IO.File.Exists(path) && !System.IO.Directory.Exists(path))
+        {
+            var form = this.FindForm();
+            if (form != null) AntdUI.Message.error(form, "檔案或目錄不存在");
+            return;
+        }
+
+        if (_config == null) return;
+
+        IReaderSource source;
+        var ext = Path.GetExtension(path);
+        try
+        {
+            if (SupportedExtensions.Archive.Contains(ext) && File.Exists(path))
+                source = new ArchiveReaderSource(path);
+            else if (SupportedExtensions.Pdf.Contains(ext) && File.Exists(path))
+                source = new PdfReaderSource(path);
+            else
+                source = new FolderReaderSource(path);
+
+            if (source.PageCount == 0)
+            {
+                source.Dispose();
+                var form = this.FindForm();
+                if (form != null) AntdUI.Message.error(form, "找不到任何圖片");
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            var form = this.FindForm();
+            if (form != null) AntdUI.Message.error(form, "無法載入漫畫: " + ex.Message);
+            return;
+        }
+
+        bool rtl = (_prefs?.DefaultReadingDirection ?? "rtl") == "rtl";
+        bool spreadFromCover = _prefs?.DualPageSpreadFromCover ?? false;
+        int thrSec = _config.ReadCountThresholdSeconds;
+        int thrPages = _config.ReadCountThresholdPages;
+        bool track = _prefs?.TrackReadingRecord ?? true;
+
+        var formReader = new ReaderForm(source, rtl, spreadFromCover, _metaStore,
+                                        _readRecordQueue, thrSec, thrPages, track);
+        formReader.Show();
+    }
+
+    private void OpenSelectedDestDir()
+    {
+        var item = GetFirstSelectedItem();
+        if (item == null || string.IsNullOrEmpty(item.DestinationPath)) return;
+
+        try
+        {
+            if (!System.IO.Directory.Exists(item.DestinationPath))
+            {
+                System.IO.Directory.CreateDirectory(item.DestinationPath);
+            }
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = item.DestinationPath,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            var form = this.FindForm();
+            if (form != null) AntdUI.Message.error(form, "無法開啟目錄: " + ex.Message);
+        }
     }
 }
