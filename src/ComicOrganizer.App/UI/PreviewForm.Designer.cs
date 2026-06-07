@@ -119,6 +119,7 @@ partial class PreviewForm
         // 
         // splitter1.Panel2
         // 
+        splitter1.Panel2.AutoScroll = true;
         splitter1.Panel2.Controls.Add(collapseMain);
         splitter1.Size = new Size(1048, 850);
         splitter1.SplitterDistance = 81;
@@ -126,8 +127,9 @@ partial class PreviewForm
         // 
         // collapseMain
         // 
+        collapseMain.AutoSize = true;
         collapseMain.ContentPadding = new Size(5, 5);
-        collapseMain.Dock = DockStyle.Fill;
+        collapseMain.Dock = DockStyle.Top;
         collapseMain.FontExpand = new Font("Microsoft JhengHei UI", 12F, FontStyle.Bold, GraphicsUnit.Point, 136);
         collapseMain.HeaderBg = Color.FromArgb(194, 193, 192);
         collapseMain.Location = new Point(0, 0);

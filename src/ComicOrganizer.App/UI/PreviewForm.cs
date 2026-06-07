@@ -5,7 +5,7 @@ using System.ComponentModel;
 
 namespace ComicOrganizer.App.UI;
 
-public partial class PreviewForm : Window
+public partial class PreviewForm : Window, IThemedControl
 {
     private List<ArchiveGroup> _groups;
     private readonly MappingIntelligence _intelligence;
@@ -46,13 +46,21 @@ public partial class PreviewForm : Window
                        && !string.IsNullOrEmpty(_config.GetNhentaiApiKey());
         cbFetchMetadata.Enabled = canFetch;
 
-        LocalizationManager.LanguageChanged += (s, e) => ApplyLocalization();
-        ApplyLocalization();
-        ThemeManager.ThemeChanged += (s, e) => ThemeManager.ApplyTheme(this);
-        ThemeManager.ApplyTheme(this);
+        this.WireThemeAndLocalization();
     }
 
-    private void ApplyLocalization()
+    public void ApplyThemeColors()
+    {
+        this.BackColor = Core.ThemeColors.Background;
+        windowBar.BackColor = Core.ThemeColors.Primary;
+        windowBar.ForeColor = Core.ThemeColors.HeaderText;
+        footer.BackColor = Core.ThemeColors.Surface;
+        lblProgress.ForeColor = Core.ThemeColors.Text;
+        cbFetchMetadata.ForeColor = Core.ThemeColors.Text;
+        this.Refresh();
+    }
+
+    public void ApplyLocalization()
     {
         this.Text = LocalizationManager.GetString("PreviewTitle");
         btnExecute.Text = LocalizationManager.GetString("ArchiveExecuteRun");
@@ -162,7 +170,7 @@ public partial class PreviewForm : Window
             collapseMain.Items.Add(collapseItem);
         }
         UpdateExecuteButtonState();
-
+        collapseMain.LoadLayout();
     }
 
     private void UpdateExecuteButtonState()

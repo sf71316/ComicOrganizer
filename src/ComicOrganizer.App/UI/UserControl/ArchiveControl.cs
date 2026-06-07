@@ -262,7 +262,25 @@ public partial class ArchiveControl : UserControl, IThemedControl
         if (_config == null || _intelligence == null || _organizer == null) return;
         if (tableArchive.DataSource is not BindingList<ArchiveItem> items || items.Count == 0) return;
 
-        using var preview = new PreviewForm(items.ToList(), _config.RootDirectory, _intelligence, _organizer,
+        var checkedItems = items.Where(x => x.Checked).ToList();
+        if (checkedItems.Count == 0)
+        {
+            var form = this.FindForm();
+            if (form != null)
+            {
+                var msg = LocalizationManager.GetString("ArchiveNoCheckedItems");
+                if (msg == "ArchiveNoCheckedItems")
+                {
+                    msg = System.Threading.Thread.CurrentThread.CurrentUICulture.Name.StartsWith("zh")
+                        ? "請先勾選要歸檔的項目"
+                        : "Please select items to archive";
+                }
+                AntdUI.Message.warn(form, msg);
+            }
+            return;
+        }
+
+        using var preview = new PreviewForm(checkedItems, _config.RootDirectory, _intelligence, _organizer,
             _config, _metaStore, _tagTranslator);
         preview.ShowDialog(this.FindForm());
     }
