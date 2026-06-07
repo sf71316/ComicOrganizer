@@ -29,7 +29,7 @@ public partial class ArchiveControl : UserControl, IThemedControl
         tableArchive.MultipleRows = true;
         tableArchive.Columns = new ColumnCollection
         {
-            new ColumnCheck("Checked", "") { Width = "5%" },
+            new ColumnCheck("Checked") { Width = "40" },
             new Column("Source", "來源名稱") { Width = "40%" },
             new Column("TargetFolder", "目標資料夾") { Width = "25%" },
             new Column("Confidence", "置信度") { Width = "10%", Align = ColumnAlign.Right },
@@ -56,6 +56,18 @@ public partial class ArchiveControl : UserControl, IThemedControl
 
         // 綁定鍵盤 Space 監聽
         tableArchive.KeyDown += TableArchive_KeyDown;
+
+        // 監聽表頭全選 Checkbox 狀態變更
+        tableArchive.CheckedOverallChanged += (column, value) =>
+        {
+            if (tableArchive.DataSource is not BindingList<ArchiveItem> items || items.Count == 0) return;
+            if (value.Value == System.Windows.Forms.CheckState.Indeterminate) return;
+            bool targetVal = (value.Value == System.Windows.Forms.CheckState.Checked);
+            foreach (var item in items)
+            {
+                item.Checked = targetVal;
+            }
+        };
     }
 
     private void TableArchive_KeyDown(object? sender, KeyEventArgs e)
