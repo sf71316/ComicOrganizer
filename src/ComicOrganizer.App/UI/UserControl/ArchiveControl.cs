@@ -12,13 +12,122 @@ public partial class ArchiveControl : UserControl, IThemedControl
     private ArchiveOrganizer? _organizer;
     private IAssetMetaStore? _metaStore;
     private TagTranslator? _tagTranslator;
+    private ToolStripMenuItem? _menuItemCheck;
+    private ToolStripMenuItem? _menuItemUncheck;
 
     public ArchiveControl()
     {
         InitializeComponent();
+        ConfigureTable();
         btnScan.Click += async (s, e) => await ScanAsync();
         btnExecute.Click += (s, e) => OpenPreview();
         this.WireThemeAndLocalization();
+    }
+
+    private void ConfigureTable()
+    {
+        tableArchive.MultipleRows = true;
+        tableArchive.Columns = new ColumnCollection
+        {
+            new ColumnCheck("Checked", "") { Width = "5%" },
+            new Column("Source", "來源名稱") { Width = "40%" },
+            new Column("TargetFolder", "目標資料夾") { Width = "25%" },
+            new Column("Confidence", "置信度") { Width = "10%", Align = ColumnAlign.Right },
+            new Column("Status", "狀態") { Width = "10%" },
+            new Column("Action", "操作") { Width = "10%" }
+        };
+
+        // 初始化右鍵選單
+        var menu = new System.Windows.Forms.ContextMenuStrip();
+        _menuItemCheck = new ToolStripMenuItem("勾選選取項目", null, (s, e) => SetSelectedRowsChecked(true));
+        _menuItemUncheck = new ToolStripMenuItem("取消勾選選取項目", null, (s, e) => SetSelectedRowsChecked(false));
+        menu.Items.Add(_menuItemCheck);
+        menu.Items.Add(_menuItemUncheck);
+
+        menu.Opening += (s, e) =>
+        {
+            var indices = tableArchive.SelectedIndexs;
+            bool hasSelection = (indices != null && indices.Length > 0) || tableArchive.SelectedIndex >= 0;
+            _menuItemCheck.Enabled = hasSelection;
+            _menuItemUncheck.Enabled = hasSelection;
+        };
+
+        tableArchive.ContextMenuStrip = menu;
+
+        // 綁定鍵盤 Space 監聽
+        tableArchive.KeyDown += TableArchive_KeyDown;
+    }
+
+    private void TableArchive_KeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.KeyCode == Keys.Space)
+        {
+            ToggleSelectedRows();
+            e.Handled = true;
+            e.SuppressKeyPress = true;
+        }
+    }
+
+    private void SetSelectedRowsChecked(bool checkValue)
+    {
+        if (tableArchive.DataSource is not BindingList<ArchiveItem> items || items.Count == 0) return;
+
+        var indices = tableArchive.SelectedIndexs;
+        if (indices != null && indices.Length > 0)
+        {
+            foreach (var idx in indices)
+            {
+                int targetIdx = idx - 1;
+                if (targetIdx >= 0 && targetIdx < items.Count)
+                {
+                    items[targetIdx].Checked = checkValue;
+                }
+            }
+        }
+        else
+        {
+            int singleIdx = tableArchive.SelectedIndex - 1;
+            if (singleIdx >= 0 && singleIdx < items.Count)
+            {
+                items[singleIdx].Checked = checkValue;
+            }
+        }
+    }
+
+    private void ToggleSelectedRows()
+    {
+        if (tableArchive.DataSource is not BindingList<ArchiveItem> items || items.Count == 0) return;
+
+        var indices = tableArchive.SelectedIndexs;
+        var targetItems = new List<ArchiveItem>();
+
+        if (indices != null && indices.Length > 0)
+        {
+            foreach (var idx in indices)
+            {
+                int targetIdx = idx - 1;
+                if (targetIdx >= 0 && targetIdx < items.Count)
+                {
+                    targetItems.Add(items[targetIdx]);
+                }
+            }
+        }
+        else
+        {
+            int singleIdx = tableArchive.SelectedIndex - 1;
+            if (singleIdx >= 0 && singleIdx < items.Count)
+            {
+                targetItems.Add(items[singleIdx]);
+            }
+        }
+
+        if (targetItems.Count == 0) return;
+
+        bool anyUnchecked = targetItems.Any(x => !x.Checked);
+        foreach (var item in targetItems)
+        {
+            item.Checked = anyUnchecked;
+        }
     }
 
     public void Initialize(AppConfig config, MappingIntelligence intelligence, ArchiveOrganizer organizer,
@@ -45,6 +154,20 @@ public partial class ArchiveControl : UserControl, IThemedControl
         btnExecute.Text = LocalizationManager.GetString("ArchivePreview");
         lblStatus.Text = LocalizationManager.GetString("StatusReady");
         tableArchive.EmptyText = LocalizationManager.GetString("NoData");
+
+        if (tableArchive.Columns != null && tableArchive.Columns.Count >= 6)
+        {
+            tableArchive.Columns[1].Title = LocalizationManager.GetString("ArchiveColSource") ?? "來源名稱";
+            tableArchive.Columns[2].Title = LocalizationManager.GetString("ArchiveColTarget") ?? "目標資料夾";
+            tableArchive.Columns[3].Title = LocalizationManager.GetString("ArchiveColConfidence") ?? "置信度";
+            tableArchive.Columns[4].Title = LocalizationManager.GetString("ArchiveColStatus") ?? "狀態";
+            tableArchive.Columns[5].Title = LocalizationManager.GetString("ArchiveColAction") ?? "操作";
+        }
+
+        if (_menuItemCheck != null)
+            _menuItemCheck.Text = LocalizationManager.GetString("ArchiveMenuCheck") ?? "勾選選取項目";
+        if (_menuItemUncheck != null)
+            _menuItemUncheck.Text = LocalizationManager.GetString("ArchiveMenuUncheck") ?? "取消勾選選取項目";
     }
 
     public void OnConfigUpdated(AppConfig config)

@@ -916,6 +916,27 @@ FS 掃描 {0} 件 / DB 索引 {1} 件</value>
   <data name="PickerColPages" xml:space="preserve">
     <value>頁數</value>
   </data>
+  <data name="ArchiveColSource" xml:space="preserve">
+    <value>來源名稱</value>
+  </data>
+  <data name="ArchiveColTarget" xml:space="preserve">
+    <value>目標資料夾</value>
+  </data>
+  <data name="ArchiveColConfidence" xml:space="preserve">
+    <value>置信度</value>
+  </data>
+  <data name="ArchiveColStatus" xml:space="preserve">
+    <value>狀態</value>
+  </data>
+  <data name="ArchiveColAction" xml:space="preserve">
+    <value>操作</value>
+  </data>
+  <data name="ArchiveMenuCheck" xml:space="preserve">
+    <value>勾選選取項目</value>
+  </data>
+  <data name="ArchiveMenuUncheck" xml:space="preserve">
+    <value>取消勾選選取項目</value>
+  </data>
   <data name="RebuildCacheTitle" xml:space="preserve">
     <value>重建索引資料庫</value>
   </data>
