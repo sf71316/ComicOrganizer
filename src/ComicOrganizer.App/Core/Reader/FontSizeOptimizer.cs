@@ -250,4 +250,125 @@ public static class FontSizeOptimizer
             }
         }
     }
+
+    /// <summary>
+    /// 依「實際偵測到的文字欄（Children）」位置垂直繪製譯文：欄位水平中心取自各子欄、
+    /// 每欄字數由合併框高度決定並在合併框內垂直置中。與 DrawVerticalString 的「等距欄位網格」不同——
+    /// 這裡讓字嚴格落在已塗白的子欄上，避免不規則/多欄氣泡時譯文畫到欄間插圖或被 clip 切斷。
+    /// columns 需依閱讀順序（直書由右至左）排列；空清單時退回整個 merged 當單欄。
+    /// </summary>
+    public static void DrawVerticalStringInColumns(Graphics g, string text, Font font, Brush brush, RectangleF merged, List<RectangleF> columns, float pixelsPerPoint)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+
+        var cols = (columns != null && columns.Count > 0) ? columns : new List<RectangleF> { merged };
+
+        float charSize = font.SizeInPoints * pixelsPerPoint;
+        float cellH = charSize * (1f + VerticalCharSpacingRatio);
+
+        using StringFormat format = new StringFormat
+        {
+            Alignment = StringAlignment.Center,
+            LineAlignment = StringAlignment.Center,
+            FormatFlags = StringFormatFlags.NoWrap
+        };
+
+        // 各欄容量（以子欄自身高度估，確保整欄文字落在子欄內、不超出氣泡）
+        int n = cols.Count;
+        int[] caps = new int[n];
+        for (int i = 0; i < n; i++)
+            caps[i] = Math.Max(1, (int)(cols[i].Height * 0.97f / cellH));
+
+        // 分欄規劃：欄位均分 + 基本禁則微調
+        int[] counts = PlanColumnCounts(text, caps);
+        int useCols = counts.Length;
+
+        // 逐欄繪製（每欄在自身子欄高度內垂直置中）
+        int idx = 0;
+        for (int ci = 0; ci < useCols && idx < text.Length; ci++)
+        {
+            int take = Math.Min(counts[ci], text.Length - idx);
+            string colText = text.Substring(idx, take);
+            idx += take;
+
+            RectangleF col = cols[ci];
+            float cx = col.Left + col.Width / 2f - charSize / 2f;
+            float lineH = colText.Length * cellH;
+            float startY = col.Top + Math.Max(0f, (col.Height - lineH) / 2f);
+            for (int k = 0; k < colText.Length; k++)
+            {
+                float y = startY + k * cellH;
+                g.DrawString(colText[k].ToString(), font, brush, new RectangleF(cx, y, charSize, charSize), format);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 把長度為 text.Length 的字串規劃成各欄字數：(1) 用「能容納全文的最少欄數」做欄位均分（避免孤兒欄），
+    /// (2) 對欄界做基本禁則微調。回傳的 counts 總和 == text.Length（容量極不足時最後一欄會超出，交由 clip 收尾）。
+    /// caps 為各欄容量（依閱讀順序，直書由右至左）。純函式，便於單元測試。
+    /// </summary>
+    public static int[] PlanColumnCounts(string text, int[] caps)
+    {
+        int len = text?.Length ?? 0;
+        if (len == 0 || caps == null || caps.Length == 0) return Array.Empty<int>();
+
+        // 使用欄數：能容納全文的最少欄數（由右至左累加）
+        int useCols = caps.Length;
+        int cum = 0;
+        for (int i = 0; i < caps.Length; i++) { cum += caps[i]; if (cum >= len) { useCols = i + 1; break; } }
+
+        // (1) 欄位均分：盡量平均分配到 useCols 欄，受各欄容量限制，避免「孤兒欄」
+        int[] counts = new int[useCols];
+        int remaining = len;
+        for (int i = 0; i < useCols; i++)
+        {
+            int colsLeft = useCols - i;
+            int want = (remaining + colsLeft - 1) / colsLeft;   // ceil(remaining / colsLeft)
+            counts[i] = Math.Min(want, caps[i]);
+            remaining -= counts[i];
+        }
+        if (remaining > 0) counts[useCols - 1] += remaining;     // 容量不足時不漏字（極端情況，交由 clip 收尾）
+
+        // (2) 基本禁則微調
+        AdjustKinsoku(text!, counts, caps);
+        return counts;
+    }
+
+    // 禁則字集（繁中為主，含常見日文）：行頭禁則＝收尾標點/括號/連續記號/小書假名；行尾禁則＝起始括號。
+    private const string KinsokuLineStart = "。．，、；：！？”’｝〕）］》〉」』】…‧—─～ー々ぁぃぅぇぉっゃゅょゎ・,.!?;:)]}";
+    private const string KinsokuLineEnd = "（［｛〔《〈「『【“‘([{";
+
+    private static bool IsLineStartForbidden(char c) => KinsokuLineStart.IndexOf(c) >= 0;
+    private static bool IsLineEndForbidden(char c) => KinsokuLineEnd.IndexOf(c) >= 0;
+
+    /// <summary>
+    /// 對已均分的每欄字數做基本禁則微調（受各欄容量限制，調不動就放棄該次以保不溢出）：
+    /// - 追い込み：下一欄欄首是行頭禁則字（。、！？」…）→ 拉回本欄欄尾（可連拉，處理「！？」「…。」）。
+    /// - 追い出し：本欄欄尾是行尾禁則字（起始括號 「（）→ 推到下一欄欄首。
+    /// </summary>
+    private static void AdjustKinsoku(string text, int[] counts, int[] caps)
+    {
+        int start = 0;
+        for (int i = 0; i < counts.Length - 1; i++)
+        {
+            while (start + counts[i] < text.Length
+                   && IsLineStartForbidden(text[start + counts[i]])
+                   && counts[i] + 1 <= caps[i]
+                   && counts[i + 1] - 1 >= 1)
+            {
+                counts[i]++; counts[i + 1]--;
+            }
+
+            if (start + counts[i] - 1 >= 0 && start + counts[i] - 1 < text.Length
+                && IsLineEndForbidden(text[start + counts[i] - 1])
+                && counts[i] - 1 >= 1
+                && counts[i + 1] + 1 <= caps[i + 1])
+            {
+                counts[i]--; counts[i + 1]++;
+            }
+
+            start += counts[i];
+        }
+    }
 }

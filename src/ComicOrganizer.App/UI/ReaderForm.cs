@@ -2119,7 +2119,9 @@ public partial class ReaderForm : Window, IThemedControl
 				// 收集實際要塗白的矩形：有子氣泡時逐一塗各子框，否則塗整個合併框。
 				// 之後文字 clip 共用這同一組矩形，確保「能畫字的範圍」==「塗白的範圍」，
 				// 不規則氣泡（子框散開、聯集矩形涵蓋插圖空隙）時譯文才不會畫到氣泡外。
-				var whiteRects = new List<RectangleF>();
+				// 子欄（Children）= 實際偵測到的各文字欄；逐欄塗白（保留欄間插圖），繪製也對齊這些欄，
+				// 讓譯文嚴格落在已塗白的欄上，既不溢出氣泡也不被切斷。
+				var cols = new List<RectangleF>();
 				if (item.Children != null && item.Children.Count > 0)
 				{
 					foreach (var child in item.Children)
@@ -2128,30 +2130,30 @@ public partial class ReaderForm : Window, IThemedControl
 						float cy = (float)destRect.Y + child.Y * num2;
 						float cw = child.Width * num;
 						float ch = child.Height * num2;
-						whiteRects.Add(RectangleF.Inflate(new RectangleF(cx, cy, cw, ch), 2f, 2f));
+						cols.Add(new RectangleF(cx, cy, cw, ch));
 					}
 				}
 				else
 				{
-					whiteRects.Add(RectangleF.Inflate(rect, 2f, 2f));
+					cols.Add(rect);
 				}
 
-				foreach (RectangleF wr in whiteRects)
-					g.FillRectangle(brush, wr);
+				foreach (RectangleF c in cols)
+					g.FillRectangle(brush, RectangleF.Inflate(c, 2f, 2f));
 
 				float emSize = fontSizes.TryGetValue(item, out float size) ? size : 14f;
 				// 將計算出的原始字體大小乘上寬度縮放比例 num，實現等比例放大縮小
 				emSize = emSize * num;
 				using Font font = new Font("Microsoft JhengHei UI", emSize, FontStyle.Bold);
 				var savedState = g.Save();
-				// clip 限制在實際塗白區域的聯集（非合併外接矩形），避免文字溢出不規則氣泡或畫到未塗白的插圖空隙
+				// clip 到各子欄塗白區的聯集：排版已在各子欄自身高度內置中，文字嚴格落在已塗白的欄上，不溢出氣泡也不被切
 				using (var clipRegion = new Region())
 				{
 					clipRegion.MakeEmpty();
-					foreach (RectangleF wr in whiteRects)
-						clipRegion.Union(wr);
+					foreach (RectangleF c in cols)
+						clipRegion.Union(RectangleF.Inflate(c, 2f, 2f));
 					g.SetClip(clipRegion, CombineMode.Replace);
-					FontSizeOptimizer.DrawVerticalString(g, item.Text, font, brush2, rect, pixelsPerPoint);
+					FontSizeOptimizer.DrawVerticalStringInColumns(g, item.Text, font, brush2, rect, cols, pixelsPerPoint);
 				}
 				g.Restore(savedState);
 			}
