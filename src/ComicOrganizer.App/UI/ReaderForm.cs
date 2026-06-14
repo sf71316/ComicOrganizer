@@ -2116,7 +2116,10 @@ public partial class ReaderForm : Window, IThemedControl
 				float num4 = item.Height * num2;
 				RectangleF rect = new RectangleF(x, y, num3, num4);
 
-				// 如果有子氣泡，則只對各個子氣泡的區域分別塗白
+				// 收集實際要塗白的矩形：有子氣泡時逐一塗各子框，否則塗整個合併框。
+				// 之後文字 clip 共用這同一組矩形，確保「能畫字的範圍」==「塗白的範圍」，
+				// 不規則氣泡（子框散開、聯集矩形涵蓋插圖空隙）時譯文才不會畫到氣泡外。
+				var whiteRects = new List<RectangleF>();
 				if (item.Children != null && item.Children.Count > 0)
 				{
 					foreach (var child in item.Children)
@@ -2125,24 +2128,31 @@ public partial class ReaderForm : Window, IThemedControl
 						float cy = (float)destRect.Y + child.Y * num2;
 						float cw = child.Width * num;
 						float ch = child.Height * num2;
-						RectangleF cRect = new RectangleF(cx, cy, cw, ch);
-						RectangleF cRect2 = RectangleF.Inflate(cRect, 2f, 2f);
-						g.FillRectangle(brush, cRect2);
+						whiteRects.Add(RectangleF.Inflate(new RectangleF(cx, cy, cw, ch), 2f, 2f));
 					}
 				}
 				else
 				{
-					RectangleF rect2 = RectangleF.Inflate(rect, 2f, 2f);
-					g.FillRectangle(brush, rect2);
+					whiteRects.Add(RectangleF.Inflate(rect, 2f, 2f));
 				}
+
+				foreach (RectangleF wr in whiteRects)
+					g.FillRectangle(brush, wr);
 
 				float emSize = fontSizes.TryGetValue(item, out float size) ? size : 14f;
 				// 將計算出的原始字體大小乘上寬度縮放比例 num，實現等比例放大縮小
 				emSize = emSize * num;
 				using Font font = new Font("Microsoft JhengHei UI", emSize, FontStyle.Bold);
 				var savedState = g.Save();
-				g.SetClip(rect);
-				FontSizeOptimizer.DrawVerticalString(g, item.Text, font, brush2, rect, pixelsPerPoint);
+				// clip 限制在實際塗白區域的聯集（非合併外接矩形），避免文字溢出不規則氣泡或畫到未塗白的插圖空隙
+				using (var clipRegion = new Region())
+				{
+					clipRegion.MakeEmpty();
+					foreach (RectangleF wr in whiteRects)
+						clipRegion.Union(wr);
+					g.SetClip(clipRegion, CombineMode.Replace);
+					FontSizeOptimizer.DrawVerticalString(g, item.Text, font, brush2, rect, pixelsPerPoint);
+				}
 				g.Restore(savedState);
 			}
 		}

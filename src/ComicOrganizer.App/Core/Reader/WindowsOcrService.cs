@@ -143,7 +143,9 @@ public class WindowsOcrService : IOcrService
         }
     }
 
-    public List<OcrBlock> MergeBlocks(List<OcrBlock> blocks, bool isVerticalFlow = true, float thresholdMultiplier = 1.8f)
+    // thresholdMultiplier 預設 1.0：只併「間隔在一個欄寬以內」的相鄰文字欄。
+    // 同一氣泡內的鄰欄間隔通常 < 0.5 欄寬仍會合併；相鄰氣泡（間隔 > 1 欄寬）則不再被誤併成過大的合併框，避免譯文溢出。
+    public List<OcrBlock> MergeBlocks(List<OcrBlock> blocks, bool isVerticalFlow = true, float thresholdMultiplier = 1.0f)
     {
         if (blocks == null || blocks.Count <= 1)
             return blocks ?? new List<OcrBlock>();

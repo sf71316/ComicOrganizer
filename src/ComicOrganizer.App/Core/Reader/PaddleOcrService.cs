@@ -15,13 +15,19 @@ public class PaddleOcrService : IOcrService
     private PaddleOCREngine? _engine;
     private readonly object _lock = new object();
     private readonly HttpClient _httpClient = new HttpClient();
+    private readonly string _inferenceDir;
+
+    /// <summary>inferenceDir 預設為 exe 同層的 inference/；測試可指向 App bin 的模型目錄。</summary>
+    public PaddleOcrService(string? inferenceDir = null)
+    {
+        _inferenceDir = inferenceDir ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "inference");
+    }
 
     private async Task EnsureEngineAsync()
     {
         if (_engine != null) return;
 
-        string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-        string inferenceDir = Path.Combine(baseDir, "inference");
+        string inferenceDir = _inferenceDir;
 
         string detPath = Path.Combine(inferenceDir, "PP-OCRv6_small_det_infer");
         string recPath = Path.Combine(inferenceDir, "PP-OCRv6_small_rec_infer");
@@ -131,7 +137,9 @@ public class PaddleOcrService : IOcrService
         return blocks;
     }
 
-    public List<OcrBlock> MergeBlocks(List<OcrBlock> blocks, bool isVerticalFlow = true, float thresholdMultiplier = 1.8f)
+    // thresholdMultiplier 預設 1.0：只併「間隔在一個欄寬以內」的相鄰文字欄。
+    // 同一氣泡內的鄰欄間隔通常 < 0.5 欄寬仍會合併；相鄰氣泡（間隔 > 1 欄寬）則不再被誤併成過大的合併框，避免譯文溢出。
+    public List<OcrBlock> MergeBlocks(List<OcrBlock> blocks, bool isVerticalFlow = true, float thresholdMultiplier = 1.0f)
     {
         if (blocks == null || blocks.Count <= 1)
             return blocks ?? new List<OcrBlock>();

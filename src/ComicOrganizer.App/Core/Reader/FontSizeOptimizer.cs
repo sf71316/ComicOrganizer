@@ -65,11 +65,7 @@ public static class FontSizeOptimizer
         {
             if (string.IsNullOrWhiteSpace(block.Text)) continue;
 
-            float w = block.Width;
-            float h = block.Height;
-            string rawText = !string.IsNullOrEmpty(block.OriginalText) ? block.OriginalText : block.Text;
-
-            float origSize = EstimateOriginalFontSizeInPoints(rawText, w, h, pixelsPerPoint);
+            float origSize = EstimateOriginalFontSize(block, pixelsPerPoint);
             blockOrigSizes[block] = origSize;
 
             // 一般合理的字體大小在 8pt ~ 25pt 之間，作為中位數基準的採樣來源
@@ -125,6 +121,35 @@ public static class FontSizeOptimizer
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// 估算 block 原始字體大小（pt）。多欄（Children &gt; 1）時改用各子框（原始單欄）分別估再取中位數——
+    /// 否則合併後的多欄文字被 CleanCjkSpaces 去空白後會被當成「單一長欄」，
+    /// 用 高度/總字數 算出每字過小（多欄越多低估越嚴重），導致譯文字級被鎖在偏小值。
+    /// 無 children 或單欄時退回原本的整框估算。
+    /// </summary>
+    private static float EstimateOriginalFontSize(OcrBlock block, float pixelsPerPoint)
+    {
+        if (block.Children != null && block.Children.Count > 1)
+        {
+            var perColumn = new List<float>();
+            foreach (var ch in block.Children)
+            {
+                if (ch.Width <= 0 || ch.Height <= 0) continue;
+                string ct = !string.IsNullOrEmpty(ch.OriginalText) ? ch.OriginalText : ch.Text;
+                if (string.IsNullOrWhiteSpace(ct)) continue;
+                perColumn.Add(EstimateOriginalFontSizeInPoints(ct, ch.Width, ch.Height, pixelsPerPoint));
+            }
+            if (perColumn.Count > 0)
+            {
+                perColumn.Sort();
+                return perColumn[perColumn.Count / 2];
+            }
+        }
+
+        string raw = !string.IsNullOrEmpty(block.OriginalText) ? block.OriginalText : block.Text;
+        return EstimateOriginalFontSizeInPoints(raw, block.Width, block.Height, pixelsPerPoint);
     }
 
     /// <summary>
