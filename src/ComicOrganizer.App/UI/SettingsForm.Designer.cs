@@ -23,6 +23,22 @@ partial class SettingsForm
     private AntdUI.Panel readerPanel;
     private AntdUI.Panel externalPanel;
 
+    // translationPanel 控件
+    private AntdUI.Button btnMenuTranslation;
+    private AntdUI.Panel translationPanel;
+    private AntdUI.Label lblTrTitle;
+    private AntdUI.Label lblTrDesc;
+    private AntdUI.Label lblTrApiType;
+    private AntdUI.Select selectTrApiType;
+    private AntdUI.Label lblTrEndpoint;
+    private AntdUI.Input txtTrEndpoint;
+    private AntdUI.Label lblTrModel;
+    private AntdUI.Input txtTrModel;
+    private AntdUI.Button btnTestTrConnection;
+    private AntdUI.Label lblTrStatus;
+    private AntdUI.Label lblTrConcurrency;
+    private AntdUI.InputNumber numTrConcurrency;
+
     // externalPanel 控件 (#52)
     private AntdUI.Label lblExtTitle;
     private AntdUI.Label lblExtDesc;
@@ -53,6 +69,8 @@ partial class SettingsForm
     private AntdUI.Label labelReadingDirection;
     private AntdUI.Select selectReadingDirection;
     private AntdUI.Checkbox cbDualPageSpreadFromCover;
+    private AntdUI.Label labelOcrEngine;
+    private AntdUI.Select selectOcrEngine;
 
     // libraryPanel 控件
     private AntdUI.Label label1;
@@ -138,8 +156,24 @@ partial class SettingsForm
         selectReadingDirection = new Select();
         labelReadingDirection = new AntdUI.Label();
         cbUseBuiltInReader = new Checkbox();
+        labelOcrEngine = new AntdUI.Label();
+        selectOcrEngine = new AntdUI.Select();
         externalPanel = new AntdUI.Panel();
         lblExtStatus = new AntdUI.Label();
+        btnMenuTranslation = new AntdUI.Button();
+        translationPanel = new AntdUI.Panel();
+        lblTrTitle = new AntdUI.Label();
+        lblTrDesc = new AntdUI.Label();
+        lblTrApiType = new AntdUI.Label();
+        selectTrApiType = new AntdUI.Select();
+        lblTrEndpoint = new AntdUI.Label();
+        txtTrEndpoint = new AntdUI.Input();
+        lblTrModel = new AntdUI.Label();
+        txtTrModel = new AntdUI.Input();
+        btnTestTrConnection = new AntdUI.Button();
+        lblTrStatus = new AntdUI.Label();
+        lblTrConcurrency = new AntdUI.Label();
+        numTrConcurrency = new AntdUI.InputNumber();
         btnTestConnection = new AntdUI.Button();
         txtExtKey = new Input();
         lblExtKey = new AntdUI.Label();
@@ -159,6 +193,7 @@ partial class SettingsForm
         libraryPanel.SuspendLayout();
         readerPanel.SuspendLayout();
         externalPanel.SuspendLayout();
+        translationPanel.SuspendLayout();
         SuspendLayout();
         // 
         // windowBar
@@ -215,6 +250,7 @@ partial class SettingsForm
         // leftMenu
         // 
         leftMenu.BackColor = Color.FromArgb(245, 245, 245);
+        leftMenu.Controls.Add(btnMenuTranslation);
         leftMenu.Controls.Add(btnMenuExternal);
         leftMenu.Controls.Add(btnMenuReader);
         leftMenu.Controls.Add(btnMenuLibrary);
@@ -275,6 +311,7 @@ partial class SettingsForm
         // content
         // 
         content.BackColor = Color.FromArgb(189, 189, 189);
+        content.Controls.Add(translationPanel);
         content.Controls.Add(externalPanel);
         content.Controls.Add(generalPanel);
         content.Controls.Add(libraryPanel);
@@ -594,6 +631,8 @@ partial class SettingsForm
         // readerPanel
         // 
         readerPanel.BackColor = Color.Transparent;
+        readerPanel.Controls.Add(selectOcrEngine);
+        readerPanel.Controls.Add(labelOcrEngine);
         readerPanel.Controls.Add(cbDualPageSpreadFromCover);
         readerPanel.Controls.Add(selectReadingDirection);
         readerPanel.Controls.Add(labelReadingDirection);
@@ -640,6 +679,22 @@ partial class SettingsForm
         cbUseBuiltInReader.Size = new Size(420, 30);
         cbUseBuiltInReader.TabIndex = 0;
         cbUseBuiltInReader.Text = "使用內建閱讀器（取代外部 viewer）";
+        // 
+        // labelOcrEngine
+        // 
+        labelOcrEngine.BackColor = Color.Transparent;
+        labelOcrEngine.Location = new Point(40, 220);
+        labelOcrEngine.Name = "labelOcrEngine";
+        labelOcrEngine.Size = new Size(200, 30);
+        labelOcrEngine.TabIndex = 4;
+        labelOcrEngine.Text = "OCR 引擎";
+        // 
+        // selectOcrEngine
+        // 
+        selectOcrEngine.Location = new Point(40, 255);
+        selectOcrEngine.Name = "selectOcrEngine";
+        selectOcrEngine.Size = new Size(250, 40);
+        selectOcrEngine.TabIndex = 5;
         // 
         // externalPanel
         // 
@@ -772,12 +827,146 @@ partial class SettingsForm
         lblTrDbAutoCheck.TabIndex = 11;
         lblTrDbAutoCheck.Text = "自動檢查：";
         //
-        // swAutoCheckTrDb
-        //
-        swAutoCheckTrDb.Location = new Point(190, 485);
-        swAutoCheckTrDb.Name = "swAutoCheckTrDb";
-        swAutoCheckTrDb.Size = new Size(50, 25);
         swAutoCheckTrDb.TabIndex = 12;
+        // 
+        // btnMenuTranslation
+        // 
+        btnMenuTranslation.Dock = DockStyle.Top;
+        btnMenuTranslation.IconSvg = "TranslationOutlined";
+        btnMenuTranslation.Location = new Point(15, 200);
+        btnMenuTranslation.Name = "btnMenuTranslation";
+        btnMenuTranslation.Size = new Size(150, 45);
+        btnMenuTranslation.TabIndex = 4;
+        btnMenuTranslation.Text = "AI 即時翻譯";
+        btnMenuTranslation.TextAlign = ContentAlignment.MiddleLeft;
+        // 
+        // translationPanel
+        // 
+        translationPanel.BackColor = Color.Transparent;
+        translationPanel.Controls.Add(lblTrStatus);
+        translationPanel.Controls.Add(btnTestTrConnection);
+        translationPanel.Controls.Add(numTrConcurrency);
+        translationPanel.Controls.Add(lblTrConcurrency);
+        translationPanel.Controls.Add(txtTrModel);
+        translationPanel.Controls.Add(lblTrModel);
+        translationPanel.Controls.Add(txtTrEndpoint);
+        translationPanel.Controls.Add(lblTrEndpoint);
+        translationPanel.Controls.Add(selectTrApiType);
+        translationPanel.Controls.Add(lblTrApiType);
+        translationPanel.Controls.Add(lblTrDesc);
+        translationPanel.Controls.Add(lblTrTitle);
+        translationPanel.Dock = DockStyle.Fill;
+        translationPanel.Location = new Point(0, 0);
+        translationPanel.Name = "translationPanel";
+        translationPanel.Padding = new Padding(40, 30, 40, 30);
+        translationPanel.Radius = 0;
+        translationPanel.Size = new Size(720, 562);
+        translationPanel.TabIndex = 4;
+        translationPanel.Visible = false;
+        // 
+        // lblTrTitle
+        // 
+        lblTrTitle.BackColor = Color.Transparent;
+        lblTrTitle.Font = new Font("Microsoft JhengHei UI", 12F, FontStyle.Bold);
+        lblTrTitle.Location = new Point(40, 30);
+        lblTrTitle.Name = "lblTrTitle";
+        lblTrTitle.Size = new Size(500, 30);
+        lblTrTitle.TabIndex = 0;
+        lblTrTitle.Text = "AI 即時翻譯設定";
+        // 
+        // lblTrDesc
+        // 
+        lblTrDesc.BackColor = Color.Transparent;
+        lblTrDesc.Location = new Point(40, 65);
+        lblTrDesc.Name = "lblTrDesc";
+        lblTrDesc.Size = new Size(620, 60);
+        lblTrDesc.TabIndex = 1;
+        lblTrDesc.Text = "設定內建閱讀器即時翻譯功能所對接的本地端或雲端 LLM 服務。";
+        // 
+        // lblTrApiType
+        // 
+        lblTrApiType.BackColor = Color.Transparent;
+        lblTrApiType.Location = new Point(40, 145);
+        lblTrApiType.Name = "lblTrApiType";
+        lblTrApiType.Size = new Size(100, 30);
+        lblTrApiType.TabIndex = 2;
+        lblTrApiType.Text = "API 類型：";
+        // 
+        // selectTrApiType
+        // 
+        selectTrApiType.Location = new Point(150, 142);
+        selectTrApiType.Name = "selectTrApiType";
+        selectTrApiType.Size = new Size(390, 36);
+        selectTrApiType.TabIndex = 3;
+        // 
+        // lblTrEndpoint
+        // 
+        lblTrEndpoint.BackColor = Color.Transparent;
+        lblTrEndpoint.Location = new Point(40, 195);
+        lblTrEndpoint.Name = "lblTrEndpoint";
+        lblTrEndpoint.Size = new Size(100, 30);
+        lblTrEndpoint.TabIndex = 4;
+        lblTrEndpoint.Text = "API 端點：";
+        // 
+        // txtTrEndpoint
+        // 
+        txtTrEndpoint.Location = new Point(150, 192);
+        txtTrEndpoint.Name = "txtTrEndpoint";
+        txtTrEndpoint.Size = new Size(390, 36);
+        txtTrEndpoint.TabIndex = 5;
+        // 
+        // lblTrModel
+        // 
+        lblTrModel.BackColor = Color.Transparent;
+        lblTrModel.Location = new Point(40, 245);
+        lblTrModel.Name = "lblTrModel";
+        lblTrModel.Size = new Size(100, 30);
+        lblTrModel.TabIndex = 6;
+        lblTrModel.Text = "模型名稱：";
+        // 
+        // txtTrModel
+        // 
+        txtTrModel.Location = new Point(150, 242);
+        txtTrModel.Name = "txtTrModel";
+        txtTrModel.Size = new Size(390, 36);
+        txtTrModel.TabIndex = 7;
+        // 
+        // lblTrConcurrency
+        // 
+        lblTrConcurrency.BackColor = Color.Transparent;
+        lblTrConcurrency.Location = new Point(40, 295);
+        lblTrConcurrency.Name = "lblTrConcurrency";
+        lblTrConcurrency.Size = new Size(100, 30);
+        lblTrConcurrency.TabIndex = 8;
+        lblTrConcurrency.Text = "併發限制：";
+        // 
+        // numTrConcurrency
+        // 
+        numTrConcurrency.Location = new Point(150, 292);
+        numTrConcurrency.Name = "numTrConcurrency";
+        numTrConcurrency.Size = new Size(390, 36);
+        numTrConcurrency.TabIndex = 9;
+        numTrConcurrency.Minimum = 1;
+        numTrConcurrency.Maximum = 100;
+        numTrConcurrency.DecimalPlaces = 0;
+        // 
+        // btnTestTrConnection
+        // 
+        btnTestTrConnection.IconSvg = "ApiOutlined";
+        btnTestTrConnection.Location = new Point(150, 345);
+        btnTestTrConnection.Name = "btnTestTrConnection";
+        btnTestTrConnection.Size = new Size(140, 36);
+        btnTestTrConnection.TabIndex = 10;
+        btnTestTrConnection.Text = "測試 API 連線";
+        // 
+        // lblTrStatus
+        // 
+        lblTrStatus.BackColor = Color.Transparent;
+        lblTrStatus.Location = new Point(40, 395);
+        lblTrStatus.Name = "lblTrStatus";
+        lblTrStatus.Size = new Size(620, 50);
+        lblTrStatus.TabIndex = 11;
+        lblTrStatus.Text = "(未測試)";
         //
         // SettingsForm
         // 
@@ -797,6 +986,7 @@ partial class SettingsForm
         libraryPanel.ResumeLayout(false);
         readerPanel.ResumeLayout(false);
         externalPanel.ResumeLayout(false);
+        translationPanel.ResumeLayout(false);
         ResumeLayout(false);
     }
 }

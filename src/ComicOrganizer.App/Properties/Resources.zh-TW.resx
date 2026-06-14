@@ -276,6 +276,9 @@
   <data name="SettingsDualPageSpreadFromCover" xml:space="preserve">
     <value>雙頁模式封面獨立顯示</value>
   </data>
+  <data name="SettingsOcrEngineLabel" xml:space="preserve">
+    <value>OCR 引擎</value>
+  </data>
   <data name="ReadingDirectionRtl" xml:space="preserve">
     <value>左←右</value>
   </data>
@@ -1257,5 +1260,41 @@ FS 掃描 {0} 件 / DB 索引 {1} 件</value>
   </data>
   <data name="PreviewFetchMetaCheckbox" xml:space="preserve">
     <value>搬完同時抓 nhentai metadata（保留作者）</value>
+  </data>
+  <data name="TranslationTitle" xml:space="preserve">
+    <value>AI 即時翻譯設定</value>
+  </data>
+  <data name="TranslationDesc" xml:space="preserve">
+    <value>設定內建閱讀器即時翻譯功能所對接的本地端或雲端 LLM 服務。</value>
+  </data>
+  <data name="TranslationApiType" xml:space="preserve">
+    <value>API 類型：</value>
+  </data>
+  <data name="TranslationEndpoint" xml:space="preserve">
+    <value>API 端點：</value>
+  </data>
+  <data name="TranslationModelNameLabel" xml:space="preserve">
+    <value>模型名稱：</value>
+  </data>
+  <data name="TranslationTestConnection" xml:space="preserve">
+    <value>測試 API 連線</value>
+  </data>
+  <data name="SettingsMenuTranslation" xml:space="preserve">
+    <value>AI 即時翻譯</value>
+  </data>
+  <data name="TranslationMaxConcurrency" xml:space="preserve">
+    <value>併發限制：</value>
+  </data>
+  <data name="InstantTranslation" xml:space="preserve">
+    <value>即時翻譯</value>
+  </data>
+  <data name="AllTranslation" xml:space="preserve">
+    <value>全部翻譯</value>
+  </data>
+  <data name="AllTranslationConfirmPrompt" xml:space="preserve">
+    <value>背景翻譯整本漫畫需要較長時間，是否繼續？</value>
+  </data>
+  <data name="AllTranslationConfirmTitle" xml:space="preserve">
+    <value>全部翻譯</value>
   </data>
 </root>

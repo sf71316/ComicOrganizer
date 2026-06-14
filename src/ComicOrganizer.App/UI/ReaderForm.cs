@@ -1,1184 +1,2151 @@
+#define DEBUG
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.IO;
+using System.Linq;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
 using AntdUI;
 using ComicOrganizer.App.Core;
+using ComicOrganizer.App.Models;
 
 namespace ComicOrganizer.App.UI;
 
-/// <summary>
-/// 內建漫畫 reader（#49）。獨立視窗、單頁/雙頁顯示、全螢幕、鍵盤/滾輪導覽。
-/// 預讀 ±2 頁、視窗外的 Bitmap dispose 回收。RTL/LTR 影響 ←/→ 鍵語意 + 雙頁左右順序。
-///
-/// 連續捲動 / 進度保存 / 自動 Completed — Phase 1.2c / 1.3。
-/// </summary>
 public partial class ReaderForm : Window, IThemedControl
 {
-    private readonly IReaderSource _source;
-    private readonly bool _rtl;
-    private readonly bool _spreadFromCover;
-    private readonly IAssetMetaStore? _metaStore;   // 進度保存用，可選
-    private int _currentIndex;
-    private int _lastSavedPage = -1;   // 上次寫進 DB 的頁碼，避免重覆寫
-
-    // 雙條件閱讀計數（Phase 1.3c）：時間 + 翻頁數都過門檻才算一次有效閱讀
-    private readonly DateTime _openedAt = DateTime.UtcNow;
-    private int _pagesVisited;        // 包含 GoToPage 抵達的初始頁
-    private bool _readRecorded;       // 已 RecordRead 過此 session 一次
-    private bool _completedRecorded;  // 自動 Completed 已觸發過
-    private readonly int _readThresholdSeconds;
-    private readonly int _readThresholdPages;
-    private readonly bool _trackReadingRecord;   // false 時 TryRecordRead / TryAutoComplete 都跳過
-
-    /// <summary>定期觸發 TryRecordRead — 使用者只停在一頁不翻時也能在時間到後觸發記錄。</summary>
-    private readonly System.Windows.Forms.Timer _recordCheckTimer = new() { Interval = 5000 };
-    private ReaderViewMode _viewMode = ReaderViewMode.SinglePage;
-    private ReaderZoomMode _zoomMode = ReaderZoomMode.FitPage;
-    private float _customZoom = 1.0f;
-    private const float MinZoom = 0.1f, MaxZoom = 8.0f;
-
-    // Continuous mode 狀態（_viewMode == ContinuousScroll 時才有效）
-    private ContinuousLayout? _layout;
-    private readonly System.Windows.Forms.Timer _scrollDebounce = new() { Interval = 500 };
-    private bool IsContinuous => _viewMode == ReaderViewMode.ContinuousScroll;
-
-    // 連續捲動模式採用「虛擬 scroll」— picPage 保持 viewport 大小（避開 Windows 控件 65535 高度上限），
-    // _virtualScrollY 為 [0, layout.TotalHeight - viewH] 的邏輯 scroll 偏移，DrawContinuous 用此偏移平移繪製。
-    private int _virtualScrollY;
-
-    // 預讀 cache：頁 index → 已 decode bitmap（單頁原圖）
-    private readonly Dictionary<int, Image> _cache = new();
-    private readonly HashSet<int> _loading = new();
-    private readonly object _cacheLock = new();
-    private const int PreloadRadius = 6;
-    private const int MaxCacheSize = 24;
-
-    // 當前要顯示的圖（直接 ref _cache 的 bitmap，不複製）：
-    // _leftImage 必有值；_rightImage 只有雙頁模式 spread size=2 才設
-    // 翻頁時只是換 ref，picPage.Invalidate 重畫，零 allocation
-    private Image? _leftImage;
-    private Image? _rightImage;
-
-    // 全螢幕狀態回復用
-    private FormBorderStyle _prevBorderStyle;
-    private FormWindowState _prevWindowState;
-    private bool _isFullscreen;
-
-    // 書籤狀態（#51 Phase 2-C）— _assetId 在 ctor 撈一次；null = asset 不在 DB（Author folder 等）
-    // 此情境兩個書籤按鈕 disabled，所有書籤快捷鍵 no-op
-    private long? _assetId;
-    private int _bookmarkCursor = -1;        // session-only cursor，跨 reader 開啟不持久化
-
-    /// <summary>書籤選單 Tag — 區分主項（跳頁）與 Sub 子項（rename / delete）。</summary>
-    private record BookmarkMenuTag(string Action, Bookmark Bookmark, int CursorIndex);
-
-    public ReaderForm(IReaderSource source, bool rightToLeft = true,
-                      bool dualPageSpreadFromCover = false,
-                      IAssetMetaStore? metaStore = null,
-                      ReadRecordQueue? readRecordQueue = null,
-                      int readThresholdSeconds = 30,
-                      int readThresholdPages = 2,
-                      bool trackReadingRecord = true)
-    {
-        InitializeComponent();
-        _source = source;
-        _rtl = rightToLeft;
-        _spreadFromCover = dualPageSpreadFromCover;
-        _metaStore = metaStore;
-        _readThresholdSeconds = Math.Max(1, readThresholdSeconds);
-        _readThresholdPages = Math.Max(1, readThresholdPages);
-        _trackReadingRecord = trackReadingRecord;
-
-        // 取消外層（card 點擊）已 enqueue 的 30s 自動計數 — 內建 reader 走自己的雙條件邏輯
-        readRecordQueue?.Cancel(source.RootPath);
-
-        // 啟動定期檢查 timer：每 5s 觸發 TryRecordRead 確保時間條件能在不翻頁時也被命中
-        _recordCheckTimer.Tick += (s, e) =>
-        {
-            if (IsDisposed) { _recordCheckTimer.Stop(); return; }
-            if (_readRecorded) { _recordCheckTimer.Stop(); return; }   // 記錄完不再 polling
-            TryRecordRead();
-        };
-        _recordCheckTimer.Start();
-
-        // 從 DB 撈 last_page 接續閱讀；沒紀錄或越界回 0
-        var resume = _metaStore?.GetLastPage(source.RootPath);
-        _currentIndex = (resume.HasValue && resume.Value >= 0 && resume.Value < source.PageCount)
-            ? resume.Value : 0;
-
-        // 書籤功能：asset 必須在 DB 裡才能用（FK 需要）
-        _assetId = _metaStore?.GetAssetId(source.RootPath);
-
-        Text = source.DisplayName;
-        // PageHeader：Text = 分頁資訊（UpdatePageInfo 會更新），SubText = 作品名（固定）
-        windowBar.SubText = source.DisplayName;
-
-        ApplyThemeColors();
-        this.WireThemeAndLocalization();
-
-        // picPage 不走預設 Image stretch，改自畫；TryRenderCurrentSpread 只設 ref 不 allocate
-        picPage.Image = null;
-        picPage.Paint += OnPicPagePaint;
-
-        WireEvents();
-
-        if (source.PageCount > 0)
-            GoToPage(_currentIndex);
-        else
-            lblStatus.Text = "(無圖檔)";
-    }
-
-    /// <summary>閱讀器內容區固定中性深灰 — 不論主題都用同色，避免主題色干擾頁面色彩感受。</summary>
-    private static readonly Color ReaderContentBg = Color.FromArgb(99, 98, 99);
-
-    public void ApplyThemeColors()
-    {
-        // toolbar / statusBar 走 TabHeader 區分層次；picPage / scrollHost 用固定中性灰
-        BackColor = ReaderContentBg;
-        windowBar.BackColor = ThemeColors.Primary;
-        windowBar.ForeColor = ThemeColors.HeaderText;
-        toolbar.BackColor = ThemeColors.TabHeader;
-        statusBar.BackColor = ThemeColors.TabHeader;
-        scrollHost.BackColor = ReaderContentBg;
-        picPage.BackColor = ReaderContentBg;
-        lblStatus.ForeColor = ThemeColors.Text;
-        // 自畫不烙 bg，主題切換時 picPage.BackColor 自動 trigger 重畫，無需手動重 render
-    }
-
-    public void ApplyLocalization()
-    {
-        // reader 目前文字都寫死 zh-TW；後續加 i18n key 再實作
-    }
-
-    private void WireEvents()
-    {
-        // sliderZoom 範圍直接引用 ContinuousLayout 的 MinZoom/MaxZoom 常數，避免兩處不同步
-        sliderZoom.SetMinMax(
-            (int)(ContinuousLayout.MinZoom * 100),
-            (int)(ContinuousLayout.MaxZoom * 100));
-        sliderZoom.Value = (sliderZoom.MinValue + sliderZoom.MaxValue) / 2;   // 預設 slider 中央
-
-        btnFullscreen.Click += (s, e) => ToggleFullscreen();
-        btnBookmarkToggle.Click += (s, e) => ToggleBookmarkOnCurrentPage();
-        btnBookmarkList.Click += (s, e) => OpenBookmarkList();
-        // 沒 asset_id（asset 不在 catalog）→ 整個書籤功能停用
-        if (_assetId == null)
-        {
-            btnBookmarkToggle.Enabled = false;
-            btnBookmarkList.Enabled = false;
-        }
-        segViewMode.SelectIndexChanged += (s, e) => OnViewModeChanged(e.Value);
-        segZoomMode.SelectIndexChanged += (s, e) => OnZoomModeChanged(e.Value);
-        sliderZoom.ValueChanged += (s, e) => OnSliderZoomChanged();
-        switchSeamless.CheckedChanged += (s, e) => OnSeamlessChanged();
-
-        KeyDown += OnKeyDown;
-        // wheel 處理：Ctrl+wheel 縮放；FitPage 模式 plain wheel 翻頁；其他模式讓 panel 處理捲動
-        scrollHost.MouseWheel += OnContentMouseWheel;
-        picPage.MouseWheel += OnContentMouseWheel;
-
-        // Continuous 模式：使用獨立 vScrollBarContinuous 處理大於 65535px 的虛擬 scroll
-        vScrollBarContinuous.ValueChanged += (s, e) =>
-        {
-            if (!IsContinuous) return;
-            _virtualScrollY = vScrollBarContinuous.Value;
-            picPage.Invalidate();
-            UpdateContinuousState();
-        };
-        // 拖捲軸停止 500ms 後寫進度（避免每個 scroll event 都打 DB）
-        _scrollDebounce.Tick += (s, e) =>
-        {
-            _scrollDebounce.Stop();
-            if (!IsDisposed && IsContinuous) SaveProgress();
-        };
-
-        FormClosing += (s, e) =>
-        {
-            SaveProgress();   // 關閉時保存最終頁碼
-            DisposeAllPages();
-        };
-        scrollHost.Resize += (s, e) =>
-        {
-            if (IsContinuous && _layout != null) ChangeLayoutKeepingFocus(() => { /* 只刷 layout */ });
-            else LayoutPic();
-        };
-    }
-
-    /// <summary>把 _currentIndex 寫進 asset_meta.last_page（僅在頁碼變動時寫入）。</summary>
-    private void SaveProgress()
-    {
-        if (_metaStore == null) return;
-        if (_currentIndex == _lastSavedPage) return;
-        try
-        {
-            _metaStore.SetLastPage(_source.RootPath, _currentIndex);
-            _lastSavedPage = _currentIndex;
-        }
-        catch { /* DB 寫失敗不致命 */ }
-    }
-
-    /// <summary>
-    /// 雙條件計數（Phase 1.3c）：停留時間「或」翻頁數任一達標就算一次有效閱讀。
-    ///   - 停留 ≥ N 秒 → 視為慢讀（停在一頁細看）
-    ///   - 翻過 ≥ M 頁 → 視為快瀏覽（看圖為主）
-    /// 任一達成即記錄；一個 reader session 最多觸發一次（read_count++ 一次）。
-    /// </summary>
-    private void TryRecordRead()
-    {
-        if (!_trackReadingRecord) return;
-        if (_readRecorded || _metaStore == null) return;
-        var elapsed = (DateTime.UtcNow - _openedAt).TotalSeconds;
-        if (elapsed < _readThresholdSeconds && _pagesVisited < _readThresholdPages) return;
-        try
-        {
-            _metaStore.RecordRead(_source.RootPath);
-            _readRecorded = true;
-            _recordCheckTimer.Stop();
-        }
-        catch { /* DB 寫失敗不致命 */ }
-    }
-
-    /// <summary>
-    /// 自動 Completed（Phase 1.3b）：當前 spread 涵蓋最後一頁就標 Completed。
-    /// 一個 reader session 最多觸發一次。
-    /// </summary>
-    private void TryAutoComplete()
-    {
-        if (!_trackReadingRecord) return;
-        if (_completedRecorded || _metaStore == null) return;
-        int lastShown = _currentIndex + SpreadSize(_currentIndex) - 1;
-        if (lastShown < _source.PageCount - 1) return;
-        try
-        {
-            _metaStore.SetReadStatus(_source.RootPath, ReadStatus.Completed);
-            _completedRecorded = true;
-        }
-        catch { }
-    }
-
-    private void OnContentMouseWheel(object? sender, MouseEventArgs e)
-    {
-        if ((Control.ModifierKeys & Keys.Control) != 0)
-        {
-            // Continuous 模式 Ctrl+wheel 走 slider 而非 _customZoom
-            if (IsContinuous && _layout != null)
-            {
-                int step = e.Delta > 0 ? 5 : -5;
-                int v = Math.Clamp(sliderZoom.Value + step, sliderZoom.MinValue, sliderZoom.MaxValue);
-                sliderZoom.Value = v;
-                return;
-            }
-            AdjustCustomZoom(e.Delta > 0 ? 1.1f : 1f / 1.1f);
-            return;
-        }
-        if (IsContinuous)
-        {
-            // 自繪 scroll：wheel 直接調整 _virtualScrollY 並同步 vScrollBarContinuous.Value
-            int newY = _virtualScrollY - e.Delta;   // wheel up (Delta>0) → scrollY 減
-            ScrollContinuousTo(newY);
-            return;
-        }
-        if (_zoomMode == ReaderZoomMode.FitPage)
-        {
-            // 只有 FitPage 整頁顯示時 wheel 才當「翻頁」用，其他模式 wheel 應該捲動內容
-            if (e.Delta > 0) StepSpread(-1);
-            else StepSpread(+1);
-        }
-        // 其他 zoom mode：不做事，讓 ScrollableControl 預設行為（已先 scroll）保留
-    }
-
-    private void OnKeyDown(object? sender, KeyEventArgs e)
-    {
-        // Ctrl 組合先處理（zoom 快捷鍵）
-        if (e.Control)
-        {
-            switch (e.KeyCode)
-            {
-                case Keys.D0: case Keys.NumPad0: ResetZoom(); e.Handled = true; return;
-                case Keys.Oemplus: case Keys.Add: AdjustCustomZoom(1.1f); e.Handled = true; return;
-                case Keys.OemMinus: case Keys.Subtract: AdjustCustomZoom(1f / 1.1f); e.Handled = true; return;
-            }
-        }
-
-        // Shift 組合 — 書籤導覽（cursor 模型，wrap-around）
-        if (e.Shift && !e.Control && !e.Alt)
-        {
-            switch (e.KeyCode)
-            {
-                case Keys.B: OpenBookmarkList(); e.Handled = true; return;
-                case Keys.V: GoToNextBookmark(); e.Handled = true; return;
-                case Keys.C: GoToPrevBookmark(); e.Handled = true; return;
-            }
-        }
-
-        // 純 B（無 modifier）：toggle 當前頁書籤
-        if (!e.Shift && !e.Control && !e.Alt && e.KeyCode == Keys.B)
-        {
-            ToggleBookmarkOnCurrentPage();
-            e.Handled = true;
-            return;
-        }
-
-        switch (e.KeyCode)
-        {
-            case Keys.Escape:
-                if (_isFullscreen) ToggleFullscreen();
-                else Close();
-                break;
-            case Keys.F11: case Keys.F: case Keys.Enter: ToggleFullscreen(); break;
-            // ←/→ 翻頁只在 Single/Dual 生效；Continuous 模式留給捲動 / ↑↓ 不攔截走 scrollHost 預設
-            case Keys.Left:
-                if (IsContinuous) return;
-                StepSpread(_rtl ? +1 : -1);
-                break;
-            case Keys.Right:
-                if (IsContinuous) return;
-                StepSpread(_rtl ? -1 : +1);
-                break;
-            case Keys.PageUp: case Keys.Back:
-                if (IsContinuous) SmartPageUp();
-                else StepSpread(-1);
-                break;
-            case Keys.PageDown: case Keys.Space:
-                if (IsContinuous) SmartPageDown();
-                else StepSpread(+1);
-                break;
-            case Keys.Home:
-                if (IsContinuous) ScrollContinuousTo(0);
-                else GoToPage(0);
-                break;
-            case Keys.End:
-                if (IsContinuous) ScrollContinuousTo(_layout?.TotalHeight ?? 0);
-                else GoToPage(_source.PageCount - 1);
-                break;
-            default: return;
-        }
-        e.Handled = true;
-    }
-
-    private void OnSliderZoomChanged()
-    {
-        if (_layout == null) return;
-        ChangeLayoutKeepingFocus(() => _layout.SetZoom(sliderZoom.Value / 100f));
-        UpdateStatusBar();
-    }
-
-    private void ScrollContinuousTo(int y)
-    {
-        if (_layout == null) return;
-        int maxScroll = Math.Max(0, _layout.TotalHeight - picPage.Height);
-        y = Math.Max(0, Math.Min(y, maxScroll));
-        // 改 vScrollBarContinuous.Value 會觸發 ValueChanged → 更新 _virtualScrollY + Invalidate + UpdateContinuousState
-        if (vScrollBarContinuous.Value != y)
-        {
-            int clampedForScrollBar = Math.Min(y, vScrollBarContinuous.Maximum);
-            vScrollBarContinuous.Value = clampedForScrollBar;
-        }
-        else
-        {
-            // Value 未變動 → 仍要主動觸發 cache 同步（GoToPage(currentIndex) 重 render 等場景）
-            _virtualScrollY = y;
-            picPage.Invalidate();
-            UpdateContinuousState();
-        }
-    }
-
-    private void SmartPageDown()
-    {
-        if (_layout == null) return;
-        int scrollY = _virtualScrollY;
-        int viewH = picPage.Height;
-        int next = _layout.NextPageBoundary(scrollY);
-        int target = (next - scrollY) <= (int)(viewH * 1.1)
-            ? next
-            : scrollY + (int)(viewH * 0.9);
-        ScrollContinuousTo(target);
-    }
-
-    private void SmartPageUp()
-    {
-        if (_layout == null) return;
-        int scrollY = _virtualScrollY;
-        int viewH = picPage.Height;
-        int prev = _layout.PrevPageBoundary(scrollY);
-        int target = (scrollY - prev) <= (int)(viewH * 1.1)
-            ? prev
-            : Math.Max(0, scrollY - (int)(viewH * 0.9));
-        ScrollContinuousTo(target);
-    }
-
-    private void ResetZoom()
-    {
-        _customZoom = 1.0f;
-        _zoomMode = ReaderZoomMode.FitPage;
-        segZoomMode.SelectIndex = 0;
-        LayoutPic();
-        UpdateStatusBar();
-    }
-
-    private void OnZoomModeChanged(int idx)
-    {
-        var mode = idx switch
-        {
-            0 => ReaderZoomMode.FitPage,
-            1 => ReaderZoomMode.FitWidth,
-            2 => ReaderZoomMode.Actual,
-            _ => ReaderZoomMode.FitPage,
-        };
-        if (mode == _zoomMode) return;
-        _zoomMode = mode;
-        _customZoom = 1.0f;   // 切換內建模式時重置 custom zoom
-        LayoutPic();
-        UpdateStatusBar();
-    }
-
-    private void AdjustCustomZoom(float factor)
-    {
-        var newZoom = Math.Clamp(_customZoom * factor, MinZoom, MaxZoom);
-        if (Math.Abs(newZoom - _customZoom) < 0.001f) return;
-        _customZoom = newZoom;
-        _zoomMode = ReaderZoomMode.Custom;
-        // segZoomMode 不對應 Custom — 取消 highlight：先設成 100% 接近用 -1（AntdUI 可能不支援）；保留現狀
-        LayoutPic();
-        UpdateStatusBar();
-    }
-
-    /// <summary>依 _zoomMode + _customZoom 計算 picPage 顯示尺寸與位置（捲動容器內居中）。
-    /// 自然大小取 _leftImage + _rightImage 的併排寬度；單頁時 _rightImage 為 null。</summary>
-    private void LayoutPic()
-    {
-        if (IsContinuous && _layout != null)
-        {
-            // 扣掉 vScrollBarContinuous 寬度 — 自繪 scroll 所以 scrollHost 不長 AutoScroll bar
-            int contW = scrollHost.ClientSize.Width - vScrollBarContinuous.Width;
-            int contH = scrollHost.ClientSize.Height;
-            if (contW <= 0 || contH <= 0) return;
-            _layout.SetViewportWidth(contW);
-            // picPage 保持 viewport 大小，避開 Windows 控件 65535 高度限制；繪製時用 _virtualScrollY 平移
-            picPage.Size = new Size(contW, contH);
-            picPage.Location = new Point(0, 0);
-            // 設定 vScrollBarContinuous 的 range — Windows scrollbar 用 32-bit Maximum，可表達 long 內容
-            int maxScroll = Math.Max(0, _layout.TotalHeight - contH);
-            vScrollBarContinuous.LargeChange = Math.Max(1, contH);
-            vScrollBarContinuous.Maximum = maxScroll + vScrollBarContinuous.LargeChange - 1;
-            _virtualScrollY = Math.Max(0, Math.Min(_virtualScrollY, maxScroll));
-            if (vScrollBarContinuous.Value != _virtualScrollY) vScrollBarContinuous.Value = _virtualScrollY;
-            return;
-        }
-        if (_leftImage == null) return;
-        if (scrollHost.ClientSize.Width <= 0 || scrollHost.ClientSize.Height <= 0) return;
-
-        int naturalW = _leftImage.Width + (_rightImage?.Width ?? 0);
-        int naturalH = _rightImage != null
-            ? Math.Max(_leftImage.Height, _rightImage.Height)
-            : _leftImage.Height;
-
-        // AutoScroll 計算 viewport 排除 scrollbar — 用 ClientSize 即可
-        int hostW = scrollHost.ClientSize.Width;
-        int hostH = scrollHost.ClientSize.Height;
-
-        int targetW, targetH;
-        switch (_zoomMode)
-        {
-            case ReaderZoomMode.FitPage:
-                {
-                    float sx = (float)hostW / naturalW;
-                    float sy = (float)hostH / naturalH;
-                    float s = Math.Min(sx, sy);
-                    targetW = Math.Max(1, (int)(naturalW * s));
-                    targetH = Math.Max(1, (int)(naturalH * s));
-                }
-                break;
-            case ReaderZoomMode.FitWidth:
-                targetW = hostW;
-                targetH = (int)(naturalH * (float)hostW / naturalW);
-                break;
-            case ReaderZoomMode.Actual:
-                targetW = naturalW;
-                targetH = naturalH;
-                break;
-            case ReaderZoomMode.Custom:
-                targetW = Math.Max(1, (int)(naturalW * _customZoom));
-                targetH = Math.Max(1, (int)(naturalH * _customZoom));
-                break;
-            default:
-                targetW = naturalW;
-                targetH = naturalH;
-                break;
-        }
-
-        picPage.Size = new Size(targetW, targetH);
-        int x = Math.Max(0, (hostW - targetW) / 2);
-        int y = Math.Max(0, (hostH - targetH) / 2);
-        picPage.Location = new Point(x, y);
-    }
-
-    private void OnViewModeChanged(int idx)
-    {
-        var newMode = idx switch
-        {
-            0 => ReaderViewMode.SinglePage,
-            1 => ReaderViewMode.DualPage,
-            2 => ReaderViewMode.ContinuousScroll,
-            _ => ReaderViewMode.SinglePage,
-        };
-        if (newMode == _viewMode) return;
-        _viewMode = newMode;
-
-        bool toContinuous = newMode == ReaderViewMode.ContinuousScroll;
-        segZoomMode.Visible = !toContinuous;
-        sliderZoom.Visible = toContinuous;
-        switchSeamless.Visible = toContinuous;
-        lblSeamless.Visible = toContinuous;
-
-        if (toContinuous) EnterContinuousMode();
-        else LeaveContinuousMode();
-    }
-
-    private void EnterContinuousMode()
-    {
-        _leftImage = null;
-        _rightImage = null;
-        scrollHost.AutoScroll = false;   // picPage 改維持 viewport 大小，不再讓 AutoScroll 自動長 scrollbar
-        vScrollBarContinuous.Visible = true;
-        _virtualScrollY = 0;
-        _layout = new ContinuousLayout(_source.PageCount,
-            Math.Max(1, scrollHost.ClientSize.Width - vScrollBarContinuous.Width));
-        _layout.Gap = switchSeamless.Checked ? 0 : ContinuousLayout.PageGap;
-        // 既有 cache 的頁直接量測進新 layout
-        lock (_cacheLock)
-        {
-            foreach (var (i, img) in _cache) _layout.SetMeasured(i, img.Width, img.Height);
-        }
-        int defaultVal = (sliderZoom.MinValue + sliderZoom.MaxValue) / 2;
-        sliderZoom.Value = defaultVal;
-        _layout.SetZoom(defaultVal / 100f);
-        LayoutPic();
-        ScrollContinuousTo(_layout.GetPageY(_currentIndex));
-        picPage.Invalidate();
-        UpdateStatusBar();
-    }
-
-    private void LeaveContinuousMode()
-    {
-        _layout = null;
-        vScrollBarContinuous.Visible = false;
-        scrollHost.AutoScroll = true;
-        _virtualScrollY = 0;
-        _currentIndex = SpreadStart(_currentIndex);
-        GoToPage(_currentIndex);
-    }
-
-    private void OnSeamlessChanged()
-    {
-        if (_layout == null) return;
-        ChangeLayoutKeepingFocus(() => _layout.Gap = switchSeamless.Checked ? 0 : ContinuousLayout.PageGap);
-    }
-
-    /// <summary>修改 layout（zoom / gap / viewportW）後維持「視覺中央頁」位置不變。</summary>
-    private void ChangeLayoutKeepingFocus(Action mutate)
-    {
-        if (_layout == null) return;
-        int focusPage = _layout.FindPageAtY(_virtualScrollY + picPage.Height / 2);
-        mutate();
-        LayoutPic();
-        if (focusPage >= 0) ScrollContinuousTo(_layout.GetPageY(focusPage));
-        picPage.Invalidate();
-    }
-
-    /// <summary>取得 spread 的起始頁（雙頁模式對齊用）。</summary>
-    private int SpreadStart(int pageIndex)
-    {
-        if (_viewMode != ReaderViewMode.DualPage) return pageIndex;
-        if (_spreadFromCover)
-        {
-            // cover (page 0) 獨立，pages 1+2、3+4… 對齊到奇數
-            if (pageIndex == 0) return 0;
-            return pageIndex - ((pageIndex - 1) % 2);
-        }
-        // 預設：0+1、2+3… 對齊到偶數
-        return pageIndex - (pageIndex % 2);
-    }
-
-    /// <summary>當前 spread 的頁數（1 或 2）— 影響 step 步長與 evict window。</summary>
-    private int SpreadSize(int spreadStart)
-    {
-        if (_viewMode != ReaderViewMode.DualPage) return 1;
-        // cover-first 模式下 page 0 自己一頁
-        if (_spreadFromCover && spreadStart == 0) return 1;
-        // 最後一頁若沒有 partner 也是單頁
-        if (spreadStart + 1 >= _source.PageCount) return 1;
-        return 2;
-    }
-
-    private void StepSpread(int direction)
-    {
-        var current = SpreadStart(_currentIndex);
-        if (direction > 0)
-        {
-            var next = current + SpreadSize(current);
-            if (next >= _source.PageCount) return;
-            GoToPage(next);
-        }
-        else
-        {
-            if (current == 0) return;
-            // 上一 spread = 從 current-1 反推 SpreadStart
-            var prev = SpreadStart(current - 1);
-            GoToPage(prev);
-        }
-    }
-
-    private void GoToPage(int index)
-    {
-        if (index < 0 || index >= _source.PageCount) return;
-        if (IsContinuous && _layout != null)
-        {
-            _currentIndex = index;
-            ScrollContinuousTo(_layout.GetPageY(index));
-            // UpdateContinuousState 會在 ScrollContinuousTo 內更新 cache 與 _currentIndex
-            return;
-        }
-        _currentIndex = SpreadStart(index);
-
-        UpdatePageInfo();
-
-        // 預讀 + evict
-        var spreadSize = SpreadSize(_currentIndex);
-        EvictCacheIfNeeded(_currentIndex, _currentIndex + spreadSize - 1);
-        for (int d = 0; d < spreadSize; d++) _ = LoadPageAsync(_currentIndex + d);
-        for (int d = 1; d <= PreloadRadius; d++)
-        {
-            int forward = _currentIndex + spreadSize - 1 + d;
-            int backward = _currentIndex - d;
-            if (forward < _source.PageCount) _ = LoadPageAsync(forward);
-            if (backward >= 0) _ = LoadPageAsync(backward);
-        }
-
-        // 立刻嘗試 render（cache hit 即時顯示；miss 等 LoadPageAsync 完成後 fire 回來再 render）
-        TryRenderCurrentSpread();
-
-        // 每次翻頁存進度 — SQLite UPDATE 單筆，ms 等級不會卡 UI
-        SaveProgress();
-        _pagesVisited++;
-        TryRecordRead();
-        TryAutoComplete();
-    }
-
-    private async Task LoadPageAsync(int index)
-    {
-        lock (_cacheLock)
-        {
-            if (_cache.ContainsKey(index)) return;
-            if (!_loading.Add(index)) return;
-        }
-
-        Image? img = null;
-        try
-        {
-            img = await Task.Run(() =>
-            {
-                using var s = _source.OpenPage(index);
-                return ReaderImageLoader.Decode(s, _source.GetPageExtension(index));
-            });
-        }
-        catch
-        {
-            lock (_cacheLock) _loading.Remove(index);
-            return;
-        }
-
-        if (IsDisposed) { img.Dispose(); return; }
-
-        // 先把尺寸抓出來：UpdateContinuousState 可能在 BeginInvoke 之前 evict 並 Dispose 掉 img，
-        // 此時於 marshaled 回 UI thread 後再讀 img.Width 會拋 ArgumentException。
-        int natW = img.Width;
-        int natH = img.Height;
-
-        lock (_cacheLock)
-        {
-            _loading.Remove(index);
-            _cache[index] = img;
-        }
-
-        // Continuous 模式：通知 layout 真實尺寸，TotalHeight 可能變動 → 重設 picPage 大小 + Invalidate 該頁區域
-        try
-        {
-            BeginInvoke(() =>
-            {
-                if (IsDisposed) return;
-                if (IsContinuous && _layout != null)
-                {
-                    int oldTotal = _layout.TotalHeight;
-                    _layout.SetMeasured(index, natW, natH);
-                    int newTotal = _layout.TotalHeight;
-                    // TotalHeight 變動 → 更新 vScrollBarContinuous.Maximum 反映新範圍
-                    int maxScroll = Math.Max(0, newTotal - picPage.Height);
-                    int newMax = maxScroll + vScrollBarContinuous.LargeChange - 1;
-                    if (vScrollBarContinuous.Maximum != newMax) vScrollBarContinuous.Maximum = newMax;
-                    // _virtualScrollY 可能因 totalH 縮小而越界，clamp 並同步 scrollbar
-                    if (_virtualScrollY > maxScroll)
-                    {
-                        _virtualScrollY = maxScroll;
-                        vScrollBarContinuous.Value = Math.Min(_virtualScrollY, vScrollBarContinuous.Maximum);
-                    }
-                    UpdateContinuousState();
-                    picPage.Invalidate();
-                    return;
-                }
-                // Single/Dual：載完的頁屬於當前 spread 就觸發重 render
-                // （原本用 makeVisible 旗標區分 preload vs visible 載入會 race —
-                //  preload 在背景跑時若使用者翻到該頁，dedup 後不再啟新 task、
-                //  原 preload 完成卻不 fire UI，UI 卡在「讀取中」）
-                int start = SpreadStart(_currentIndex);
-                int size = SpreadSize(start);
-                if (index >= start && index < start + size) TryRenderCurrentSpread();
-            });
-        }
-        catch { /* handle gone */ }
-    }
-
-    /// <summary>把當前 spread 套到 picPage（cache hit 即時顯示；缺頁顯示 loading）。
-    /// 不做 composite — 只更新 _leftImage / _rightImage ref，讓 OnPicPagePaint 直接畫。
-    /// 翻頁的 hot path = 兩個 ref 賦值 + LayoutPic + Invalidate，~ms 等級。</summary>
-    private void TryRenderCurrentSpread()
-    {
-        int start = _currentIndex;
-        int size = SpreadSize(start);
-
-        Image? p0, p1;
-        lock (_cacheLock)
-        {
-            _cache.TryGetValue(start, out p0);
-            p1 = size == 2 ? (_cache.TryGetValue(start + 1, out var v) ? v : null) : null;
-        }
-
-        // 任一頁未到 → 顯示 loading
-        if (p0 == null || (size == 2 && p1 == null))
-        {
-            _leftImage = null;
-            _rightImage = null;
-            picPage.Invalidate();
-            lblStatus.Text = "讀取中…";
-            return;
-        }
-
-        if (size == 1)
-        {
-            _leftImage = p0;
-            _rightImage = null;
-        }
-        else
-        {
-            // 雙頁併排：RTL → 右邊放 start (主)、左邊放 start+1；LTR 反之
-            _leftImage = _rtl ? p1! : p0;
-            _rightImage = _rtl ? p0 : p1!;
-        }
-
-        LayoutPic();
-        picPage.Invalidate();
-        UpdateStatusBar();
-    }
-
-    /// <summary>picPage 自畫：依 _leftImage / _rightImage 直接 DrawImage 縮放，
-    /// 不需事先 composite 整張 bitmap，避免大圖每翻一頁都 alloc/dispose 數百 MB。
-    /// Continuous 模式走 DrawContinuous 分支多頁堆疊。</summary>
-    private void OnPicPagePaint(object? sender, PaintEventArgs e)
-    {
-        if (IsContinuous && _layout != null)
-        {
-            DrawContinuous(e);
-            return;
-        }
-        if (_leftImage == null) return;
-        var g = e.Graphics;
-        g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-        // BackColor 已在 OnPaintBackground 填好
-
-        if (_rightImage == null)
-        {
-            g.DrawImage(_leftImage, new Rectangle(0, 0, picPage.Width, picPage.Height));
-            return;
-        }
-
-        // 雙頁：扣掉中間 5px 白色分隔條，剩餘寬度依原圖寬度比例分配
-        const int Gap = 5;
-        int contentW = picPage.Width - Gap;
-        int totalNaturalW = _leftImage.Width + _rightImage.Width;
-        int totalNaturalH = Math.Max(_leftImage.Height, _rightImage.Height);
-        int leftW = (int)((double)_leftImage.Width / totalNaturalW * contentW);
-        int rightW = contentW - leftW;
-        int leftH = (int)((double)_leftImage.Height / totalNaturalH * picPage.Height);
-        int rightH = (int)((double)_rightImage.Height / totalNaturalH * picPage.Height);
-        int leftY = (picPage.Height - leftH) / 2;
-        int rightY = (picPage.Height - rightH) / 2;
-        g.DrawImage(_leftImage, new Rectangle(0, leftY, leftW, leftH));
-        g.FillRectangle(Brushes.White, leftW, 0, Gap, picPage.Height);
-        g.DrawImage(_rightImage, new Rectangle(leftW + Gap, rightY, rightW, rightH));
-    }
-
-    private static readonly Color LoadingPlaceholderBg = Color.FromArgb(80, 80, 80);
-
-    /// <summary>Continuous 模式繪製：viewport 內的可見頁，用 _virtualScrollY 平移到 picPage 局部座標。</summary>
-    private void DrawContinuous(PaintEventArgs e)
-    {
-        if (_layout == null) return;
-        var g = e.Graphics;
-        g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-
-        var (first, last) = _layout.GetVisibleRange(_virtualScrollY, _virtualScrollY + picPage.Height);
-        if (first < 0) return;
-
-        int contentW = _layout.ContentWidth;
-        // 水平居中：contentW < picPage.Width → xOffset > 0（兩側留白）；
-        //          contentW > picPage.Width → xOffset < 0（左右各削掉一半，視覺仍居中）
-        int xOffset = (picPage.Width - contentW) / 2;
-
-        using var loadingBrush = new SolidBrush(LoadingPlaceholderBg);
-        using var loadingSf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-
-        for (int i = first; i <= last; i++)
-        {
-            Image? img;
-            lock (_cacheLock) { _cache.TryGetValue(i, out img); }
-            int localY = _layout.GetPageY(i) - _virtualScrollY;
-            int h = _layout.GetPageHeight(i);
-            var rect = new Rectangle(xOffset, localY, contentW, h);
-            if (img == null)
-            {
-                g.FillRectangle(loadingBrush, rect);
-                g.DrawString("讀取中…", lblStatus.Font, Brushes.White, (RectangleF)rect, loadingSf);
-            }
-            else
-            {
-                g.DrawImage(img, rect);
-            }
-        }
-    }
-
-    /// <summary>scroll / zoom / GoToPage 後同步狀態：更新 _currentIndex、cache window、TryRecord。</summary>
-    private void UpdateContinuousState()
-    {
-        if (_layout == null) return;
-        int scrollY = _virtualScrollY;
-        int viewH = picPage.Height;
-        int center = scrollY + viewH / 2;
-        int pageIdx = _layout.FindPageAtY(center);
-        var (first, last) = _layout.GetVisibleRange(scrollY, scrollY + viewH);
-        if (pageIdx >= 0 && pageIdx != _currentIndex)
-        {
-            _currentIndex = pageIdx;
-            _pagesVisited++;
-            UpdatePageInfo();
-            UpdateStatusBar();
-            TryRecordRead();
-        }
-        // visible window cache（含 ±PreloadRadius）
-        if (first >= 0) UpdateContinuousCacheWindow(first, last);
-        // 看到末頁 → Auto Completed
-        if (last >= _source.PageCount - 1) TryAutoComplete();
-        // SaveProgress 走 debounce
-        _scrollDebounce.Stop();
-        _scrollDebounce.Start();
-    }
-
-    private void UpdateContinuousCacheWindow(int first, int last)
-    {
-        int lo = Math.Max(0, first - PreloadRadius);
-        int hi = Math.Min(_source.PageCount - 1, last + PreloadRadius);
-        EvictCacheIfNeeded(first, last);
-        for (int i = lo; i <= hi; i++) _ = LoadPageAsync(i);
-    }
-
-    /// <summary>依據當前顯示的頁面範圍智慧淘汰快取，只保留距離最接近的圖片，最多保留 MaxCacheSize 張。</summary>
-    private void EvictCacheIfNeeded(int activeFirst, int activeLast)
-    {
-        lock (_cacheLock)
-        {
-            if (_cache.Count <= MaxCacheSize) return;
-
-            var items = _cache.Keys.Select(k =>
-            {
-                int dist = 0;
-                if (k < activeFirst) dist = activeFirst - k;
-                else if (k > activeLast) dist = k - activeLast;
-                return new { Key = k, Distance = dist };
-            })
-            .OrderByDescending(x => x.Distance)
-            .ToList();
-
-            int toEvictCount = _cache.Count - MaxCacheSize;
-            int evicted = 0;
-
-            foreach (var item in items)
-            {
-                if (evicted >= toEvictCount) break;
-
-                // 正在顯示的頁面不可釋放
-                if (item.Distance == 0) continue;
-
-                if (_cache.TryGetValue(item.Key, out var img))
-                {
-                    img.Dispose();
-                    _cache.Remove(item.Key);
-                    evicted++;
-                }
-            }
-        }
-    }
-
-    private void DisposeAllPages()
-    {
-        _recordCheckTimer.Stop();
-        _recordCheckTimer.Dispose();
-        _scrollDebounce.Stop();
-        _scrollDebounce.Dispose();
-        _leftImage = null;
-        _rightImage = null;
-        lock (_cacheLock)
-        {
-            foreach (var img in _cache.Values) img.Dispose();
-            _cache.Clear();
-            _loading.Clear();
-        }
-        _source.Dispose();
-    }
-
-    /// <summary>F11 / F 切換全螢幕。隱藏 windowBar / toolbar / statusBar，picPage 佔滿。</summary>
-    private void ToggleFullscreen()
-    {
-        if (!_isFullscreen)
-        {
-            _prevBorderStyle = FormBorderStyle;
-            _prevWindowState = WindowState;
-            FormBorderStyle = FormBorderStyle.None;
-            // 強制走 Normal → Maximized 才能讓 None 模式吃 fullscreen size（直接 Maximized 不能切 None）
-            WindowState = FormWindowState.Normal;
-            WindowState = FormWindowState.Maximized;
-            windowBar.Visible = false;
-            toolbar.Visible = false;
-            statusBar.Visible = false;
-            _isFullscreen = true;
-        }
-        else
-        {
-            FormBorderStyle = _prevBorderStyle;
-            WindowState = _prevWindowState;
-            windowBar.Visible = true;
-            toolbar.Visible = true;
-            statusBar.Visible = true;
-            _isFullscreen = false;
-        }
-    }
-
-    private void UpdatePageInfo()
-    {
-        int start = _currentIndex;
-        // Continuous 永遠單頁顯示
-        int size = IsContinuous ? 1 : SpreadSize(start);
-        var pageStr = size == 1
-            ? $"{start + 1} / {_source.PageCount}"
-            : $"{start + 1}-{start + 2} / {_source.PageCount}";
-        // PageHeader 主標 = 分頁資訊；SubText（DisplayName）在 ctor 已設好不變
-        windowBar.Text = pageStr;
-        RefreshBookmarkIcon();
-    }
-
-    // ============================================================
-    // 書籤（#51 Phase 2-C）
-    // ============================================================
-
-    /// <summary>依當前頁書籤狀態切換 toggle 按鈕的 icon（StarFilled vs StarOutlined）。</summary>
-    private void RefreshBookmarkIcon()
-    {
-        if (_assetId == null || _metaStore == null) return;
-        var has = _metaStore.HasBookmarkOnPage(_assetId.Value, _currentIndex);
-        btnBookmarkToggle.IconSvg = has ? "StarFilled" : "StarOutlined";
-    }
-
-    /// <summary>當前頁有書籤就刪、沒有就加（label=null）。Add 後 cursor 對齊新書籤位置。</summary>
-    private void ToggleBookmarkOnCurrentPage()
-    {
-        if (_assetId == null || _metaStore == null) return;
-        var assetId = _assetId.Value;
-        if (_metaStore.HasBookmarkOnPage(assetId, _currentIndex))
-        {
-            _metaStore.DeleteBookmarkByPage(assetId, _currentIndex);
-            _bookmarkCursor = -1;   // toggle 移除 → cursor reset
-        }
-        else
-        {
-            _metaStore.AddBookmark(assetId, _currentIndex, label: null);
-            // 新書籤的 index = 排序後的位置
-            var list = _metaStore.ListBookmarks(assetId);
-            _bookmarkCursor = list.ToList().FindIndex(b => b.PageIndex == _currentIndex);
-        }
-        RefreshBookmarkIcon();
-    }
-
-    /// <summary>Shift+V — cursor++ wrap，跳到對應書籤頁。</summary>
-    private void GoToNextBookmark()
-    {
-        if (_assetId == null || _metaStore == null) return;
-        var list = _metaStore.ListBookmarks(_assetId.Value);
-        if (list.Count == 0) return;
-        _bookmarkCursor = (_bookmarkCursor < 0) ? 0 : (_bookmarkCursor + 1) % list.Count;
-        GoToPage(list[_bookmarkCursor].PageIndex);
-    }
-
-    /// <summary>Shift+C — cursor-- wrap，跳到對應書籤頁。</summary>
-    private void GoToPrevBookmark()
-    {
-        if (_assetId == null || _metaStore == null) return;
-        var list = _metaStore.ListBookmarks(_assetId.Value);
-        if (list.Count == 0) return;
-        _bookmarkCursor = (_bookmarkCursor < 0)
-            ? list.Count - 1
-            : (_bookmarkCursor - 1 + list.Count) % list.Count;
-        GoToPage(list[_bookmarkCursor].PageIndex);
-    }
-
-    /// <summary>開書籤選單（AntdUI ContextMenuStrip with Sub）— 主項點即跳頁、子選單管理。</summary>
-    private void OpenBookmarkList()
-    {
-        if (_assetId == null || _metaStore == null) return;
-        var assetId = _assetId.Value;
-        var bookmarks = _metaStore.ListBookmarks(assetId).ToList();
-
-        var pageFmt = LocalizationManager.GetString("BookmarkPageFmt") ?? "第 {0} 頁";
-        var unnamed = LocalizationManager.GetString("BookmarkUnnamed") ?? "(未命名)";
-        var emptyHint = LocalizationManager.GetString("BookmarkEmptyHint") ?? "(尚無書籤)";
-        var renameLbl = LocalizationManager.GetString("BookmarkRename") ?? "重新命名";
-        var deleteLbl = LocalizationManager.GetString("BookmarkDelete") ?? "刪除";
-
-        AntdUI.IContextMenuStripItem[] items;
-        if (bookmarks.Count == 0)
-        {
-            // 空集合 — 顯示一條 disabled 提示
-            items = new AntdUI.IContextMenuStripItem[]
-            {
-                new AntdUI.ContextMenuStripItem(emptyHint) { Enabled = false }
-            };
-        }
-        else
-        {
-            items = bookmarks.Select((b, idx) =>
-            {
-                var pageStr = string.Format(pageFmt, b.PageIndex + 1);
-                var labelPart = string.IsNullOrWhiteSpace(b.Label) ? unnamed : b.Label;
-                var item = new AntdUI.ContextMenuStripItem($"{pageStr}  ·  {labelPart}")
-                {
-                    IconSvg = "BookOutlined",
-                    Tag = new BookmarkMenuTag("nav", b, idx),
-                    Sub = new AntdUI.IContextMenuStripItem[]
-                    {
-                        new AntdUI.ContextMenuStripItem(renameLbl)
-                        {
-                            IconSvg = "EditOutlined",
-                            Tag = new BookmarkMenuTag("rename", b, idx),
-                        },
-                        new AntdUI.ContextMenuStripItem(deleteLbl)
-                        {
-                            IconSvg = "DeleteOutlined",
-                            Tag = new BookmarkMenuTag("delete", b, idx),
-                        },
-                    },
-                };
-                return (AntdUI.IContextMenuStripItem)item;
-            }).ToArray();
-        }
-
-        AntdUI.ContextMenuStrip.open(btnBookmarkList, mi =>
-        {
-            if (mi is not AntdUI.ContextMenuStripItem citem) return;
-            if (citem.Tag is not BookmarkMenuTag tag) return;
-            switch (tag.Action)
-            {
-                case "nav":
-                    _bookmarkCursor = tag.CursorIndex;
-                    GoToPage(tag.Bookmark.PageIndex);
-                    break;
-                case "rename":
-                    RenameBookmarkInline(tag.Bookmark);
-                    break;
-                case "delete":
-                    _metaStore.DeleteBookmark(tag.Bookmark.Id);
-                    _bookmarkCursor = -1;
-                    RefreshBookmarkIcon();
-                    break;
-            }
-        }, items);
-    }
-
-    private void RenameBookmarkInline(Bookmark b)
-    {
-        if (_metaStore == null) return;
-        var prompt = LocalizationManager.GetString("BookmarkRenamePrompt") ?? "輸入書籤名稱（留白清除）";
-        var input = PromptForText(this, prompt, b.Label ?? "");
-        if (input == null) return;   // 取消
-        var trimmed = input.Trim();
-        _metaStore.RenameBookmark(b.Id, string.IsNullOrEmpty(trimmed) ? null : trimmed);
-    }
-
-    /// <summary>輕量 input prompt — AntdUI 沒提供 InputDialog，自寫 mini dialog。
-    /// 取消回 null、確定回輸入字串（可能為空字串 = 清空 label）。</summary>
-    private static string? PromptForText(IWin32Window parent, string title, string defaultValue)
-    {
-        using var dlg = new Form
-        {
-            Text = title,
-            FormBorderStyle = FormBorderStyle.FixedDialog,
-            MaximizeBox = false,
-            MinimizeBox = false,
-            StartPosition = FormStartPosition.CenterParent,
-            ClientSize = new Size(360, 92),
-            ShowInTaskbar = false,
-        };
-        var tb = new TextBox
-        {
-            Text = defaultValue,
-            Font = new Font("Microsoft JhengHei UI", 10F),
-            Location = new Point(12, 12),
-            Width = 336,
-        };
-        var btnOk = new System.Windows.Forms.Button { Text = "OK", DialogResult = DialogResult.OK, Location = new Point(192, 52), Width = 75 };
-        var btnCancel = new System.Windows.Forms.Button { Text = "Cancel", DialogResult = DialogResult.Cancel, Location = new Point(273, 52), Width = 75 };
-        dlg.Controls.Add(tb);
-        dlg.Controls.Add(btnOk);
-        dlg.Controls.Add(btnCancel);
-        dlg.AcceptButton = btnOk;
-        dlg.CancelButton = btnCancel;
-        tb.SelectAll();
-        return dlg.ShowDialog(parent) == DialogResult.OK ? tb.Text : null;
-    }
-
-    private void UpdateStatusBar()
-    {
-        var name = _source.GetPageName(_currentIndex);
-        var dir = _rtl ? "RTL" : "LTR";
-        var mode = _viewMode switch
-        {
-            ReaderViewMode.SinglePage => "單頁",
-            ReaderViewMode.DualPage => "雙頁",
-            ReaderViewMode.ContinuousScroll => "捲動",
-            _ => "",
-        };
-        if (IsContinuous)
-        {
-            var zoomPct = sliderZoom.Value;
-            lblStatus.Text = $"{name}    {dir}    {mode}    {zoomPct}%";
-            return;
-        }
-        // 顯示「主」頁尺寸（雙頁模式 = leftImg；single mode 也是 leftImg）
-        var dim = _leftImage != null ? $"{_leftImage.Width}×{_leftImage.Height}" : "-";
-        var zoomLabel = _zoomMode switch
-        {
-            ReaderZoomMode.FitPage => "適合頁",
-            ReaderZoomMode.FitWidth => "適合寬",
-            ReaderZoomMode.Actual => "100%",
-            ReaderZoomMode.Custom => $"{(int)(_customZoom * 100)}%",
-            _ => "",
-        };
-        lblStatus.Text = $"{name}    {dim}    {dir}    {mode}    {zoomLabel}";
-    }
+
+	private class TranslationWork
+	{
+		public int PageIndex { get; set; }
+
+		public bool IsHighPriority { get; set; }
+
+		public CancellationTokenSource Cts { get; set; } = new CancellationTokenSource();
+	}
+
+	private enum TranslationStep
+	{
+		Ocr,
+		Translating,
+		Applying,
+		Applied,
+		Failed
+	}
+
+	private record BookmarkMenuTag(string Action, Bookmark Bookmark, int CursorIndex);
+
+	private readonly IReaderSource _source;
+
+	private readonly bool _rtl;
+
+	private readonly bool _spreadFromCover;
+
+	private readonly IAssetMetaStore? _metaStore;
+
+	private int _currentIndex;
+
+	private int _lastSavedPage = -1;
+
+	private readonly DateTime _openedAt = DateTime.UtcNow;
+
+	private int _pagesVisited;
+
+	private bool _readRecorded;
+
+	private bool _completedRecorded;
+
+	private readonly int _readThresholdSeconds;
+
+	private readonly int _readThresholdPages;
+
+	private readonly bool _trackReadingRecord;
+
+	private readonly System.Windows.Forms.Timer _recordCheckTimer = new System.Windows.Forms.Timer
+	{
+		Interval = 5000
+	};
+
+	private ReaderViewMode _viewMode = ReaderViewMode.SinglePage;
+
+	private ReaderZoomMode _zoomMode = ReaderZoomMode.FitPage;
+
+	private float _customZoom = 1f;
+
+	private const float MinZoom = 0.1f;
+
+	private const float MaxZoom = 8f;
+
+	private ContinuousLayout? _layout;
+
+	private readonly System.Windows.Forms.Timer _scrollDebounce = new System.Windows.Forms.Timer
+	{
+		Interval = 500
+	};
+
+	private int _virtualScrollY;
+
+	private readonly Dictionary<int, Image> _cache = new Dictionary<int, Image>();
+
+	private readonly HashSet<int> _loading = new HashSet<int>();
+
+	private readonly object _cacheLock = new object();
+
+	private const int PreloadRadius = 6;
+
+	private const int MaxCacheSize = 24;
+
+	private Image? _leftImage;
+
+	private Image? _rightImage;
+
+	private bool _enableTranslation = false;
+
+	private IOcrService _ocrService = new WindowsOcrService();
+
+	private readonly LlmTranslationService _translationService = new LlmTranslationService(new HttpClient());
+
+	private readonly Dictionary<int, List<OcrBlock>> _translatedPageCache = new Dictionary<int, List<OcrBlock>>();
+
+	private readonly object _translationLock = new object();
+
+	private readonly SemaphoreSlim _llmSemaphore;
+
+	private readonly List<TranslationWork> _translationQueue = new List<TranslationWork>();
+
+	private readonly Dictionary<int, TranslationWork> _activeWorks = new Dictionary<int, TranslationWork>();
+
+	private readonly object _queueLock = new object();
+
+	private readonly List<Task> _workerTasks = new List<Task>();
+
+	private CancellationTokenSource? _queueCts;
+
+	private readonly Dictionary<int, TranslationStep> _pageTranslationSteps = new Dictionary<int, TranslationStep>();
+
+	private readonly object _stepLock = new object();
+
+	private bool _isInstantTranslationActive = false;
+
+	private bool _isAllTranslationActive = false;
+
+	private FormBorderStyle _prevBorderStyle;
+
+	private FormWindowState _prevWindowState;
+
+	private DateTime _lastWheelPageTurnTime = DateTime.MinValue;
+
+	private bool _isFullscreen;
+
+	private long? _assetId;
+
+	private int _bookmarkCursor = -1;
+
+	private static readonly Color ReaderContentBg = Color.FromArgb(99, 98, 99);
+
+	private static readonly Color LoadingPlaceholderBg = Color.FromArgb(80, 80, 80);
+
+
+
+	private bool IsContinuous => _viewMode == ReaderViewMode.ContinuousScroll;
+
+	public ReaderForm(IReaderSource source, bool rightToLeft = true, bool dualPageSpreadFromCover = false, IAssetMetaStore? metaStore = null, ReadRecordQueue? readRecordQueue = null, int readThresholdSeconds = 30, int readThresholdPages = 2, bool trackReadingRecord = true)
+	{
+		InitializeComponent();
+		AppConfig appConfig = new ConfigManager().Load();
+		_ocrService = appConfig.OcrEngineType == 1 ? new PaddleOcrService() : new WindowsOcrService();
+		int num = Math.Max(1, appConfig.TranslationMaxConcurrency);
+		_llmSemaphore = new SemaphoreSlim(num, num);
+		StartWorkers(num);
+		_source = source;
+		_rtl = rightToLeft;
+		_spreadFromCover = dualPageSpreadFromCover;
+		_metaStore = metaStore;
+		_readThresholdSeconds = Math.Max(1, readThresholdSeconds);
+		_readThresholdPages = Math.Max(1, readThresholdPages);
+		_trackReadingRecord = trackReadingRecord;
+		readRecordQueue?.Cancel(source.RootPath);
+		_recordCheckTimer.Tick += delegate
+		{
+			if (base.IsDisposed)
+			{
+				_recordCheckTimer.Stop();
+			}
+			else if (_readRecorded)
+			{
+				_recordCheckTimer.Stop();
+			}
+			else
+			{
+				TryRecordRead();
+			}
+		};
+		_recordCheckTimer.Start();
+		int? num2 = _metaStore?.GetLastPage(source.RootPath);
+		_currentIndex = ((num2.HasValue && num2.Value >= 0 && num2.Value < source.PageCount) ? num2.Value : 0);
+		_assetId = _metaStore?.GetAssetId(source.RootPath);
+		Text = source.DisplayName;
+		windowBar.SubText = source.DisplayName;
+		ApplyThemeColors();
+		btnStatusLoading.SendToBack();
+		this.WireThemeAndLocalization();
+		picPage.Image = null;
+		picPage.Paint += OnPicPagePaint;
+		WireEvents();
+		if (source.PageCount > 0)
+		{
+			GoToPage(_currentIndex);
+		}
+		else
+		{
+			lblStatus.Text = "(無圖檔)";
+		}
+	}
+
+	public void ApplyThemeColors()
+	{
+		BackColor = ReaderContentBg;
+		windowBar.BackColor = ThemeColors.Primary;
+		windowBar.ForeColor = ThemeColors.HeaderText;
+		toolbar.BackColor = ThemeColors.TabHeader;
+		statusBar.BackColor = ThemeColors.TabHeader;
+		scrollHost.BackColor = ReaderContentBg;
+		picPage.BackColor = ReaderContentBg;
+		lblStatus.ForeColor = ThemeColors.Text;
+		btnStatusLoading.ForeColor = ThemeColors.Text;
+	}
+
+	public void ApplyLocalization()
+	{
+	}
+
+	private void WireEvents()
+	{
+		sliderZoom.SetMinMax(20, 120);
+		sliderZoom.Value = (sliderZoom.MinValue + sliderZoom.MaxValue) / 2;
+		btnFullscreen.Click += delegate
+		{
+			ToggleFullscreen();
+		};
+		btnBookmarkToggle.Click += delegate
+		{
+			ToggleBookmarkOnCurrentPage();
+		};
+		btnBookmarkList.Click += delegate
+		{
+			OpenBookmarkList();
+		};
+		if (!_assetId.HasValue)
+		{
+			btnBookmarkToggle.Enabled = false;
+			btnBookmarkList.Enabled = false;
+		}
+		segViewMode.SelectIndexChanged += delegate(object s, IntEventArgs e)
+		{
+			OnViewModeChanged(e.Value);
+		};
+		segZoomMode.SelectIndexChanged += delegate(object s, IntEventArgs e)
+		{
+			OnZoomModeChanged(e.Value);
+		};
+		sliderZoom.ValueChanged += delegate
+		{
+			OnSliderZoomChanged();
+		};
+		switchSeamless.CheckedChanged += delegate
+		{
+			OnSeamlessChanged();
+		};
+		btnInstantTranslation.Click += delegate
+		{
+			if (_isInstantTranslationActive)
+			{
+				_isInstantTranslationActive = false;
+				btnInstantTranslation.Type = TTypeMini.Default;
+				if (!_isAllTranslationActive)
+				{
+					_enableTranslation = false;
+				}
+				CancelInstantTranslation();
+				picPage.Invalidate();
+				UpdateStatusBar();
+			}
+			else
+			{
+				_isInstantTranslationActive = true;
+				_isAllTranslationActive = false;
+				btnInstantTranslation.Type = TTypeMini.Primary;
+				btnAllTranslation.Type = TTypeMini.Default;
+				_enableTranslation = true;
+				CancelAllTranslation();
+				OnPageSpreadChanged();
+				picPage.Invalidate();
+				UpdateStatusBar();
+			}
+		};
+		btnAllTranslation.Click += delegate
+		{
+			if (_isAllTranslationActive)
+			{
+				_isAllTranslationActive = false;
+				btnAllTranslation.Type = TTypeMini.Default;
+				if (!_isInstantTranslationActive)
+				{
+					_enableTranslation = false;
+				}
+				CancelAllTranslation();
+				picPage.Invalidate();
+				UpdateStatusBar();
+			}
+			else
+			{
+				string caption = LocalizationManager.GetString("AllTranslationConfirmTitle") ?? "全部翻譯";
+				string text = LocalizationManager.GetString("AllTranslationConfirmPrompt") ?? "背景翻譯整本漫畫需要較長時間，是否繼續？";
+				DialogResult dialogResult = MessageBox.Show(this, text, caption, MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation);
+				if (dialogResult == DialogResult.Yes)
+				{
+					_isAllTranslationActive = true;
+					_isInstantTranslationActive = false;
+					btnAllTranslation.Type = TTypeMini.Primary;
+					btnInstantTranslation.Type = TTypeMini.Default;
+					_enableTranslation = true;
+					CancelInstantTranslation();
+					StartAllTranslation();
+					picPage.Invalidate();
+					UpdateStatusBar();
+				}
+			}
+		};
+		base.KeyDown += OnKeyDown;
+		scrollHost.MouseWheel += OnContentMouseWheel;
+		picPage.MouseWheel += OnContentMouseWheel;
+		vScrollBarContinuous.ValueChanged += delegate
+		{
+			if (IsContinuous)
+			{
+				_virtualScrollY = vScrollBarContinuous.Value;
+				picPage.Invalidate();
+				UpdateContinuousState();
+			}
+		};
+		_scrollDebounce.Tick += delegate
+		{
+			_scrollDebounce.Stop();
+			if (!base.IsDisposed && IsContinuous)
+			{
+				SaveProgress();
+			}
+		};
+		base.FormClosing += delegate
+		{
+			SaveProgress();
+			DisposeAllPages();
+			try
+			{
+				_queueCts?.Cancel();
+				_queueCts?.Dispose();
+				_llmSemaphore?.Dispose();
+			}
+			catch
+			{
+			}
+		};
+		scrollHost.Resize += delegate
+		{
+			if (IsContinuous && _layout != null)
+			{
+				ChangeLayoutKeepingFocus(delegate
+				{
+				});
+			}
+			else
+			{
+				LayoutPic();
+			}
+		};
+	}
+
+	private void SaveProgress()
+	{
+		if (_metaStore == null || _currentIndex == _lastSavedPage)
+		{
+			return;
+		}
+		try
+		{
+			_metaStore.SetLastPage(_source.RootPath, _currentIndex);
+			_lastSavedPage = _currentIndex;
+		}
+		catch
+		{
+		}
+	}
+
+	private void TryRecordRead()
+	{
+		if (!_trackReadingRecord || _readRecorded || _metaStore == null)
+		{
+			return;
+		}
+		double totalSeconds = (DateTime.UtcNow - _openedAt).TotalSeconds;
+		if (totalSeconds < (double)_readThresholdSeconds && _pagesVisited < _readThresholdPages)
+		{
+			return;
+		}
+		try
+		{
+			_metaStore.RecordRead(_source.RootPath);
+			_readRecorded = true;
+			_recordCheckTimer.Stop();
+		}
+		catch
+		{
+		}
+	}
+
+	private void TryAutoComplete()
+	{
+		if (!_trackReadingRecord || _completedRecorded || _metaStore == null)
+		{
+			return;
+		}
+		int num = _currentIndex + SpreadSize(_currentIndex) - 1;
+		if (num < _source.PageCount - 1)
+		{
+			return;
+		}
+		try
+		{
+			_metaStore.SetReadStatus(_source.RootPath, ReadStatus.Completed);
+			_completedRecorded = true;
+		}
+		catch
+		{
+		}
+	}
+
+	private void OnContentMouseWheel(object? sender, MouseEventArgs e)
+	{
+		if ((Control.ModifierKeys & Keys.Control) != Keys.None)
+		{
+			if (IsContinuous && _layout != null)
+			{
+				int num = ((e.Delta > 0) ? 5 : (-5));
+				int value = Math.Clamp(sliderZoom.Value + num, sliderZoom.MinValue, sliderZoom.MaxValue);
+				sliderZoom.Value = value;
+			}
+			else
+			{
+				AdjustCustomZoom((e.Delta > 0) ? 1.1f : 0.9090909f);
+			}
+		}
+		else if (IsContinuous)
+		{
+			int y = _virtualScrollY - e.Delta;
+			ScrollContinuousTo(y);
+		}
+		else if (_zoomMode == ReaderZoomMode.FitPage)
+		{
+			// 滾輪翻頁防抖：限制最小間隔 150 毫秒，避免滾輪過快或多重觸發導致跳頁
+			if ((DateTime.Now - _lastWheelPageTurnTime).TotalMilliseconds < 150)
+			{
+				return;
+			}
+			_lastWheelPageTurnTime = DateTime.Now;
+
+			if (e.Delta > 0)
+			{
+				StepSpread(-1);
+			}
+			else
+			{
+				StepSpread(1);
+			}
+		}
+	}
+
+	private void OnKeyDown(object? sender, KeyEventArgs e)
+	{
+		if (e.Control)
+		{
+			switch (e.KeyCode)
+			{
+			case Keys.D0:
+			case Keys.NumPad0:
+				ResetZoom();
+				e.Handled = true;
+				return;
+			case Keys.Add:
+			case Keys.Oemplus:
+				AdjustCustomZoom(1.1f);
+				e.Handled = true;
+				return;
+			case Keys.Subtract:
+			case Keys.OemMinus:
+				AdjustCustomZoom(0.9090909f);
+				e.Handled = true;
+				return;
+			}
+		}
+		if (e.Shift && !e.Control && !e.Alt)
+		{
+			switch (e.KeyCode)
+			{
+			case Keys.B:
+				OpenBookmarkList();
+				e.Handled = true;
+				return;
+			case Keys.V:
+				GoToNextBookmark();
+				e.Handled = true;
+				return;
+			case Keys.C:
+				GoToPrevBookmark();
+				e.Handled = true;
+				return;
+			}
+		}
+		if (!e.Shift && !e.Control && !e.Alt && e.KeyCode == Keys.B)
+		{
+			ToggleBookmarkOnCurrentPage();
+			e.Handled = true;
+			return;
+		}
+		switch (e.KeyCode)
+		{
+		default:
+			return;
+		case Keys.Escape:
+			if (_isFullscreen)
+			{
+				ToggleFullscreen();
+			}
+			else
+			{
+				Close();
+			}
+			break;
+		case Keys.Return:
+		case Keys.F:
+		case Keys.F11:
+			ToggleFullscreen();
+			break;
+		case Keys.Left:
+			if (IsContinuous)
+			{
+				return;
+			}
+			StepSpread(_rtl ? 1 : (-1));
+			break;
+		case Keys.Right:
+			if (IsContinuous)
+			{
+				return;
+			}
+			StepSpread((!_rtl) ? 1 : (-1));
+			break;
+		case Keys.Back:
+		case Keys.Prior:
+			if (IsContinuous)
+			{
+				SmartPageUp();
+			}
+			else
+			{
+				StepSpread(-1);
+			}
+			break;
+		case Keys.Space:
+		case Keys.Next:
+			if (IsContinuous)
+			{
+				SmartPageDown();
+			}
+			else
+			{
+				StepSpread(1);
+			}
+			break;
+		case Keys.Home:
+			if (IsContinuous)
+			{
+				ScrollContinuousTo(0);
+			}
+			else
+			{
+				GoToPage(0);
+			}
+			break;
+		case Keys.End:
+			if (IsContinuous)
+			{
+				ScrollContinuousTo(_layout?.TotalHeight ?? 0);
+			}
+			else
+			{
+				GoToPage(_source.PageCount - 1);
+			}
+			break;
+		}
+		e.Handled = true;
+	}
+
+	private void OnSliderZoomChanged()
+	{
+		if (_layout != null)
+		{
+			ChangeLayoutKeepingFocus(delegate
+			{
+				_layout.SetZoom((float)sliderZoom.Value / 100f);
+			});
+			UpdateStatusBar();
+		}
+	}
+
+	private void ScrollContinuousTo(int y)
+	{
+		if (_layout != null)
+		{
+			int val = Math.Max(0, _layout.TotalHeight - picPage.Height);
+			y = Math.Max(0, Math.Min(y, val));
+			if (vScrollBarContinuous.Value != y)
+			{
+				int value = Math.Min(y, vScrollBarContinuous.Maximum);
+				vScrollBarContinuous.Value = value;
+			}
+			else
+			{
+				_virtualScrollY = y;
+				picPage.Invalidate();
+				UpdateContinuousState();
+			}
+		}
+	}
+
+	private void SmartPageDown()
+	{
+		if (_layout != null)
+		{
+			int virtualScrollY = _virtualScrollY;
+			int height = picPage.Height;
+			int num = _layout.NextPageBoundary(virtualScrollY);
+			int y = ((num - virtualScrollY <= (int)((double)height * 1.1)) ? num : (virtualScrollY + (int)((double)height * 0.9)));
+			ScrollContinuousTo(y);
+		}
+	}
+
+	private void SmartPageUp()
+	{
+		if (_layout != null)
+		{
+			int virtualScrollY = _virtualScrollY;
+			int height = picPage.Height;
+			int num = _layout.PrevPageBoundary(virtualScrollY);
+			int y = ((virtualScrollY - num <= (int)((double)height * 1.1)) ? num : Math.Max(0, virtualScrollY - (int)((double)height * 0.9)));
+			ScrollContinuousTo(y);
+		}
+	}
+
+	private void ResetZoom()
+	{
+		_customZoom = 1f;
+		_zoomMode = ReaderZoomMode.FitPage;
+		segZoomMode.SelectIndex = 0;
+		LayoutPic();
+		UpdateStatusBar();
+	}
+
+	private void OnZoomModeChanged(int idx)
+	{
+		if (1 == 0)
+		{
+		}
+		ReaderZoomMode readerZoomMode = idx switch
+		{
+			0 => ReaderZoomMode.FitPage, 
+			1 => ReaderZoomMode.FitWidth, 
+			2 => ReaderZoomMode.Actual, 
+			_ => ReaderZoomMode.FitPage, 
+		};
+		if (1 == 0)
+		{
+		}
+		ReaderZoomMode readerZoomMode2 = readerZoomMode;
+		if (readerZoomMode2 != _zoomMode)
+		{
+			_zoomMode = readerZoomMode2;
+			_customZoom = 1f;
+			LayoutPic();
+			UpdateStatusBar();
+		}
+	}
+
+	private void AdjustCustomZoom(float factor)
+	{
+		float num = Math.Clamp(_customZoom * factor, 0.1f, 8f);
+		if (!(Math.Abs(num - _customZoom) < 0.001f))
+		{
+			_customZoom = num;
+			_zoomMode = ReaderZoomMode.Custom;
+			LayoutPic();
+			UpdateStatusBar();
+		}
+	}
+
+	private void LayoutPic()
+	{
+		if (IsContinuous && _layout != null)
+		{
+			int num = scrollHost.ClientSize.Width - vScrollBarContinuous.Width;
+			int height = scrollHost.ClientSize.Height;
+			if (num > 0 && height > 0)
+			{
+				_layout.SetViewportWidth(num);
+				picPage.Size = new Size(num, height);
+				picPage.Location = new Point(0, 0);
+				int num2 = Math.Max(0, _layout.TotalHeight - height);
+				vScrollBarContinuous.LargeChange = Math.Max(1, height);
+				vScrollBarContinuous.Maximum = num2 + vScrollBarContinuous.LargeChange - 1;
+				_virtualScrollY = Math.Max(0, Math.Min(_virtualScrollY, num2));
+				if (vScrollBarContinuous.Value != _virtualScrollY)
+				{
+					vScrollBarContinuous.Value = _virtualScrollY;
+				}
+			}
+		}
+		else if (_leftImage != null && scrollHost.ClientSize.Width > 0 && scrollHost.ClientSize.Height > 0)
+		{
+			int num3 = _leftImage.Width + (_rightImage?.Width ?? 0);
+			int num4 = ((_rightImage != null) ? Math.Max(_leftImage.Height, _rightImage.Height) : _leftImage.Height);
+			int width = scrollHost.ClientSize.Width;
+			int height2 = scrollHost.ClientSize.Height;
+			int num5;
+			int num6;
+			switch (_zoomMode)
+			{
+			case ReaderZoomMode.FitPage:
+			{
+				float val = (float)width / (float)num3;
+				float val2 = (float)height2 / (float)num4;
+				float num7 = Math.Min(val, val2);
+				num5 = Math.Max(1, (int)((float)num3 * num7));
+				num6 = Math.Max(1, (int)((float)num4 * num7));
+				break;
+			}
+			case ReaderZoomMode.FitWidth:
+				num5 = width;
+				num6 = (int)((float)num4 * (float)width / (float)num3);
+				break;
+			case ReaderZoomMode.Actual:
+				num5 = num3;
+				num6 = num4;
+				break;
+			case ReaderZoomMode.Custom:
+				num5 = Math.Max(1, (int)((float)num3 * _customZoom));
+				num6 = Math.Max(1, (int)((float)num4 * _customZoom));
+				break;
+			default:
+				num5 = num3;
+				num6 = num4;
+				break;
+			}
+			picPage.Size = new Size(num5, num6);
+			int x = Math.Max(0, (width - num5) / 2);
+			int y = Math.Max(0, (height2 - num6) / 2);
+			picPage.Location = new Point(x, y);
+		}
+	}
+
+	private void OnViewModeChanged(int idx)
+	{
+		if (1 == 0)
+		{
+		}
+		ReaderViewMode readerViewMode = idx switch
+		{
+			0 => ReaderViewMode.SinglePage, 
+			1 => ReaderViewMode.DualPage, 
+			2 => ReaderViewMode.ContinuousScroll, 
+			_ => ReaderViewMode.SinglePage, 
+		};
+		if (1 == 0)
+		{
+		}
+		ReaderViewMode readerViewMode2 = readerViewMode;
+		if (readerViewMode2 != _viewMode)
+		{
+			_viewMode = readerViewMode2;
+			bool flag = readerViewMode2 == ReaderViewMode.ContinuousScroll;
+			segZoomMode.Visible = !flag;
+			sliderZoom.Visible = flag;
+			switchSeamless.Visible = flag;
+			lblSeamless.Visible = flag;
+			if (flag)
+			{
+				EnterContinuousMode();
+			}
+			else
+			{
+				LeaveContinuousMode();
+			}
+		}
+	}
+
+	private void EnterContinuousMode()
+	{
+		_leftImage = null;
+		_rightImage = null;
+		scrollHost.AutoScroll = false;
+		vScrollBarContinuous.Visible = true;
+		_virtualScrollY = 0;
+		_layout = new ContinuousLayout(_source.PageCount, Math.Max(1, scrollHost.ClientSize.Width - vScrollBarContinuous.Width));
+		_layout.Gap = ((!switchSeamless.Checked) ? 8 : 0);
+		lock (_cacheLock)
+		{
+			foreach (var (idx, image2) in _cache)
+			{
+				_layout.SetMeasured(idx, image2.Width, image2.Height);
+			}
+		}
+		int num2 = (sliderZoom.MinValue + sliderZoom.MaxValue) / 2;
+		sliderZoom.Value = num2;
+		_layout.SetZoom((float)num2 / 100f);
+		LayoutPic();
+		ScrollContinuousTo(_layout.GetPageY(_currentIndex));
+		picPage.Invalidate();
+		UpdateStatusBar();
+	}
+
+	private void LeaveContinuousMode()
+	{
+		_layout = null;
+		vScrollBarContinuous.Visible = false;
+		scrollHost.AutoScroll = true;
+		_virtualScrollY = 0;
+		_currentIndex = SpreadStart(_currentIndex);
+		GoToPage(_currentIndex);
+	}
+
+	private void OnSeamlessChanged()
+	{
+		if (_layout != null)
+		{
+			ChangeLayoutKeepingFocus(delegate
+			{
+				_layout.Gap = ((!switchSeamless.Checked) ? 8 : 0);
+			});
+		}
+	}
+
+	private void ChangeLayoutKeepingFocus(Action mutate)
+	{
+		if (_layout != null)
+		{
+			int num = _layout.FindPageAtY(_virtualScrollY + picPage.Height / 2);
+			mutate();
+			LayoutPic();
+			if (num >= 0)
+			{
+				ScrollContinuousTo(_layout.GetPageY(num));
+			}
+			picPage.Invalidate();
+		}
+	}
+
+	private int SpreadStart(int pageIndex)
+	{
+		if (_viewMode != ReaderViewMode.DualPage)
+		{
+			return pageIndex;
+		}
+		if (_spreadFromCover)
+		{
+			if (pageIndex == 0)
+			{
+				return 0;
+			}
+			return pageIndex - (pageIndex - 1) % 2;
+		}
+		return pageIndex - pageIndex % 2;
+	}
+
+	private int SpreadSize(int spreadStart)
+	{
+		if (_viewMode != ReaderViewMode.DualPage)
+		{
+			return 1;
+		}
+		if (_spreadFromCover && spreadStart == 0)
+		{
+			return 1;
+		}
+		if (spreadStart + 1 >= _source.PageCount)
+		{
+			return 1;
+		}
+		return 2;
+	}
+
+	private void StepSpread(int direction)
+	{
+		int num = SpreadStart(_currentIndex);
+		if (direction > 0)
+		{
+			int num2 = num + SpreadSize(num);
+			if (num2 < _source.PageCount)
+			{
+				GoToPage(num2);
+			}
+		}
+		else if (num != 0)
+		{
+			int index = SpreadStart(num - 1);
+			GoToPage(index);
+		}
+	}
+
+	private void GoToPage(int index)
+	{
+		if (index < 0 || index >= _source.PageCount)
+		{
+			return;
+		}
+		if (IsContinuous && _layout != null)
+		{
+			_currentIndex = index;
+			ScrollContinuousTo(_layout.GetPageY(index));
+			return;
+		}
+		_currentIndex = SpreadStart(index);
+		UpdatePageInfo();
+		int num = SpreadSize(_currentIndex);
+		EvictCacheIfNeeded(_currentIndex, _currentIndex + num - 1);
+		for (int i = 0; i < num; i++)
+		{
+			_ = LoadPageAsync(_currentIndex + i);
+		}
+		for (int j = 1; j <= 6; j++)
+		{
+			int num2 = _currentIndex + num - 1 + j;
+			int num3 = _currentIndex - j;
+			if (num2 < _source.PageCount)
+			{
+				_ = LoadPageAsync(num2);
+			}
+			if (num3 >= 0)
+			{
+				_ = LoadPageAsync(num3);
+			}
+		}
+		TryRenderCurrentSpread();
+		SaveProgress();
+		_pagesVisited++;
+		TryRecordRead();
+		TryAutoComplete();
+	}
+
+	private async Task LoadPageAsync(int index)
+	{
+		lock (_cacheLock)
+		{
+			if (_cache.ContainsKey(index) || !_loading.Add(index))
+			{
+				return;
+			}
+		}
+		Image img;
+		try
+		{
+			img = await Task.Run(delegate
+			{
+				using Stream stream = _source.OpenPage(index);
+				return ReaderImageLoader.Decode(stream, _source.GetPageExtension(index));
+			});
+		}
+		catch
+		{
+			lock (_cacheLock)
+			{
+				_loading.Remove(index);
+			}
+			return;
+		}
+		if (base.IsDisposed)
+		{
+			img.Dispose();
+			return;
+		}
+		int natW = img.Width;
+		int natH = img.Height;
+		lock (_cacheLock)
+		{
+			_loading.Remove(index);
+			_cache[index] = img;
+		}
+		try
+		{
+			BeginInvoke(delegate
+			{
+				if (!base.IsDisposed)
+				{
+					if (IsContinuous && _layout != null)
+					{
+						int totalHeight = _layout.TotalHeight;
+						_layout.SetMeasured(index, natW, natH);
+						int totalHeight2 = _layout.TotalHeight;
+						int num = Math.Max(0, totalHeight2 - picPage.Height);
+						int num2 = num + vScrollBarContinuous.LargeChange - 1;
+						if (vScrollBarContinuous.Maximum != num2)
+						{
+							vScrollBarContinuous.Maximum = num2;
+						}
+						if (_virtualScrollY > num)
+						{
+							_virtualScrollY = num;
+							vScrollBarContinuous.Value = Math.Min(_virtualScrollY, vScrollBarContinuous.Maximum);
+						}
+						UpdateContinuousState();
+						picPage.Invalidate();
+					}
+					else
+					{
+						int num3 = SpreadStart(_currentIndex);
+						int num4 = SpreadSize(num3);
+						if (index >= num3 && index < num3 + num4)
+						{
+							TryRenderCurrentSpread();
+						}
+					}
+				}
+			});
+		}
+		catch
+		{
+		}
+	}
+
+	private void TryRenderCurrentSpread()
+	{
+		int currentIndex = _currentIndex;
+		int num = SpreadSize(currentIndex);
+		Image? value;
+		Image? image;
+		lock (_cacheLock)
+		{
+			_cache.TryGetValue(currentIndex, out value);
+			image = ((num != 2) ? null : (_cache.TryGetValue(currentIndex + 1, out Image? value2) ? value2 : null));
+		}
+		if (value == null || (num == 2 && image == null))
+		{
+			_leftImage = null;
+			_rightImage = null;
+			picPage.Invalidate();
+			lblStatus.Text = "讀取中…";
+			return;
+		}
+		if (num == 1)
+		{
+			_leftImage = value;
+			_rightImage = null;
+		}
+		else
+		{
+			_leftImage = (_rtl ? image : value);
+			_rightImage = (_rtl ? value : image);
+		}
+		LayoutPic();
+		picPage.Invalidate();
+		UpdateStatusBar();
+	}
+
+	private void OnPicPagePaint(object? sender, PaintEventArgs e)
+	{
+		if (_enableTranslation)
+		{
+			List<int> visiblePageIndices = GetVisiblePageIndices();
+			KeepOnlyVisibleInstantPages(visiblePageIndices);
+			CancelNonVisibleActiveInstantPages(visiblePageIndices);
+		}
+		if (IsContinuous && _layout != null)
+		{
+			lock (_cacheLock)
+			{
+				DrawContinuous(e);
+				return;
+			}
+		}
+		lock (_cacheLock)
+		{
+			if (_leftImage == null)
+			{
+				return;
+			}
+			Graphics graphics = e.Graphics;
+			graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+			graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+			if (_rightImage == null)
+			{
+				Rectangle rectangle = new Rectangle(0, 0, picPage.Width, picPage.Height);
+				graphics.DrawImage(_leftImage, rectangle);
+				if (_enableTranslation)
+				{
+					RenderTranslationOverlay(graphics, _leftImage, rectangle, _currentIndex);
+				}
+				return;
+			}
+			int num = picPage.Width - 5;
+			int num2 = _leftImage.Width + _rightImage.Width;
+			int num3 = Math.Max(_leftImage.Height, _rightImage.Height);
+			int num4 = (int)((double)_leftImage.Width / (double)num2 * (double)num);
+			int width = num - num4;
+			int num5 = (int)((double)_leftImage.Height / (double)num3 * (double)picPage.Height);
+			int num6 = (int)((double)_rightImage.Height / (double)num3 * (double)picPage.Height);
+			int y = (picPage.Height - num5) / 2;
+			int y2 = (picPage.Height - num6) / 2;
+			Rectangle rectangle2 = new Rectangle(0, y, num4, num5);
+			Rectangle rectangle3 = new Rectangle(num4 + 5, y2, width, num6);
+			graphics.DrawImage(_leftImage, rectangle2);
+			graphics.FillRectangle(Brushes.White, num4, 0, 5, picPage.Height);
+			graphics.DrawImage(_rightImage, rectangle3);
+			if (_enableTranslation)
+			{
+				int pageIndex = (_rtl ? (_currentIndex + 1) : _currentIndex);
+				int pageIndex2 = (_rtl ? _currentIndex : (_currentIndex + 1));
+				RenderTranslationOverlay(graphics, _leftImage, rectangle2, pageIndex);
+				RenderTranslationOverlay(graphics, _rightImage, rectangle3, pageIndex2);
+			}
+		}
+	}
+
+	private void DrawContinuous(PaintEventArgs e)
+	{
+		if (_layout == null)
+		{
+			return;
+		}
+		Graphics graphics = e.Graphics;
+		graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+		graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+		var (num, num2) = _layout.GetVisibleRange(_virtualScrollY, _virtualScrollY + picPage.Height);
+		if (num < 0)
+		{
+			return;
+		}
+		int contentWidth = _layout.ContentWidth;
+		int x = (picPage.Width - contentWidth) / 2;
+		using SolidBrush brush = new SolidBrush(LoadingPlaceholderBg);
+		using StringFormat format = new StringFormat
+		{
+			Alignment = StringAlignment.Center,
+			LineAlignment = StringAlignment.Center
+		};
+		for (int i = num; i <= num2; i++)
+		{
+			Image? value;
+			lock (_cacheLock)
+			{
+				_cache.TryGetValue(i, out value);
+			}
+			int y = _layout.GetPageY(i) - _virtualScrollY;
+			int pageHeight = _layout.GetPageHeight(i);
+			Rectangle rectangle = new Rectangle(x, y, contentWidth, pageHeight);
+			if (value == null)
+			{
+				graphics.FillRectangle(brush, rectangle);
+				graphics.DrawString("讀取中…", lblStatus.Font, Brushes.White, rectangle, format);
+				continue;
+			}
+			graphics.DrawImage(value, rectangle);
+			if (_enableTranslation)
+			{
+				RenderTranslationOverlay(graphics, value, rectangle, i);
+			}
+		}
+	}
+
+	private void UpdateContinuousState()
+	{
+		if (_layout != null)
+		{
+			int virtualScrollY = _virtualScrollY;
+			int height = picPage.Height;
+			int y = virtualScrollY + height / 2;
+			int num = _layout.FindPageAtY(y);
+			var (num2, num3) = _layout.GetVisibleRange(virtualScrollY, virtualScrollY + height);
+			if (num >= 0 && num != _currentIndex)
+			{
+				_currentIndex = num;
+				_pagesVisited++;
+				UpdatePageInfo();
+				UpdateStatusBar();
+				TryRecordRead();
+			}
+			if (num2 >= 0)
+			{
+				UpdateContinuousCacheWindow(num2, num3);
+			}
+			if (num3 >= _source.PageCount - 1)
+			{
+				TryAutoComplete();
+			}
+			_scrollDebounce.Stop();
+			_scrollDebounce.Start();
+		}
+	}
+
+	private void UpdateContinuousCacheWindow(int first, int last)
+	{
+		int num = Math.Max(0, first - 6);
+		int num2 = Math.Min(_source.PageCount - 1, last + 6);
+		EvictCacheIfNeeded(first, last);
+		for (int i = num; i <= num2; i++)
+		{
+			_ = LoadPageAsync(i);
+		}
+	}
+
+	private void EvictCacheIfNeeded(int activeFirst, int activeLast)
+	{
+		lock (_cacheLock)
+		{
+			if (_cache.Count <= 24)
+			{
+				return;
+			}
+			var list = (from x in _cache.Keys.Select(delegate(int k)
+				{
+					int distance = 0;
+					if (k < activeFirst)
+					{
+						distance = activeFirst - k;
+					}
+					else if (k > activeLast)
+					{
+						distance = k - activeLast;
+					}
+					return new
+					{
+						Key = k,
+						Distance = distance
+					};
+				})
+				orderby x.Distance descending
+				select x).ToList();
+			int num = _cache.Count - 24;
+			int num2 = 0;
+			foreach (var item in list)
+			{
+				if (num2 >= num)
+				{
+					break;
+				}
+				if (item.Distance != 0 && _cache.TryGetValue(item.Key, out Image? value))
+				{
+					value.Dispose();
+					_cache.Remove(item.Key);
+					num2++;
+				}
+			}
+		}
+	}
+
+	private void DisposeAllPages()
+	{
+		_recordCheckTimer.Stop();
+		_recordCheckTimer.Dispose();
+		_scrollDebounce.Stop();
+		_scrollDebounce.Dispose();
+		_leftImage = null;
+		_rightImage = null;
+		lock (_cacheLock)
+		{
+			foreach (Image value in _cache.Values)
+			{
+				value.Dispose();
+			}
+			_cache.Clear();
+			_loading.Clear();
+		}
+		_source.Dispose();
+	}
+
+	private void ToggleFullscreen()
+	{
+		if (!_isFullscreen)
+		{
+			_prevBorderStyle = base.FormBorderStyle;
+			_prevWindowState = base.WindowState;
+			base.FormBorderStyle = FormBorderStyle.None;
+			base.WindowState = FormWindowState.Normal;
+			base.WindowState = FormWindowState.Maximized;
+			windowBar.Visible = false;
+			toolbar.Visible = false;
+			statusBar.Visible = false;
+			_isFullscreen = true;
+		}
+		else
+		{
+			base.FormBorderStyle = _prevBorderStyle;
+			base.WindowState = _prevWindowState;
+			windowBar.Visible = true;
+			toolbar.Visible = true;
+			statusBar.Visible = true;
+			_isFullscreen = false;
+		}
+	}
+
+	private void UpdatePageInfo()
+	{
+		int currentIndex = _currentIndex;
+		int num = (IsContinuous ? 1 : SpreadSize(currentIndex));
+		string text = ((num == 1) ? $"{currentIndex + 1} / {_source.PageCount}" : $"{currentIndex + 1}-{currentIndex + 2} / {_source.PageCount}");
+		windowBar.Text = text;
+		RefreshBookmarkIcon();
+	}
+
+	private void RefreshBookmarkIcon()
+	{
+		if (_assetId.HasValue && _metaStore != null)
+		{
+			bool flag = _metaStore.HasBookmarkOnPage(_assetId.Value, _currentIndex);
+			btnBookmarkToggle.IconSvg = (flag ? "StarFilled" : "StarOutlined");
+		}
+	}
+
+	private void ToggleBookmarkOnCurrentPage()
+	{
+		if (!_assetId.HasValue || _metaStore == null)
+		{
+			return;
+		}
+		long value = _assetId.Value;
+		if (_metaStore.HasBookmarkOnPage(value, _currentIndex))
+		{
+			_metaStore.DeleteBookmarkByPage(value, _currentIndex);
+			_bookmarkCursor = -1;
+		}
+		else
+		{
+			_metaStore.AddBookmark(value, _currentIndex, null);
+			IReadOnlyList<Bookmark> source = _metaStore.ListBookmarks(value);
+			_bookmarkCursor = source.ToList().FindIndex((Bookmark b) => b.PageIndex == _currentIndex);
+		}
+		RefreshBookmarkIcon();
+	}
+
+	private void GoToNextBookmark()
+	{
+		if (_assetId.HasValue && _metaStore != null)
+		{
+			IReadOnlyList<Bookmark> readOnlyList = _metaStore.ListBookmarks(_assetId.Value);
+			if (readOnlyList.Count != 0)
+			{
+				_bookmarkCursor = ((_bookmarkCursor >= 0) ? ((_bookmarkCursor + 1) % readOnlyList.Count) : 0);
+				GoToPage(readOnlyList[_bookmarkCursor].PageIndex);
+			}
+		}
+	}
+
+	private void GoToPrevBookmark()
+	{
+		if (_assetId.HasValue && _metaStore != null)
+		{
+			IReadOnlyList<Bookmark> readOnlyList = _metaStore.ListBookmarks(_assetId.Value);
+			if (readOnlyList.Count != 0)
+			{
+				_bookmarkCursor = ((_bookmarkCursor < 0) ? (readOnlyList.Count - 1) : ((_bookmarkCursor - 1 + readOnlyList.Count) % readOnlyList.Count));
+				GoToPage(readOnlyList[_bookmarkCursor].PageIndex);
+			}
+		}
+	}
+
+	private void OpenBookmarkList()
+	{
+		if (!_assetId.HasValue || _metaStore == null)
+		{
+			return;
+		}
+		long value = _assetId.Value;
+		List<Bookmark> list = _metaStore.ListBookmarks(value).ToList();
+		string pageFmt = LocalizationManager.GetString("BookmarkPageFmt") ?? "第 {0} 頁";
+		string unnamed = LocalizationManager.GetString("BookmarkUnnamed") ?? "(未命名)";
+		string text = LocalizationManager.GetString("BookmarkEmptyHint") ?? "(尚無書籤)";
+		string renameLbl = LocalizationManager.GetString("BookmarkRename") ?? "重新命名";
+		string deleteLbl = LocalizationManager.GetString("BookmarkDelete") ?? "刪除";
+		AntdUI.ContextMenuStrip.open(items: (list.Count != 0) ? ((IEnumerable<Bookmark>)list).Select((Func<Bookmark, int, IContextMenuStripItem>)delegate(Bookmark b, int idx)
+		{
+			string text2 = string.Format(pageFmt, b.PageIndex + 1);
+			string text3 = (string.IsNullOrWhiteSpace(b.Label) ? unnamed : b.Label);
+			return new ContextMenuStripItem(text2 + "  ·  " + text3)
+			{
+				IconSvg = "BookOutlined",
+				Tag = new BookmarkMenuTag("nav", b, idx),
+				Sub = new IContextMenuStripItem[2]
+				{
+					new ContextMenuStripItem(renameLbl)
+					{
+						IconSvg = "EditOutlined",
+						Tag = new BookmarkMenuTag("rename", b, idx)
+					},
+					new ContextMenuStripItem(deleteLbl)
+					{
+						IconSvg = "DeleteOutlined",
+						Tag = new BookmarkMenuTag("delete", b, idx)
+					}
+				}
+			};
+		}).ToArray() : new IContextMenuStripItem[1]
+		{
+			new ContextMenuStripItem(text)
+			{
+				Enabled = false
+			}
+		}, control: btnBookmarkList, call: delegate(IContextMenuStrip mi)
+		{
+			if (mi is ContextMenuStripItem { Tag: BookmarkMenuTag tag })
+			{
+				switch (tag.Action)
+				{
+				case "nav":
+					_bookmarkCursor = tag.CursorIndex;
+					GoToPage(tag.Bookmark.PageIndex);
+					break;
+				case "rename":
+					RenameBookmarkInline(tag.Bookmark);
+					break;
+				case "delete":
+					_metaStore.DeleteBookmark(tag.Bookmark.Id);
+					_bookmarkCursor = -1;
+					RefreshBookmarkIcon();
+					break;
+				}
+			}
+		});
+	}
+
+	private void RenameBookmarkInline(Bookmark b)
+	{
+		if (_metaStore != null)
+		{
+			string title = LocalizationManager.GetString("BookmarkRenamePrompt") ?? "輸入書籤名稱（留白清除）";
+			string? text = PromptForText(this, title, b.Label ?? "");
+			if (text != null)
+			{
+				string text2 = text.Trim();
+				_metaStore.RenameBookmark(b.Id, string.IsNullOrEmpty(text2) ? null : text2);
+			}
+		}
+	}
+
+	private static string? PromptForText(IWin32Window parent, string title, string defaultValue)
+	{
+		using Form form = new Form
+		{
+			Text = title,
+			FormBorderStyle = FormBorderStyle.FixedDialog,
+			MaximizeBox = false,
+			MinimizeBox = false,
+			StartPosition = FormStartPosition.CenterParent,
+			ClientSize = new Size(360, 92),
+			ShowInTaskbar = false
+		};
+		TextBox textBox = new TextBox
+		{
+			Text = defaultValue,
+			Font = new Font("Microsoft JhengHei UI", 10f),
+			Location = new Point(12, 12),
+			Width = 336
+		};
+		System.Windows.Forms.Button button = new System.Windows.Forms.Button
+		{
+			Text = "OK",
+			DialogResult = DialogResult.OK,
+			Location = new Point(192, 52),
+			Width = 75
+		};
+		System.Windows.Forms.Button button2 = new System.Windows.Forms.Button
+		{
+			Text = "Cancel",
+			DialogResult = DialogResult.Cancel,
+			Location = new Point(273, 52),
+			Width = 75
+		};
+		form.Controls.Add(textBox);
+		form.Controls.Add(button);
+		form.Controls.Add(button2);
+		form.AcceptButton = button;
+		form.CancelButton = button2;
+		textBox.SelectAll();
+		return (form.ShowDialog(parent) == DialogResult.OK) ? textBox.Text : null;
+	}
+
+	private List<int> GetVisiblePageIndices()
+	{
+		List<int> list = new List<int>();
+		if (IsContinuous)
+		{
+			if (_layout != null)
+			{
+				var (num, num2) = _layout.GetVisibleRange(_virtualScrollY, _virtualScrollY + picPage.Height);
+				if (num >= 0)
+				{
+					for (int i = num; i <= num2; i++)
+					{
+						list.Add(i);
+					}
+				}
+			}
+			else
+			{
+				list.Add(_currentIndex);
+			}
+		}
+		else
+		{
+			int currentIndex = _currentIndex;
+			int num3 = SpreadSize(currentIndex);
+			if (num3 == 1)
+			{
+				if (currentIndex >= 0 && currentIndex < _source.PageCount)
+				{
+					list.Add(currentIndex);
+				}
+			}
+			else
+			{
+				int num4 = (_rtl ? (currentIndex + 1) : currentIndex);
+				int num5 = (_rtl ? currentIndex : (currentIndex + 1));
+				if (num4 >= 0 && num4 < _source.PageCount)
+				{
+					list.Add(num4);
+				}
+				if (num5 >= 0 && num5 < _source.PageCount)
+				{
+					list.Add(num5);
+				}
+			}
+		}
+		return list;
+	}
+
+	private void UpdateStatusBar()
+	{
+		string pageName = _source.GetPageName(_currentIndex);
+		string value = (_rtl ? "RTL" : "LTR");
+		ReaderViewMode viewMode = _viewMode;
+		if (1 == 0)
+		{
+		}
+		string text = viewMode switch
+		{
+			ReaderViewMode.SinglePage => "單頁", 
+			ReaderViewMode.DualPage => "雙頁", 
+			ReaderViewMode.ContinuousScroll => "捲動", 
+			_ => "", 
+		};
+		if (1 == 0)
+		{
+		}
+		string value2 = text;
+		string text2 = "";
+		if (IsContinuous)
+		{
+			int value3 = sliderZoom.Value;
+			text2 = $"{pageName}    {value}    {value2}    {value3}%";
+		}
+		else
+		{
+			string value4 = "-";
+			lock (_cacheLock)
+			{
+				if (_leftImage != null)
+				{
+					value4 = $"{_leftImage.Width}×{_leftImage.Height}";
+				}
+			}
+			ReaderZoomMode zoomMode = _zoomMode;
+			if (1 == 0)
+			{
+			}
+			text = zoomMode switch
+			{
+				ReaderZoomMode.FitPage => "適合頁", 
+				ReaderZoomMode.FitWidth => "適合寬", 
+				ReaderZoomMode.Actual => "100%", 
+				ReaderZoomMode.Custom => $"{(int)(_customZoom * 100f)}%", 
+				_ => "", 
+			};
+			if (1 == 0)
+			{
+			}
+			string value5 = text;
+			text2 = $"{pageName}    {value4}    {value}    {value2}    {value5}";
+		}
+		string text3 = "";
+		bool flag = false;
+		if (_enableTranslation)
+		{
+			List<int> visiblePageIndices = GetVisiblePageIndices();
+			TranslationStep? translationStep = null;
+			int num = -1;
+			lock (_stepLock)
+			{
+				foreach (int item in visiblePageIndices)
+				{
+					if (_pageTranslationSteps.TryGetValue(item, out var value6) && (value6 == TranslationStep.Ocr || value6 == TranslationStep.Translating || value6 == TranslationStep.Applying || value6 == TranslationStep.Applied))
+					{
+						translationStep = value6;
+						num = item;
+						break;
+					}
+				}
+			}
+			if (translationStep.HasValue)
+			{
+				TranslationStep value7 = translationStep.Value;
+				if (1 == 0)
+				{
+				}
+				text = value7 switch
+				{
+					TranslationStep.Ocr => "AI 辨識中...", 
+					TranslationStep.Translating => "AI 翻譯中...", 
+					TranslationStep.Applying => "譯文套用中...", 
+					TranslationStep.Applied => "已套用 AI 翻譯", 
+					_ => "", 
+				};
+				if (1 == 0)
+				{
+				}
+				string text4 = text;
+				if (!string.IsNullOrEmpty(text4))
+				{
+					text3 = " [" + text4 + "]";
+				}
+				if (translationStep.Value == TranslationStep.Ocr || translationStep.Value == TranslationStep.Translating || translationStep.Value == TranslationStep.Applying)
+				{
+					flag = true;
+				}
+			}
+			lock (_queueLock)
+			{
+				if (_translationQueue.Count > 0 || _activeWorks.Count > 0)
+				{
+					flag = true;
+				}
+			}
+			if (_isAllTranslationActive)
+			{
+				int num2 = 0;
+				lock (_translationLock)
+				{
+					num2 = _translatedPageCache.Count;
+				}
+				int pageCount = _source.PageCount;
+				int num3 = ((pageCount > 0) ? Math.Clamp(num2 * 100 / pageCount, 0, 100) : 0);
+				string text5 = ((num3 == 100) ? "[全部翻譯已完成 100%]" : $"[全部翻譯中 {num3}%]");
+				lblStatus.Text = text5 + text3 + "    " + text2;
+			}
+			else if (_isInstantTranslationActive)
+			{
+				lblStatus.Text = "[即時翻譯]" + text3 + "    " + text2;
+			}
+			else
+			{
+				lblStatus.Text = text2;
+			}
+		}
+		else
+		{
+			lblStatus.Text = text2;
+		}
+		btnStatusLoading.Visible = _enableTranslation && flag;
+	}
+
+	private void EnsurePageTranslated(int pageIndex)
+	{
+		if (pageIndex >= 0 && pageIndex < _source.PageCount && (_isInstantTranslationActive || _isAllTranslationActive))
+		{
+			EnqueueInstantPage(pageIndex);
+		}
+	}
+
+	private void StartWorkers(int concurrency)
+	{
+		_queueCts = new CancellationTokenSource();
+		for (int i = 0; i < concurrency; i++)
+		{
+			int workerId = i;
+			_workerTasks.Add(Task.Run(() => TranslationWorkerLoopAsync(workerId, _queueCts.Token)));
+		}
+	}
+
+	private void EnqueueInstantPage(int pageIndex)
+	{
+		if (pageIndex < 0 || pageIndex >= _source.PageCount)
+		{
+			return;
+		}
+		lock (_translationLock)
+		{
+			if (_translatedPageCache.ContainsKey(pageIndex))
+			{
+				return;
+			}
+		}
+		lock (_queueLock)
+		{
+			TranslationWork? translationWork = _translationQueue.FirstOrDefault((TranslationWork w) => w.PageIndex == pageIndex);
+			TranslationWork? value;
+			if (translationWork != null)
+			{
+				if (!translationWork.IsHighPriority)
+				{
+					translationWork.IsHighPriority = true;
+					_translationQueue.Remove(translationWork);
+					_translationQueue.Insert(0, translationWork);
+				}
+			}
+			else if (!_activeWorks.TryGetValue(pageIndex, out value) || value == null || value.Cts.IsCancellationRequested)
+			{
+				TranslationWork item = new TranslationWork
+				{
+					PageIndex = pageIndex,
+					IsHighPriority = true
+				};
+				_translationQueue.Insert(0, item);
+				Monitor.PulseAll(_queueLock);
+			}
+		}
+	}
+
+	private void KeepOnlyVisibleInstantPages(List<int> visiblePages)
+	{
+		lock (_queueLock)
+		{
+			List<TranslationWork> list = _translationQueue.Where((TranslationWork w) => w.IsHighPriority && !visiblePages.Contains(w.PageIndex)).ToList();
+			foreach (TranslationWork item in list)
+			{
+				item.Cts.Cancel();
+				_translationQueue.Remove(item);
+			}
+		}
+	}
+
+	private void CancelNonVisibleActiveInstantPages(List<int> visiblePages)
+	{
+		lock (_queueLock)
+		{
+			List<int> list = _activeWorks.Keys.ToList();
+			foreach (int item in list)
+			{
+				if (_activeWorks.TryGetValue(item, out TranslationWork? value) && value != null && value.IsHighPriority && !visiblePages.Contains(item))
+				{
+					value.Cts.Cancel();
+				}
+			}
+		}
+	}
+
+	private void EnqueueAllPages()
+	{
+		int pageCount = _source.PageCount;
+		lock (_queueLock)
+		{
+			int i;
+			for (i = 0; i < pageCount; i++)
+			{
+				bool flag = false;
+				lock (_translationLock)
+				{
+					flag = _translatedPageCache.ContainsKey(i);
+				}
+				if (!flag && !_translationQueue.Any((TranslationWork w) => w.PageIndex == i) && !_activeWorks.ContainsKey(i))
+				{
+					TranslationWork item = new TranslationWork
+					{
+						PageIndex = i,
+						IsHighPriority = false
+					};
+					_translationQueue.Add(item);
+				}
+			}
+			Monitor.PulseAll(_queueLock);
+		}
+	}
+
+	private void CancelAllTranslationQueue()
+	{
+		lock (_queueLock)
+		{
+			_translationQueue.RemoveAll((TranslationWork w) => !w.IsHighPriority);
+			List<int> list = _activeWorks.Keys.ToList();
+			foreach (int item in list)
+			{
+				if (_activeWorks.TryGetValue(item, out TranslationWork? value) && value != null && !value.IsHighPriority)
+				{
+					value.Cts.Cancel();
+				}
+			}
+		}
+	}
+
+	private async Task TranslationWorkerLoopAsync(int workerId, CancellationToken queueToken)
+	{
+		while (!queueToken.IsCancellationRequested)
+		{
+			TranslationWork? work = null;
+			lock (_queueLock)
+			{
+				while (_translationQueue.Count == 0)
+				{
+					if (queueToken.IsCancellationRequested)
+					{
+						return;
+					}
+					Monitor.Wait(_queueLock, 1000);
+				}
+				if (queueToken.IsCancellationRequested)
+				{
+					break;
+				}
+				work = _translationQueue.FirstOrDefault((TranslationWork w) => w.IsHighPriority);
+				if (work == null)
+				{
+					work = _translationQueue.FirstOrDefault();
+				}
+				if (work != null)
+				{
+					_translationQueue.Remove(work);
+					_activeWorks[work.PageIndex] = work;
+				}
+			}
+			if (work == null)
+			{
+				continue;
+			}
+			try
+			{
+				using CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(queueToken, work.Cts.Token);
+				await TranslatePageCoreAsync(work.PageIndex, work.IsHighPriority, linkedCts.Token);
+			}
+			catch (OperationCanceledException)
+			{
+				Debug.WriteLine($"[Translation Worker] Page {work.PageIndex} cancelled.");
+			}
+			catch (Exception ex2)
+			{
+				Exception ex3 = ex2;
+				Debug.WriteLine($"[Translation Worker] Page {work.PageIndex} error: {ex3.Message}");
+			}
+			finally
+			{
+				lock (_queueLock)
+				{
+					_activeWorks.Remove(work.PageIndex);
+				}
+				UpdateStatusBarOnMainThread();
+			}
+		}
+	}
+
+	private async Task TranslatePageCoreAsync(int pageIndex, bool isHighPriority, CancellationToken token)
+	{
+		token.ThrowIfCancellationRequested();
+		Stopwatch sw = Stopwatch.StartNew();
+		Debug.WriteLine($"[Translation Flow] === Page {pageIndex} Start (Priority: {(isHighPriority ? "High" : "Low")}) ===");
+		UpdatePageStep(pageIndex, TranslationStep.Ocr);
+		Stopwatch ocrSw = Stopwatch.StartNew();
+		Image? img = null;
+		lock (_cacheLock)
+		{
+			if (_cache.TryGetValue(pageIndex, out Image? cachedImg) && cachedImg != null)
+			{
+				img = new Bitmap(cachedImg);
+			}
+		}
+		if (img == null)
+		{
+			using Stream stream = _source.OpenPage(pageIndex);
+			string ext = _source.GetPageExtension(pageIndex);
+			img = ReaderImageLoader.Decode(stream, ext);
+		}
+		if (img == null)
+		{
+			UpdatePageStep(pageIndex, TranslationStep.Failed);
+			Debug.WriteLine($"[Translation Flow] Page {pageIndex} Error: Image decode failed.");
+			return;
+		}
+		Debug.WriteLine($"[Translation Flow] Page {pageIndex} waiting for LLM Semaphore...");
+		Stopwatch semSw = Stopwatch.StartNew();
+		await _llmSemaphore.WaitAsync(token);
+		semSw.Stop();
+		Debug.WriteLine($"[Translation Flow] Page {pageIndex} acquired Semaphore in {semSw.ElapsedMilliseconds} ms.");
+		try
+		{
+			using (img)
+			{
+				token.ThrowIfCancellationRequested();
+				AppConfig config = new ConfigManager().Load();
+				_translationService.Configure(config.TranslationEndpoint, config.TranslationModelName, (LlmApiType)config.TranslationApiType);
+				if (config.OcrEngineType == 1 && _ocrService is not PaddleOcrService)
+				{
+					_ocrService = new PaddleOcrService();
+				}
+				else if (config.OcrEngineType != 1 && _ocrService is not WindowsOcrService)
+				{
+					_ocrService = new WindowsOcrService();
+				}
+				List<OcrBlock> rawBlocks = await _ocrService.RecognizeAsync(img);
+				ocrSw.Stop();
+				Debug.WriteLine($"[Translation Flow] Page {pageIndex} OCR raw blocks count: {rawBlocks.Count}. OCR Elapsed: {ocrSw.ElapsedMilliseconds} ms.");
+				token.ThrowIfCancellationRequested();
+				Stopwatch mergeSw = Stopwatch.StartNew();
+				List<OcrBlock> mergedBlocks = _ocrService.MergeBlocks(rawBlocks);
+				mergeSw.Stop();
+				Debug.WriteLine($"[Translation Flow] Page {pageIndex} OCR merged blocks count: {mergedBlocks.Count}. Merge Elapsed: {mergeSw.ElapsedMilliseconds} ms.");
+				if (mergedBlocks.Count > 0)
+				{
+					Debug.WriteLine($"[Translation Flow] Page {pageIndex} Merged Blocks Texts:");
+					for (int i = 0; i < mergedBlocks.Count; i++)
+					{
+						Debug.WriteLine($"  Block [{i}]: \"{mergedBlocks[i].Text}\" at ({mergedBlocks[i].X}, {mergedBlocks[i].Y}, {mergedBlocks[i].Width}, {mergedBlocks[i].Height})");
+					}
+				}
+				UpdatePageStep(pageIndex, TranslationStep.Translating);
+				if (mergedBlocks.Count > 0)
+				{
+					List<string> textsToTranslate = mergedBlocks.Select((OcrBlock b) => b.Text).ToList();
+					int totalLength = textsToTranslate.Sum((string t) => t.Length);
+					Debug.WriteLine($"[Translation Flow] Page {pageIndex} calling LLM (Model: {config.TranslationModelName}). Texts count: {textsToTranslate.Count}, Total Length: {totalLength} chars.");
+					Stopwatch llmSw = Stopwatch.StartNew();
+					List<string> translations = await _translationService.TranslateBatchAsync(textsToTranslate);
+					llmSw.Stop();
+					Debug.WriteLine($"[Translation Flow] Page {pageIndex} LLM call finished in {llmSw.ElapsedMilliseconds} ms.");
+					token.ThrowIfCancellationRequested();
+					for (int i2 = 0; i2 < mergedBlocks.Count; i2++)
+					{
+						if (i2 < translations.Count)
+						{
+							Debug.WriteLine($"  Translate block [{i2}]: \"{mergedBlocks[i2].Text}\" -> \"{translations[i2]}\"");
+							mergedBlocks[i2].Text = translations[i2];
+						}
+					}
+				}
+				UpdatePageStep(pageIndex, TranslationStep.Applying);
+				Debug.WriteLine($"[Translation Flow] Page {pageIndex} applying translated blocks (clearing original text & rendering)...");
+				Stopwatch applySw = Stopwatch.StartNew();
+				lock (_translationLock)
+				{
+					_translatedPageCache[pageIndex] = mergedBlocks;
+				}
+				token.ThrowIfCancellationRequested();
+				if (!base.IsDisposed)
+				{
+					BeginInvoke(delegate
+					{
+						if (!base.IsDisposed)
+						{
+							picPage.Invalidate();
+							Debug.WriteLine($"[Translation Flow] Page {pageIndex} UI Invalidate triggered.");
+						}
+					});
+				}
+				applySw.Stop();
+				Debug.WriteLine($"[Translation Flow] Page {pageIndex} apply and redraw trigger elapsed: {applySw.ElapsedMilliseconds} ms.");
+				UpdatePageStep(pageIndex, TranslationStep.Applied);
+				sw.Stop();
+				Debug.WriteLine($"[Translation Flow] === Page {pageIndex} Complete. Total Time: {sw.ElapsedMilliseconds} ms ===");
+			}
+		}
+		finally
+		{
+			_llmSemaphore.Release();
+		}
+	}
+
+	private void UpdatePageStep(int pageIndex, TranslationStep step)
+	{
+		lock (_stepLock)
+		{
+			_pageTranslationSteps[pageIndex] = step;
+		}
+		UpdateStatusBarOnMainThread();
+		if (step != TranslationStep.Applied)
+		{
+			return;
+		}
+		Task.Delay(3000).ContinueWith(delegate
+		{
+			lock (_stepLock)
+			{
+				if (_pageTranslationSteps.TryGetValue(pageIndex, out var value) && value == TranslationStep.Applied)
+				{
+					_pageTranslationSteps.Remove(pageIndex);
+				}
+			}
+			UpdateStatusBarOnMainThread();
+		});
+	}
+
+	private void UpdateStatusBarOnMainThread()
+	{
+		if (!base.IsDisposed)
+		{
+			if (base.InvokeRequired)
+			{
+				BeginInvoke(UpdateStatusBar);
+			}
+			else
+			{
+				UpdateStatusBar();
+			}
+		}
+	}
+
+	private void OnPageSpreadChanged()
+	{
+		List<int> visiblePageIndices = GetVisiblePageIndices();
+		if (_isInstantTranslationActive)
+		{
+			KeepOnlyVisibleInstantPages(visiblePageIndices);
+			CancelNonVisibleActiveInstantPages(visiblePageIndices);
+			{
+				foreach (int item in visiblePageIndices)
+				{
+					EnqueueInstantPage(item);
+				}
+				return;
+			}
+		}
+		if (!_isAllTranslationActive)
+		{
+			return;
+		}
+		foreach (int item2 in visiblePageIndices)
+		{
+			EnqueueInstantPage(item2);
+		}
+	}
+
+	private void TriggerInstantTranslationForCurrentSpread()
+	{
+		List<int> visiblePageIndices = GetVisiblePageIndices();
+		foreach (int item in visiblePageIndices)
+		{
+			EnqueueInstantPage(item);
+		}
+		picPage.Invalidate();
+		UpdateStatusBar();
+	}
+
+	private void CancelInstantTranslation()
+	{
+		lock (_queueLock)
+		{
+			_translationQueue.RemoveAll((TranslationWork w) => w.IsHighPriority);
+			List<int> list = _activeWorks.Keys.ToList();
+			foreach (int item in list)
+			{
+				if (_activeWorks.TryGetValue(item, out TranslationWork? value) && value != null && value.IsHighPriority)
+				{
+					value.Cts.Cancel();
+				}
+			}
+		}
+		lock (_stepLock)
+		{
+			_pageTranslationSteps.Clear();
+		}
+	}
+
+	private void StartAllTranslation()
+	{
+		EnqueueAllPages();
+		TriggerInstantTranslationForCurrentSpread();
+	}
+
+	private void CancelAllTranslation()
+	{
+		CancelAllTranslationQueue();
+		lock (_stepLock)
+		{
+			_pageTranslationSteps.Clear();
+		}
+	}
+
+	private void RenderTranslationOverlay(Graphics g, Image originalImage, Rectangle destRect, int pageIndex)
+	{
+		EnsurePageTranslated(pageIndex);
+		List<OcrBlock>? value;
+		lock (_translationLock)
+		{
+			_translatedPageCache.TryGetValue(pageIndex, out value);
+		}
+		if (value == null || value.Count == 0)
+		{
+			return;
+		}
+		float num = (float)destRect.Width / (float)originalImage.Width;
+		float num2 = (float)destRect.Height / (float)originalImage.Height;
+		using SolidBrush brush = new SolidBrush(Color.White);
+		using SolidBrush brush2 = new SolidBrush(Color.Black);
+		// 依目前 Graphics 的 DPI 動態計算 Points→Pixels 比率，取代硬編碼的 1.333f (僅適用 96 DPI)
+		// 在 96 DPI (100%) 下 = 96/72 = 1.333，在 120 DPI (125%) 下 = 1.667，以此類推
+		float pixelsPerPoint = g.DpiY / 72f;
+
+		// 預先計算整頁一致性的字體大小（在原始 100% 圖片尺寸下計算）
+		var fontSizes = FontSizeOptimizer.CalculateConsistentFontSizes(
+			value,
+			pixelsPerPoint,
+			(b, ppp) => FontSizeOptimizer.EstimateOptimalFontSize(b.Text, b.Width, b.Height, ppp)
+		);
+
+		foreach (OcrBlock item in value)
+		{
+			if (!string.IsNullOrWhiteSpace(item.Text))
+			{
+				float x = (float)destRect.X + item.X * num;
+				float y = (float)destRect.Y + item.Y * num2;
+				float num3 = item.Width * num;
+				float num4 = item.Height * num2;
+				RectangleF rect = new RectangleF(x, y, num3, num4);
+
+				// 如果有子氣泡，則只對各個子氣泡的區域分別塗白
+				if (item.Children != null && item.Children.Count > 0)
+				{
+					foreach (var child in item.Children)
+					{
+						float cx = (float)destRect.X + child.X * num;
+						float cy = (float)destRect.Y + child.Y * num2;
+						float cw = child.Width * num;
+						float ch = child.Height * num2;
+						RectangleF cRect = new RectangleF(cx, cy, cw, ch);
+						RectangleF cRect2 = RectangleF.Inflate(cRect, 2f, 2f);
+						g.FillRectangle(brush, cRect2);
+					}
+				}
+				else
+				{
+					RectangleF rect2 = RectangleF.Inflate(rect, 2f, 2f);
+					g.FillRectangle(brush, rect2);
+				}
+
+				float emSize = fontSizes.TryGetValue(item, out float size) ? size : 14f;
+				// 將計算出的原始字體大小乘上寬度縮放比例 num，實現等比例放大縮小
+				emSize = emSize * num;
+				using Font font = new Font("Microsoft JhengHei UI", emSize, FontStyle.Bold);
+				var savedState = g.Save();
+				g.SetClip(rect);
+				FontSizeOptimizer.DrawVerticalString(g, item.Text, font, brush2, rect, pixelsPerPoint);
+				g.Restore(savedState);
+			}
+		}
+	}
+
 }
-

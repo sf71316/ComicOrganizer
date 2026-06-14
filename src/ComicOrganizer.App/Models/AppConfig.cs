@@ -87,4 +87,20 @@ public class AppConfig
     /// <summary>啟用啟動時的翻譯庫自動更新檢查（預設 on）。
     /// 關掉只影響背景檢查；工具頁的「立即檢查更新」按鈕仍可主動觸發。</summary>
     public bool AutoCheckTranslationDbUpdate { get; set; } = true;
+
+    // ===== AI 翻譯服務設定 =====
+    /// <summary>AI 翻譯 API 端點</summary>
+    public string TranslationEndpoint { get; set; } = "http://192.168.0.74:1234";
+
+    /// <summary>AI 翻譯模型名稱</summary>
+    public string TranslationModelName { get; set; } = "qwen3.6-35b-a3b-mtp";
+
+    /// <summary>AI 翻譯 API 類型 (0 = OpenAiCompatible, 1 = OllamaNative)</summary>
+    public int TranslationApiType { get; set; } = 0;
+
+    /// <summary>AI 翻譯併發數量限制，預設為 1</summary>
+    public int TranslationMaxConcurrency { get; set; } = 1;
+
+    /// <summary>OCR 引擎類型 (0 = WindowsNativeOcr, 1 = PaddleOcr)</summary>
+    public int OcrEngineType { get; set; } = 0;
 }

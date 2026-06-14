@@ -10,7 +10,9 @@ partial class ReaderForm
     private AntdUI.Segmented segZoomMode;
     private AntdUI.Slider sliderZoom;       // 連續捲動模式時顯示，取代 segZoomMode
     private AntdUI.Switch switchSeamless;   // 連續捲動模式：開啟 = 圖與圖無隔間
-    private System.Windows.Forms.Label lblSeamless;
+    private AntdUI.Label lblSeamless;
+    private AntdUI.Button btnInstantTranslation;
+    private AntdUI.Button btnAllTranslation;
     private AntdUI.Button btnBookmarkToggle;
     private AntdUI.Button btnBookmarkList;
     private AntdUI.Button btnFullscreen;
@@ -20,6 +22,7 @@ partial class ReaderForm
     private System.Windows.Forms.VScrollBar vScrollBarContinuous;
     private System.Windows.Forms.Panel statusBar;
     private System.Windows.Forms.Label lblStatus;
+    private AntdUI.Button btnStatusLoading;
 
     protected override void Dispose(bool disposing)
     {
@@ -43,13 +46,16 @@ partial class ReaderForm
         segZoomMode = new AntdUI.Segmented();
         sliderZoom = new AntdUI.Slider();
         switchSeamless = new AntdUI.Switch();
-        lblSeamless = new System.Windows.Forms.Label();
+        lblSeamless = new AntdUI.Label();
+        btnInstantTranslation = new AntdUI.Button();
+        btnAllTranslation = new AntdUI.Button();
         segViewMode = new AntdUI.Segmented();
         scrollHost = new System.Windows.Forms.Panel();
         picPage = new System.Windows.Forms.PictureBox();
         vScrollBarContinuous = new System.Windows.Forms.VScrollBar();
         statusBar = new System.Windows.Forms.Panel();
         lblStatus = new System.Windows.Forms.Label();
+        btnStatusLoading = new AntdUI.Button();
         toolbar.SuspendLayout();
         scrollHost.SuspendLayout();
         ((System.ComponentModel.ISupportInitialize)picPage).BeginInit();
@@ -89,6 +95,8 @@ partial class ReaderForm
         toolbar.Controls.Add(btnBookmarkToggle);
         toolbar.Controls.Add(switchSeamless);
         toolbar.Controls.Add(lblSeamless);
+        toolbar.Controls.Add(btnInstantTranslation);
+        toolbar.Controls.Add(btnAllTranslation);
         toolbar.Controls.Add(sliderZoom);
         toolbar.Controls.Add(segZoomMode);
         toolbar.Controls.Add(segViewMode);
@@ -149,6 +157,24 @@ partial class ReaderForm
         switchSeamless.Name = "switchSeamless";
         switchSeamless.Size = new System.Drawing.Size(44, 28);
         switchSeamless.Visible = false;
+        // 
+        // btnInstantTranslation
+        // 
+        btnInstantTranslation.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left;
+        btnInstantTranslation.Location = new System.Drawing.Point(96, 4);
+        btnInstantTranslation.Name = "btnInstantTranslation";
+        btnInstantTranslation.Size = new System.Drawing.Size(90, 32);
+        btnInstantTranslation.TabIndex = 10;
+        btnInstantTranslation.Text = "即時翻譯";
+        // 
+        // btnAllTranslation
+        // 
+        btnAllTranslation.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left;
+        btnAllTranslation.Location = new System.Drawing.Point(192, 4);
+        btnAllTranslation.Name = "btnAllTranslation";
+        btnAllTranslation.Size = new System.Drawing.Size(90, 32);
+        btnAllTranslation.TabIndex = 11;
+        btnAllTranslation.Text = "全部翻譯";
         //
         // lblSeamless
         //
@@ -201,13 +227,23 @@ partial class ReaderForm
         // statusBar
         //
         statusBar.Controls.Add(lblStatus);
+        statusBar.Controls.Add(btnStatusLoading);
         statusBar.Dock = System.Windows.Forms.DockStyle.Bottom;
         statusBar.Name = "statusBar";
         statusBar.Padding = new System.Windows.Forms.Padding(8, 0, 8, 0);
         statusBar.Size = new System.Drawing.Size(1024, 24);
-        //
+        // 
+        // btnStatusLoading
+        // 
+        btnStatusLoading.Dock = System.Windows.Forms.DockStyle.Left;
+        btnStatusLoading.Size = new System.Drawing.Size(32, 24);
+        btnStatusLoading.Name = "btnStatusLoading";
+        btnStatusLoading.Loading = true;
+        btnStatusLoading.Visible = false;
+        btnStatusLoading.Ghost = true;
+        // 
         // lblStatus
-        //
+        // 
         lblStatus.Dock = System.Windows.Forms.DockStyle.Fill;
         lblStatus.Font = new System.Drawing.Font("Microsoft JhengHei UI", 8.5F);
         lblStatus.Name = "lblStatus";

@@ -47,6 +47,17 @@ public partial class SettingsForm : Window, IThemedControl
         lblExtEnable.ForeColor = Core.ThemeColors.Text;
         lblExtKey.ForeColor = Core.ThemeColors.Text;
         lblExtStatus.ForeColor = Core.ThemeColors.Text;
+
+        // AI 翻譯文字色與背景
+        lblTrTitle.ForeColor = Core.ThemeColors.Text;
+        lblTrDesc.ForeColor = Core.ThemeColors.Text;
+        lblTrApiType.ForeColor = Core.ThemeColors.Text;
+        lblTrEndpoint.ForeColor = Core.ThemeColors.Text;
+        lblTrModel.ForeColor = Core.ThemeColors.Text;
+        lblTrStatus.ForeColor = Core.ThemeColors.Text;
+        btnTestTrConnection.DefaultBack = Core.ThemeColors.Primary;
+        labelOcrEngine.ForeColor = Core.ThemeColors.Text;
+
         this.Refresh();
     }
 
@@ -84,8 +95,13 @@ public partial class SettingsForm : Window, IThemedControl
         selectReadingDirection.Items.Clear();
         selectReadingDirection.Items.Add(FmtRtl());
         selectReadingDirection.Items.Add(FmtLtr());
-        selectReadingDirection.SelectedIndex = Prefs.DefaultReadingDirection == "ltr" ? 1 : 0;
         cbDualPageSpreadFromCover.Checked = Prefs.DualPageSpreadFromCover;
+ 
+        // OCR 引擎載入
+        selectOcrEngine.Items.Clear();
+        selectOcrEngine.Items.Add("Windows Native OCR");
+        selectOcrEngine.Items.Add("PaddleOCR (日文漫畫推薦)");
+        selectOcrEngine.SelectedIndex = Math.Clamp(Config.OcrEngineType, 0, 1);
 
         // 外部 metadata (#52)
         swEnableExternal.Checked = Config.EnableExternalMetadata;
@@ -97,6 +113,15 @@ public partial class SettingsForm : Window, IThemedControl
 
         // 翻譯庫線上更新 (#53 Phase 5-C)
         swAutoCheckTrDb.Checked = Config.AutoCheckTranslationDbUpdate;
+
+        // AI 即時翻譯載入
+        selectTrApiType.Items.Clear();
+        selectTrApiType.Items.Add("OpenAI 相容 (LM-Studio / OpenAI)");
+        selectTrApiType.Items.Add("Ollama 原生 API");
+        selectTrApiType.SelectedIndex = Math.Clamp(Config.TranslationApiType, 0, 1);
+        txtTrEndpoint.Text = Config.TranslationEndpoint;
+        txtTrModel.Text = Config.TranslationModelName;
+        numTrConcurrency.Value = Math.Clamp(Config.TranslationMaxConcurrency, 1, 100);
     }
 
     private void WireEvents()
@@ -111,8 +136,10 @@ public partial class SettingsForm : Window, IThemedControl
         btnMenuLibrary.Click += (s, e) => ShowSection(SettingsSection.Library);
         btnMenuReader.Click += (s, e) => ShowSection(SettingsSection.Reader);
         btnMenuExternal.Click += (s, e) => ShowSection(SettingsSection.External);
+        btnMenuTranslation.Click += (s, e) => ShowSection(SettingsSection.Translation);
 
         btnTestConnection.Click += async (s, e) => await OnTestConnection();
+        btnTestTrConnection.Click += async (s, e) => await OnTestTrConnection();
 
         selectTheme.SelectedValueChanged += (s, e) =>
         {
@@ -132,7 +159,7 @@ public partial class SettingsForm : Window, IThemedControl
         };
     }
 
-    private enum SettingsSection { General, Library, Reader, External }
+    private enum SettingsSection { General, Library, Reader, External, Translation }
 
     private void ShowSection(SettingsSection section)
     {
@@ -140,11 +167,13 @@ public partial class SettingsForm : Window, IThemedControl
         libraryPanel.Visible = section == SettingsSection.Library;
         readerPanel.Visible = section == SettingsSection.Reader;
         externalPanel.Visible = section == SettingsSection.External;
+        translationPanel.Visible = section == SettingsSection.Translation;
         // 選中的按鈕用 Primary 樣式，未選中用 Default
-        btnMenuGeneral.Type  = section == SettingsSection.General  ? AntdUI.TTypeMini.Primary : AntdUI.TTypeMini.Default;
-        btnMenuLibrary.Type  = section == SettingsSection.Library  ? AntdUI.TTypeMini.Primary : AntdUI.TTypeMini.Default;
-        btnMenuReader.Type   = section == SettingsSection.Reader   ? AntdUI.TTypeMini.Primary : AntdUI.TTypeMini.Default;
-        btnMenuExternal.Type = section == SettingsSection.External ? AntdUI.TTypeMini.Primary : AntdUI.TTypeMini.Default;
+        btnMenuGeneral.Type     = section == SettingsSection.General     ? AntdUI.TTypeMini.Primary : AntdUI.TTypeMini.Default;
+        btnMenuLibrary.Type     = section == SettingsSection.Library     ? AntdUI.TTypeMini.Primary : AntdUI.TTypeMini.Default;
+        btnMenuReader.Type      = section == SettingsSection.Reader      ? AntdUI.TTypeMini.Primary : AntdUI.TTypeMini.Default;
+        btnMenuExternal.Type    = section == SettingsSection.External    ? AntdUI.TTypeMini.Primary : AntdUI.TTypeMini.Default;
+        btnMenuTranslation.Type = section == SettingsSection.Translation ? AntdUI.TTypeMini.Primary : AntdUI.TTypeMini.Default;
     }
 
     private async Task OnTestConnection()
@@ -176,6 +205,50 @@ public partial class SettingsForm : Window, IThemedControl
         finally
         {
             btnTestConnection.Loading = false;
+        }
+    }
+
+    private async Task OnTestTrConnection()
+    {
+        var endpoint = txtTrEndpoint.Text?.Trim() ?? "";
+        var modelName = txtTrModel.Text?.Trim() ?? "";
+        var apiType = (LlmApiType)(selectTrApiType.SelectedIndex >= 0 ? selectTrApiType.SelectedIndex : 0);
+
+        if (string.IsNullOrEmpty(endpoint))
+        {
+            lblTrStatus.Text = "端點 URL 不能為空";
+            return;
+        }
+
+        btnTestTrConnection.Loading = true;
+        lblTrStatus.Text = "正在測試連線與翻譯（這可能需要幾秒鐘）…";
+        try
+        {
+            using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            var translator = new LlmTranslationService(client);
+            translator.Configure(endpoint, modelName, apiType);
+
+            var testInput = new List<string> { "こんにちは" };
+            var result = await translator.TranslateBatchAsync(testInput);
+
+            if (IsDisposed) return;
+
+            if (result != null && result.Count > 0 && result[0] != testInput[0])
+            {
+                lblTrStatus.Text = $"✓ 連線與翻譯成功！\n  「{testInput[0]}」 ➔ 「{result[0]}」";
+            }
+            else
+            {
+                lblTrStatus.Text = $"✗ 連線成功但翻譯失敗：\n  回傳了原始文字，請檢查模型名稱是否有載入。\n  錯誤: {translator.LastError}";
+            }
+        }
+        catch (Exception ex)
+        {
+            lblTrStatus.Text = $"✗ 連線失敗：{ex.Message}";
+        }
+        finally
+        {
+            btnTestTrConnection.Loading = false;
         }
     }
 
@@ -214,6 +287,7 @@ public partial class SettingsForm : Window, IThemedControl
         cbUseBuiltInReader.Text = LocalizationManager.GetString("SettingsUseBuiltInReader") ?? "使用內建閱讀器（取代外部 viewer）";
         labelReadingDirection.Text = LocalizationManager.GetString("SettingsReadingDirection") ?? "閱讀方向";
         cbDualPageSpreadFromCover.Text = LocalizationManager.GetString("SettingsDualPageSpreadFromCover") ?? "雙頁模式封面獨立顯示";
+        labelOcrEngine.Text = LocalizationManager.GetString("SettingsOcrEngineLabel") ?? "OCR 引擎";
 
         // selectReadingDirection 內容受語言影響 — 重新填
         var rtlIdx = selectReadingDirection.SelectedIndex;
@@ -226,6 +300,16 @@ public partial class SettingsForm : Window, IThemedControl
         labelMaxScanDepth.Text = LocalizationManager.GetString("SettingsMaxScanDepth") ?? "搜尋層數限制 (封面遞迴)";
         labelCoverSizeRange.Text = LocalizationManager.GetString("SettingsCoverSizeRange") ?? "封面取樣檔案大小範圍";
         labelThumbCacheMax.Text = LocalizationManager.GetString("SettingsThumbCacheMax") ?? "縮圖快取上限 (超過會 LRU 淘汰最舊)";
+
+        // AI 即時翻譯分頁
+        lblTrTitle.Text = LocalizationManager.GetString("TranslationTitle") ?? "AI 即時翻譯設定";
+        lblTrDesc.Text = LocalizationManager.GetString("TranslationDesc") ?? "設定內建閱讀器即時翻譯功能所對接的本地端或雲端 LLM 服務。";
+        lblTrApiType.Text = LocalizationManager.GetString("TranslationApiType") ?? "API 類型：";
+        lblTrEndpoint.Text = LocalizationManager.GetString("TranslationEndpoint") ?? "API 端點：";
+        lblTrModel.Text = LocalizationManager.GetString("TranslationModelNameLabel") ?? "模型名稱：";
+        lblTrConcurrency.Text = LocalizationManager.GetString("TranslationMaxConcurrency") ?? "併發限制：";
+        btnTestTrConnection.Text = LocalizationManager.GetString("TranslationTestConnection") ?? "測試 API 連線";
+        btnMenuTranslation.Text = LocalizationManager.GetString("SettingsMenuTranslation") ?? "AI 即時翻譯";
     }
 
     /// <summary>
@@ -319,10 +403,13 @@ public partial class SettingsForm : Window, IThemedControl
         Config.MaxCoverFileSizeBytes = SaveSizeWithUnit(numMaxCoverSize, selectMaxCoverUnit);
         Config.ThumbCacheMaxBytes = SaveSizeWithUnit_MB_GB(numThumbCacheMax, selectThumbCacheUnit);
 
-        // Reader 偏好
         Prefs.UseBuiltInReader = cbUseBuiltInReader.Checked;
         Prefs.DefaultReadingDirection = selectReadingDirection.SelectedIndex == 1 ? "ltr" : "rtl";
         Prefs.DualPageSpreadFromCover = cbDualPageSpreadFromCover.Checked;
+        if (selectOcrEngine.SelectedIndex >= 0)
+        {
+            Config.OcrEngineType = selectOcrEngine.SelectedIndex;
+        }
 
         // 外部 metadata (#52)
         Config.EnableExternalMetadata = swEnableExternal.Checked;
@@ -333,6 +420,12 @@ public partial class SettingsForm : Window, IThemedControl
 
         // 翻譯庫線上更新 (#53 Phase 5-C)
         Config.AutoCheckTranslationDbUpdate = swAutoCheckTrDb.Checked;
+
+        // AI 即時翻譯儲存
+        Config.TranslationEndpoint = txtTrEndpoint.Text?.Trim() ?? "";
+        Config.TranslationModelName = txtTrModel.Text?.Trim() ?? "";
+        Config.TranslationApiType = selectTrApiType.SelectedIndex >= 0 ? selectTrApiType.SelectedIndex : 0;
+        Config.TranslationMaxConcurrency = Math.Clamp((int)numTrConcurrency.Value, 1, 100);
 
         // Theme + Language 寫到 preferences.json（與 appsettings.json 分檔）
         if (selectTheme.SelectedIndex >= 0)

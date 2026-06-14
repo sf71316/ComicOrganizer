@@ -35,7 +35,7 @@ public partial class GalleryControl
         var banner = new AntdUI.Panel
         {
             Name = "dbBanner",
-            Dock = DockStyle.Top,
+            Width = 600,
             Height = LogicalToDeviceUnits(80),
             BackColor = Core.ThemeColors.Surface,
             Back = Core.ThemeColors.TabHeader,
@@ -78,6 +78,18 @@ public partial class GalleryControl
         bannerFlow.Controls.Add(lblWelcome);
         bannerFlow.Controls.Add(lblStats);
         banner.Controls.Add(bannerFlow);
+
+        // 掛 Layout 事件：FlowLayoutPanel 每次完成排版後，強制修正 banner 寬度
+        // 使用 Layout 而非 Resize，是因為 FlowLayoutPanel 在 Resize 後還會再做一次 LayoutChildren
+        // 那次 LayoutChildren 才是最終設定子控制項位置/大小的地方，此時才能有效覆寫 Width。
+        flowMain.Layout += (s, e) =>
+        {
+            int targetWidth = flowMain.ClientSize.Width - flowMain.Padding.Left - flowMain.Padding.Right;
+            if (flowMain.VerticalScroll.Visible)
+                targetWidth -= SystemInformation.VerticalScrollBarWidth;
+            if (targetWidth > 0 && banner.Width != targetWidth)
+                banner.Width = targetWidth;
+        };
 
         // Section 1: Recently Read
         var lblRecentlyReadTitle = new System.Windows.Forms.Label

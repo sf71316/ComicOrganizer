@@ -1,14 +1,14 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows7.0</TargetFramework>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <SupportedOSPlatformVersion>7.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
     <ApplicationIcon>Assist\comic_5318786.ico</ApplicationIcon>
   </PropertyGroup>
 
@@ -44,10 +44,12 @@
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.7" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="OpenCCNET" Version="1.1.0" />
+    <PackageReference Include="Paddle.Runtime.win_x64" Version="3.4.0" />
+    <PackageReference Include="PaddleOCRSharp" Version="6.2.0" />
     <PackageReference Include="PDFtoImage" Version="5.2.1" />
     <PackageReference Include="SharpCompress" Version="0.48.0" />
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
-    <PackageReference Include="System.Drawing.Common" Version="6.0.0" />
+    <PackageReference Include="System.Drawing.Common" Version="8.0.7" />
   </ItemGroup>
 
   <ItemGroup>
@@ -63,6 +65,16 @@
       <Generator>ResXFileCodeGenerator</Generator>
       <LastGenOutput>Resources.Designer.cs</LastGenOutput>
     </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Update="UI\UserControl\GalleryControl.Dashboard.cs" />
+    <Compile Update="UI\UserControl\GalleryControl.Drawer.cs" />
+    <Compile Update="UI\UserControl\GalleryControl.ExternalSync.cs" />
+    <Compile Update="UI\UserControl\GalleryControl.Gallery.cs" />
+    <Compile Update="UI\UserControl\GalleryControl.Search.cs" />
+    <Compile Update="UI\UserControl\GalleryControl.Tabs.cs" />
+    <Compile Update="UI\UserControl\GalleryControl.Tree.cs" />
   </ItemGroup>
 
 </Project>

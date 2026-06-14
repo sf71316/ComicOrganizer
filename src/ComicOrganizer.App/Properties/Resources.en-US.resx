@@ -103,6 +103,7 @@
   <data name="SettingsUseBuiltInReader" xml:space="preserve"><value>Use built-in reader (replace external viewer)</value></data>
   <data name="SettingsReadingDirection" xml:space="preserve"><value>Reading Direction</value></data>
   <data name="SettingsDualPageSpreadFromCover" xml:space="preserve"><value>Dual page mode: cover stands alone</value></data>
+  <data name="SettingsOcrEngineLabel" xml:space="preserve"><value>OCR Engine</value></data>
   <data name="ReadingDirectionRtl" xml:space="preserve"><value>Right → Left</value></data>
   <data name="ReadingDirectionLtr" xml:space="preserve"><value>Left → Right</value></data>
   <data name="SettingsMaxScanDepth" xml:space="preserve"><value>Max Scan Depth (cover recursion)</value></data>
@@ -433,4 +434,16 @@ First work will open merge dialog to decide strategy; remaining {4} works will a
   <data name="BookmarkDelete" xml:space="preserve"><value>Delete</value></data>
   <data name="BookmarkRenamePrompt" xml:space="preserve"><value>Enter bookmark name (blank to clear)</value></data>
   <data name="PreviewFetchMetaCheckbox" xml:space="preserve"><value>Fetch nhentai metadata after archive (keep author)</value></data>
+  <data name="TranslationTitle" xml:space="preserve"><value>AI Translation Settings</value></data>
+  <data name="TranslationDesc" xml:space="preserve"><value>Configure the local or cloud LLM service for the reader's real-time translation feature.</value></data>
+  <data name="TranslationApiType" xml:space="preserve"><value>API Type:</value></data>
+  <data name="TranslationEndpoint" xml:space="preserve"><value>API Endpoint:</value></data>
+  <data name="TranslationModelNameLabel" xml:space="preserve"><value>Model Name:</value></data>
+  <data name="TranslationTestConnection" xml:space="preserve"><value>Test Connection</value></data>
+  <data name="SettingsMenuTranslation" xml:space="preserve"><value>AI Translation</value></data>
+  <data name="TranslationMaxConcurrency" xml:space="preserve"><value>Concurrency Limit:</value></data>
+  <data name="InstantTranslation" xml:space="preserve"><value>Instant Translation</value></data>
+  <data name="AllTranslation" xml:space="preserve"><value>All Translation</value></data>
+  <data name="AllTranslationConfirmPrompt" xml:space="preserve"><value>Translating the entire comic in the background may take a long time. Do you want to continue?</value></data>
+  <data name="AllTranslationConfirmTitle" xml:space="preserve"><value>All Translation</value></data>
 </root>
