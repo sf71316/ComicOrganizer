@@ -77,6 +77,22 @@ public class LineBreakPlanTests
     }
 
     [Fact]
+    public void Kinsoku_HangingPunctuation_AllowsOneOverHardCap()
+    {
+        // col0 已達容量 4；， 落 col1 欄首是行頭禁則 → 懸掛(ぶら下げ)允許超出 1 字拉回 col0 欄尾，
+        // 而非把 ， 留在 col1 欄首。
+        string text = "1234，678"; // ， 在 index 4，共 8 字
+        var caps = new[] { 4, 4 };
+        var counts = FontSizeOptimizer.PlanColumnCounts(text, caps, caps);
+        _output.WriteLine(Split(text, counts));
+
+        Assert.Equal(5, counts[0]);                  // col0 懸掛到 5 字（容量 4 + 1）
+        Assert.Equal('，', text[counts[0] - 1]);     // ， 成為 col0 欄尾
+        Assert.NotEqual('，', text[counts[0]]);      // col1 不以 ， 開頭
+        Assert.Equal(text.Length, counts.Sum());
+    }
+
+    [Fact]
     public void NoTextLost_LongTextClampedToLastColumn()
     {
         // 容量總和不足以容納全文時，仍不可漏字（總和需等於長度）。

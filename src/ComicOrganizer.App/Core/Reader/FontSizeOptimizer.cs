@@ -273,14 +273,18 @@ public static class FontSizeOptimizer
             FormatFlags = StringFormatFlags.NoWrap
         };
 
-        // 各欄容量（以子欄自身高度估，確保整欄文字落在子欄內、不超出氣泡）
+        // 各欄容量：軟容量（0.97×高度，用於均分留邊距）與硬容量（完整高度，懸掛標點的上限）
         int n = cols.Count;
         int[] caps = new int[n];
+        int[] hardCaps = new int[n];
         for (int i = 0; i < n; i++)
+        {
             caps[i] = Math.Max(1, (int)(cols[i].Height * 0.97f / cellH));
+            hardCaps[i] = Math.Max(caps[i], (int)(cols[i].Height / cellH));
+        }
 
-        // 分欄規劃：欄位均分 + 基本禁則微調
-        int[] counts = PlanColumnCounts(text, caps);
+        // 分欄規劃：欄位均分 + 基本禁則微調（含懸掛標點）
+        int[] counts = PlanColumnCounts(text, caps, hardCaps);
         int useCols = counts.Length;
 
         // 逐欄繪製（每欄在自身子欄高度內垂直置中）
@@ -298,8 +302,44 @@ public static class FontSizeOptimizer
             for (int k = 0; k < colText.Length; k++)
             {
                 float y = startY + k * cellH;
-                g.DrawString(colText[k].ToString(), font, brush, new RectangleF(cx, y, charSize, charSize), format);
+                DrawVerticalGlyph(g, colText[k], font, brush, cx, y, charSize, format);
             }
+        }
+    }
+
+    // 第 2 類：破折號/省略號/長音/波浪——直排需旋轉 90°（橫向 → 縱向）。
+    private const string VertRotate90 = "…‥⋯—―─━ー～〜";
+    // 第 1 類：句読点——橫排字身在左下，直排需移到右上。
+    private const string VertShiftTopRight = "。、，．｡､";
+
+    /// <summary>
+    /// 在 (cx, y) 的 charSize 方格內繪製單一直排字元，對特定全形標點做修正：
+    /// 破折號/省略號/長音旋轉 90°；句読点往右上位移；其餘照常置中繪製。
+    /// 純座標/旋轉處理，不依賴字型的直排字形（避免缺字 tofu）。
+    /// </summary>
+    private static void DrawVerticalGlyph(Graphics g, char c, Font font, Brush brush, float cx, float y, float charSize, StringFormat format)
+    {
+        if (VertRotate90.IndexOf(c) >= 0)
+        {
+            // 繞方格中心旋轉 90°：水平的「…」「—」變成縱向
+            float ccx = cx + charSize / 2f;
+            float ccy = y + charSize / 2f;
+            var st = g.Save();
+            g.TranslateTransform(ccx, ccy);
+            g.RotateTransform(90f);
+            g.TranslateTransform(-ccx, -ccy);
+            g.DrawString(c.ToString(), font, brush, new RectangleF(cx, y, charSize, charSize), format);
+            g.Restore(st);
+        }
+        else if (VertShiftTopRight.IndexOf(c) >= 0)
+        {
+            // 往右上偏移（比例可調）：右 +0.18em、上 −0.34em
+            var rect = new RectangleF(cx + charSize * 0.18f, y - charSize * 0.34f, charSize, charSize);
+            g.DrawString(c.ToString(), font, brush, rect, format);
+        }
+        else
+        {
+            g.DrawString(c.ToString(), font, brush, new RectangleF(cx, y, charSize, charSize), format);
         }
     }
 
@@ -308,7 +348,7 @@ public static class FontSizeOptimizer
     /// (2) 對欄界做基本禁則微調。回傳的 counts 總和 == text.Length（容量極不足時最後一欄會超出，交由 clip 收尾）。
     /// caps 為各欄容量（依閱讀順序，直書由右至左）。純函式，便於單元測試。
     /// </summary>
-    public static int[] PlanColumnCounts(string text, int[] caps)
+    public static int[] PlanColumnCounts(string text, int[] caps, int[]? hardCaps = null)
     {
         int len = text?.Length ?? 0;
         if (len == 0 || caps == null || caps.Length == 0) return Array.Empty<int>();
@@ -330,8 +370,8 @@ public static class FontSizeOptimizer
         }
         if (remaining > 0) counts[useCols - 1] += remaining;     // 容量不足時不漏字（極端情況，交由 clip 收尾）
 
-        // (2) 基本禁則微調
-        AdjustKinsoku(text!, counts, caps);
+        // (2) 基本禁則微調（追い込み 允許掛到硬容量＝完整欄高，讓標點懸掛在欄底邊距內仍可見）
+        AdjustKinsoku(text!, counts, hardCaps ?? caps);
         return counts;
     }
 
@@ -343,18 +383,21 @@ public static class FontSizeOptimizer
     private static bool IsLineEndForbidden(char c) => KinsokuLineEnd.IndexOf(c) >= 0;
 
     /// <summary>
-    /// 對已均分的每欄字數做基本禁則微調（受各欄容量限制，調不動就放棄該次以保不溢出）：
+    /// 對已均分的每欄字數做基本禁則微調（受 limit 容量限制，調不動就放棄該次以保不溢出）：
     /// - 追い込み：下一欄欄首是行頭禁則字（。、！？」…）→ 拉回本欄欄尾（可連拉，處理「！？」「…。」）。
     /// - 追い出し：本欄欄尾是行尾禁則字（起始括號 「（）→ 推到下一欄欄首。
+    /// limit 為各欄可容字數上限（懸掛標點時傳硬容量＝完整欄高，標點掛在欄底邊距內仍在塗白/clip 範圍內）。
     /// </summary>
-    private static void AdjustKinsoku(string text, int[] counts, int[] caps)
+    private static void AdjustKinsoku(string text, int[] counts, int[] limit)
     {
         int start = 0;
         for (int i = 0; i < counts.Length - 1; i++)
         {
+            // 追い込み：拉回行頭禁則字。允許超出硬容量 1 字（懸掛標點 ぶら下げ）——
+            // 繪製端在 lineH>欄高 時自動靠頂，超出的標點落在欄底；標點經右上位移後 ink 仍在塗白/clip 範圍內。
             while (start + counts[i] < text.Length
                    && IsLineStartForbidden(text[start + counts[i]])
-                   && counts[i] + 1 <= caps[i]
+                   && counts[i] + 1 <= limit[i] + 1
                    && counts[i + 1] - 1 >= 1)
             {
                 counts[i]++; counts[i + 1]--;
@@ -363,7 +406,7 @@ public static class FontSizeOptimizer
             if (start + counts[i] - 1 >= 0 && start + counts[i] - 1 < text.Length
                 && IsLineEndForbidden(text[start + counts[i] - 1])
                 && counts[i] - 1 >= 1
-                && counts[i + 1] + 1 <= caps[i + 1])
+                && counts[i + 1] + 1 <= limit[i + 1])
             {
                 counts[i]--; counts[i + 1]++;
             }
