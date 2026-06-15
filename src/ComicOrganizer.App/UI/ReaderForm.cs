@@ -2138,15 +2138,17 @@ public partial class ReaderForm : Window, IThemedControl
 					cols.Add(rect);
 				}
 
+				// 白底收緊（內縮 2px）：OCR 框外緣有 padding，內縮仍蓋得到日文與譯文 ink，
+				// 但能減少矩形白底在圓/不規則氣泡邊緣戳出輪廓外。
 				foreach (RectangleF c in cols)
-					g.FillRectangle(brush, RectangleF.Inflate(c, 2f, 2f));
+					g.FillRectangle(brush, RectangleF.Inflate(c, -2f, -2f));
 
 				float emSize = fontSizes.TryGetValue(item, out float size) ? size : 14f;
 				// 將計算出的原始字體大小乘上寬度縮放比例 num，實現等比例放大縮小
 				emSize = emSize * num;
 				using Font font = new Font("Microsoft JhengHei UI", emSize, FontStyle.Bold);
 				var savedState = g.Save();
-				// clip 到各子欄塗白區的聯集：排版已在各子欄自身高度內置中，文字嚴格落在已塗白的欄上，不溢出氣泡也不被切
+				// clip 仍用稍寬(+2)的子欄聯集：容納懸掛標點、避免邊緣字被裁；白底較緊不影響（ink 在欄中央）
 				using (var clipRegion = new Region())
 				{
 					clipRegion.MakeEmpty();
