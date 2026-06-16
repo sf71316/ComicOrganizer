@@ -85,7 +85,7 @@ public static class FontSizeOptimizer
                 : (origSizes[mid - 1] + origSizes[mid]) / 2f;
         }
 
-        baseFontSize = Math.Clamp(baseFontSize, 14f, 30f);
+        baseFontSize = Math.Clamp(baseFontSize, 14f, GlobalMaxFontSize);
 
         foreach (var block in blocks)
         {
@@ -100,21 +100,18 @@ public static class FontSizeOptimizer
             if (origSize > baseFontSize * 1.4f && origSize > 18f)
             {
                 targetSize = Math.Min(origSize, maxFitSize);
-                targetSize = Math.Min(targetSize, 24f);
+                targetSize = Math.Min(targetSize, GlobalMaxFontSize);
             }
             // 悄悄話字體：原文大小小於基準的 0.8 倍且小於 11pt
             else if (origSize < baseFontSize * 0.8f && origSize < 11f && origSize >= 6f)
             {
                 targetSize = Math.Min(origSize, maxFitSize);
             }
-            // 一般對話：使用基準字體
+            // 一般對話：填滿文字框（maxFit）到全域上限，不再被整頁中位數壓低 → 大框用大字。
+            // （maxFit 已含「短文字在大框」的降級，避免狀聲詞/短句爆大；最終仍受 Shaped 縮字防溢出）
             else
             {
-                targetSize = baseFontSize;
-                if (targetSize > maxFitSize)
-                {
-                    targetSize = maxFitSize;
-                }
+                targetSize = Math.Min(maxFitSize, GlobalMaxFontSize);
             }
 
             result[block] = Math.Max(6f, targetSize);
@@ -122,6 +119,9 @@ public static class FontSizeOptimizer
 
         return result;
     }
+
+    /// <summary>譯文字級全域上限(pt)。提高可讓大氣泡用更大字；過大會使短句/狀聲詞偏大（已由 maxFit 面積降級緩解）。</summary>
+    public const float GlobalMaxFontSize = 36f;
 
     /// <summary>
     /// 估算 block 原始字體大小（pt）。多欄（Children &gt; 1）時改用各子框（原始單欄）分別估再取中位數——
@@ -155,7 +155,7 @@ public static class FontSizeOptimizer
     /// <summary>
     /// 在不超出邊框的前提下，估算單個文字區塊的最佳字體大小。
     /// </summary>
-    public static float EstimateOptimalFontSize(string text, float w, float h, float pixelsPerPoint, float maxFontSize = 24f)
+    public static float EstimateOptimalFontSize(string text, float w, float h, float pixelsPerPoint, float maxFontSize = 38f)
     {
         if (string.IsNullOrEmpty(text))
         {
@@ -164,14 +164,15 @@ public static class FontSizeOptimizer
         float num = w * 0.95f;
         float num2 = h * 0.95f;
 
+        // 短文字在大框時降級，避免單字/狀聲詞被放到爆大（上限提高後同步上調）
         float area = w * h;
         if (text.Length <= 2 && area > 10000f)
         {
-            maxFontSize = Math.Min(maxFontSize, 16f);
+            maxFontSize = Math.Min(maxFontSize, 22f);
         }
         else if (text.Length <= 3 && area > 20000f)
         {
-            maxFontSize = Math.Min(maxFontSize, 18f);
+            maxFontSize = Math.Min(maxFontSize, 26f);
         }
 
         float result = 6f;
@@ -328,7 +329,7 @@ public static class FontSizeOptimizer
             return;
         }
 
-        var cols = columns.OrderByDescending(c => c.Left + c.Width / 2f).ToList(); // 由右至左
+        var cols = RemoveTinyColumns(columns.OrderByDescending(c => c.Left + c.Width / 2f).ToList());
         int n = cols.Count;
 
         // 相鄰欄中心最小間距（避免水平重疊的字寬上限）
@@ -391,6 +392,21 @@ public static class FontSizeOptimizer
             for (int k = 0; k < take; k++)
                 DrawVerticalGlyph(g, colText[k], drawFont, brush, cx, startY + k * cellH, charSize, format);
         }
+    }
+
+    /// <summary>
+    /// 濾除噪訊/微小子欄（OCR 雜點、furigana 等）：高度 &lt; 中位數×0.35 或 寬度 &lt; 中位數×0.4 視為噪訊。
+    /// 這類小欄會貼在真欄旁使相鄰欄間距(minPitch)變極小，把直排「不重疊字寬上限」壓到極低 →
+    /// 整框字級被迫縮到極小（如 007「青鸞宮」框遇 7x13 雜點 → 11pt）。子欄 &lt; 3 或濾後 &lt; 2 時原樣回傳。
+    /// </summary>
+    public static List<RectangleF> RemoveTinyColumns(List<RectangleF> cols)
+    {
+        if (cols == null || cols.Count < 3) return cols ?? new List<RectangleF>();
+        var hs = cols.Select(c => c.Height).OrderBy(v => v).ToList();
+        var ws = cols.Select(c => c.Width).OrderBy(v => v).ToList();
+        float medH = hs[hs.Count / 2], medW = ws[ws.Count / 2];
+        var kept = cols.Where(c => c.Height >= medH * 0.35f && c.Width >= medW * 0.4f).ToList();
+        return kept.Count >= 2 ? kept : cols;
     }
 
     // 欄距比例：相鄰欄中心距 = charSize × (1 + ColumnGapRatio)。
