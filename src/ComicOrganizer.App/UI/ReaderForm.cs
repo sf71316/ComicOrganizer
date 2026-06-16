@@ -112,6 +112,12 @@ public partial class ReaderForm : Window, IThemedControl
 
 	private readonly Dictionary<int, List<OcrBlock>> _translatedPageCache = new Dictionary<int, List<OcrBlock>>();
 
+	// 路線 2：每頁「抹除原文後」的乾淨頁圖（CTD 文字遮罩 + TextEraser）。有此圖時 overlay 跳逐欄白底。
+	private readonly Dictionary<int, Bitmap> _erasedPageCache = new Dictionary<int, Bitmap>();
+
+	// 文字遮罩提供者（可抽換：ComicTextDetector / 未來 flood-fill / null=關閉走現行矩形）。
+	private ITextMaskProvider? _maskProvider;
+
 	private readonly object _translationLock = new object();
 
 	private readonly SemaphoreSlim _llmSemaphore;
@@ -159,6 +165,7 @@ public partial class ReaderForm : Window, IThemedControl
 		InitializeComponent();
 		AppConfig appConfig = new ConfigManager().Load();
 		_ocrService = appConfig.OcrEngineType == 1 ? new PaddleOcrService() : new WindowsOcrService();
+		_maskProvider = appConfig.MaskEngineType == 2 ? new ComicTextDetector() : null;
 		int num = Math.Max(1, appConfig.TranslationMaxConcurrency);
 		_llmSemaphore = new SemaphoreSlim(num, num);
 		StartWorkers(num);
@@ -1091,10 +1098,11 @@ public partial class ReaderForm : Window, IThemedControl
 			if (_rightImage == null)
 			{
 				Rectangle rectangle = new Rectangle(0, 0, picPage.Width, picPage.Height);
-				graphics.DrawImage(_leftImage, rectangle);
+				Image img1 = PageImageForPaint(_currentIndex, _leftImage);
+				graphics.DrawImage(img1, rectangle);
 				if (_enableTranslation)
 				{
-					RenderTranslationOverlay(graphics, _leftImage, rectangle, _currentIndex);
+					RenderTranslationOverlay(graphics, img1, rectangle, _currentIndex);
 				}
 				return;
 			}
@@ -1109,15 +1117,17 @@ public partial class ReaderForm : Window, IThemedControl
 			int y2 = (picPage.Height - num6) / 2;
 			Rectangle rectangle2 = new Rectangle(0, y, num4, num5);
 			Rectangle rectangle3 = new Rectangle(num4 + 5, y2, width, num6);
-			graphics.DrawImage(_leftImage, rectangle2);
+			int pageIndexL = (_rtl ? (_currentIndex + 1) : _currentIndex);
+			int pageIndexR = (_rtl ? _currentIndex : (_currentIndex + 1));
+			Image limg = PageImageForPaint(pageIndexL, _leftImage);
+			Image rimg = PageImageForPaint(pageIndexR, _rightImage);
+			graphics.DrawImage(limg, rectangle2);
 			graphics.FillRectangle(Brushes.White, num4, 0, 5, picPage.Height);
-			graphics.DrawImage(_rightImage, rectangle3);
+			graphics.DrawImage(rimg, rectangle3);
 			if (_enableTranslation)
 			{
-				int pageIndex = (_rtl ? (_currentIndex + 1) : _currentIndex);
-				int pageIndex2 = (_rtl ? _currentIndex : (_currentIndex + 1));
-				RenderTranslationOverlay(graphics, _leftImage, rectangle2, pageIndex);
-				RenderTranslationOverlay(graphics, _rightImage, rectangle3, pageIndex2);
+				RenderTranslationOverlay(graphics, limg, rectangle2, pageIndexL);
+				RenderTranslationOverlay(graphics, rimg, rectangle3, pageIndexR);
 			}
 		}
 	}
@@ -1160,10 +1170,11 @@ public partial class ReaderForm : Window, IThemedControl
 				graphics.DrawString("讀取中…", lblStatus.Font, Brushes.White, rectangle, format);
 				continue;
 			}
-			graphics.DrawImage(value, rectangle);
+			Image pimg = PageImageForPaint(i, value);
+			graphics.DrawImage(pimg, rectangle);
 			if (_enableTranslation)
 			{
-				RenderTranslationOverlay(graphics, value, rectangle, i);
+				RenderTranslationOverlay(graphics, pimg, rectangle, i);
 			}
 		}
 	}
@@ -1944,6 +1955,26 @@ public partial class ReaderForm : Window, IThemedControl
 				{
 					_translatedPageCache[pageIndex] = mergedBlocks;
 				}
+				// 路線 2：用文字遮罩抹除原文，產生乾淨頁圖（只抹有譯文的氣泡，保留手繪狀聲詞）。
+				// 模型缺失/失敗則略過 → overlay 走逐欄白底 fallback。
+				if (_maskProvider != null && _maskProvider.IsAvailable && img is Bitmap pageBmp)
+				{
+					try
+					{
+						var maskArr = _maskProvider.GetTextMask(pageBmp, mergedBlocks);
+						if (maskArr != null)
+						{
+							GateMaskToTranslatedBlocks(maskArr, pageBmp.Width, pageBmp.Height, mergedBlocks);
+							Bitmap erased = TextEraser.Erase(pageBmp, maskArr);
+							lock (_translationLock)
+							{
+								if (_erasedPageCache.TryGetValue(pageIndex, out var oldEr)) oldEr?.Dispose();
+								_erasedPageCache[pageIndex] = erased;
+							}
+						}
+					}
+					catch (Exception exMask) { Debug.WriteLine($"[Mask] page {pageIndex} erase failed: {exMask.Message}"); }
+				}
 				token.ThrowIfCancellationRequested();
 				if (!base.IsDisposed)
 				{
@@ -2079,6 +2110,62 @@ public partial class ReaderForm : Window, IThemedControl
 		}
 	}
 
+	// 只保留落在「有譯文氣泡(OCR 框)」內的遮罩像素，其餘清 0（狀聲詞/空譯文不抹，保留手繪）。
+	private static void GateMaskToTranslatedBlocks(byte[] mask, int W, int H, List<OcrBlock> blocks)
+	{
+		byte[] allowed = new byte[W * H];
+		const int pad = 4;
+		foreach (var b in blocks)
+		{
+			if (string.IsNullOrWhiteSpace(b.Text)) continue;
+			int x1 = Math.Max(0, (int)b.X - pad), y1 = Math.Max(0, (int)b.Y - pad);
+			int x2 = Math.Min(W - 1, (int)(b.X + b.Width) + pad), y2 = Math.Min(H - 1, (int)(b.Y + b.Height) + pad);
+			for (int y = y1; y <= y2; y++)
+				for (int x = x1; x <= x2; x++)
+					allowed[y * W + x] = 1;
+		}
+		for (int i = 0; i < mask.Length; i++)
+			if (allowed[i] == 0) mask[i] = 0;
+	}
+
+	/// <summary>該頁有「抹除頁圖」就回它（路線2），否則回原圖（fallback）。</summary>
+	private Image PageImageForPaint(int pageIndex, Image original)
+	{
+		if (!_enableTranslation) return original;   // 翻譯關閉時用原圖（含日文），避免顯示空白氣泡
+		lock (_translationLock)
+		{
+			if (_erasedPageCache.TryGetValue(pageIndex, out var er) && er != null) return er;
+		}
+		return original;
+	}
+
+	protected override void OnFormClosed(FormClosedEventArgs e)
+	{
+		base.OnFormClosed(e);
+		lock (_translationLock)
+		{
+			foreach (var b in _erasedPageCache.Values) b?.Dispose();
+			_erasedPageCache.Clear();
+		}
+		(_maskProvider as System.IDisposable)?.Dispose();
+	}
+
+	// 取樣抹除後氣泡中央區的亮度，判斷是否黑底氣泡（→ 譯文畫白字）。座標為原圖座標。
+	private static bool IsDarkBubble(Bitmap img, OcrBlock b)
+	{
+		int cx = (int)(b.X + b.Width / 2), cy = (int)(b.Y + b.Height / 2);
+		long lum = 0; int n = 0;
+		for (int dy = -3; dy <= 3; dy++)
+			for (int dx = -3; dx <= 3; dx++)
+			{
+				int x = cx + dx * 3, y = cy + dy * 3;
+				if (x < 0 || y < 0 || x >= img.Width || y >= img.Height) continue;
+				var p = img.GetPixel(x, y);
+				lum += (p.R * 299 + p.G * 587 + p.B * 114) / 1000; n++;
+			}
+		return n > 0 && lum / n < 110;
+	}
+
 	private void RenderTranslationOverlay(Graphics g, Image originalImage, Rectangle destRect, int pageIndex)
 	{
 		EnsurePageTranslated(pageIndex);
@@ -2091,6 +2178,8 @@ public partial class ReaderForm : Window, IThemedControl
 		{
 			return;
 		}
+		bool erased;
+		lock (_translationLock) { erased = _erasedPageCache.ContainsKey(pageIndex); }
 		float num = (float)destRect.Width / (float)originalImage.Width;
 		float num2 = (float)destRect.Height / (float)originalImage.Height;
 		using SolidBrush brush = new SolidBrush(Color.White);
@@ -2116,46 +2205,37 @@ public partial class ReaderForm : Window, IThemedControl
 				float num4 = item.Height * num2;
 				RectangleF rect = new RectangleF(x, y, num3, num4);
 
-				// 收集實際要塗白的矩形：有子氣泡時逐一塗各子框，否則塗整個合併框。
-				// 之後文字 clip 共用這同一組矩形，確保「能畫字的範圍」==「塗白的範圍」，
-				// 不規則氣泡（子框散開、聯集矩形涵蓋插圖空隙）時譯文才不會畫到氣泡外。
-				// 子欄（Children）= 實際偵測到的各文字欄；逐欄塗白（保留欄間插圖），繪製也對齊這些欄，
-				// 讓譯文嚴格落在已塗白的欄上，既不溢出氣泡也不被切斷。
+				// 譯文排版區域 = 合併框；多氣泡誤併已在 MergeBlocks 沿縫隙拆開，每 block ≈ 單一氣泡文字區。
+				// 子欄(Children)矩形 = 原文各欄實際幾何，供 DrawVerticalStringShaped 追隨氣泡形狀。
 				var cols = new List<RectangleF>();
 				if (item.Children != null && item.Children.Count > 0)
 				{
 					foreach (var child in item.Children)
-					{
-						float cx = (float)destRect.X + child.X * num;
-						float cy = (float)destRect.Y + child.Y * num2;
-						float cw = child.Width * num;
-						float ch = child.Height * num2;
-						cols.Add(new RectangleF(cx, cy, cw, ch));
-					}
-				}
-				else
-				{
-					cols.Add(rect);
+						cols.Add(new RectangleF((float)destRect.X + child.X * num, (float)destRect.Y + child.Y * num2, child.Width * num, child.Height * num2));
 				}
 
-				// 白底收緊（內縮 2px）：OCR 框外緣有 padding，內縮仍蓋得到日文與譯文 ink，
-				// 但能減少矩形白底在圓/不規則氣泡邊緣戳出輪廓外。
-				foreach (RectangleF c in cols)
-					g.FillRectangle(brush, RectangleF.Inflate(c, -2f, -2f));
+				// 有抹除頁圖(路線2)時不再逐欄塗白（原文已精準抹除、無戳出）；否則 fallback 逐欄白底(內縮2px)。
+				if (!erased)
+				{
+					g.FillRectangle(brush, RectangleF.Inflate(rect, -2f, -2f));
+				}
 
 				float emSize = fontSizes.TryGetValue(item, out float size) ? size : 14f;
 				// 將計算出的原始字體大小乘上寬度縮放比例 num，實現等比例放大縮小
 				emSize = emSize * num;
 				using Font font = new Font("Microsoft JhengHei UI", emSize, FontStyle.Bold);
+				// 黑底氣泡(抹除後底色為暗)畫白字，否則黑字
+				Brush textBrush = (erased && originalImage is Bitmap ebmp && IsDarkBubble(ebmp, item)) ? brush : brush2;
 				var savedState = g.Save();
-				// clip 仍用稍寬(+2)的子欄聯集：容納懸掛標點、避免邊緣字被裁；白底較緊不影響（ink 在欄中央）
+				// clip：路線2(已抹除)用合併框(+2)，讓「頂端對齊」的均勻版面不被參差子欄裁切；
+				// fallback(逐欄白底)維持子欄聯集(+2)，避免畫到未塗白的欄間插圖。
 				using (var clipRegion = new Region())
 				{
 					clipRegion.MakeEmpty();
-					foreach (RectangleF c in cols)
-						clipRegion.Union(RectangleF.Inflate(c, 2f, 2f));
+					clipRegion.Union(RectangleF.Inflate(rect, 2f, 2f));
 					g.SetClip(clipRegion, CombineMode.Replace);
-					FontSizeOptimizer.DrawVerticalStringInColumns(g, item.Text, font, brush2, rect, cols, pixelsPerPoint);
+					// 追隨原文子欄形狀排版：邊欄短/中欄長/左右基線可不同高 → 貼合圓/斜氣泡不戳出；含縮字防重疊溢出。
+					FontSizeOptimizer.DrawVerticalStringShaped(g, item.Text, font, textBrush, rect, cols, pixelsPerPoint);
 				}
 				g.Restore(savedState);
 			}

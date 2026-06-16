@@ -59,14 +59,35 @@ public class LlmTranslationService : ITranslationService
             "(3) partial/fragmented text that is not a complete phrase, " +
             "(4) OCR noise or gibberish (e.g. vhah, nー, random symbols). " +
             "Only translate text that is clearly part of character dialog or narration. " +
-            "Output ONLY a JSON array with the same number of elements. No explanation, no markdown.";
+            "Output ONLY a JSON array with the same number of elements. No explanation, no markdown. " +
+            "/no_think"; // Qwen3 等推理模型的軟開關：關閉思考，直接輸出答案（翻譯任務不需長推理，避免 token 全燒在思考上）。
 
         // 使用 UnsafeRelaxedJsonEscaping 保留原始 UTF-8 字元（日文、中文），而非轉成 \uXXXX
         var jsonOptions = new JsonSerializerOptions
         {
             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
         };
-        var userContent = JsonSerializer.Serialize(texts, jsonOptions);
+
+        // 預先濾除噪框（純拉丁/數字、單字，如 "Jup"/"A"/"8"/"vhah"），不送進 LLM。
+        // 否則模型常把「該回空字串的噪框」整格刪掉 → 回傳元素變少 → 後續譯文整批往前位移 → 對錯氣泡。
+        var realIdx = new List<int>();
+        var realTexts = new List<string>();
+        for (int i = 0; i < texts.Count; i++)
+        {
+            if (!IsLikelyNoise(texts[i]))
+            {
+                realIdx.Add(i);
+                realTexts.Add(texts[i]);
+            }
+        }
+        // 全部都是噪框：直接回傳等長空字串
+        if (realTexts.Count == 0)
+        {
+            var allEmpty = new List<string>();
+            for (int i = 0; i < texts.Count; i++) allEmpty.Add("");
+            return allEmpty;
+        }
+        var userContent = JsonSerializer.Serialize(realTexts, jsonOptions);
 
         // Few-shot 範例，包含狀聲詞/擬聲詞與雜訊過濾範例，幫助模型理解輸入/輸出格式
         var exampleUserContent = "[\"こんにちは\",\"ゴゴゴ\",\"ありがとう\",\"ドキドキ\",\"お兄さま\",\"あ、あれは…\",\"キャー\",\"vhah\",\"伊\",\"な\",\"ばさっ\",\"十\",\"もうしばらくご辛抱を…\"]";
@@ -89,6 +110,7 @@ public class LlmTranslationService : ITranslationService
                     new { role = "user", content = userContent }
                 },
                 temperature = 0.3,
+                max_tokens = 4096, // 上限：關閉思考後輸出僅 JSON 陣列很短，給足餘裕避免被 server 預設值截斷
                 stream = false
             };
         }
@@ -107,7 +129,8 @@ public class LlmTranslationService : ITranslationService
                 },
                 options = new
                 {
-                    temperature = 0.3
+                    temperature = 0.3,
+                    num_predict = 4096 // Ollama 的輸出 token 上限（對應 OpenAI max_tokens）
                 },
                 stream = false,
                 format = "json"
@@ -116,118 +139,44 @@ public class LlmTranslationService : ITranslationService
 
         try
         {
-            var jsonPayload = JsonSerializer.Serialize(requestBody, jsonOptions);
-            System.Diagnostics.Debug.WriteLine($"[LlmTranslationService] Request payload (first 300 chars): {jsonPayload[..Math.Min(jsonPayload.Length, 300)]}");
-            using var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
-            
-            // 設定適當的 timeout，避免本機推論過久導致系統崩潰，可交由 HttpClient 配置，此處設為 60 秒
-            var response = await _httpClient.PostAsync(requestUrl, content);
-            if (!response.IsSuccessStatusCode)
+            // 重試條件：解析失敗，或回傳數量與送出的（已濾噪）數量不符（位移風險）。
+            // aligned = 數量正確的結果；bestEffort = 至少可解析（保底，勝過整批 fallback 回原文）。
+            List<string>? aligned = null;
+            List<string>? bestEffort = null;
+            const int maxAttempts = 2;
+            for (int attempt = 1; attempt <= maxAttempts && aligned == null; attempt++)
             {
-                var errorContent = await response.Content.ReadAsStringAsync();
-                throw new HttpRequestException($"HTTP {(int)response.StatusCode} ({response.ReasonPhrase}) - Response: {errorContent}");
-            }
-
-            var responseJson = await response.Content.ReadAsStringAsync();
-            System.Diagnostics.Debug.WriteLine($"[LlmTranslationService] Raw API response (first 500 chars): {responseJson[..Math.Min(responseJson.Length, 500)]}");
-            string rawContent = "";
-
-            using (var doc = JsonDocument.Parse(responseJson))
-            {
-                var root = doc.RootElement;
-                if (_apiType == LlmApiType.OpenAiCompatible)
+                if (attempt > 1)
                 {
-                    if (root.TryGetProperty("choices", out var choices) && 
-                        choices.GetArrayLength() > 0 &&
-                        choices[0].TryGetProperty("message", out var message))
-                    {
-                        // 優先取 content
-                        if (message.TryGetProperty("content", out var contentProp))
-                        {
-                            rawContent = contentProp.GetString() ?? "";
-                        }
-                        // 如果 content 為空，嘗試 reasoning_content (部分 thinking 模型)
-                        if (string.IsNullOrEmpty(rawContent) && message.TryGetProperty("reasoning_content", out var reasoningProp))
-                        {
-                            System.Diagnostics.Debug.WriteLine("[LlmTranslationService] content was empty, found reasoning_content field.");
-                            rawContent = reasoningProp.GetString() ?? "";
-                        }
-                    }
+                    System.Diagnostics.Debug.WriteLine($"[LlmTranslationService] 結果不可用（解析失敗或數量不符 {bestEffort?.Count}/{realTexts.Count}），重試第 {attempt}/{maxAttempts} 次。");
                 }
-                else
+                var parsed = await RequestAndParseAsync(requestUrl, requestBody, jsonOptions);
+                if (parsed != null)
                 {
-                    if (root.TryGetProperty("message", out var message) &&
-                        message.TryGetProperty("content", out var contentProp))
-                    {
-                        rawContent = contentProp.GetString() ?? "";
-                    }
+                    bestEffort = parsed;
+                    if (parsed.Count == realTexts.Count) aligned = parsed;
                 }
             }
 
-            // 處理 thinking 模型的 <think>...</think> 標籤
-            rawContent = StripThinkingTags(rawContent);
-
-            if (string.IsNullOrEmpty(rawContent))
+            var chosen = aligned ?? bestEffort;
+            if (chosen != null)
             {
-                throw new Exception($"LLM returned an empty response content. Raw JSON (first 300 chars): {responseJson[..Math.Min(responseJson.Length, 300)]}");
-            }
+                // 對齊到已濾噪的 realTexts 長度（多截少補空）
+                var realResult = new List<string>(chosen);
+                while (realResult.Count < realTexts.Count) realResult.Add("");
+                if (realResult.Count > realTexts.Count) realResult = realResult.GetRange(0, realTexts.Count);
 
-            rawContent = StripMarkdownJson(rawContent);
-
-            // 雙重安全解析 JSON 
-            List<string>? translations = null;
-            try
-            {
-                // 1. 嘗試直接解析為 List<string> (防呆)
-                translations = JsonSerializer.Deserialize<List<string>>(rawContent);
-            }
-            catch
-            {
-                // 忽略錯誤，繼續下一個解析嘗試
-            }
-
-            if (translations == null)
-            {
-                try
+                // 還原回完整長度：噪框位置補空字串，其餘填回對應譯文
+                var full = new List<string>();
+                for (int i = 0; i < texts.Count; i++) full.Add("");
+                for (int k = 0; k < realIdx.Count; k++)
                 {
-                    // 2. 嘗試解析為 LlmResponseWrapper 物件 {"results": [...]}
-                    var wrapper = JsonSerializer.Deserialize<LlmResponseWrapper>(rawContent);
-                    translations = wrapper?.Results;
+                    full[realIdx[k]] = realResult[k]?.Trim() ?? "";
                 }
-                catch
-                {
-                    // 忽略錯誤
-                }
+                return full;
             }
 
-            if (translations == null)
-            {
-                // 3. 最後嘗試：從混合文字中萃取 JSON 陣列（模型可能回傳了推理文字夾雜 JSON）
-                translations = ExtractJsonArrayFromMixedContent(rawContent);
-            }
-
-            if (translations != null)
-            {
-                var resultList = new List<string>(translations);
-                
-                // 確保回傳的陣列長度與輸入一致
-                while (resultList.Count < texts.Count)
-                {
-                    resultList.Add("");
-                }
-                if (resultList.Count > texts.Count)
-                {
-                    resultList = resultList.GetRange(0, texts.Count);
-                }
-                
-                for (int i = 0; i < resultList.Count; i++)
-                {
-                    resultList[i] = resultList[i]?.Trim() ?? "";
-                }
-                return resultList;
-            }
-
-            throw new Exception($"Failed to deserialize translation JSON (content length={rawContent.Length}): {rawContent[..Math.Min(rawContent.Length, 200)]}");
+            throw new Exception("Failed to deserialize translation JSON after all attempts (strict + lenient salvage + retry).");
         }
         catch (Exception ex)
         {
@@ -236,6 +185,205 @@ public class LlmTranslationService : ITranslationService
             System.Diagnostics.Debug.WriteLine($"[LlmTranslationService ERROR] {ex.Message}");
             return new List<string>(texts);
         }
+    }
+
+    /// <summary>
+    /// 送出一次 LLM 請求並嘗試解析譯文陣列。
+    /// HTTP 失敗丟例外（交外層降級）；解析失敗（含寬鬆容錯）回 null（交外層重試）。
+    /// 解析順序：嚴格 List&lt;string&gt; → wrapper{"results"} → 混合內容萃取合法 JSON → 寬鬆容錯救援。
+    /// </summary>
+    private async Task<List<string>?> RequestAndParseAsync(string requestUrl, object requestBody, JsonSerializerOptions jsonOptions)
+    {
+        var jsonPayload = JsonSerializer.Serialize(requestBody, jsonOptions);
+        System.Diagnostics.Debug.WriteLine($"[LlmTranslationService] Request payload (first 300 chars): {jsonPayload[..Math.Min(jsonPayload.Length, 300)]}");
+        using var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
+
+        var response = await _httpClient.PostAsync(requestUrl, content);
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync();
+            throw new HttpRequestException($"HTTP {(int)response.StatusCode} ({response.ReasonPhrase}) - Response: {errorContent}");
+        }
+
+        var responseJson = await response.Content.ReadAsStringAsync();
+        System.Diagnostics.Debug.WriteLine($"[LlmTranslationService] Raw API response (first 500 chars): {responseJson[..Math.Min(responseJson.Length, 500)]}");
+        string rawContent = "";
+
+        using (var doc = JsonDocument.Parse(responseJson))
+        {
+            var root = doc.RootElement;
+            if (_apiType == LlmApiType.OpenAiCompatible)
+            {
+                if (root.TryGetProperty("choices", out var choices) &&
+                    choices.GetArrayLength() > 0 &&
+                    choices[0].TryGetProperty("message", out var message))
+                {
+                    // 優先取 content
+                    if (message.TryGetProperty("content", out var contentProp))
+                    {
+                        rawContent = contentProp.GetString() ?? "";
+                    }
+                    // 如果 content 為空，嘗試 reasoning_content (部分 thinking 模型)
+                    if (string.IsNullOrEmpty(rawContent) && message.TryGetProperty("reasoning_content", out var reasoningProp))
+                    {
+                        System.Diagnostics.Debug.WriteLine("[LlmTranslationService] content was empty, found reasoning_content field.");
+                        rawContent = reasoningProp.GetString() ?? "";
+                    }
+                }
+            }
+            else
+            {
+                if (root.TryGetProperty("message", out var message) &&
+                    message.TryGetProperty("content", out var contentProp))
+                {
+                    rawContent = contentProp.GetString() ?? "";
+                }
+            }
+        }
+
+        // 處理 thinking 模型的 <think>...</think> 標籤
+        rawContent = StripThinkingTags(rawContent);
+
+        if (string.IsNullOrEmpty(rawContent))
+        {
+            System.Diagnostics.Debug.WriteLine($"[LlmTranslationService] 空回應，觸發重試。Raw JSON (first 300): {responseJson[..Math.Min(responseJson.Length, 300)]}");
+            return null;
+        }
+
+        rawContent = StripMarkdownJson(rawContent);
+
+        // 1. 嚴格解析 List<string>
+        try
+        {
+            var direct = JsonSerializer.Deserialize<List<string>>(rawContent);
+            if (direct != null) return direct;
+        }
+        catch { /* 換下一個解析策略 */ }
+
+        // 2. wrapper 物件 {"results": [...]}
+        try
+        {
+            var wrapper = JsonSerializer.Deserialize<LlmResponseWrapper>(rawContent);
+            if (wrapper?.Results != null) return wrapper.Results;
+        }
+        catch { /* 換下一個解析策略 */ }
+
+        // 3. 從混合內容萃取「合法」JSON 陣列（thinking 文字夾雜 JSON）
+        var extracted = ExtractJsonArrayFromMixedContent(rawContent);
+        if (extracted != null) return extracted;
+
+        // 4. 寬鬆容錯解析：救援小模型常見壞 JSON（最後一格漏結尾引號、以全形 」 當引號、元素未加引號等）
+        var lenient = ParseLenientArray(rawContent);
+        if (lenient != null)
+        {
+            System.Diagnostics.Debug.WriteLine($"[LlmTranslationService] 寬鬆容錯解析救回 {lenient.Count} 個元素。");
+            return lenient;
+        }
+
+        System.Diagnostics.Debug.WriteLine($"[LlmTranslationService] 全部解析失敗 (len={rawContent.Length}): {rawContent[..Math.Min(rawContent.Length, 200)]}");
+        return null;
+    }
+
+    /// <summary>
+    /// 寬鬆容錯解析字串陣列，專治小模型輸出的「幾乎合法」JSON。
+    /// 逐元素掃描，能處理：最後一格未閉合引號、以全形 」/』 當作結尾引號、個別元素漏引號。
+    /// CJK 對白幾乎不含 ASCII 雙引號，故以 ", / "] / [" 作為元素邊界判斷相當穩。
+    /// 救不回（找不到 '['、無任何元素）時回 null。
+    /// </summary>
+    public static List<string>? ParseLenientArray(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return null;
+        int start = text.IndexOf('[');
+        if (start < 0) return null;
+        int lastBracket = text.LastIndexOf(']');
+        int bodyEnd = lastBracket > start ? lastBracket : text.Length; // 無收尾 ] 就掃到結尾
+
+        var result = new List<string>();
+        int i = start + 1;
+        while (i < bodyEnd)
+        {
+            // 跳過元素間的空白與逗號
+            while (i < bodyEnd && (char.IsWhiteSpace(text[i]) || text[i] == ',')) i++;
+            if (i >= bodyEnd) break;
+
+            if (text[i] == '"')
+            {
+                i++; // 跳過開頭引號
+                var sb = new StringBuilder();
+                bool closed = false;
+                while (i < bodyEnd)
+                {
+                    char c = text[i];
+                    if (c == '\\' && i + 1 < bodyEnd)
+                    {
+                        char n = text[i + 1];
+                        sb.Append(n switch { 'n' => '\n', 't' => '\t', 'r' => '\r', '"' => '"', '\\' => '\\', '/' => '/', _ => n });
+                        i += 2;
+                        continue;
+                    }
+                    if (c == '"')
+                    {
+                        // 視後一個非空白字元是否為 , 或 ] 判斷是否真的是結尾引號
+                        int j = i + 1;
+                        while (j < bodyEnd && char.IsWhiteSpace(text[j])) j++;
+                        if (j >= bodyEnd || text[j] == ',' || text[j] == ']')
+                        {
+                            i++;
+                            closed = true;
+                            break;
+                        }
+                        sb.Append('"'); i++; continue; // 文字內的引號（極少見）
+                    }
+                    sb.Append(c); i++;
+                }
+                string val = sb.ToString();
+                if (!closed)
+                {
+                    // 未正常閉合：模型常把結尾的 ASCII 引號寫成全形 」/』，去掉一個結尾全形/彎引號還原原意
+                    val = val.TrimEnd();
+                    if (val.Length > 0 && (val[^1] == '」' || val[^1] == '』' || val[^1] == '”' || val[^1] == '"'))
+                        val = val.Substring(0, val.Length - 1);
+                }
+                result.Add(val);
+            }
+            else
+            {
+                // 元素未加引號：讀到下一個頂層逗號（或結尾），去除包圍的引號/全形括號
+                int seg = i;
+                while (i < bodyEnd && text[i] != ',') i++;
+                string val = text.Substring(seg, i - seg).Trim();
+                val = val.Trim('「', '」', '『', '』', '"', '”', '“');
+                result.Add(val);
+            }
+        }
+        return result.Count > 0 ? result : null;
+    }
+
+    /// <summary>
+    /// 判斷一段 OCR 文字是否為「噪框」（不該送進 LLM 翻譯）：
+    /// 空白、單一字元，或完全不含 CJK/假名（純拉丁字母/數字/符號，如 "Jup"、"A"、"8"、"vhah"）。
+    /// 濾掉這些可避免模型把該回空字串的格子整格刪掉，造成回傳數量變少、譯文整批位移。
+    /// 注意：含假名的擬聲詞（ゴゴゴ、ばさっ）仍會送進 LLM，由 LLM 依規則翻成空字串。
+    /// </summary>
+    public static bool IsLikelyNoise(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return true;
+        string s = text.Trim();
+        if (s.Length <= 1) return true;
+        return !HasCjk(s);
+    }
+
+    private static bool HasCjk(string s)
+    {
+        foreach (char c in s)
+        {
+            // 平假名 U+3040–309F、片假名 U+30A0–30FF、CJK 統一表意 U+4E00–9FFF、半形片假名 U+FF66–FF9D
+            if ((c >= '぀' && c <= 'ヿ') ||
+                (c >= '一' && c <= '鿿') ||
+                (c >= 'ｦ' && c <= 'ﾝ'))
+                return true;
+        }
+        return false;
     }
 
     private class LlmResponseWrapper

@@ -103,4 +103,8 @@ public class AppConfig
 
     /// <summary>OCR 引擎類型 (0 = WindowsNativeOcr, 1 = PaddleOcr)</summary>
     public int OcrEngineType { get; set; } = 0;
+
+    /// <summary>譯文抹除用的文字遮罩引擎 (0 = 關閉/逐欄矩形白底, 1 = FloodFill[保留], 2 = ComicTextDetector ONNX)。
+    /// 預設 2；模型檔不存在時自動 fallback 回逐欄白底。</summary>
+    public int MaskEngineType { get; set; } = 2;
 }

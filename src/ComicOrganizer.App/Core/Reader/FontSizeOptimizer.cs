@@ -287,7 +287,14 @@ public static class FontSizeOptimizer
         int[] counts = PlanColumnCounts(text, caps, hardCaps);
         int useCols = counts.Length;
 
-        // 逐欄繪製（每欄在自身子欄高度內垂直置中）
+        // 共同頂端：所有欄「頂端對齊」，整塊文字在 merged 區內垂直置中。
+        // 不再各欄各自於子欄內置中——否則字數少的欄（如只分到 1 字的欄）會浮在跟其他欄不同的高度（跑位）。
+        int maxCount = 1;
+        for (int ci = 0; ci < useCols; ci++) maxCount = Math.Max(maxCount, counts[ci]);
+        float blockH = Math.Min(maxCount * cellH, merged.Height);
+        float commonTop = merged.Top + Math.Max(0f, (merged.Height - blockH) / 2f);
+
+        // 逐欄繪製（X 取自各子欄中心；Y 一律從 commonTop 由上往下排）
         int idx = 0;
         for (int ci = 0; ci < useCols && idx < text.Length; ci++)
         {
@@ -297,12 +304,175 @@ public static class FontSizeOptimizer
 
             RectangleF col = cols[ci];
             float cx = col.Left + col.Width / 2f - charSize / 2f;
-            float lineH = colText.Length * cellH;
-            float startY = col.Top + Math.Max(0f, (col.Height - lineH) / 2f);
             for (int k = 0; k < colText.Length; k++)
             {
-                float y = startY + k * cellH;
+                float y = commonTop + k * cellH;
                 DrawVerticalGlyph(g, colText[k], font, brush, cx, y, charSize, format);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 追隨原文各欄（Children）形狀垂直繪製譯文——比均勻網格更適合圓/不規則/斜基線氣泡：
+    /// 每欄可容字數依該子欄高度（容量），循序由右至左填字，各欄在「自身子欄的 Y/高度」內垂直置中。
+    /// 因此邊欄短、中欄長、左右基線可不同高，整體貼合原文（=氣泡）形狀，不會在圓/斜氣泡邊角戳出。
+    /// 並自動縮字確保：字寬 ≤ 相鄰欄間距(不重疊) 且 各欄總容量 ≥ 字數(不溢出)。
+    /// columns 為各子欄矩形；空清單時退回 merged 走自算均勻網格 <see cref="DrawVerticalStringAuto"/>。
+    /// </summary>
+    public static void DrawVerticalStringShaped(Graphics g, string text, Font font, Brush brush, RectangleF merged, List<RectangleF>? columns, float pixelsPerPoint)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        if (columns == null || columns.Count == 0)
+        {
+            DrawVerticalStringAuto(g, text, font, brush, merged, pixelsPerPoint);
+            return;
+        }
+
+        var cols = columns.OrderByDescending(c => c.Left + c.Width / 2f).ToList(); // 由右至左
+        int n = cols.Count;
+
+        // 相鄰欄中心最小間距（避免水平重疊的字寬上限）
+        float minPitch = float.MaxValue;
+        for (int i = 1; i < n; i++)
+        {
+            float d = Math.Abs((cols[i - 1].Left + cols[i - 1].Width / 2f) - (cols[i].Left + cols[i].Width / 2f));
+            if (d > 1f) minPitch = Math.Min(minPitch, d);
+        }
+        if (minPitch == float.MaxValue) minPitch = cols[0].Width;
+
+        float maxCharSize = font.SizeInPoints * pixelsPerPoint;
+        float minCharSize = 6f * pixelsPerPoint;
+
+        // 縮字：字寬 ≤ 欄間距(不重疊) 且 各欄總容量 ≥ 字數(不溢出)。多數情況第一輪即成立(不縮)。
+        float charSize = maxCharSize;
+        for (float cs = maxCharSize; cs >= minCharSize; cs -= 0.5f * pixelsPerPoint)
+        {
+            charSize = cs;
+            float cH = cs * (1f + VerticalCharSpacingRatio);
+            int totalCap = 0;
+            for (int i = 0; i < n; i++) totalCap += Math.Max(1, (int)(cols[i].Height * 0.97f / cH));
+            if (cs <= minPitch && totalCap >= text.Length) break;
+        }
+
+        float cellH = charSize * (1f + VerticalCharSpacingRatio);
+        using Font drawFont = new Font(font.FontFamily, charSize / pixelsPerPoint, font.Style);
+        using StringFormat format = new StringFormat
+        {
+            Alignment = StringAlignment.Center,
+            LineAlignment = StringAlignment.Center,
+            FormatFlags = StringFormatFlags.NoWrap
+        };
+
+        // 各欄容量（依子欄高度）；循序由右至左填字（追隨原文形狀），再做基本禁則微調
+        int[] caps = new int[n];
+        for (int i = 0; i < n; i++) caps[i] = Math.Max(1, (int)(cols[i].Height * 0.97f / cellH));
+        int[] counts = new int[n];
+        int rem = text.Length;
+        for (int i = 0; i < n && rem > 0; i++)
+        {
+            counts[i] = Math.Min(caps[i], rem);
+            rem -= counts[i];
+        }
+        if (rem > 0) counts[n - 1] += rem; // 容量不足（縮字後理論上不會）→ 末欄收尾，交 clip
+        AdjustKinsoku(text, counts, caps);
+
+        int idx = 0;
+        for (int ci = 0; ci < n && idx < text.Length; ci++)
+        {
+            int take = Math.Min(counts[ci], text.Length - idx);
+            if (take <= 0) continue;
+            string colText = text.Substring(idx, take);
+            idx += take;
+
+            RectangleF col = cols[ci];
+            float cx = col.Left + col.Width / 2f - charSize / 2f;
+            float lineH = take * cellH;
+            float startY = col.Top + Math.Max(0f, (col.Height - lineH) / 2f); // 在「自身子欄」內垂直置中 → 追隨形狀/斜基線
+            for (int k = 0; k < take; k++)
+                DrawVerticalGlyph(g, colText[k], drawFont, brush, cx, startY + k * cellH, charSize, format);
+        }
+    }
+
+    // 欄距比例：相鄰欄中心距 = charSize × (1 + ColumnGapRatio)。
+    // 固定欄距 ≥ 字寬 → 結構上不重疊（manga-image-translator 直排預設 0.2，取同量級）。
+    public const float ColumnGapRatio = 0.18f;
+
+    /// <summary>
+    /// 在氣泡區域內「自算均勻直排網格」繪製譯文（路線2：原文已精準抹除、整塊乾淨時用）。
+    /// 與 <see cref="DrawVerticalStringInColumns"/> 不同——不綁原文 OCR 子欄位置，
+    /// 而是用我們控制的欄距（charSize×(1+ColumnGapRatio)）自行排版，欄距恆 ≥ 字寬故不重疊；
+    /// 字數由區域高度決定每欄容量，欄數由字數推得，整塊在區域內水平/垂直置中、各欄頂端對齊。
+    /// 保留 kinsoku 斷行（PlanColumnCounts）與全形標點修正（DrawVerticalGlyph）。直書由右至左。
+    /// </summary>
+    public static void DrawVerticalStringAuto(Graphics g, string text, Font font, Brush brush, RectangleF region, float pixelsPerPoint)
+    {
+        if (string.IsNullOrEmpty(text) || region.Width <= 0 || region.Height <= 0) return;
+        int len = text.Length;
+
+        // 內縮留邊：合併框是緊貼原文的 bbox，留些邊距讓譯文不貼著(圓/不規則)氣泡邊緣、邊角不擦出。
+        float insetX = region.Width * 0.05f, insetY = region.Height * 0.04f;
+        var inset = RectangleF.Inflate(region, -insetX, -insetY);
+        if (inset.Width > 4f && inset.Height > 4f) region = inset;
+
+        using StringFormat format = new StringFormat
+        {
+            Alignment = StringAlignment.Center,
+            LineAlignment = StringAlignment.Center,
+            FormatFlags = StringFormatFlags.NoWrap
+        };
+
+        // 自動縮字保證整段塞進 region（不溢出氣泡）：從外部估算字級往下找，
+        // 直到「區域寬可容欄數 × 每欄容量 ≥ 字數」。多數氣泡第一輪就成立（不縮）；長譯文/窄框才縮。下限 6pt。
+        float maxCharSize = font.SizeInPoints * pixelsPerPoint;
+        float minCharSize = 6f * pixelsPerPoint;
+        float charSize = maxCharSize;
+        for (float cs = maxCharSize; cs >= minCharSize; cs -= 0.5f * pixelsPerPoint)
+        {
+            charSize = cs;
+            float cH = cs * (1f + VerticalCharSpacingRatio);
+            float pitch = cs * (1f + ColumnGapRatio);
+            int mCols = Math.Max(1, (int)(region.Width / pitch));
+            int cap = Math.Max(1, (int)(region.Height * 0.97f / cH));
+            if ((long)mCols * cap >= len) break;
+        }
+
+        float cellH = charSize * (1f + VerticalCharSpacingRatio);
+        float colPitch = charSize * (1f + ColumnGapRatio);
+        using Font drawFont = new Font(font.FontFamily, charSize / pixelsPerPoint, font.Style);
+
+        // 每欄容量（區域高度，留 3% 邊距）；需要欄數 = ceil(字數 / 容量)；受區域寬度可容納欄數上限
+        int capPerCol = Math.Max(1, (int)(region.Height * 0.97f / cellH));
+        int needCols = Math.Max(1, (int)Math.Ceiling((double)len / capPerCol));
+        int maxColsByWidth = Math.Max(1, (int)(region.Width / colPitch));
+        int nCols = Math.Min(needCols, maxColsByWidth);
+
+        // 均分各欄字數 + 基本禁則（容量一致）
+        int[] caps = new int[nCols];
+        for (int i = 0; i < nCols; i++) caps[i] = capPerCol;
+        int[] counts = PlanColumnCounts(text, caps, caps);
+        nCols = counts.Length;
+
+        // 整塊置中：水平依實際欄數、垂直依最長欄；各欄頂端對齊
+        float blockW = nCols * colPitch;
+        float rightEdge = region.Right - Math.Max(0f, (region.Width - blockW) / 2f); // 第一欄（最右）右緣
+        int maxCount = 1;
+        for (int i = 0; i < counts.Length; i++) maxCount = Math.Max(maxCount, counts[i]);
+        float blockH = Math.Min(maxCount * cellH, region.Height);
+        float commonTop = region.Top + Math.Max(0f, (region.Height - blockH) / 2f);
+
+        int idx = 0;
+        for (int ci = 0; ci < nCols && idx < text.Length; ci++)
+        {
+            int take = Math.Min(counts[ci], text.Length - idx);
+            string colText = text.Substring(idx, take);
+            idx += take;
+
+            float colCenterX = rightEdge - colPitch * (ci + 0.5f); // 由右至左
+            float cx = colCenterX - charSize / 2f;
+            for (int k = 0; k < colText.Length; k++)
+            {
+                float y = commonTop + k * cellH;
+                DrawVerticalGlyph(g, colText[k], drawFont, brush, cx, y, charSize, format);
             }
         }
     }

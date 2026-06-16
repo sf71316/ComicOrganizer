@@ -139,6 +139,9 @@ public class PaddleOcrService : IOcrService
 
     // thresholdMultiplier 預設 1.0：只併「間隔在一個欄寬以內」的相鄰文字欄。
     // 同一氣泡內的鄰欄間隔通常 < 0.5 欄寬仍會合併；相鄰氣泡（間隔 > 1 欄寬）則不再被誤併成過大的合併框，避免譯文溢出。
+    /// <summary>拆分多氣泡誤併的縫隙門檻（× 平均欄寬/高）。單氣泡欄框略重疊故間距為負，正間距 &gt; 此值即拆。</summary>
+    private const float SplitGapRatio = 0.3f;
+
     public List<OcrBlock> MergeBlocks(List<OcrBlock> blocks, bool isVerticalFlow = true, float thresholdMultiplier = 1.0f)
     {
         if (blocks == null || blocks.Count <= 1)
@@ -173,7 +176,77 @@ public class PaddleOcrService : IOcrService
             mergedBlocks.Add(MergeComponent(component, blocks, isVerticalFlow));
         }
 
-        return mergedBlocks;
+        // 拆分「跨氣泡誤併」：單氣泡欄框略重疊(間距為負)，出現明顯正間距即視為氣泡/區塊邊界。
+        return SplitMergedBlocksByGap(mergedBlocks, isVerticalFlow);
+    }
+
+    /// <summary>
+    /// 把可能「跨氣泡誤併」的 block 沿明顯縫隙拆開：直書沿 X、橫書沿 Y 檢查相鄰子欄淨間距，
+    /// 一旦 &gt; 平均欄寬(高)×<see cref="SplitGapRatio"/> 即切一刀（單氣泡欄框略重疊→間距為負，不會誤拆）。
+    /// 在翻譯前執行，使每個氣泡各自翻譯/排版。拆出的噪訊小塊由下游 IsLikelyNoise 濾除。
+    /// </summary>
+    private List<OcrBlock> SplitMergedBlocksByGap(List<OcrBlock> merged, bool isVerticalFlow)
+    {
+        var result = new List<OcrBlock>();
+        foreach (var b in merged)
+        {
+            var clusters = ClusterChildrenByGap(b.Children, isVerticalFlow, SplitGapRatio);
+            if (clusters.Count <= 1) { result.Add(b); continue; }
+            foreach (var cl in clusters) result.Add(BuildBlockFromChildren(cl, isVerticalFlow));
+        }
+        return result;
+    }
+
+    /// <summary>沿明顯縫隙把 children 分群（純函式，便於單元測試）。children &lt; 2 或無縫隙時回單一群。</summary>
+    public static List<List<OcrBlock>> ClusterChildrenByGap(List<OcrBlock>? children, bool isVerticalFlow, float gapRatio)
+    {
+        var clusters = new List<List<OcrBlock>>();
+        if (children == null || children.Count == 0) return clusters;
+        if (children.Count < 2) { clusters.Add(new List<OcrBlock>(children)); return clusters; }
+
+        var ordered = isVerticalFlow
+            ? children.OrderBy(c => c.X).ToList()
+            : children.OrderBy(c => c.Y).ToList();
+        float avgSize = isVerticalFlow
+            ? (float)ordered.Average(c => c.Width)
+            : (float)ordered.Average(c => c.Height);
+        float thr = avgSize * gapRatio;
+
+        var cur = new List<OcrBlock> { ordered[0] };
+        for (int i = 1; i < ordered.Count; i++)
+        {
+            float gap = isVerticalFlow
+                ? ordered[i].X - (ordered[i - 1].X + ordered[i - 1].Width)
+                : ordered[i].Y - (ordered[i - 1].Y + ordered[i - 1].Height);
+            if (gap > thr) { clusters.Add(cur); cur = new List<OcrBlock>(); }
+            cur.Add(ordered[i]);
+        }
+        clusters.Add(cur);
+        return clusters;
+    }
+
+    private OcrBlock BuildBlockFromChildren(List<OcrBlock> children, bool isVerticalFlow)
+    {
+        float minX = children.Min(c => c.X);
+        float minY = children.Min(c => c.Y);
+        float maxX = children.Max(c => c.X + c.Width);
+        float maxY = children.Max(c => c.Y + c.Height);
+
+        var ordered = isVerticalFlow
+            ? children.OrderByDescending(c => c.X).ToList()   // 直書由右至左
+            : children.OrderBy(c => c.Y).ToList();
+        string text = CleanCjkSpaces(string.Join(" ", ordered.Select(c => c.Text.Trim())));
+
+        return new OcrBlock
+        {
+            X = minX,
+            Y = minY,
+            Width = maxX - minX,
+            Height = maxY - minY,
+            Text = text,
+            OriginalText = text,
+            Children = ordered
+        };
     }
 
     private void DFS(int u, bool[] visited, List<int>[] adj, List<int> component)
