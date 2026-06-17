@@ -123,6 +123,12 @@ public static class FontSizeOptimizer
     /// <summary>譯文字級全域上限(pt)。提高可讓大氣泡用更大字；過大會使短句/狀聲詞偏大（已由 maxFit 面積降級緩解）。</summary>
     public const float GlobalMaxFontSize = 36f;
 
+    /// <summary>氣泡排版(DrawVerticalStringInBubble)各欄使用其 envelope 高度的比例（每欄往下填到此比例 → 高欄、欄數少）。</summary>
+    public const float BubbleVertFillRatio = 0.85f;
+    /// <summary>面積法字級：譯文佔氣泡面積的目標比例（留邊）。字級 ∝ √(此值×氣泡面積/字數)，自然平衡欄高與欄數。
+    /// 調大=字更大佔更滿；調小=字更小留邊更多。</summary>
+    public const float BubbleFillRatio = 0.5f;
+
     /// <summary>
     /// 估算 block 原始字體大小（pt）。多欄（Children &gt; 1）時改用各子框（原始單欄）分別估再取中位數——
     /// 否則合併後的多欄文字被 CleanCjkSpaces 去空白後會被當成「單一長欄」，
@@ -490,6 +496,100 @@ public static class FontSizeOptimizer
                 float y = commonTop + k * cellH;
                 DrawVerticalGlyph(g, colText[k], drawFont, brush, cx, y, charSize, format);
             }
+        }
+    }
+
+    /// <summary>
+    /// 在「氣泡實際輪廓(BubbleEnvelope)」內排版譯文（完整解）：跨整個氣泡寬放置中欄位、
+    /// 各欄垂直範圍取自輪廓(邊欄自動變短貼合圓/斜)、字級放大到剛好填滿氣泡、斷行用 PlanColumnCounts(均分+禁則)。
+    /// 不再受原文 OCR 文字框/欄結構限制 → 一次解決「大框小字」與「被日文欄切詞」。座標為來源影像像素。
+    /// </summary>
+    public static void DrawVerticalStringInBubble(Graphics g, string text, Brush brush, BubbleEnvelope env, float pixelsPerPoint, FontFamily? familyOverride = null)
+    {
+        if (string.IsNullOrEmpty(text) || env == null || !env.Valid) return;
+        int len = text.Length;
+        float bubbleW = env.Right - env.Left;
+        if (bubbleW < 4) return;
+        float centerX = (env.Left + env.Right) / 2f;
+
+        // NoClip：CJK 字型行高(ascent+descent)>charSize 方框，置中後上下會溢出；不加會被矩形裁掉字的上緣
+        using var fmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center, FormatFlags = StringFormatFlags.NoWrap | StringFormatFlags.NoClip };
+
+        // 氣泡實際面積(envelope 積分)與平均欄高
+        long area = 0; int hcnt = 0;
+        for (int x = env.Left; x <= env.Right; x++)
+        {
+            int t = env.Top[x], b = env.Bottom[x];
+            if (t >= 0 && b >= t) { area += (b - t + 1); hcnt++; }
+        }
+        if (area <= 0 || hcnt == 0) return;
+        float avgH = (float)area / hcnt;
+
+        // 面積法字級：每字佔 charSize²×K；len 字佔 BubbleFillRatio×area → charSize = √(BubbleFillRatio×area/(len×K))。
+        // 自然平衡「欄高」與「欄數」，避免大字級導致每欄只塞 2~3 字、欄數爆多(水平攤開)。
+        float K = (1f + VerticalCharSpacingRatio) * (1f + ColumnGapRatio);
+        float charSize = (float)Math.Sqrt(BubbleFillRatio * area / (len * K));
+        charSize = Math.Clamp(charSize, 6f * pixelsPerPoint, GlobalMaxFontSize * pixelsPerPoint);
+
+        float cellH = charSize * (1f + VerticalCharSpacingRatio);
+        float pitch = charSize * (1f + ColumnGapRatio);
+        int maxCols = Math.Max(1, (int)(bubbleW / pitch));
+
+        // 欄數：以平均欄高可塞字數推得(高欄優先) → 欄數少；受氣泡寬度上限
+        int avgCap = Math.Max(1, (int)(avgH * BubbleVertFillRatio / cellH));
+        int nCols = Math.Clamp((int)Math.Ceiling((double)len / avgCap), 1, maxCols);
+
+        // 置中 nCols 欄於氣泡寬；各欄垂直範圍取自 envelope(邊欄自動變短)
+        float blockRight = centerX + nCols * pitch / 2f;
+        var colCx = new float[nCols]; var colTop = new int[nCols]; var colBot = new int[nCols]; var caps = new int[nCols];
+        for (int i = 0; i < nCols; i++)
+        {
+            float cx = blockRight - pitch * (i + 0.5f);
+            colCx[i] = cx;
+            int xi = Math.Clamp((int)cx, env.Left, env.Right);
+            int t = env.Top[xi], b = env.Bottom[xi];
+            colTop[i] = t; colBot[i] = b;
+            caps[i] = (t < 0 || b < t) ? 1 : Math.Max(1, (int)((b - t) * BubbleVertFillRatio / cellH));
+        }
+
+        // 均分到「這個欄數」(欄數已由面積法定為高欄少欄) → 各欄高度相近、避免末欄孤字/切詞；受 cap 限制
+        var counts = new int[nCols];
+        int rem = len;
+        for (int i = 0; i < nCols; i++)
+        {
+            int colsLeft = nCols - i;
+            int want = (rem + colsLeft - 1) / colsLeft;     // ceil(rem/colsLeft)
+            counts[i] = Math.Min(want, caps[i]);
+            rem -= counts[i];
+        }
+        // 受 cap 限制剩餘 → 塞給最有餘裕的欄
+        int guard = 0;
+        while (rem > 0 && guard++ < 100000)
+        {
+            int best = -1, bestHead = 0;
+            for (int i = 0; i < nCols; i++) { int h = caps[i] - counts[i]; if (h > bestHead) { bestHead = h; best = i; } }
+            if (best < 0) { counts[nCols - 1] += rem; break; }
+            counts[best]++; rem--;
+        }
+        AdjustKinsoku(text, counts, caps);
+
+        using var drawFont = familyOverride != null
+            ? new Font(familyOverride, charSize / pixelsPerPoint, familyOverride.IsStyleAvailable(FontStyle.Regular) ? FontStyle.Regular : FontStyle.Bold)
+            : ReaderFonts.MakeFont(charSize / pixelsPerPoint);
+        int idx = 0;
+        for (int ci = 0; ci < nCols && idx < len; ci++)
+        {
+            int take = Math.Min(counts[ci], len - idx);
+            if (take <= 0) continue;
+            string colText = text.Substring(idx, take); idx += take;
+
+            int t = colTop[ci], b = colBot[ci];
+            if (t < 0 || b < t) { int xi = Math.Clamp((int)colCx[ci], env.Left, env.Right); t = env.Top[xi]; b = env.Bottom[xi]; }
+            float colH = take * cellH;
+            float startY = t + Math.Max(0f, ((b - t) - colH) / 2f);
+            float cx = colCx[ci] - charSize / 2f;
+            for (int kk = 0; kk < take; kk++)
+                DrawVerticalGlyph(g, colText[kk], drawFont, brush, cx, startY + kk * cellH, charSize, fmt);
         }
     }
 

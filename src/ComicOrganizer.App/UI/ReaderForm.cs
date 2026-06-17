@@ -115,6 +115,9 @@ public partial class ReaderForm : Window, IThemedControl
 	// 路線 2：每頁「抹除原文後」的乾淨頁圖（CTD 文字遮罩 + TextEraser）。有此圖時 overlay 跳逐欄白底。
 	private readonly Dictionary<int, Bitmap> _erasedPageCache = new Dictionary<int, Bitmap>();
 
+	// 每個 block 的氣泡輪廓(flood-fill envelope，來源影像座標)。null = 偵測失敗(漏出/網點底) → fallback 走 shaped。
+	private readonly Dictionary<OcrBlock, BubbleEnvelope?> _envelopeCache = new Dictionary<OcrBlock, BubbleEnvelope?>();
+
 	// 文字遮罩提供者（可抽換：ComicTextDetector / 未來 flood-fill / null=關閉走現行矩形）。
 	private ITextMaskProvider? _maskProvider;
 
@@ -2146,6 +2149,7 @@ public partial class ReaderForm : Window, IThemedControl
 		{
 			foreach (var b in _erasedPageCache.Values) b?.Dispose();
 			_erasedPageCache.Clear();
+			_envelopeCache.Clear();
 		}
 		(_maskProvider as System.IDisposable)?.Dispose();
 	}
@@ -2166,6 +2170,50 @@ public partial class ReaderForm : Window, IThemedControl
 		return n > 0 && lum / n < 110;
 	}
 
+	private BubbleEnvelope? GetEnvelope(OcrBlock item, Image img)
+	{
+		lock (_translationLock)
+			if (_envelopeCache.TryGetValue(item, out var cached)) return cached;
+		BubbleEnvelope? env = null;
+		try
+		{
+			if (img is Bitmap bmp)
+			{
+				var e = BubbleEnvelope.Detect(bmp, new Rectangle((int)item.X, (int)item.Y, (int)item.Width, (int)item.Height));
+				if (e.Valid) env = e;
+			}
+		}
+		catch { env = null; }
+		lock (_translationLock) { _envelopeCache[item] = env; }
+		return env;
+	}
+
+	// 在氣泡輪廓(來源座標)內排版譯文；用 Graphics transform 把來源座標縮放到顯示位置。
+	private void RenderBubble(Graphics g, OcrBlock item, BubbleEnvelope env, Rectangle destRect, float num, float num2, bool erased, Brush whiteBrush, Brush blackBrush, float ppp)
+	{
+		int bt = int.MaxValue, bb = int.MinValue;
+		for (int x = env.Left; x <= env.Right; x++)
+			if (env.Top[x] >= 0) { if (env.Top[x] < bt) bt = env.Top[x]; if (env.Bottom[x] > bb) bb = env.Bottom[x]; }
+		if (bb < bt) return;
+		var st = g.Save();
+		g.TranslateTransform(destRect.X, destRect.Y);
+		g.ScaleTransform(num, num2);
+		using (var clip = new Region())
+		{
+			clip.MakeEmpty();
+			clip.Union(new RectangleF(env.Left - 2, bt - 2, env.Right - env.Left + 5, bb - bt + 5));
+			g.SetClip(clip, CombineMode.Replace);
+			if (!erased)
+				for (int x = env.Left; x <= env.Right; x++)
+				{
+					int t = env.Top[x], b = env.Bottom[x];
+					if (t >= 0 && b >= t) g.FillRectangle(whiteBrush, x, t, 1, b - t + 1);
+				}
+			Brush tb = env.DarkBubble ? whiteBrush : blackBrush;
+			FontSizeOptimizer.DrawVerticalStringInBubble(g, item.Text, tb, env, ppp);
+		}
+		g.Restore(st);
+	}
 	private void RenderTranslationOverlay(Graphics g, Image originalImage, Rectangle destRect, int pageIndex)
 	{
 		EnsurePageTranslated(pageIndex);
@@ -2205,6 +2253,15 @@ public partial class ReaderForm : Window, IThemedControl
 				float num4 = item.Height * num2;
 				RectangleF rect = new RectangleF(x, y, num3, num4);
 
+				// 完整解：用氣泡「實際輪廓」排版(flood-fill envelope) → 填滿氣泡、自然斷行、貼合圓/斜形狀；
+				// 偵測失敗(漏出/網點底)時 env=null → fallback 走下方 children-based shaped。
+				BubbleEnvelope? env = GetEnvelope(item, originalImage);
+				if (env != null && env.Valid)
+				{
+					RenderBubble(g, item, env, destRect, num, num2, erased, brush, brush2, pixelsPerPoint);
+					continue;
+				}
+
 				// 譯文排版區域 = 合併框；多氣泡誤併已在 MergeBlocks 沿縫隙拆開，每 block ≈ 單一氣泡文字區。
 				// 子欄(Children)矩形 = 原文各欄實際幾何，供 DrawVerticalStringShaped 追隨氣泡形狀。
 				var cols = new List<RectangleF>();
@@ -2223,7 +2280,7 @@ public partial class ReaderForm : Window, IThemedControl
 				float emSize = fontSizes.TryGetValue(item, out float size) ? size : 14f;
 				// 將計算出的原始字體大小乘上寬度縮放比例 num，實現等比例放大縮小
 				emSize = emSize * num;
-				using Font font = new Font("Microsoft JhengHei UI", emSize, FontStyle.Bold);
+				using Font font = ReaderFonts.MakeFont(emSize);
 				// 黑底氣泡(抹除後底色為暗)畫白字，否則黑字
 				Brush textBrush = (erased && originalImage is Bitmap ebmp && IsDarkBubble(ebmp, item)) ? brush : brush2;
 				var savedState = g.Save();
