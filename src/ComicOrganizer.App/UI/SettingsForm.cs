@@ -55,6 +55,8 @@ public partial class SettingsForm : Window, IThemedControl
         lblTrEndpoint.ForeColor = Core.ThemeColors.Text;
         lblTrModel.ForeColor = Core.ThemeColors.Text;
         lblTrStatus.ForeColor = Core.ThemeColors.Text;
+        lblPreciseErase.ForeColor = Core.ThemeColors.Text;
+        lblPreciseEraseHint.ForeColor = Core.ThemeColors.Secondary;
         btnTestTrConnection.DefaultBack = Core.ThemeColors.Primary;
         labelOcrEngine.ForeColor = Core.ThemeColors.Text;
 
@@ -122,6 +124,10 @@ public partial class SettingsForm : Window, IThemedControl
         txtTrEndpoint.Text = Config.TranslationEndpoint;
         txtTrModel.Text = Config.TranslationModelName;
         numTrConcurrency.Value = Math.Clamp(Config.TranslationMaxConcurrency, 1, 100);
+
+        // 精準原文抹除（route-2 ComicTextDetector）：MaskEngineType 2=啟用、其餘=關。
+        // 此處程式化設值在 WireEvents 訂閱之前 → 不會誤觸發下載。
+        swPreciseErase.Checked = Config.MaskEngineType == 2;
     }
 
     private void WireEvents()
@@ -141,6 +147,9 @@ public partial class SettingsForm : Window, IThemedControl
         btnTestConnection.Click += async (s, e) => await OnTestConnection();
         btnTestTrConnection.Click += async (s, e) => await OnTestTrConnection();
 
+        // 勾選「精準原文抹除」且模型缺檔 → 觸發按需下載；取消/失敗則退回關閉
+        swPreciseErase.CheckedChanged += async (s, e) => await OnPreciseEraseToggled();
+
         selectTheme.SelectedValueChanged += (s, e) =>
         {
             if (selectTheme.SelectedIndex >= 0)
@@ -157,6 +166,21 @@ public partial class SettingsForm : Window, IThemedControl
                 LocalizationManager.SetLanguage(lang);
             }
         };
+    }
+
+    /// <summary>
+    /// 啟用「精準原文抹除」(route-2 ComicTextDetector) 時確保 comic-text-detector.onnx 存在：
+    /// 缺檔則跳下載對話框（~95MB，HuggingFace，僅個人用）。取消/失敗 → 退回關閉、不啟用。關閉開關時不需動作。
+    /// </summary>
+    private Task OnPreciseEraseToggled()
+    {
+        if (!swPreciseErase.Checked) return Task.CompletedTask;                  // 關 → 存檔寫 MaskEngineType=0
+        if (File.Exists(ModelDownloader.ComicTextDetectorPath)) return Task.CompletedTask;  // 已在 → 直接啟用
+
+        using var dlg = new ModelDownloadForm();
+        if (dlg.ShowDialog(this) != DialogResult.OK)
+            swPreciseErase.Checked = false;   // 取消/失敗 → 退回（再觸發一次本方法，Checked=false 即早退）
+        return Task.CompletedTask;
     }
 
     private enum SettingsSection { General, Library, Reader, External, Translation }
@@ -420,6 +444,9 @@ public partial class SettingsForm : Window, IThemedControl
 
         // 翻譯庫線上更新 (#53 Phase 5-C)
         Config.AutoCheckTranslationDbUpdate = swAutoCheckTrDb.Checked;
+
+        // 精準原文抹除：開=ComicTextDetector(2)、關=逐欄白底(0)
+        Config.MaskEngineType = swPreciseErase.Checked ? 2 : 0;
 
         // AI 即時翻譯儲存
         Config.TranslationEndpoint = txtTrEndpoint.Text?.Trim() ?? "";

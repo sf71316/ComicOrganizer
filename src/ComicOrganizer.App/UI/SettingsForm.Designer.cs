@@ -38,6 +38,9 @@ partial class SettingsForm
     private AntdUI.Label lblTrStatus;
     private AntdUI.Label lblTrConcurrency;
     private AntdUI.InputNumber numTrConcurrency;
+    private AntdUI.Label lblPreciseErase;
+    private AntdUI.Switch swPreciseErase;
+    private AntdUI.Label lblPreciseEraseHint;
 
     // externalPanel 控件 (#52)
     private AntdUI.Label lblExtTitle;
@@ -174,6 +177,9 @@ partial class SettingsForm
         lblTrStatus = new AntdUI.Label();
         lblTrConcurrency = new AntdUI.Label();
         numTrConcurrency = new AntdUI.InputNumber();
+        lblPreciseErase = new AntdUI.Label();
+        swPreciseErase = new AntdUI.Switch();
+        lblPreciseEraseHint = new AntdUI.Label();
         btnTestConnection = new AntdUI.Button();
         txtExtKey = new Input();
         lblExtKey = new AntdUI.Label();
@@ -843,6 +849,9 @@ partial class SettingsForm
         // translationPanel
         // 
         translationPanel.BackColor = Color.Transparent;
+        translationPanel.Controls.Add(lblPreciseEraseHint);
+        translationPanel.Controls.Add(swPreciseErase);
+        translationPanel.Controls.Add(lblPreciseErase);
         translationPanel.Controls.Add(lblTrStatus);
         translationPanel.Controls.Add(btnTestTrConnection);
         translationPanel.Controls.Add(numTrConcurrency);
@@ -968,8 +977,33 @@ partial class SettingsForm
         lblTrStatus.TabIndex = 11;
         lblTrStatus.Text = "(未測試)";
         //
+        // lblPreciseErase
+        //
+        lblPreciseErase.BackColor = Color.Transparent;
+        lblPreciseErase.Location = new Point(40, 462);
+        lblPreciseErase.Name = "lblPreciseErase";
+        lblPreciseErase.Size = new Size(150, 30);
+        lblPreciseErase.TabIndex = 12;
+        lblPreciseErase.Text = "精準原文抹除：";
+        //
+        // swPreciseErase
+        //
+        swPreciseErase.Location = new Point(160, 464);
+        swPreciseErase.Name = "swPreciseErase";
+        swPreciseErase.Size = new Size(44, 24);
+        swPreciseErase.TabIndex = 13;
+        //
+        // lblPreciseEraseHint
+        //
+        lblPreciseEraseHint.BackColor = Color.Transparent;
+        lblPreciseEraseHint.Location = new Point(40, 496);
+        lblPreciseEraseHint.Name = "lblPreciseEraseHint";
+        lblPreciseEraseHint.Size = new Size(620, 28);
+        lblPreciseEraseHint.TabIndex = 14;
+        lblPreciseEraseHint.Text = "首次啟用需下載 comic-text-detector 模型（約 95 MB）；關閉則用逐欄白底抹除。";
+        //
         // SettingsForm
-        // 
+        //
         BackColor = Color.FromArgb(30, 30, 30);
         ClientSize = new Size(900, 680);
         Controls.Add(content);
