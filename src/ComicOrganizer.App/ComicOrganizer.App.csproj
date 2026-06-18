@@ -39,6 +39,10 @@
     <EmbeddedResource Include="Resources\fonts\SweiSansCJKtc-Medium.ttf">
       <LogicalName>ComicOrganizer.App.Resources.fonts.SweiSansCJKtc-Medium.ttf</LogicalName>
     </EmbeddedResource>
+    <!-- 繁體常用詞表 (APCLab/jieba-tw, MIT, 詞頻>=10) — 直排譯文避免詞中斷行 -->
+    <EmbeddedResource Include="Resources\dict\zh_tw_words.txt.gz">
+      <LogicalName>ComicOrganizer.App.Resources.dict.zh_tw_words.txt.gz</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <ItemGroup>

@@ -571,6 +571,8 @@ public static class FontSizeOptimizer
             if (best < 0) { counts[nCols - 1] += rem; break; }
             counts[best]++; rem--;
         }
+        // 詞邊界吸附：欄界 ±2 字內移到不切斷詞處（受 cap 約束，無解就維持）。先吸附、後跑標點禁則（禁則優先）。
+        SnapColumnBreaksToWords(text, counts, caps);
         AdjustKinsoku(text, counts, caps);
 
         using var drawFont = familyOverride != null
@@ -590,6 +592,40 @@ public static class FontSizeOptimizer
             float cx = colCx[ci] - charSize / 2f;
             for (int kk = 0; kk < take; kk++)
                 DrawVerticalGlyph(g, colText[kk], drawFont, brush, cx, startY + kk * cellH, charSize, fmt);
+        }
+    }
+
+    /// <summary>
+    /// 詞邊界吸附：逐個欄界（counts 累積位置）若落在詞內部，於 ±2 字內移到最近詞邊界；
+    /// 移動受兩側欄 cap 與「欄不可空」約束，找不到就維持原切點（不扭曲版面）。
+    /// 詞表為空（載入失敗）時 forbidden 全 false → 不動，自然退回舊行為。公開供單元測試。
+    /// </summary>
+    public static void SnapColumnBreaksToWords(string text, int[] counts, int[] caps)
+    {
+        int nCols = counts.Length;
+        if (nCols < 2 || ChineseWordDict.Shared.Count == 0) return;
+
+        const int Radius = 2;
+        var forbidden = WordBreakAdvisor.BuildForbiddenBreaks(text);
+        int prefix = 0;
+        for (int i = 0; i < nCols - 1; i++)
+        {
+            prefix += counts[i];          // 第 i、i+1 欄之間的斷點 index
+            int b = prefix;
+            // cap 與「欄不可空」下，斷點可左移/右移的範圍
+            int leftRoom  = Math.Min(counts[i] - 1, caps[i + 1] - counts[i + 1]);
+            int rightRoom = Math.Min(counts[i + 1] - 1, caps[i] - counts[i]);
+            int minB = b - Math.Max(0, leftRoom);
+            int maxB = b + Math.Max(0, rightRoom);
+
+            int nb = WordBreakAdvisor.NearestAllowedBreak(forbidden, b, Radius, minB, maxB);
+            if (nb >= 0 && nb != b)
+            {
+                int delta = nb - b;
+                counts[i] += delta;
+                counts[i + 1] -= delta;
+                prefix = nb;              // 對齊新斷點供下一欄界累積
+            }
         }
     }
 
