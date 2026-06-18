@@ -528,28 +528,43 @@ public static class FontSizeOptimizer
         // 面積法字級：每字佔 charSize²×K；len 字佔 BubbleFillRatio×area → charSize = √(BubbleFillRatio×area/(len×K))。
         // 自然平衡「欄高」與「欄數」，避免大字級導致每欄只塞 2~3 字、欄數爆多(水平攤開)。
         float K = (1f + VerticalCharSpacingRatio) * (1f + ColumnGapRatio);
+        float minCharSize = 6f * pixelsPerPoint;
         float charSize = (float)Math.Sqrt(BubbleFillRatio * area / (len * K));
-        charSize = Math.Clamp(charSize, 6f * pixelsPerPoint, GlobalMaxFontSize * pixelsPerPoint);
+        charSize = Math.Clamp(charSize, minCharSize, GlobalMaxFontSize * pixelsPerPoint);
 
-        float cellH = charSize * (1f + VerticalCharSpacingRatio);
-        float pitch = charSize * (1f + ColumnGapRatio);
-        int maxCols = Math.Max(1, (int)(bubbleW / pitch));
-
-        // 欄數：以平均欄高可塞字數推得(高欄優先) → 欄數少；受氣泡寬度上限
-        int avgCap = Math.Max(1, (int)(avgH * BubbleVertFillRatio / cellH));
-        int nCols = Math.Clamp((int)Math.Ceiling((double)len / avgCap), 1, maxCols);
-
-        // 置中 nCols 欄於氣泡寬；各欄垂直範圍取自 envelope(邊欄自動變短)
-        float blockRight = centerX + nCols * pitch / 2f;
-        var colCx = new float[nCols]; var colTop = new int[nCols]; var colBot = new int[nCols]; var caps = new int[nCols];
-        for (int i = 0; i < nCols; i++)
+        // 容量保證：以目前字級算欄數與各欄容量(envelope 高 × BubbleVertFillRatio)；
+        // 若「總容量 < 字數」(塞不下 → 原本會硬塞末欄、戳出氣泡)，就縮字級重算，直到塞得下或到字級下限。
+        float cellH = 0f, pitch = 0f;
+        int nCols = 1;
+        float[] colCx = Array.Empty<float>();
+        int[] colTop = Array.Empty<int>(), colBot = Array.Empty<int>(), caps = Array.Empty<int>();
+        for (int iter = 0; iter < 16; iter++)
         {
-            float cx = blockRight - pitch * (i + 0.5f);
-            colCx[i] = cx;
-            int xi = Math.Clamp((int)cx, env.Left, env.Right);
-            int t = env.Top[xi], b = env.Bottom[xi];
-            colTop[i] = t; colBot[i] = b;
-            caps[i] = (t < 0 || b < t) ? 1 : Math.Max(1, (int)((b - t) * BubbleVertFillRatio / cellH));
+            cellH = charSize * (1f + VerticalCharSpacingRatio);
+            pitch = charSize * (1f + ColumnGapRatio);
+            int maxCols = Math.Max(1, (int)(bubbleW / pitch));
+
+            // 欄數：以平均欄高可塞字數推得(高欄優先) → 欄數少；受氣泡寬度上限
+            int avgCap = Math.Max(1, (int)(avgH * BubbleVertFillRatio / cellH));
+            nCols = Math.Clamp((int)Math.Ceiling((double)len / avgCap), 1, maxCols);
+
+            // 置中 nCols 欄於氣泡寬；各欄垂直範圍取自 envelope(邊欄自動變短)
+            float blockRight = centerX + nCols * pitch / 2f;
+            colCx = new float[nCols]; colTop = new int[nCols]; colBot = new int[nCols]; caps = new int[nCols];
+            long totalCap = 0;
+            for (int i = 0; i < nCols; i++)
+            {
+                float cx = blockRight - pitch * (i + 0.5f);
+                colCx[i] = cx;
+                int xi = Math.Clamp((int)cx, env.Left, env.Right);
+                int t = env.Top[xi], b = env.Bottom[xi];
+                colTop[i] = t; colBot[i] = b;
+                caps[i] = (t < 0 || b < t) ? 1 : Math.Max(1, (int)((b - t) * BubbleVertFillRatio / cellH));
+                totalCap += caps[i];
+            }
+
+            if (totalCap >= len || charSize <= minCharSize) break;   // 塞得下，或已到最小字級(只能接受)
+            charSize = Math.Max(minCharSize, charSize * 0.9f);       // 不夠 → 縮 10% 重算
         }
 
         // 均分到「這個欄數」(欄數已由面積法定為高欄少欄) → 各欄高度相近、避免末欄孤字/切詞；受 cap 限制
@@ -590,8 +605,12 @@ public static class FontSizeOptimizer
             float colH = take * cellH;
             float startY = t + Math.Max(0f, ((b - t) - colH) / 2f);
             float cx = colCx[ci] - charSize / 2f;
+            // 安全網：硬裁到該欄自身 envelope 高度(小幅 inflate 保留字形 overhang)，殘餘絕不戳出氣泡形狀外
+            var colState = g.Save();
+            g.IntersectClip(new RectangleF(cx - 2f, t - 3f, charSize + 4f, (b - t) + 7f));
             for (int kk = 0; kk < take; kk++)
                 DrawVerticalGlyph(g, colText[kk], drawFont, brush, cx, startY + kk * cellH, charSize, fmt);
+            g.Restore(colState);
         }
     }
 
