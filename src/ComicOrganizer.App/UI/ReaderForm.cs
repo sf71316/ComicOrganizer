@@ -119,6 +119,11 @@ public partial class ReaderForm : Window, IThemedControl
 	private readonly Dictionary<OcrBlock, BubbleEnvelope?> _envelopeCache = new Dictionary<OcrBlock, BubbleEnvelope?>();
 	private bool _debugEnvelope;   // DebugMode 時在譯文上疊 envelope 綠框(診斷溢出/漏出用)
 
+	// 方案2 預縮快取：來源頁圖 → 預縮到顯示尺寸的點陣圖(鍵=來源 Image 物件)。paint 1:1 blit、免每次即時縮放。
+	// 由 LoadPageAsync 背景預熱(單頁模式)；來源圖 dispose 時須同步 DropScaled。
+	private readonly Dictionary<Image, (int w, int h, Bitmap bmp)> _scaledCache = new Dictionary<Image, (int, int, Bitmap)>();
+	private readonly object _scaledLock = new object();
+
 	// 文字遮罩提供者（可抽換：ComicTextDetector / 未來 flood-fill / null=關閉走現行矩形）。
 	private ITextMaskProvider? _maskProvider;
 
@@ -970,13 +975,24 @@ public partial class ReaderForm : Window, IThemedControl
 				return;
 			}
 		}
+		// 方案2 預熱：單頁模式下，依「該頁解碼尺寸 + 視窗 + zoom」算出顯示尺寸(同 LayoutPic)，背景預縮 → 翻頁直接 blit。
+		// (picPage 尺寸會每頁依長寬重設，故不能拿「當前 picPage 尺寸」當目標。)
+		bool preScale = !IsContinuous && !_enableTranslation && SpreadSize(SpreadStart(index)) == 1;
+		int vw = scrollHost.ClientSize.Width, vh = scrollHost.ClientSize.Height;
+		ReaderZoomMode zmode = _zoomMode; float czoom = _customZoom;
 		Image img;
 		try
 		{
 			img = await Task.Run(delegate
 			{
 				using Stream stream = _source.OpenPage(index);
-				return ReaderImageLoader.Decode(stream, _source.GetPageExtension(index));
+				var dec = ReaderImageLoader.Decode(stream, _source.GetPageExtension(index));
+				if (preScale)
+				{
+					var sz = FitDisplaySize(dec.Width, dec.Height, vw, vh, zmode, czoom);
+					if (sz.HasValue) { try { ScaledForPaint(dec, sz.Value.Width, sz.Value.Height); } catch { } }
+				}
+				return dec;
 			});
 		}
 		catch
@@ -1104,7 +1120,7 @@ public partial class ReaderForm : Window, IThemedControl
 			{
 				Rectangle rectangle = new Rectangle(0, 0, picPage.Width, picPage.Height);
 				Image img1 = PageImageForPaint(_currentIndex, _leftImage);
-				graphics.DrawImage(img1, rectangle);
+				graphics.DrawImage(ScaledForPaint(img1, rectangle.Width, rectangle.Height), rectangle);
 				if (_enableTranslation)
 				{
 					RenderTranslationOverlay(graphics, img1, rectangle, _currentIndex);
@@ -1126,9 +1142,9 @@ public partial class ReaderForm : Window, IThemedControl
 			int pageIndexR = (_rtl ? _currentIndex : (_currentIndex + 1));
 			Image limg = PageImageForPaint(pageIndexL, _leftImage);
 			Image rimg = PageImageForPaint(pageIndexR, _rightImage);
-			graphics.DrawImage(limg, rectangle2);
+			graphics.DrawImage(ScaledForPaint(limg, rectangle2.Width, rectangle2.Height), rectangle2);
 			graphics.FillRectangle(Brushes.White, num4, 0, 5, picPage.Height);
-			graphics.DrawImage(rimg, rectangle3);
+			graphics.DrawImage(ScaledForPaint(rimg, rectangle3.Width, rectangle3.Height), rectangle3);
 			if (_enableTranslation)
 			{
 				RenderTranslationOverlay(graphics, limg, rectangle2, pageIndexL);
@@ -1176,7 +1192,7 @@ public partial class ReaderForm : Window, IThemedControl
 				continue;
 			}
 			Image pimg = PageImageForPaint(i, value);
-			graphics.DrawImage(pimg, rectangle);
+			graphics.DrawImage(ScaledForPaint(pimg, rectangle.Width, rectangle.Height), rectangle);
 			if (_enableTranslation)
 			{
 				RenderTranslationOverlay(graphics, pimg, rectangle, i);
@@ -1262,6 +1278,7 @@ public partial class ReaderForm : Window, IThemedControl
 				}
 				if (item.Distance != 0 && _cache.TryGetValue(item.Key, out Image? value))
 				{
+					DropScaled(value);
 					value.Dispose();
 					_cache.Remove(item.Key);
 					num2++;
@@ -1286,6 +1303,11 @@ public partial class ReaderForm : Window, IThemedControl
 			}
 			_cache.Clear();
 			_loading.Clear();
+		}
+		lock (_scaledLock)
+		{
+			foreach (var e in _scaledCache.Values) e.bmp.Dispose();
+			_scaledCache.Clear();
 		}
 		_source.Dispose();
 	}
@@ -1973,7 +1995,7 @@ public partial class ReaderForm : Window, IThemedControl
 							Bitmap erased = TextEraser.Erase(pageBmp, maskArr);
 							lock (_translationLock)
 							{
-								if (_erasedPageCache.TryGetValue(pageIndex, out var oldEr)) oldEr?.Dispose();
+								if (_erasedPageCache.TryGetValue(pageIndex, out var oldEr)) { if (oldEr != null) DropScaled(oldEr); oldEr?.Dispose(); }
 								_erasedPageCache[pageIndex] = erased;
 							}
 						}
@@ -2142,6 +2164,58 @@ public partial class ReaderForm : Window, IThemedControl
 			if (_erasedPageCache.TryGetValue(pageIndex, out var er) && er != null) return er;
 		}
 		return original;
+	}
+
+	// 把 src 預縮到 (tw,th) 並快取(鍵=來源圖)；尺寸相符直接回 src(免縮)，尺寸變了(resize)自動重建。
+	// 回傳的點陣圖恰為目標尺寸 → paint 1:1 blit(不觸發即時縮放)。來源圖 dispose 時須呼叫 DropScaled 避免洩漏。
+	private Image ScaledForPaint(Image src, int tw, int th)
+	{
+		if (tw <= 0 || th <= 0 || (src.Width == tw && src.Height == th)) return src;
+		lock (_scaledLock)
+		{
+			if (_scaledCache.TryGetValue(src, out var e))
+			{
+				if (e.w == tw && e.h == th) return e.bmp;
+				e.bmp.Dispose(); _scaledCache.Remove(src);   // 尺寸變了 → 重建
+			}
+			var bmp = new Bitmap(tw, th, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+			using (var gg = Graphics.FromImage(bmp))
+			{
+				gg.PixelOffsetMode = PixelOffsetMode.HighQuality;
+				gg.InterpolationMode = InterpolationMode.HighQualityBicubic;   // 預縮只做一次 → 用最高畫質
+				gg.DrawImage(src, new Rectangle(0, 0, tw, th));
+			}
+			_scaledCache[src] = (tw, th, bmp);
+			return bmp;
+		}
+	}
+
+	private void DropScaled(Image src)
+	{
+		lock (_scaledLock)
+		{
+			if (_scaledCache.TryGetValue(src, out var e)) { e.bmp.Dispose(); _scaledCache.Remove(src); }
+		}
+	}
+
+	// 單頁模式：依該頁長寬 + 視窗 + zoom 算出顯示尺寸(與 LayoutPic 單頁分支同邏輯)，供背景預熱對齊 picPage 尺寸。
+	private static Size? FitDisplaySize(int imgW, int imgH, int vw, int vh, ReaderZoomMode mode, float customZoom)
+	{
+		if (imgW <= 0 || imgH <= 0 || vw <= 0 || vh <= 0) return null;
+		switch (mode)
+		{
+			case ReaderZoomMode.FitPage:
+			{
+				float s = Math.Min((float)vw / imgW, (float)vh / imgH);
+				return new Size(Math.Max(1, (int)(imgW * s)), Math.Max(1, (int)(imgH * s)));
+			}
+			case ReaderZoomMode.FitWidth:
+				return new Size(vw, Math.Max(1, (int)((float)imgH * vw / imgW)));
+			case ReaderZoomMode.Custom:
+				return new Size(Math.Max(1, (int)(imgW * customZoom)), Math.Max(1, (int)(imgH * customZoom)));
+			default: // Actual
+				return new Size(imgW, imgH);
+		}
 	}
 
 	protected override void OnFormClosed(FormClosedEventArgs e)
