@@ -508,18 +508,32 @@ public static class FontSizeOptimizer
     {
         if (string.IsNullOrEmpty(text) || env == null || !env.Valid) return;
         int len = text.Length;
-        float bubbleW = env.Right - env.Left;
-        if (bubbleW < 4) return;
-        float centerX = (env.Left + env.Right) / 2f;
+        if (env.Right - env.Left < 4) return;
+
+        // 比例留邊：對 envelope 四邊各內縮 InsetRatio → 文字離氣泡邊框有呼吸空間(看得出、隨氣泡大小縮放)。
+        const float InsetRatio = 0.09f;   // 每邊 9% → 上下左右共留 18%
+        int iLeft = env.Left + (int)((env.Right - env.Left) * InsetRatio);
+        int iRight = env.Right - (int)((env.Right - env.Left) * InsetRatio);
+        if (iRight - iLeft < 4) { iLeft = env.Left; iRight = env.Right; }
+        (int t, int b) Inset(int x)
+        {
+            int xi = Math.Clamp(x, env.Left, env.Right);
+            int tt = env.Top[xi], bb = env.Bottom[xi];
+            if (tt < 0 || bb < tt) return (tt, bb);
+            int pad = (int)((bb - tt) * InsetRatio);
+            return (tt + pad, bb - pad);
+        }
+        float bubbleW = iRight - iLeft;
+        float centerX = (iLeft + iRight) / 2f;
 
         // NoClip：CJK 字型行高(ascent+descent)>charSize 方框，置中後上下會溢出；不加會被矩形裁掉字的上緣
         using var fmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center, FormatFlags = StringFormatFlags.NoWrap | StringFormatFlags.NoClip };
 
         // 氣泡實際面積(envelope 積分)與平均欄高
         long area = 0; int hcnt = 0;
-        for (int x = env.Left; x <= env.Right; x++)
+        for (int x = iLeft; x <= iRight; x++)
         {
-            int t = env.Top[x], b = env.Bottom[x];
+            var (t, b) = Inset(x);
             if (t >= 0 && b >= t) { area += (b - t + 1); hcnt++; }
         }
         if (area <= 0 || hcnt == 0) return;
@@ -556,8 +570,8 @@ public static class FontSizeOptimizer
             {
                 float cx = blockRight - pitch * (i + 0.5f);
                 colCx[i] = cx;
-                int xi = Math.Clamp((int)cx, env.Left, env.Right);
-                int t = env.Top[xi], b = env.Bottom[xi];
+                int xi = Math.Clamp((int)cx, iLeft, iRight);
+                var (t, b) = Inset(xi);
                 colTop[i] = t; colBot[i] = b;
                 caps[i] = (t < 0 || b < t) ? 1 : Math.Max(1, (int)((b - t) * BubbleVertFillRatio / cellH));
                 totalCap += caps[i];
@@ -601,13 +615,13 @@ public static class FontSizeOptimizer
             string colText = text.Substring(idx, take); idx += take;
 
             int t = colTop[ci], b = colBot[ci];
-            if (t < 0 || b < t) { int xi = Math.Clamp((int)colCx[ci], env.Left, env.Right); t = env.Top[xi]; b = env.Bottom[xi]; }
+            if (t < 0 || b < t) { var (ft, fb) = Inset((int)colCx[ci]); t = ft; b = fb; }
             float colH = take * cellH;
             float startY = t + Math.Max(0f, ((b - t) - colH) / 2f);
             float cx = colCx[ci] - charSize / 2f;
-            // 安全網：硬裁到該欄自身 envelope 高度(小幅 inflate 保留字形 overhang)，殘餘絕不戳出氣泡形狀外
+            // 安全網：硬裁到該欄 envelope 高度(envelope 已含侵蝕+文字框夾住，這裡只輕量留邊防字形 overhang)
             var colState = g.Save();
-            g.IntersectClip(new RectangleF(cx - 2f, t - 3f, charSize + 4f, (b - t) + 7f));
+            g.IntersectClip(new RectangleF(cx - 2f, t - 1f, charSize + 4f, (b - t) + 3f));
             for (int kk = 0; kk < take; kk++)
                 DrawVerticalGlyph(g, colText[kk], drawFont, brush, cx, startY + kk * cellH, charSize, fmt);
             g.Restore(colState);

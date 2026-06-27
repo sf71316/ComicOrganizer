@@ -117,6 +117,7 @@ public partial class ReaderForm : Window, IThemedControl
 
 	// 每個 block 的氣泡輪廓(flood-fill envelope，來源影像座標)。null = 偵測失敗(漏出/網點底) → fallback 走 shaped。
 	private readonly Dictionary<OcrBlock, BubbleEnvelope?> _envelopeCache = new Dictionary<OcrBlock, BubbleEnvelope?>();
+	private bool _debugEnvelope;   // DebugMode 時在譯文上疊 envelope 綠框(診斷溢出/漏出用)
 
 	// 文字遮罩提供者（可抽換：ComicTextDetector / 未來 flood-fill / null=關閉走現行矩形）。
 	private ITextMaskProvider? _maskProvider;
@@ -167,6 +168,7 @@ public partial class ReaderForm : Window, IThemedControl
 	{
 		InitializeComponent();
 		AppConfig appConfig = new ConfigManager().Load();
+		_debugEnvelope = appConfig.DebugMode;
 		_ocrService = appConfig.OcrEngineType == 1 ? new PaddleOcrService() : new WindowsOcrService();
 		_maskProvider = appConfig.MaskEngineType == 2 ? new ComicTextDetector() : null;
 		int num = Math.Max(1, appConfig.TranslationMaxConcurrency);
@@ -2170,7 +2172,7 @@ public partial class ReaderForm : Window, IThemedControl
 		return n > 0 && lum / n < 110;
 	}
 
-	private BubbleEnvelope? GetEnvelope(OcrBlock item, Image img)
+	private BubbleEnvelope? GetEnvelope(OcrBlock item, Image img, IReadOnlyList<OcrBlock> all)
 	{
 		lock (_translationLock)
 			if (_envelopeCache.TryGetValue(item, out var cached)) return cached;
@@ -2179,7 +2181,14 @@ public partial class ReaderForm : Window, IThemedControl
 		{
 			if (img is Bitmap bmp)
 			{
-				var e = BubbleEnvelope.Detect(bmp, new Rectangle((int)item.X, (int)item.Y, (int)item.Width, (int)item.Height));
+				// 其他塊的文字框當 barrier，避免相鄰氣泡 envelope 互相侵入(文字重疊)
+				var blockers = new List<Rectangle>();
+				foreach (var o in all)
+				{
+					if (ReferenceEquals(o, item)) continue;
+					blockers.Add(new Rectangle((int)o.X, (int)o.Y, (int)o.Width, (int)o.Height));
+				}
+				var e = BubbleEnvelope.Detect(bmp, new Rectangle((int)item.X, (int)item.Y, (int)item.Width, (int)item.Height), blockers: blockers);
 				if (e.Valid) env = e;
 			}
 		}
@@ -2211,6 +2220,15 @@ public partial class ReaderForm : Window, IThemedControl
 				}
 			Brush tb = env.DarkBubble ? whiteBrush : blackBrush;
 			FontSizeOptimizer.DrawVerticalStringInBubble(g, item.Text, tb, env, ppp);
+			if (_debugEnvelope)
+			{
+				using var ep = new Pen(Color.Lime, 1f);
+				for (int x = env.Left; x <= env.Right; x++)
+				{
+					int t = env.Top[x], bbb = env.Bottom[x];
+					if (t >= 0 && bbb >= t) { g.DrawLine(ep, x, t, x + 1, t); g.DrawLine(ep, x, bbb, x + 1, bbb); }
+				}
+			}
 		}
 		g.Restore(st);
 	}
@@ -2255,7 +2273,7 @@ public partial class ReaderForm : Window, IThemedControl
 
 				// 完整解：用氣泡「實際輪廓」排版(flood-fill envelope) → 填滿氣泡、自然斷行、貼合圓/斜形狀；
 				// 偵測失敗(漏出/網點底)時 env=null → fallback 走下方 children-based shaped。
-				BubbleEnvelope? env = GetEnvelope(item, originalImage);
+				BubbleEnvelope? env = GetEnvelope(item, originalImage, value);
 				if (env != null && env.Valid)
 				{
 					RenderBubble(g, item, env, destRect, num, num2, erased, brush, brush2, pixelsPerPoint);
