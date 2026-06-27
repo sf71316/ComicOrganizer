@@ -27,10 +27,10 @@ public partial class ReaderForm
     private bool _glAvailable;                // GL context 成功建立
     private string _glFailReason = "";
 
-    /// <summary>目前是否該用 GPU 畫布（Phase 1：單頁 + 非譯文 + 適合頁）。</summary>
+    /// <summary>目前是否該用 GPU 畫布（Phase 1-2：單頁/雙頁 + 非譯文 + 適合頁）。</summary>
     private bool UseGpuNow =>
         _useGpuPref && _glAvailable && !_enableTranslation
-        && _viewMode == ReaderViewMode.SinglePage
+        && (_viewMode == ReaderViewMode.SinglePage || _viewMode == ReaderViewMode.DualPage)
         && _zoomMode == ReaderZoomMode.FitPage;
 
     /// <summary>在 Form Load(handle 已建)後呼叫：建 SKGLControl + renderer，GL 失敗則退回 GDI+。</summary>
@@ -122,37 +122,83 @@ public partial class ReaderForm
         return base.ProcessCmdKey(ref msg, keyData);
     }
 
-    /// <summary>同步當前頁到 renderer：設 Current、確保已解碼(避免空白)、預載鄰頁、重繪。</summary>
+    /// <summary>同步當前 spread 到 renderer：設 Current、確保整個 spread 已解碼(避免空白)、預載鄰頁、重繪。</summary>
     private void SyncGpuPage()
     {
         if (_skRenderer == null || _skCanvas == null) return;
-        _skRenderer.Current = _currentIndex;
-        if (!_skRenderer.Contains(_currentIndex)) _skRenderer.GetOrProduce(_currentIndex);  // 同步解碼避免空白
-        _skRenderer.RequestAround(_currentIndex, GpuPreloadRadius);
+        int start = SpreadStart(_currentIndex);
+        _skRenderer.Current = start;
+        int size = (_viewMode == ReaderViewMode.DualPage) ? SpreadSize(start) : 1;
+        for (int i = 0; i < size; i++)
+        {
+            int p = start + i;
+            if (p < _source.PageCount && !_skRenderer.Contains(p)) _skRenderer.GetOrProduce(p);  // 同步解碼避免空白
+        }
+        _skRenderer.RequestAround(start, GpuPreloadRadius);
         _skCanvas.Invalidate();
     }
 
     private void OnRendererPageReady(int idx)
     {
-        if (idx != _currentIndex || IsDisposed || !IsHandleCreated) return;
+        if (IsDisposed || !IsHandleCreated) return;
+        int start = SpreadStart(_currentIndex);
+        int size = (_viewMode == ReaderViewMode.DualPage) ? SpreadSize(start) : 1;
+        if (idx < start || idx >= start + size) return;   // 只在「可見 spread」內的頁解好才重繪
         try { BeginInvoke(() => { if (UseGpuNow) _skCanvas?.Invalidate(); }); } catch { /* 關閉中 */ }
     }
 
-    /// <summary>GPU 繪製：FitPage 置中畫當前頁（限定 FitPage，故無溢出/pan）。</summary>
+    /// <summary>GPU 繪製：依模式分派單頁/雙頁（限定 FitPage，故無溢出/pan）。</summary>
     private void OnGpuPaintSurface(object? sender, SKPaintGLSurfaceEventArgs e)
     {
         var canvas = e.Surface.Canvas;
         canvas.Clear(new SKColor(ReaderContentBg.R, ReaderContentBg.G, ReaderContentBg.B));
         if (!UseGpuNow || _skRenderer == null) return;
 
-        var img = _skRenderer.Peek(_currentIndex) ?? _skRenderer.GetOrProduce(_currentIndex);
-        if (img == null) return;
-
         int cw = e.Info.Width, ch = e.Info.Height;
-        if (cw <= 0 || ch <= 0 || img.Width <= 0 || img.Height <= 0) return;
+        if (cw <= 0 || ch <= 0) return;
+
+        int start = SpreadStart(_currentIndex);
+        int size = (_viewMode == ReaderViewMode.DualPage) ? SpreadSize(start) : 1;
+        if (size == 2) DrawGpuDual(canvas, cw, ch, start);
+        else { var img = GetGpuImage(start); if (img != null) DrawFitCentered(canvas, img, cw, ch); }
+    }
+
+    /// <summary>雙頁：左右並排，依 RTL 決定左右頁；整組 fit-to-window 置中，各自垂直置中。</summary>
+    private void DrawGpuDual(SKCanvas canvas, int cw, int ch, int start)
+    {
+        int idxL = _rtl ? start + 1 : start;
+        int idxR = _rtl ? start : start + 1;
+        var limg = GetGpuImage(idxL);
+        var rimg = GetGpuImage(idxR);
+        if (limg == null || rimg == null)
+        {
+            var any = limg ?? rimg;                       // 其一未解好 → 暫畫單張避免空白
+            if (any != null) DrawFitCentered(canvas, any, cw, ch);
+            return;
+        }
+        const float gap = 4f;
+        int combW = limg.Width + rimg.Width;
+        int combH = Math.Max(limg.Height, rimg.Height);
+        if (combW <= 0 || combH <= 0) return;
+        float s = Math.Min((cw - gap) / combW, (float)ch / combH);
+        float lw = limg.Width * s, lh = limg.Height * s;
+        float rw = rimg.Width * s, rh = rimg.Height * s;
+        float ox = (cw - (lw + gap + rw)) / 2f;
+        canvas.DrawImage(limg, SKRect.Create(ox, (ch - lh) / 2f, lw, lh), GpuSampling);
+        canvas.DrawImage(rimg, SKRect.Create(ox + lw + gap, (ch - rh) / 2f, rw, rh), GpuSampling);
+    }
+
+    private void DrawFitCentered(SKCanvas canvas, SKImage img, int cw, int ch)
+    {
+        if (img.Width <= 0 || img.Height <= 0) return;
         float s = Math.Min((float)cw / img.Width, (float)ch / img.Height);
         float w = img.Width * s, h = img.Height * s;
-        float x = (cw - w) / 2f, y = (ch - h) / 2f;
-        canvas.DrawImage(img, SKRect.Create(x, y, w, h), GpuSampling);
+        canvas.DrawImage(img, SKRect.Create((cw - w) / 2f, (ch - h) / 2f, w, h), GpuSampling);
+    }
+
+    private SKImage? GetGpuImage(int idx)
+    {
+        if (_skRenderer == null || idx < 0 || idx >= _source.PageCount) return null;
+        return _skRenderer.Peek(idx) ?? _skRenderer.GetOrProduce(idx);
     }
 }
