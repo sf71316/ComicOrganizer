@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.Windows.Forms;
 using SkiaSharp;
 using SkiaSharp.Views.Desktop;
@@ -27,14 +30,23 @@ public partial class ReaderForm
     private bool _glAvailable;                // GL context 成功建立
     private string _glFailReason = "";
 
-    /// <summary>目前是否該用 GPU 畫布（非譯文 + (單/雙頁且 FitPage) 或 連續）。</summary>
+    /// <summary>目前是否該用 GPU 畫布（(單/雙頁且 FitPage) 或 連續；含譯文模式）。</summary>
     private bool UseGpuNow =>
-        _useGpuPref && _glAvailable && !_enableTranslation
+        _useGpuPref && _glAvailable
         && (
             ((_viewMode == ReaderViewMode.SinglePage || _viewMode == ReaderViewMode.DualPage)
                 && _zoomMode == ReaderZoomMode.FitPage)
             || _viewMode == ReaderViewMode.ContinuousScroll
         );
+
+    // 譯文模式：底圖+抹除+overlay 合成成 natural-size SKImage 快取(鍵=頁索引)；
+    // 譯文套用(line 2076)時 DropTranslatedGpu 失效該頁、重合成。底圖仍由 GDI+ 管線載入(_cache)供 OCR+合成。
+    private readonly Dictionary<int, SKImage> _gpuTransCache = new();
+    // 譯文 worker 完成(erase 後、line 2078 hook)的頁 → 此時對底圖的 GDI+ 存取已結束，可安全在 UI 合成。
+    // 未在此集合的頁：worker 可能正背景讀同一 bitmap，合成會撞「generic error in GDI+」→ 改顯示 Skia 獨立解碼底圖。
+    private readonly HashSet<int> _gpuComposeReady = new();
+    private readonly object _gpuTransLock = new();
+    private const int GpuTransCacheCap = 16;
 
     /// <summary>在 Form Load(handle 已建)後呼叫：建 SKGLControl + renderer，GL 失敗則退回 GDI+。</summary>
     private void InitGpuCanvas()
@@ -68,7 +80,7 @@ public partial class ReaderForm
         _skCanvas.MouseMove += OnContentMouseMove;
         _skCanvas.MouseUp += OnContentMouseUp;
 
-        base.FormClosed += delegate { _skRenderer?.Dispose(); _skRenderer = null; };
+        base.FormClosed += delegate { _skRenderer?.Dispose(); _skRenderer = null; ClearTranslatedGpu(); };
         UpdateCanvasMode();
     }
 
@@ -76,6 +88,7 @@ public partial class ReaderForm
     private void UpdateCanvasMode()
     {
         if (_skCanvas == null) return;       // 未建 GPU(開關關/建立失敗) → 永遠走 picPage
+        if (!_enableTranslation) ClearTranslatedGpu();   // 譯文關 → 丟棄譯文合成快取
         if (UseGpuNow)
         {
             if (!_skCanvas.Visible)
@@ -87,7 +100,7 @@ public partial class ReaderForm
             if (IsContinuous)
             {
                 if (vScrollBarContinuous.Visible) vScrollBarContinuous.BringToFront();  // 捲軸需在 GL 畫布之上
-                RequestGpuContinuousAroundCurrent();
+                if (!_enableTranslation) RequestGpuContinuousAroundCurrent();  // 譯文時底圖由 GDI+ 管線載入
                 _skCanvas.Invalidate();
             }
             else SyncGpuPage();
@@ -140,13 +153,26 @@ public partial class ReaderForm
 
     // ── 單頁/雙頁 ─────────────────────────────────────────
 
-    /// <summary>同步當前 spread 到 renderer：設 Current、確保整個 spread 已解碼(避免空白)、預載鄰頁、重繪。</summary>
+    /// <summary>同步當前 spread：非譯文走 Skia renderer(解碼/預載)；譯文則確保 GDI+ _cache 底圖已載(供合成)。</summary>
     private void SyncGpuPage()
     {
         if (_skRenderer == null || _skCanvas == null) return;
         int start = SpreadStart(_currentIndex);
-        _skRenderer.Current = start;
         int size = (_viewMode == ReaderViewMode.DualPage) ? SpreadSize(start) : 1;
+        if (_enableTranslation)
+        {
+            // 譯文：底圖由 GDI+ 管線載入(OCR+合成都需要)；缺則觸發載入，載完 TryRenderCurrentSpread→重繪→合成。
+            for (int i = 0; i < size; i++)
+            {
+                int p = start + i;
+                bool has;
+                lock (_cacheLock) has = _cache.ContainsKey(p);
+                if (!has && p < _source.PageCount) _ = LoadPageAsync(p);
+            }
+            _skCanvas.Invalidate();
+            return;
+        }
+        _skRenderer.Current = start;
         for (int i = 0; i < size; i++)
         {
             int p = start + i;
@@ -185,7 +211,7 @@ public partial class ReaderForm
         int start = SpreadStart(_currentIndex);
         int size = (_viewMode == ReaderViewMode.DualPage) ? SpreadSize(start) : 1;
         if (size == 2) DrawGpuDual(canvas, cw, ch, start);
-        else { var img = GetGpuImage(start); if (img != null) DrawFitCentered(canvas, img, cw, ch); }
+        else { var img = GpuImageFor(start); if (img != null) DrawFitCentered(canvas, img, cw, ch); }
     }
 
     /// <summary>雙頁：左右並排，依 RTL 決定左右頁；整組 fit-to-window 置中，各自垂直置中。</summary>
@@ -193,8 +219,8 @@ public partial class ReaderForm
     {
         int idxL = _rtl ? start + 1 : start;
         int idxR = _rtl ? start : start + 1;
-        var limg = GetGpuImage(idxL);
-        var rimg = GetGpuImage(idxR);
+        var limg = GpuImageFor(idxL);
+        var rimg = GpuImageFor(idxR);
         if (limg == null || rimg == null)
         {
             var any = limg ?? rimg;                       // 其一未解好 → 暫畫單張避免空白
@@ -227,6 +253,137 @@ public partial class ReaderForm
         return _skRenderer.Peek(idx) ?? _skRenderer.GetOrProduce(idx);
     }
 
+    /// <summary>單/雙頁取圖：譯文走合成、否則 raw 解碼。</summary>
+    private SKImage? GpuImageFor(int idx) =>
+        _enableTranslation ? GetTranslatedGpuImage(idx) : GetGpuImage(idx);
+
+    /// <summary>連續取圖：譯文走合成；非譯文只 Peek(不在 paint 同步解碼，缺則佔位、由預載補)。</summary>
+    private SKImage? GpuContinuousImage(int idx) =>
+        _enableTranslation ? GetTranslatedGpuImage(idx) : _skRenderer?.Peek(idx);
+
+    // ── Phase 4：譯文合成 ─────────────────────────────────
+
+    /// <summary>
+    /// 譯文取圖：頁譯文已完成(worker 結束、_gpuComposeReady) → GDI+ 合成(快取)；
+    /// 未完成 → 啟動譯文 + 顯示 Skia 獨立解碼的原始底圖(不碰 GDI+ 共用 bitmap，避免並發 GDI+ 錯誤)。
+    /// </summary>
+    private SKImage? GetTranslatedGpuImage(int idx)
+    {
+        if (idx < 0 || idx >= _source.PageCount) return null;
+
+        bool ready;
+        lock (_gpuTransLock)
+        {
+            if (_gpuTransCache.TryGetValue(idx, out var hit)) return hit;
+            ready = _gpuComposeReady.Contains(idx);
+        }
+
+        if (ready)
+        {
+            Image? baseImg;
+            lock (_cacheLock) _cache.TryGetValue(idx, out baseImg);
+            if (baseImg != null)
+            {
+                var sk = CompositeTranslatedPage(idx, baseImg);   // worker 已結束 → 無並發
+                if (sk != null)
+                {
+                    lock (_gpuTransLock)
+                    {
+                        if (_gpuTransCache.TryGetValue(idx, out var existed)) { sk.Dispose(); return existed; }
+                        if (_gpuTransCache.Count >= GpuTransCacheCap) EvictTranslatedGpu(idx);
+                        _gpuTransCache[idx] = sk;
+                    }
+                    return sk;
+                }
+            }
+        }
+
+        // 未完成 → 確保譯文已啟動 + 暫顯示 Skia 原始底圖
+        EnsurePageTranslated(idx);
+        return _skRenderer?.Peek(idx) ?? _skRenderer?.GetOrProduce(idx);
+    }
+
+    /// <summary>譯文 worker 完成某頁(erase 後)：標記可合成、丟棄舊合成、重繪。line 2078 hook 呼叫(UI 執行緒)。</summary>
+    private void OnGpuPageTranslationApplied(int idx)
+    {
+        lock (_gpuTransLock) _gpuComposeReady.Add(idx);
+        DropTranslatedGpu(idx);            // 之前若快取過原圖合成 → 丟棄、下次重合成含譯文
+        InvalidateContentCanvas();
+    }
+
+    /// <summary>把「底圖(或抹除圖)+譯文 overlay」用現有 GDI+ 路徑合成到 natural-size bitmap → SKImage。</summary>
+    private SKImage? CompositeTranslatedPage(int idx, Image baseImg)
+    {
+        try
+        {
+            Image painted = PageImageForPaint(idx, baseImg);     // 抹除圖(路線2)或原圖
+            int w = painted.Width, h = painted.Height;
+            if (w <= 0 || h <= 0) return null;
+            using var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                g.InterpolationMode = InterpolationMode.Bilinear;
+                g.DrawImage(painted, new Rectangle(0, 0, w, h));
+                RenderTranslationOverlay(g, painted, new Rectangle(0, 0, w, h), idx);  // 1:1，overlay 用原座標
+            }
+            return SKImageFromBitmap(bmp);
+        }
+        catch { return null; }
+    }
+
+    /// <summary>GDI+ Bitmap(Format32bppArgb) → SKImage(複製像素，可立即 dispose bmp)。合成頁全不透明、premul/straight 同值。</summary>
+    private static SKImage SKImageFromBitmap(Bitmap bmp)
+    {
+        var rect = new Rectangle(0, 0, bmp.Width, bmp.Height);
+        var data = bmp.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        try
+        {
+            var info = new SKImageInfo(bmp.Width, bmp.Height, SKColorType.Bgra8888, SKAlphaType.Premul);
+            using var pixmap = new SKPixmap(info, data.Scan0, data.Stride);
+            return SKImage.FromPixelCopy(pixmap);
+        }
+        finally { bmp.UnlockBits(data); }
+    }
+
+    /// <summary>該頁譯文/抹除狀態變更 → 丟棄合成快取使其重合成（line 2076 hook）。</summary>
+    private void DropTranslatedGpu(int idx)
+    {
+        SKImage? old = null;
+        lock (_gpuTransLock) if (_gpuTransCache.Remove(idx, out old)) { }
+        old?.Dispose();
+    }
+
+    private void ClearTranslatedGpu()
+    {
+        List<SKImage> imgs;
+        lock (_gpuTransLock)
+        {
+            _gpuComposeReady.Clear();
+            if (_gpuTransCache.Count == 0) return;
+            imgs = new List<SKImage>(_gpuTransCache.Values);
+            _gpuTransCache.Clear();
+        }
+        foreach (var i in imgs) i.Dispose();
+    }
+
+    /// <summary>容量滿時淘汰一個非保留頁(避開 keep)。需在 _gpuTransLock 內呼叫。</summary>
+    private void EvictTranslatedGpu(int keep)
+    {
+        foreach (var k in _gpuTransCache.Keys)
+        {
+            if (k == keep || k == _currentIndex) continue;
+            if (_gpuTransCache.Remove(k, out var img)) img?.Dispose();
+            return;
+        }
+        // 全是保留頁(極少見) → 清最舊一個
+        foreach (var k in _gpuTransCache.Keys)
+        {
+            if (_gpuTransCache.Remove(k, out var img)) img?.Dispose();
+            return;
+        }
+    }
+
     // ── 連續捲動（純 Skia：版面量測由 SKImage 尺寸驅動，不經 GDI+ _cache）──
 
     /// <summary>連續繪製：可視範圍各頁依 layout 位置疊圖；未解好的頁畫佔位底色並由 PageReady 補。</summary>
@@ -245,7 +402,7 @@ public partial class ReaderForm
         {
             int y = _layout.GetPageY(i) - _virtualScrollY;
             int ph = _layout.GetPageHeight(i);
-            var img = _skRenderer.Peek(i);
+            var img = GpuContinuousImage(i);
             if (img == null)
             {
                 canvas.DrawRect(SKRect.Create(x, y, contentWidth, ph), phPaint);

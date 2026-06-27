@@ -987,10 +987,11 @@ public partial class ReaderForm : Window, IThemedControl
 			ScrollContinuousTo(_layout.GetPageY(index));
 			return;
 		}
-		if (UseGpuNow)
+		if (UseGpuNow && !_enableTranslation)
 		{
 			// GPU 輕量翻頁分支：只同步 GPU(解碼/預載/重繪)，跳過整套 GDI+ 解碼/預縮/快取淘汰
 			// (那些 GPU 模式用不到、且雙重解碼會拖慢)。切到非 GPU 模式時由 UpdateCanvasMode 惰性補載。
+			// 譯文模式不走此分支：OCR+合成需要 GDI+ _cache 底圖，仍走下方完整管線。
 			_currentIndex = SpreadStart(index);
 			UpdatePageInfo();
 			UpdateCanvasMode();
@@ -1101,7 +1102,7 @@ public partial class ReaderForm : Window, IThemedControl
 							vScrollBarContinuous.Value = Math.Min(_virtualScrollY, vScrollBarContinuous.Maximum);
 						}
 						UpdateContinuousState();
-						picPage.Invalidate();
+						InvalidateContentCanvas();
 					}
 					else
 					{
@@ -1135,7 +1136,7 @@ public partial class ReaderForm : Window, IThemedControl
 		{
 			_leftImage = null;
 			_rightImage = null;
-			picPage.Invalidate();
+			InvalidateContentCanvas();
 			lblStatus.Text = "讀取中…";
 			return;
 		}
@@ -1150,7 +1151,7 @@ public partial class ReaderForm : Window, IThemedControl
 			_rightImage = (_rtl ? value : image);
 		}
 		LayoutPic();
-		picPage.Invalidate();
+		InvalidateContentCanvas();
 		UpdateStatusBar();
 	}
 
@@ -1282,8 +1283,9 @@ public partial class ReaderForm : Window, IThemedControl
 			}
 			if (num2 >= 0)
 			{
-				if (UseGpuNow) RequestGpuContinuousWindow(num2, num3);   // GPU 連續走 Skia 可見窗(不雙重解碼)
-				else UpdateContinuousCacheWindow(num2, num3);
+				if (UseGpuNow && !_enableTranslation) RequestGpuContinuousWindow(num2, num3);   // GPU 連續走 Skia 可見窗(不雙重解碼)
+				else UpdateContinuousCacheWindow(num2, num3);   // 譯文連續：GDI+ 載入底圖供 OCR+合成
+
 			}
 			if (num3 >= _source.PageCount - 1)
 			{
@@ -2073,7 +2075,7 @@ public partial class ReaderForm : Window, IThemedControl
 					{
 						if (!base.IsDisposed)
 						{
-							picPage.Invalidate();
+							OnGpuPageTranslationApplied(pageIndex);   // 譯文已套用(erase 完) → 標記可合成+丟舊合成+重繪
 							Debug.WriteLine($"[Translation Flow] Page {pageIndex} UI Invalidate triggered.");
 						}
 					});
