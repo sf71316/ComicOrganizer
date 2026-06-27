@@ -124,11 +124,10 @@ public partial class ReaderForm : Window, IThemedControl
 	private readonly Dictionary<Image, (int w, int h, Bitmap bmp)> _scaledCache = new Dictionary<Image, (int, int, Bitmap)>();
 	private readonly object _scaledLock = new object();
 
-	// 左鍵拖曳平移：以螢幕座標錨定起點(避免控件捲動時座標跳)。
+	// 左鍵在內容區按住拖曳 = 移動整個閱讀器視窗(HoneyView 拖窗手感)；以螢幕座標錨定起點。
 	private bool _panning;
-	private Point _panStartScreen;
-	private int _panStartScrollY;       // 連續模式起始 _virtualScrollY
-	private Point _panStartAuto;        // 單/雙頁起始 scrollHost.AutoScrollPosition(WinForms 慣例為負值)
+	private Point _panStartScreen;      // 拖曳起始時的螢幕游標座標
+	private Point _formStartLocation;   // 拖曳起始時的視窗左上角位置
 
 	// 文字遮罩提供者（可抽換：ComicTextDetector / 未來 flood-fill / null=關閉走現行矩形）。
 	private ITextMaskProvider? _maskProvider;
@@ -499,14 +498,14 @@ public partial class ReaderForm : Window, IThemedControl
 		}
 	}
 
-	// 左鍵按住拖曳 = 抓著畫面平移(連續模式捲動 / 單·雙頁有放大溢出時平移)；fit 無溢出則不動。
+	// 左鍵按住在內容區拖曳 = 移動整個閱讀器視窗；全螢幕/最大化(非 Normal)時不移動。
 	private void OnContentMouseDown(object? sender, MouseEventArgs e)
 	{
 		if (e.Button != MouseButtons.Left) return;
+		if (base.WindowState != FormWindowState.Normal) return;
 		_panning = true;
 		_panStartScreen = Cursor.Position;
-		_panStartScrollY = _virtualScrollY;
-		_panStartAuto = scrollHost.AutoScrollPosition;
+		_formStartLocation = base.Location;
 		picPage.Cursor = Cursors.SizeAll;
 	}
 
@@ -516,15 +515,7 @@ public partial class ReaderForm : Window, IThemedControl
 		var p = Cursor.Position;
 		int dx = p.X - _panStartScreen.X;
 		int dy = p.Y - _panStartScreen.Y;
-		if (IsContinuous && _layout != null)
-		{
-			ScrollContinuousTo(_panStartScrollY - dy);   // 拖下 → 內容跟著下(看更前面)
-		}
-		else
-		{
-			// AutoScrollPosition getter 回負值、setter 取正值 → -_panStartAuto 為起始正捲動量
-			scrollHost.AutoScrollPosition = new Point(-_panStartAuto.X - dx, -_panStartAuto.Y - dy);
-		}
+		base.Location = new Point(_formStartLocation.X + dx, _formStartLocation.Y + dy);
 	}
 
 	private void OnContentMouseUp(object? sender, MouseEventArgs e)
