@@ -185,6 +185,7 @@ public partial class ReaderForm : Window, IThemedControl
 		_debugEnvelope = appConfig.DebugMode;
 		_ocrService = appConfig.OcrEngineType == 1 ? new PaddleOcrService() : new WindowsOcrService();
 		_maskProvider = appConfig.MaskEngineType == 2 ? new ComicTextDetector() : null;
+		_useGpuPref = appConfig.UseGpuRendering;
 		int num = Math.Max(1, appConfig.TranslationMaxConcurrency);
 		_llmSemaphore = new SemaphoreSlim(num, num);
 		StartWorkers(num);
@@ -223,6 +224,8 @@ public partial class ReaderForm : Window, IThemedControl
 		picPage.Image = null;
 		picPage.Paint += OnPicPagePaint;
 		WireEvents();
+		// GPU 畫布在 Load(handle 已建)才建，GL 失敗偵測才可靠 → 見 ReaderForm.Gpu.cs
+		base.Load += delegate { InitGpuCanvas(); };
 		if (source.PageCount > 0)
 		{
 			GoToPage(_currentIndex);
@@ -296,6 +299,7 @@ public partial class ReaderForm : Window, IThemedControl
 				if (!_isAllTranslationActive)
 				{
 					_enableTranslation = false;
+				UpdateCanvasMode();
 				}
 				CancelInstantTranslation();
 				picPage.Invalidate();
@@ -308,6 +312,7 @@ public partial class ReaderForm : Window, IThemedControl
 				btnInstantTranslation.Type = TTypeMini.Primary;
 				btnAllTranslation.Type = TTypeMini.Default;
 				_enableTranslation = true;
+				UpdateCanvasMode();
 				CancelAllTranslation();
 				OnPageSpreadChanged();
 				picPage.Invalidate();
@@ -323,6 +328,7 @@ public partial class ReaderForm : Window, IThemedControl
 				if (!_isInstantTranslationActive)
 				{
 					_enableTranslation = false;
+				UpdateCanvasMode();
 				}
 				CancelAllTranslation();
 				picPage.Invalidate();
@@ -340,6 +346,7 @@ public partial class ReaderForm : Window, IThemedControl
 					btnAllTranslation.Type = TTypeMini.Primary;
 					btnInstantTranslation.Type = TTypeMini.Default;
 					_enableTranslation = true;
+				UpdateCanvasMode();
 					CancelInstantTranslation();
 					StartAllTranslation();
 					picPage.Invalidate();
@@ -358,7 +365,7 @@ public partial class ReaderForm : Window, IThemedControl
 			if (IsContinuous)
 			{
 				_virtualScrollY = vScrollBarContinuous.Value;
-				picPage.Invalidate();
+				InvalidateContentCanvas();
 				UpdateContinuousState();
 			}
 		};
@@ -480,8 +487,9 @@ public partial class ReaderForm : Window, IThemedControl
 		}
 		else if (_zoomMode == ReaderZoomMode.FitPage)
 		{
-			// 滾輪翻頁防抖：限制最小間隔 150 毫秒，避免滾輪過快或多重觸發導致跳頁
-			if ((DateTime.Now - _lastWheelPageTurnTime).TotalMilliseconds < 150)
+			// 滾輪翻頁防抖：限制最小間隔 150 毫秒，避免滾輪過快或多重觸發導致跳頁。
+			// GPU 模式翻頁極輕量(預載命中即畫) → 略過防抖，對齊 PoC 快撥手感。
+			if (!UseGpuNow && (DateTime.Now - _lastWheelPageTurnTime).TotalMilliseconds < 150)
 			{
 				return;
 			}
@@ -677,7 +685,7 @@ public partial class ReaderForm : Window, IThemedControl
 			else
 			{
 				_virtualScrollY = y;
-				picPage.Invalidate();
+				InvalidateContentCanvas();
 				UpdateContinuousState();
 			}
 		}
@@ -815,6 +823,7 @@ public partial class ReaderForm : Window, IThemedControl
 			int y = Math.Max(0, (height2 - num6) / 2);
 			picPage.Location = new Point(x, y);
 		}
+		UpdateCanvasMode();   // zoom 模式/尺寸變動 → 更新 GPU↔GDI+ 畫布可見性
 	}
 
 	private void OnViewModeChanged(int idx)
@@ -859,6 +868,7 @@ public partial class ReaderForm : Window, IThemedControl
 		scrollHost.AutoScroll = false;
 		vScrollBarContinuous.Visible = true;
 		_virtualScrollY = 0;
+		UpdateCanvasMode();   // 切換畫布(GPU 連續/GDI+)；_layout 尚未建，正式請求由結尾 LayoutPic→UpdateCanvasMode 補
 		_layout = new ContinuousLayout(_source.PageCount, Math.Max(1, scrollHost.ClientSize.Width - vScrollBarContinuous.Width));
 		_layout.Gap = ((!switchSeamless.Checked) ? 8 : 0);
 		lock (_cacheLock)
@@ -977,6 +987,20 @@ public partial class ReaderForm : Window, IThemedControl
 			ScrollContinuousTo(_layout.GetPageY(index));
 			return;
 		}
+		if (UseGpuNow && !_enableTranslation)
+		{
+			// GPU 輕量翻頁分支：只同步 GPU(解碼/預載/重繪)，跳過整套 GDI+ 解碼/預縮/快取淘汰
+			// (那些 GPU 模式用不到、且雙重解碼會拖慢)。切到非 GPU 模式時由 UpdateCanvasMode 惰性補載。
+			// 譯文模式不走此分支：OCR+合成需要 GDI+ _cache 底圖，仍走下方完整管線。
+			_currentIndex = SpreadStart(index);
+			UpdatePageInfo();
+			UpdateCanvasMode();
+			SaveProgress();
+			_pagesVisited++;
+			TryRecordRead();
+			TryAutoComplete();
+			return;
+		}
 		_currentIndex = SpreadStart(index);
 		UpdatePageInfo();
 		int num = SpreadSize(_currentIndex);
@@ -998,6 +1022,7 @@ public partial class ReaderForm : Window, IThemedControl
 				_ = LoadPageAsync(num3);
 			}
 		}
+		UpdateCanvasMode();   // 單頁+非譯文+GPU 開 → 切到 GPU 畫布(隱藏 picPage)；否則維持 picPage
 		TryRenderCurrentSpread();
 		SaveProgress();
 		_pagesVisited++;
@@ -1077,7 +1102,7 @@ public partial class ReaderForm : Window, IThemedControl
 							vScrollBarContinuous.Value = Math.Min(_virtualScrollY, vScrollBarContinuous.Maximum);
 						}
 						UpdateContinuousState();
-						picPage.Invalidate();
+						InvalidateContentCanvas();
 					}
 					else
 					{
@@ -1111,7 +1136,7 @@ public partial class ReaderForm : Window, IThemedControl
 		{
 			_leftImage = null;
 			_rightImage = null;
-			picPage.Invalidate();
+			InvalidateContentCanvas();
 			lblStatus.Text = "讀取中…";
 			return;
 		}
@@ -1126,7 +1151,7 @@ public partial class ReaderForm : Window, IThemedControl
 			_rightImage = (_rtl ? value : image);
 		}
 		LayoutPic();
-		picPage.Invalidate();
+		InvalidateContentCanvas();
 		UpdateStatusBar();
 	}
 
@@ -1258,7 +1283,9 @@ public partial class ReaderForm : Window, IThemedControl
 			}
 			if (num2 >= 0)
 			{
-				UpdateContinuousCacheWindow(num2, num3);
+				if (UseGpuNow && !_enableTranslation) RequestGpuContinuousWindow(num2, num3);   // GPU 連續走 Skia 可見窗(不雙重解碼)
+				else UpdateContinuousCacheWindow(num2, num3);   // 譯文連續：GDI+ 載入底圖供 OCR+合成
+
 			}
 			if (num3 >= _source.PageCount - 1)
 			{
@@ -2048,7 +2075,7 @@ public partial class ReaderForm : Window, IThemedControl
 					{
 						if (!base.IsDisposed)
 						{
-							picPage.Invalidate();
+							OnGpuPageTranslationApplied(pageIndex);   // 譯文已套用(erase 完) → 標記可合成+丟舊合成+重繪
 							Debug.WriteLine($"[Translation Flow] Page {pageIndex} UI Invalidate triggered.");
 						}
 					});

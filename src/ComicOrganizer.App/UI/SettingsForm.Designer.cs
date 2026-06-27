@@ -78,6 +78,7 @@ partial class SettingsForm
     private AntdUI.Checkbox cbDualPageSpreadFromCover;
     private AntdUI.Label labelOcrEngine;
     private AntdUI.Select selectOcrEngine;
+    private AntdUI.Checkbox cbUseGpuRendering;
 
     // libraryPanel 控件
     private AntdUI.Label label1;
@@ -165,6 +166,7 @@ partial class SettingsForm
         cbUseBuiltInReader = new Checkbox();
         labelOcrEngine = new AntdUI.Label();
         selectOcrEngine = new AntdUI.Select();
+        cbUseGpuRendering = new Checkbox();
         externalPanel = new AntdUI.Panel();
         lblExtStatus = new AntdUI.Label();
         btnMenuTranslation = new AntdUI.Button();
@@ -645,6 +647,7 @@ partial class SettingsForm
         // readerPanel
         // 
         readerPanel.BackColor = Color.Transparent;
+        readerPanel.Controls.Add(cbUseGpuRendering);
         readerPanel.Controls.Add(selectOcrEngine);
         readerPanel.Controls.Add(labelOcrEngine);
         readerPanel.Controls.Add(cbDualPageSpreadFromCover);
@@ -709,7 +712,16 @@ partial class SettingsForm
         selectOcrEngine.Name = "selectOcrEngine";
         selectOcrEngine.Size = new Size(250, 40);
         selectOcrEngine.TabIndex = 5;
-        // 
+        //
+        // cbUseGpuRendering
+        //
+        cbUseGpuRendering.BackColor = Color.Transparent;
+        cbUseGpuRendering.Location = new Point(40, 315);
+        cbUseGpuRendering.Name = "cbUseGpuRendering";
+        cbUseGpuRendering.Size = new Size(500, 30);
+        cbUseGpuRendering.TabIndex = 6;
+        cbUseGpuRendering.Text = "底圖改用 GPU 繪製（實驗；GL 失敗自動退回，需重開閱讀器）";
+        //
         // externalPanel
         // 
         externalPanel.BackColor = Color.Transparent;

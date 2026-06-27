@@ -444,6 +444,13 @@ public partial class GalleryControl
             throw new InvalidOperationException("No images found");
         }
 
+        // [PoC 臨時] 按住 Shift 開啟 → 用 Skia/GPU 探測視窗（項目 4 再正式做選單入口）
+        if (Control.ModifierKeys.HasFlag(Keys.Shift))
+        {
+            new SkiaReaderProbeForm(source).Show();
+            return;
+        }
+
         bool rtl = (_prefs?.DefaultReadingDirection ?? "rtl") == "rtl";
         bool spreadFromCover = _prefs?.DualPageSpreadFromCover ?? false;
         int thrSec = _config.ReadCountThresholdSeconds;

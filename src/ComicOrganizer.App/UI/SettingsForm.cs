@@ -109,7 +109,8 @@ public partial class SettingsForm : Window, IThemedControl
         selectReadingDirection.Items.Add(FmtRtl());
         selectReadingDirection.Items.Add(FmtLtr());
         cbDualPageSpreadFromCover.Checked = Prefs.DualPageSpreadFromCover;
- 
+        cbUseGpuRendering.Checked = Config.UseGpuRendering;
+
         // OCR 引擎載入
         selectOcrEngine.Items.Clear();
         selectOcrEngine.Items.Add("Windows Native OCR");
@@ -465,6 +466,7 @@ public partial class SettingsForm : Window, IThemedControl
         Prefs.UseBuiltInReader = cbUseBuiltInReader.Checked;
         Prefs.DefaultReadingDirection = selectReadingDirection.SelectedIndex == 1 ? "ltr" : "rtl";
         Prefs.DualPageSpreadFromCover = cbDualPageSpreadFromCover.Checked;
+        Config.UseGpuRendering = cbUseGpuRendering.Checked;
         if (selectOcrEngine.SelectedIndex >= 0)
         {
             Config.OcrEngineType = selectOcrEngine.SelectedIndex;
