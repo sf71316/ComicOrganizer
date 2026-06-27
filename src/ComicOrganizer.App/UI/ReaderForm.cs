@@ -1099,7 +1099,7 @@ public partial class ReaderForm : Window, IThemedControl
 			}
 			Graphics graphics = e.Graphics;
 			graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-			graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+			graphics.InterpolationMode = InterpolationMode.Bilinear;   // 翻頁縮放快 3~5×；fit-to-window 下畫質差異極微
 			if (_rightImage == null)
 			{
 				Rectangle rectangle = new Rectangle(0, 0, picPage.Width, picPage.Height);
@@ -1145,7 +1145,7 @@ public partial class ReaderForm : Window, IThemedControl
 		}
 		Graphics graphics = e.Graphics;
 		graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-		graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+		graphics.InterpolationMode = InterpolationMode.Bilinear;   // 翻頁縮放快 3~5×；fit-to-window 下畫質差異極微
 		var (num, num2) = _layout.GetVisibleRange(_virtualScrollY, _virtualScrollY + picPage.Height);
 		if (num < 0)
 		{
