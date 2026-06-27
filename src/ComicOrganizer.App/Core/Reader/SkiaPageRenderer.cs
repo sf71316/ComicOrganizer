@@ -109,6 +109,14 @@ public sealed class SkiaPageRenderer : IDisposable
         _signal.Set();
     }
 
+    /// <summary>把 [from,to] 範圍各頁排進解碼佇列並喚醒 worker（連續模式的可見窗預載）。</summary>
+    public void RequestRange(int from, int to)
+    {
+        if (from > to) (from, to) = (to, from);
+        for (int i = from; i <= to; i++) Enqueue(i);
+        _signal.Set();
+    }
+
     private void Enqueue(int index)
     {
         if (index < 0 || index >= _pageCount) return;

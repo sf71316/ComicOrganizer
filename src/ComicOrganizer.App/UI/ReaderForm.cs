@@ -365,7 +365,7 @@ public partial class ReaderForm : Window, IThemedControl
 			if (IsContinuous)
 			{
 				_virtualScrollY = vScrollBarContinuous.Value;
-				picPage.Invalidate();
+				InvalidateContentCanvas();
 				UpdateContinuousState();
 			}
 		};
@@ -685,7 +685,7 @@ public partial class ReaderForm : Window, IThemedControl
 			else
 			{
 				_virtualScrollY = y;
-				picPage.Invalidate();
+				InvalidateContentCanvas();
 				UpdateContinuousState();
 			}
 		}
@@ -868,7 +868,7 @@ public partial class ReaderForm : Window, IThemedControl
 		scrollHost.AutoScroll = false;
 		vScrollBarContinuous.Visible = true;
 		_virtualScrollY = 0;
-		UpdateCanvasMode();   // 進連續模式 → 退出 GPU 單頁、回 picPage
+		UpdateCanvasMode();   // 切換畫布(GPU 連續/GDI+)；_layout 尚未建，正式請求由結尾 LayoutPic→UpdateCanvasMode 補
 		_layout = new ContinuousLayout(_source.PageCount, Math.Max(1, scrollHost.ClientSize.Width - vScrollBarContinuous.Width));
 		_layout.Gap = ((!switchSeamless.Checked) ? 8 : 0);
 		lock (_cacheLock)
@@ -1282,7 +1282,8 @@ public partial class ReaderForm : Window, IThemedControl
 			}
 			if (num2 >= 0)
 			{
-				UpdateContinuousCacheWindow(num2, num3);
+				if (UseGpuNow) RequestGpuContinuousWindow(num2, num3);   // GPU 連續走 Skia 可見窗(不雙重解碼)
+				else UpdateContinuousCacheWindow(num2, num3);
 			}
 			if (num3 >= _source.PageCount - 1)
 			{

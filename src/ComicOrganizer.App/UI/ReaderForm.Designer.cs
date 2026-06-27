@@ -153,7 +153,7 @@ partial class ReaderForm
         // switchSeamless — Continuous 模式才顯示
         //
         switchSeamless.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left;
-        switchSeamless.Location = new System.Drawing.Point(74, 6);
+        switchSeamless.Location = new System.Drawing.Point(366, 6);
         switchSeamless.Name = "switchSeamless";
         switchSeamless.Size = new System.Drawing.Size(44, 28);
         switchSeamless.Visible = false;
@@ -181,7 +181,7 @@ partial class ReaderForm
         lblSeamless.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left;
         lblSeamless.AutoSize = false;
         lblSeamless.Font = new System.Drawing.Font("Microsoft JhengHei UI", 9F);
-        lblSeamless.Location = new System.Drawing.Point(8, 8);
+        lblSeamless.Location = new System.Drawing.Point(298, 8);
         lblSeamless.Name = "lblSeamless";
         lblSeamless.Size = new System.Drawing.Size(64, 24);
         lblSeamless.Text = "無隔間";
