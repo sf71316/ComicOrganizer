@@ -78,4 +78,20 @@ public class LlmTranslationParseTests
     {
         Assert.Equal(expected, LlmTranslationService.IsLikelyNoise(text));
     }
+
+    [Theory]
+    // 純 host（本地/OpenAI）→ 補 /v1/chat/completions
+    [InlineData("http://192.168.0.74:1234", "http://192.168.0.74:1234/v1/chat/completions")]
+    [InlineData("https://api.openai.com", "https://api.openai.com/v1/chat/completions")]
+    [InlineData("https://api.openai.com/", "https://api.openai.com/v1/chat/completions")]
+    // OpenRouter base（/api 非版本段）→ 補 /v1/chat/completions
+    [InlineData("https://openrouter.ai/api", "https://openrouter.ai/api/v1/chat/completions")]
+    // Gemini（已含 /v1beta/openai 版本段）→ 只補 /chat/completions
+    [InlineData("https://generativelanguage.googleapis.com/v1beta/openai", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions")]
+    // 已是完整 URL → 原樣
+    [InlineData("https://x.y/v1/chat/completions", "https://x.y/v1/chat/completions")]
+    public void BuildOpenAiChatUrl_HandlesProviderConventions(string endpoint, string expected)
+    {
+        Assert.Equal(expected, LlmTranslationService.BuildOpenAiChatUrl(endpoint));
+    }
 }
