@@ -172,6 +172,10 @@ public partial class ReaderForm : Window, IThemedControl
 	public ReaderForm(IReaderSource source, bool rightToLeft = true, bool dualPageSpreadFromCover = false, IAssetMetaStore? metaStore = null, ReadRecordQueue? readRecordQueue = null, int readThresholdSeconds = 30, int readThresholdPages = 2, bool trackReadingRecord = true)
 	{
 		InitializeComponent();
+		// scrollHost 是 AutoScroll Panel 且預設無雙緩衝 → 翻頁時 picPage 重定位會讓 Panel 重繪背景而閃爍/頓挫；
+		// 開雙緩衝(含 picPage)消除翻頁頓挫感。
+		EnableDoubleBuffer(scrollHost);
+		EnableDoubleBuffer(picPage);
 		AppConfig appConfig = new ConfigManager().Load();
 		_debugEnvelope = appConfig.DebugMode;
 		_ocrService = appConfig.OcrEngineType == 1 ? new PaddleOcrService() : new WindowsOcrService();
@@ -2196,6 +2200,18 @@ public partial class ReaderForm : Window, IThemedControl
 		{
 			if (_scaledCache.TryGetValue(src, out var e)) { e.bmp.Dispose(); _scaledCache.Remove(src); }
 		}
+	}
+
+	// 開啟控件雙緩衝(Control.DoubleBuffered 為 protected，用反射設)。消除翻頁時父 Panel 重繪閃爍/頓挫。
+	private static void EnableDoubleBuffer(Control c)
+	{
+		try
+		{
+			typeof(Control).GetProperty("DoubleBuffered",
+				System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+				?.SetValue(c, true);
+		}
+		catch { /* 反射失敗不致命，僅少了雙緩衝 */ }
 	}
 
 	// 單頁模式：依該頁長寬 + 視窗 + zoom 算出顯示尺寸(與 LayoutPic 單頁分支同邏輯)，供背景預熱對齊 picPage 尺寸。
