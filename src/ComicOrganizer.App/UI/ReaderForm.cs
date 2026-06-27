@@ -1908,7 +1908,7 @@ public partial class ReaderForm : Window, IThemedControl
 			{
 				token.ThrowIfCancellationRequested();
 				AppConfig config = new ConfigManager().Load();
-				_translationService.Configure(config.TranslationEndpoint, config.TranslationModelName, (LlmApiType)config.TranslationApiType);
+				_translationService.Configure(config.TranslationEndpoint, config.TranslationModelName, (LlmApiType)config.TranslationApiType, config.GetTranslationApiKey());
 				if (config.OcrEngineType == 1 && _ocrService is not PaddleOcrService)
 				{
 					_ocrService = new PaddleOcrService();

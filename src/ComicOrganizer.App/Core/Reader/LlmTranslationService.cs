@@ -21,6 +21,7 @@ public class LlmTranslationService : ITranslationService
     private string _endpoint = "http://192.168.0.74:1234";
     private string _modelName = "qwen3.6-35b-a3b-mtp";
     private LlmApiType _apiType = LlmApiType.OpenAiCompatible;
+    private string? _apiKey;   // 雲端 OpenAI 相容端點的 Bearer 金鑰；null=免認證(本地端)
 
     public string? LastError { get; private set; }
 
@@ -29,7 +30,20 @@ public class LlmTranslationService : ITranslationService
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
     }
 
-    public void Configure(string endpoint, string modelName, LlmApiType apiType)
+    /// <summary>
+    /// 組 OpenAI 相容 chat/completions URL，相容各 provider 的 base 慣例：
+    /// 已是完整 URL → 原樣；已含版本段(/v1、/v1beta/openai 等，如 Gemini) → 補 /chat/completions；
+    /// 否則(純 host，如 LM Studio/OpenAI) → 補 /v1/chat/completions。
+    /// </summary>
+    public static string BuildOpenAiChatUrl(string endpoint)
+    {
+        var e = endpoint.TrimEnd('/');
+        if (e.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase)) return e;
+        if (Regex.IsMatch(e, @"/v\d+\w*(/openai)?$", RegexOptions.IgnoreCase)) return e + "/chat/completions";
+        return e + "/v1/chat/completions";
+    }
+
+    public void Configure(string endpoint, string modelName, LlmApiType apiType, string? apiKey = null)
     {
         if (!string.IsNullOrEmpty(endpoint))
         {
@@ -40,6 +54,7 @@ public class LlmTranslationService : ITranslationService
             _modelName = modelName;
         }
         _apiType = apiType;
+        _apiKey = string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim();
     }
 
     public string Endpoint => _endpoint;
@@ -98,7 +113,7 @@ public class LlmTranslationService : ITranslationService
 
         if (_apiType == LlmApiType.OpenAiCompatible)
         {
-            requestUrl = $"{_endpoint}/v1/chat/completions";
+            requestUrl = BuildOpenAiChatUrl(_endpoint);
             requestBody = new
             {
                 model = _modelName,
@@ -198,7 +213,11 @@ public class LlmTranslationService : ITranslationService
         System.Diagnostics.Debug.WriteLine($"[LlmTranslationService] Request payload (first 300 chars): {jsonPayload[..Math.Min(jsonPayload.Length, 300)]}");
         using var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
 
-        var response = await _httpClient.PostAsync(requestUrl, content);
+        // 雲端 OpenAI 相容端點需 Authorization: Bearer；以 HttpRequestMessage 帶每請求標頭(不污染共用 HttpClient)
+        using var request = new HttpRequestMessage(HttpMethod.Post, requestUrl) { Content = content };
+        if (!string.IsNullOrEmpty(_apiKey))
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _apiKey);
+        var response = await _httpClient.SendAsync(request);
         if (!response.IsSuccessStatusCode)
         {
             var errorContent = await response.Content.ReadAsStringAsync();

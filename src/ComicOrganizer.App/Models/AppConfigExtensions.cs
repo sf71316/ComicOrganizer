@@ -20,4 +20,17 @@ public static class AppConfigExtensions
         => cfg.NhentaiApiKeyProtected = string.IsNullOrEmpty(plain)
             ? ""
             : SecureStringStore.Protect(plain);
+
+    /// <summary>取出解密後的 AI 翻譯 API key（plain text）。沒設或解不開回 null。</summary>
+    public static string? GetTranslationApiKey(this AppConfig cfg)
+        => string.IsNullOrEmpty(cfg.TranslationApiKeyProtected)
+            ? null
+            : SecureStringStore.TryUnprotect(cfg.TranslationApiKeyProtected);
+
+    /// <summary>設定 AI 翻譯 API key — 自動加密後寫進 TranslationApiKeyProtected。
+    /// 傳 null / 空字串 → 清空。</summary>
+    public static void SetTranslationApiKey(this AppConfig cfg, string? plain)
+        => cfg.TranslationApiKeyProtected = string.IsNullOrEmpty(plain)
+            ? ""
+            : SecureStringStore.Protect(plain);
 }

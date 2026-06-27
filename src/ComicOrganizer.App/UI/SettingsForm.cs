@@ -14,6 +14,15 @@ public partial class SettingsForm : Window, IThemedControl
     // 從 Designer.cs 搬到這裡 inline 初始化，避免 VS Designer regenerate 重複把 new 那行吃掉
     private readonly AntdUI.FolderBrowserDialog folderBrowserDialog = new AntdUI.FolderBrowserDialog();
 
+    // 翻譯服務商預設（OpenAI 相容端點 base；服務會自動補 /v1/chat/completions）。第 0 項=自訂/本地，不覆寫端點。
+    private static readonly (string Name, string? Base)[] TrProviders =
+    {
+        ("自訂 / 本地 (LM Studio・Ollama)", null),
+        ("OpenAI", "https://api.openai.com"),
+        ("OpenRouter", "https://openrouter.ai/api"),
+        ("Gemini", "https://generativelanguage.googleapis.com/v1beta/openai"),
+    };
+
     public SettingsForm(ConfigManager configManager, AppConfig config,
                         UserPreferencesManager prefsManager, UserPreferences prefs)
     {
@@ -54,6 +63,8 @@ public partial class SettingsForm : Window, IThemedControl
         lblTrApiType.ForeColor = Core.ThemeColors.Text;
         lblTrEndpoint.ForeColor = Core.ThemeColors.Text;
         lblTrModel.ForeColor = Core.ThemeColors.Text;
+        lblTrProvider.ForeColor = Core.ThemeColors.Text;
+        lblTrApiKey.ForeColor = Core.ThemeColors.Text;
         lblTrStatus.ForeColor = Core.ThemeColors.Text;
         lblPreciseErase.ForeColor = Core.ThemeColors.Text;
         lblPreciseEraseHint.ForeColor = Core.ThemeColors.Secondary;
@@ -125,6 +136,19 @@ public partial class SettingsForm : Window, IThemedControl
         txtTrModel.Text = Config.TranslationModelName;
         numTrConcurrency.Value = Math.Clamp(Config.TranslationMaxConcurrency, 1, 100);
 
+        // 服務商預設下拉：依已存端點自動選中對應項，否則「自訂/本地」
+        selectTrProvider.Items.Clear();
+        foreach (var p in TrProviders) selectTrProvider.Items.Add(p.Name);
+        int provIdx = 0;
+        for (int i = 1; i < TrProviders.Length; i++)
+            if (string.Equals(Config.TranslationEndpoint?.TrimEnd('/'), TrProviders[i].Base, StringComparison.OrdinalIgnoreCase)) { provIdx = i; break; }
+        selectTrProvider.SelectedIndex = provIdx;
+
+        // API 金鑰（不顯示真實值；留空=不變）
+        txtTrApiKey.Text = "";
+        var hasTrKey = !string.IsNullOrEmpty(Config.GetTranslationApiKey());
+        txtTrApiKey.PlaceholderText = hasTrKey ? "(已儲存 — 留空保持原值)" : "本地端免填；雲端貼上金鑰 (sk-... / key)";
+
         // 精準原文抹除（route-2 ComicTextDetector）：MaskEngineType 2=啟用、其餘=關。
         // 此處程式化設值在 WireEvents 訂閱之前 → 不會誤觸發下載。
         swPreciseErase.Checked = Config.MaskEngineType == 2;
@@ -149,6 +173,14 @@ public partial class SettingsForm : Window, IThemedControl
 
         // 勾選「精準原文抹除」且模型缺檔 → 觸發按需下載；取消/失敗則退回關閉
         swPreciseErase.CheckedChanged += async (s, e) => await OnPreciseEraseToggled();
+
+        // 選服務商預設 → 自動填端點（第 0 項「自訂/本地」不覆寫）
+        selectTrProvider.SelectedValueChanged += (s, e) =>
+        {
+            int i = selectTrProvider.SelectedIndex;
+            if (i > 0 && i < TrProviders.Length && TrProviders[i].Base is string baseUrl)
+                txtTrEndpoint.Text = baseUrl;
+        };
 
         selectTheme.SelectedValueChanged += (s, e) =>
         {
@@ -237,6 +269,9 @@ public partial class SettingsForm : Window, IThemedControl
         var endpoint = txtTrEndpoint.Text?.Trim() ?? "";
         var modelName = txtTrModel.Text?.Trim() ?? "";
         var apiType = (LlmApiType)(selectTrApiType.SelectedIndex >= 0 ? selectTrApiType.SelectedIndex : 0);
+        // 金鑰：優先用剛輸入的，否則用已儲存的（測試雲端端點需帶）
+        var apiKey = txtTrApiKey.Text?.Trim();
+        if (string.IsNullOrEmpty(apiKey)) apiKey = Config.GetTranslationApiKey();
 
         if (string.IsNullOrEmpty(endpoint))
         {
@@ -250,7 +285,7 @@ public partial class SettingsForm : Window, IThemedControl
         {
             using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(10) };
             var translator = new LlmTranslationService(client);
-            translator.Configure(endpoint, modelName, apiType);
+            translator.Configure(endpoint, modelName, apiType, apiKey);
 
             var testInput = new List<string> { "こんにちは" };
             var result = await translator.TranslateBatchAsync(testInput);
@@ -453,6 +488,10 @@ public partial class SettingsForm : Window, IThemedControl
         Config.TranslationModelName = txtTrModel.Text?.Trim() ?? "";
         Config.TranslationApiType = selectTrApiType.SelectedIndex >= 0 ? selectTrApiType.SelectedIndex : 0;
         Config.TranslationMaxConcurrency = Math.Clamp((int)numTrConcurrency.Value, 1, 100);
+
+        // API 金鑰：留空=不變（避免沒輸入就 Save 把舊金鑰清掉）
+        var trKey = txtTrApiKey.Text?.Trim() ?? "";
+        if (!string.IsNullOrEmpty(trKey)) Config.SetTranslationApiKey(trKey);
 
         // Theme + Language 寫到 preferences.json（與 appsettings.json 分檔）
         if (selectTheme.SelectedIndex >= 0)

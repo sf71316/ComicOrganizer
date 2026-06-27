@@ -38,6 +38,10 @@ partial class SettingsForm
     private AntdUI.Label lblTrStatus;
     private AntdUI.Label lblTrConcurrency;
     private AntdUI.InputNumber numTrConcurrency;
+    private AntdUI.Label lblTrProvider;
+    private AntdUI.Select selectTrProvider;
+    private AntdUI.Label lblTrApiKey;
+    private AntdUI.Input txtTrApiKey;
     private AntdUI.Label lblPreciseErase;
     private AntdUI.Switch swPreciseErase;
     private AntdUI.Label lblPreciseEraseHint;
@@ -177,6 +181,10 @@ partial class SettingsForm
         lblTrStatus = new AntdUI.Label();
         lblTrConcurrency = new AntdUI.Label();
         numTrConcurrency = new AntdUI.InputNumber();
+        lblTrProvider = new AntdUI.Label();
+        selectTrProvider = new AntdUI.Select();
+        lblTrApiKey = new AntdUI.Label();
+        txtTrApiKey = new AntdUI.Input();
         lblPreciseErase = new AntdUI.Label();
         swPreciseErase = new AntdUI.Switch();
         lblPreciseEraseHint = new AntdUI.Label();
@@ -852,6 +860,10 @@ partial class SettingsForm
         translationPanel.Controls.Add(lblPreciseEraseHint);
         translationPanel.Controls.Add(swPreciseErase);
         translationPanel.Controls.Add(lblPreciseErase);
+        translationPanel.Controls.Add(txtTrApiKey);
+        translationPanel.Controls.Add(lblTrApiKey);
+        translationPanel.Controls.Add(selectTrProvider);
+        translationPanel.Controls.Add(lblTrProvider);
         translationPanel.Controls.Add(lblTrStatus);
         translationPanel.Controls.Add(btnTestTrConnection);
         translationPanel.Controls.Add(numTrConcurrency);
@@ -888,14 +900,14 @@ partial class SettingsForm
         lblTrDesc.BackColor = Color.Transparent;
         lblTrDesc.Location = new Point(40, 65);
         lblTrDesc.Name = "lblTrDesc";
-        lblTrDesc.Size = new Size(620, 60);
+        lblTrDesc.Size = new Size(620, 36);
         lblTrDesc.TabIndex = 1;
         lblTrDesc.Text = "設定內建閱讀器即時翻譯功能所對接的本地端或雲端 LLM 服務。";
         // 
         // lblTrApiType
         // 
         lblTrApiType.BackColor = Color.Transparent;
-        lblTrApiType.Location = new Point(40, 145);
+        lblTrApiType.Location = new Point(40, 157);
         lblTrApiType.Name = "lblTrApiType";
         lblTrApiType.Size = new Size(100, 30);
         lblTrApiType.TabIndex = 2;
@@ -903,7 +915,7 @@ partial class SettingsForm
         // 
         // selectTrApiType
         // 
-        selectTrApiType.Location = new Point(150, 142);
+        selectTrApiType.Location = new Point(150, 154);
         selectTrApiType.Name = "selectTrApiType";
         selectTrApiType.Size = new Size(390, 36);
         selectTrApiType.TabIndex = 3;
@@ -911,7 +923,7 @@ partial class SettingsForm
         // lblTrEndpoint
         // 
         lblTrEndpoint.BackColor = Color.Transparent;
-        lblTrEndpoint.Location = new Point(40, 195);
+        lblTrEndpoint.Location = new Point(40, 202);
         lblTrEndpoint.Name = "lblTrEndpoint";
         lblTrEndpoint.Size = new Size(100, 30);
         lblTrEndpoint.TabIndex = 4;
@@ -919,7 +931,7 @@ partial class SettingsForm
         // 
         // txtTrEndpoint
         // 
-        txtTrEndpoint.Location = new Point(150, 192);
+        txtTrEndpoint.Location = new Point(150, 199);
         txtTrEndpoint.Name = "txtTrEndpoint";
         txtTrEndpoint.Size = new Size(390, 36);
         txtTrEndpoint.TabIndex = 5;
@@ -927,7 +939,7 @@ partial class SettingsForm
         // lblTrModel
         // 
         lblTrModel.BackColor = Color.Transparent;
-        lblTrModel.Location = new Point(40, 245);
+        lblTrModel.Location = new Point(40, 292);
         lblTrModel.Name = "lblTrModel";
         lblTrModel.Size = new Size(100, 30);
         lblTrModel.TabIndex = 6;
@@ -935,7 +947,7 @@ partial class SettingsForm
         // 
         // txtTrModel
         // 
-        txtTrModel.Location = new Point(150, 242);
+        txtTrModel.Location = new Point(150, 289);
         txtTrModel.Name = "txtTrModel";
         txtTrModel.Size = new Size(390, 36);
         txtTrModel.TabIndex = 7;
@@ -943,7 +955,7 @@ partial class SettingsForm
         // lblTrConcurrency
         // 
         lblTrConcurrency.BackColor = Color.Transparent;
-        lblTrConcurrency.Location = new Point(40, 295);
+        lblTrConcurrency.Location = new Point(40, 337);
         lblTrConcurrency.Name = "lblTrConcurrency";
         lblTrConcurrency.Size = new Size(100, 30);
         lblTrConcurrency.TabIndex = 8;
@@ -951,7 +963,7 @@ partial class SettingsForm
         // 
         // numTrConcurrency
         // 
-        numTrConcurrency.Location = new Point(150, 292);
+        numTrConcurrency.Location = new Point(150, 334);
         numTrConcurrency.Name = "numTrConcurrency";
         numTrConcurrency.Size = new Size(390, 36);
         numTrConcurrency.TabIndex = 9;
@@ -962,7 +974,7 @@ partial class SettingsForm
         // btnTestTrConnection
         // 
         btnTestTrConnection.IconSvg = "ApiOutlined";
-        btnTestTrConnection.Location = new Point(150, 345);
+        btnTestTrConnection.Location = new Point(150, 382);
         btnTestTrConnection.Name = "btnTestTrConnection";
         btnTestTrConnection.Size = new Size(140, 36);
         btnTestTrConnection.TabIndex = 10;
@@ -971,16 +983,49 @@ partial class SettingsForm
         // lblTrStatus
         // 
         lblTrStatus.BackColor = Color.Transparent;
-        lblTrStatus.Location = new Point(40, 395);
+        lblTrStatus.Location = new Point(40, 424);
         lblTrStatus.Name = "lblTrStatus";
-        lblTrStatus.Size = new Size(620, 50);
+        lblTrStatus.Size = new Size(620, 36);
         lblTrStatus.TabIndex = 11;
         lblTrStatus.Text = "(未測試)";
+        //
+        // lblTrProvider
+        //
+        lblTrProvider.BackColor = Color.Transparent;
+        lblTrProvider.Location = new Point(40, 112);
+        lblTrProvider.Name = "lblTrProvider";
+        lblTrProvider.Size = new Size(100, 30);
+        lblTrProvider.TabIndex = 15;
+        lblTrProvider.Text = "服務商：";
+        //
+        // selectTrProvider
+        //
+        selectTrProvider.Location = new Point(150, 109);
+        selectTrProvider.Name = "selectTrProvider";
+        selectTrProvider.Size = new Size(390, 36);
+        selectTrProvider.TabIndex = 16;
+        //
+        // lblTrApiKey
+        //
+        lblTrApiKey.BackColor = Color.Transparent;
+        lblTrApiKey.Location = new Point(40, 247);
+        lblTrApiKey.Name = "lblTrApiKey";
+        lblTrApiKey.Size = new Size(100, 30);
+        lblTrApiKey.TabIndex = 17;
+        lblTrApiKey.Text = "API 金鑰：";
+        //
+        // txtTrApiKey
+        //
+        txtTrApiKey.Location = new Point(150, 244);
+        txtTrApiKey.Name = "txtTrApiKey";
+        txtTrApiKey.Size = new Size(390, 36);
+        txtTrApiKey.TabIndex = 18;
+        txtTrApiKey.UseSystemPasswordChar = true;
         //
         // lblPreciseErase
         //
         lblPreciseErase.BackColor = Color.Transparent;
-        lblPreciseErase.Location = new Point(40, 462);
+        lblPreciseErase.Location = new Point(40, 468);
         lblPreciseErase.Name = "lblPreciseErase";
         lblPreciseErase.Size = new Size(150, 30);
         lblPreciseErase.TabIndex = 12;
@@ -988,7 +1033,7 @@ partial class SettingsForm
         //
         // swPreciseErase
         //
-        swPreciseErase.Location = new Point(160, 464);
+        swPreciseErase.Location = new Point(160, 470);
         swPreciseErase.Name = "swPreciseErase";
         swPreciseErase.Size = new Size(44, 24);
         swPreciseErase.TabIndex = 13;
@@ -996,7 +1041,7 @@ partial class SettingsForm
         // lblPreciseEraseHint
         //
         lblPreciseEraseHint.BackColor = Color.Transparent;
-        lblPreciseEraseHint.Location = new Point(40, 496);
+        lblPreciseEraseHint.Location = new Point(40, 500);
         lblPreciseEraseHint.Name = "lblPreciseEraseHint";
         lblPreciseEraseHint.Size = new Size(620, 28);
         lblPreciseEraseHint.TabIndex = 14;

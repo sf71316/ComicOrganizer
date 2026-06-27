@@ -101,6 +101,9 @@ public class AppConfig
     /// <summary>AI 翻譯併發數量限制，預設為 1</summary>
     public int TranslationMaxConcurrency { get; set; } = 1;
 
+    /// <summary>AI 翻譯 API 金鑰（DPAPI 密文）。雲端 OpenAI 相容端點以 Authorization: Bearer 帶上；空=免認證(本地端)。</summary>
+    public string TranslationApiKeyProtected { get; set; } = "";
+
     /// <summary>OCR 引擎類型 (0 = WindowsNativeOcr, 1 = PaddleOcr)</summary>
     public int OcrEngineType { get; set; } = 0;
 
