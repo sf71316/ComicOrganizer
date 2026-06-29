@@ -380,19 +380,39 @@ public partial class ReaderForm : Window, IThemedControl
 		base.FormClosing += delegate
 		{
 			SaveProgress();
-			// 先停譯文 worker(會讀 _cache/_source/_ocrService/_maskProvider) → 再釋放那些資源，避免 race。
+			// UI thread 只做輕量收尾：停 timer(WinForms Timer 不宜跨執行緒釋放)、發取消信號，
+			// 隨即返回讓視窗立即消失。重量級釋放(等 worker 停 + ONNX/PaddleOCR native dispose ≈ 1 秒)丟背景。
+			try { _recordCheckTimer.Stop(); _recordCheckTimer.Dispose(); } catch { }
+			try { _scrollDebounce.Stop(); _scrollDebounce.Dispose(); } catch { }
 			try { _queueCts?.Cancel(); } catch { }
-			try { if (_workerTasks.Count > 0) Task.WaitAll(_workerTasks.ToArray(), 1500); } catch { }
-			DisposeAllPages();
-			// OCR/mask 引擎 dispose 集中在 OnFormClosed(此時 worker 已停)。
-			try
+
+			// 物件仍被欄位參照，背景釋放安全；依序：等 worker 停 → 釋圖快取/_source → 釋 OCR/mask/翻譯引擎。
+			var workers = _workerTasks.ToArray();
+			var cts = _queueCts;
+			var sem = _llmSemaphore;
+			var mask = _maskProvider;
+			var ocr = _ocrService;
+			var trans = _translationService;
+			System.Threading.Tasks.Task.Run(delegate
 			{
-				_queueCts?.Dispose();
-				_llmSemaphore?.Dispose();
-			}
-			catch
-			{
-			}
+				try { if (workers.Length > 0) Task.WaitAll(workers, 5000); } catch { }
+				try { DisposeAllPages(); } catch { }
+				try
+				{
+					lock (_translationLock)
+					{
+						foreach (var b in _erasedPageCache.Values) b?.Dispose();
+						_erasedPageCache.Clear();
+						_translatedPageCache.Clear();
+						_envelopeCache.Clear();
+					}
+				}
+				catch { }
+				(mask as System.IDisposable)?.Dispose();   // ComicTextDetector ONNX session + DirectML GPU
+				(ocr as System.IDisposable)?.Dispose();      // PaddleOCR 引擎 native 模型記憶體
+				(trans as System.IDisposable)?.Dispose();
+				try { cts?.Dispose(); sem?.Dispose(); } catch { }
+			});
 		};
 		scrollHost.Resize += delegate
 		{
@@ -1353,10 +1373,7 @@ public partial class ReaderForm : Window, IThemedControl
 
 	private void DisposeAllPages()
 	{
-		_recordCheckTimer.Stop();
-		_recordCheckTimer.Dispose();
-		_scrollDebounce.Stop();
-		_scrollDebounce.Dispose();
+		// 注意：timer 已在 FormClosing(UI thread) 停止/釋放，此處不再碰(本方法現於背景執行緒呼叫)。
 		_leftImage = null;
 		_rightImage = null;
 		lock (_cacheLock)
@@ -2297,18 +2314,9 @@ public partial class ReaderForm : Window, IThemedControl
 	protected override void OnFormClosed(FormClosedEventArgs e)
 	{
 		base.OnFormClosed(e);
-		lock (_translationLock)
-		{
-			foreach (var b in _erasedPageCache.Values) b?.Dispose();
-			_erasedPageCache.Clear();
-			_translatedPageCache.Clear();
-			_envelopeCache.Clear();
-		}
-		(_maskProvider as System.IDisposable)?.Dispose();   // ComicTextDetector ONNX session + DirectML GPU
-		(_ocrService as System.IDisposable)?.Dispose();      // PaddleOCR 引擎 native 模型記憶體（之前完全沒釋放）
-		(_translationService as System.IDisposable)?.Dispose();
-		// 殘留 ~500MB 是 native 配置器(ONNX/DirectML/PaddleOCR/Skia)的記憶體池保留 → 反覆開關穩定不長(可重用、非洩漏)，
-		// GC 管不到 native、主動 GC.Collect 實測無效故不做。
+		// 譯文快取/OCR/mask/翻譯引擎的釋放已搬到 FormClosing 的背景任務(等 worker 停後序列釋放)，
+		// 讓視窗能立即消失、不卡 UI thread ~1 秒。此處不再重複 dispose，避免雙重釋放 race。
+		// 殘留 ~500MB 是 native 配置器(ONNX/DirectML/PaddleOCR/Skia)的記憶體池保留 → 反覆開關穩定不長(可重用、非洩漏)。
 	}
 
 	// 取樣抹除後氣泡中央區的亮度，判斷是否黑底氣泡（→ 譯文畫白字）。座標為原圖座標。
