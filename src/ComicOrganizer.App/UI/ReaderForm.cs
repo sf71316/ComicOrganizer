@@ -470,8 +470,13 @@ public partial class ReaderForm : Window, IThemedControl
 
 	private void OnContentMouseWheel(object? sender, MouseEventArgs e)
 	{
+		// handler 同時掛在 scrollHost/picPage/_skCanvas；子控件處理 wheel 後若不標記 Handled，
+		// WinForms 會把 WM_MOUSEWHEEL 往父層 scrollHost 傳 → 同刻度觸發兩次 → 翻兩頁(跳頁)。
+		// 故在「實際處理」的分支標記 Handled 阻止上傳；zoomed 非連續的 fall-through 不標記，保留 AutoScroll 捲動。
+		var he = e as HandledMouseEventArgs;
 		if ((Control.ModifierKeys & Keys.Control) != Keys.None)
 		{
+			if (he != null) he.Handled = true;
 			if (IsContinuous && _layout != null)
 			{
 				int num = ((e.Delta > 0) ? 5 : (-5));
@@ -485,14 +490,14 @@ public partial class ReaderForm : Window, IThemedControl
 		}
 		else if (IsContinuous)
 		{
+			if (he != null) he.Handled = true;
 			int y = _virtualScrollY - e.Delta;
 			ScrollContinuousTo(y);
 		}
 		else if (_zoomMode == ReaderZoomMode.FitPage)
 		{
-			// 累積 delta、每滿一個刻度(WHEEL_DELTA=120)才翻一頁。高解析/平滑滾輪一個實體刻度會送出
-			// 多個小 delta 事件，舊版「每事件翻一頁」→ 一刻度翻多頁(跳頁)；累積法對一般與高解析滑鼠都正確，
-			// 也免時間防抖(GPU/GDI+ 通用、快撥仍順)。
+			if (he != null) he.Handled = true;
+			// 累積 delta、每滿一個刻度(WHEEL_DELTA=120)才翻一頁(防高解析滑鼠一刻度多 delta 事件跳頁)。
 			_wheelAccum += e.Delta;
 			while (_wheelAccum >= 120) { _wheelAccum -= 120; StepSpread(-1); }
 			while (_wheelAccum <= -120) { _wheelAccum += 120; StepSpread(1); }
