@@ -43,7 +43,26 @@ public sealed class ComicTextDetector : ITextMaskProvider, IDisposable
         lock (_lock)
         {
             if (_session != null) return _session;
-            try { _session = new InferenceSession(_modelPath); }
+            // 先試 DirectML(GPU)：CPU 推論此模型 ~50~80s，GPU 通常 <2s。
+            // DML EP 要求關 memory pattern + 循序執行。失敗(無 DX12/驅動)退回 CPU。
+            try
+            {
+                var so = new SessionOptions
+                {
+                    GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
+                    EnableMemoryPattern = false,
+                    ExecutionMode = ExecutionMode.ORT_SEQUENTIAL,
+                };
+                so.AppendExecutionProvider_DML(0);
+                _session = new InferenceSession(_modelPath, so);
+                System.Diagnostics.Debug.WriteLine("[CTD] InferenceSession on DirectML(GPU) EP");
+                return _session;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[CTD] DirectML init failed → CPU fallback: {ex.Message}");
+            }
+            try { _session = new InferenceSession(_modelPath); System.Diagnostics.Debug.WriteLine("[CTD] InferenceSession on CPU EP"); }
             catch { _initFailed = true; return null; }
             return _session;
         }
