@@ -2312,17 +2312,8 @@ public partial class ReaderForm : Window, IThemedControl
 		(_maskProvider as System.IDisposable)?.Dispose();   // ComicTextDetector ONNX session + DirectML GPU
 		(_ocrService as System.IDisposable)?.Dispose();      // PaddleOCR 引擎 native 模型記憶體（之前完全沒釋放）
 		(_translationService as System.IDisposable)?.Dispose();
-
-		// 翻譯瀏覽在 LOH 累積大量暫存(每頁存 PNG byte[] 給 OCR 等)，GC 預設不壓縮 LOH → 工作集撐住不還 OS。
-		// 關閉閱讀器是明確的「釋放」時機，主動壓縮 LOH + 回收把記憶體還回去(一次性、非熱路徑)。
-		try
-		{
-			System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
-			GC.Collect();
-			GC.WaitForPendingFinalizers();
-			GC.Collect();
-		}
-		catch { }
+		// 殘留 ~500MB 是 native 配置器(ONNX/DirectML/PaddleOCR/Skia)的記憶體池保留 → 反覆開關穩定不長(可重用、非洩漏)，
+		// GC 管不到 native、主動 GC.Collect 實測無效故不做。
 	}
 
 	// 取樣抹除後氣泡中央區的亮度，判斷是否黑底氣泡（→ 譯文畫白字）。座標為原圖座標。
