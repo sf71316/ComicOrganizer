@@ -380,10 +380,13 @@ public partial class ReaderForm : Window, IThemedControl
 		base.FormClosing += delegate
 		{
 			SaveProgress();
+			// 先停譯文 worker(會讀 _cache/_source/_ocrService/_maskProvider) → 再釋放那些資源，避免 race。
+			try { _queueCts?.Cancel(); } catch { }
+			try { if (_workerTasks.Count > 0) Task.WaitAll(_workerTasks.ToArray(), 1500); } catch { }
 			DisposeAllPages();
+			// OCR/mask 引擎 dispose 集中在 OnFormClosed(此時 worker 已停)。
 			try
 			{
-				_queueCts?.Cancel();
 				_queueCts?.Dispose();
 				_llmSemaphore?.Dispose();
 			}
@@ -2303,9 +2306,23 @@ public partial class ReaderForm : Window, IThemedControl
 		{
 			foreach (var b in _erasedPageCache.Values) b?.Dispose();
 			_erasedPageCache.Clear();
+			_translatedPageCache.Clear();
 			_envelopeCache.Clear();
 		}
-		(_maskProvider as System.IDisposable)?.Dispose();
+		(_maskProvider as System.IDisposable)?.Dispose();   // ComicTextDetector ONNX session + DirectML GPU
+		(_ocrService as System.IDisposable)?.Dispose();      // PaddleOCR 引擎 native 模型記憶體（之前完全沒釋放）
+		(_translationService as System.IDisposable)?.Dispose();
+
+		// 翻譯瀏覽在 LOH 累積大量暫存(每頁存 PNG byte[] 給 OCR 等)，GC 預設不壓縮 LOH → 工作集撐住不還 OS。
+		// 關閉閱讀器是明確的「釋放」時機，主動壓縮 LOH + 回收把記憶體還回去(一次性、非熱路徑)。
+		try
+		{
+			System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+			GC.Collect();
+			GC.WaitForPendingFinalizers();
+			GC.Collect();
+		}
+		catch { }
 	}
 
 	// 取樣抹除後氣泡中央區的亮度，判斷是否黑底氣泡（→ 譯文畫白字）。座標為原圖座標。

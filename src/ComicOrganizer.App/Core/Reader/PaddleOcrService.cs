@@ -10,12 +10,23 @@ using SharpCompress.Archives;
 
 namespace ComicOrganizer.App.Core;
 
-public class PaddleOcrService : IOcrService
+public class PaddleOcrService : IOcrService, IDisposable
 {
     private PaddleOCREngine? _engine;
     private readonly object _lock = new object();
     private readonly HttpClient _httpClient = new HttpClient();
     private readonly string _inferenceDir;
+
+    /// <summary>釋放 PaddleOCR 引擎(native 模型記憶體)。在 _lock 內處理 → 與 RecognizeAsync 的 DetectText 序列化、不衝突。</summary>
+    public void Dispose()
+    {
+        lock (_lock)
+        {
+            _engine?.Dispose();
+            _engine = null;
+        }
+        _httpClient.Dispose();
+    }
 
     /// <summary>inferenceDir 預設為 exe 同層的 inference/；測試可指向 App bin 的模型目錄。</summary>
     public PaddleOcrService(string? inferenceDir = null)
