@@ -2054,11 +2054,11 @@ public partial class ReaderForm : Window, IThemedControl
 				{
 					try
 					{
-						var maskSw = Stopwatch.StartNew(); var maskArr = _maskProvider.GetTextMask(pageBmp, mergedBlocks); maskSw.Stop();
+						var maskArr = _maskProvider.GetTextMask(pageBmp, mergedBlocks);
 						if (maskArr != null)
 						{
 							GateMaskToTranslatedBlocks(maskArr, pageBmp.Width, pageBmp.Height, mergedBlocks);
-							var eraseSw = Stopwatch.StartNew(); Bitmap erased = TextEraser.Erase(pageBmp, maskArr); eraseSw.Stop(); Debug.WriteLine($"[Mask] page {pageIndex} GetTextMask={maskSw.ElapsedMilliseconds}ms Erase={eraseSw.ElapsedMilliseconds}ms");
+							Bitmap erased = TextEraser.Erase(pageBmp, maskArr);
 							lock (_translationLock)
 							{
 								if (_erasedPageCache.TryGetValue(pageIndex, out var oldEr)) { if (oldEr != null) DropScaled(oldEr); oldEr?.Dispose(); }

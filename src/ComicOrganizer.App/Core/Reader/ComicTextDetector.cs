@@ -82,7 +82,6 @@ public sealed class ComicTextDetector : ITextMaskProvider, IDisposable
         int nw = (int)Math.Round(W * scale), nh = (int)Math.Round(H * scale);
         int padx = (S - nw) / 2, pady = (S - nh) / 2;
 
-        var preSw = System.Diagnostics.Stopwatch.StartNew();
         // [1,3,S,S] 連續記憶體 → 直接寫 Buffer.Span(線性索引)，避開 tensor[a,b,c,d] 多維索引每次 new int[4] 的配置風暴。
         var input = new DenseTensor<float>(new[] { 1, 3, S, S });
         var ispan = input.Buffer.Span;
@@ -111,14 +110,10 @@ public sealed class ComicTextDetector : ITextMaskProvider, IDisposable
                 }
             }
         }
-        preSw.Stop();
 
         byte[] mask = new byte[W * H];
-        var runSw = System.Diagnostics.Stopwatch.StartNew();
         using (var results = session.Run(new[] { NamedOnnxValue.CreateFromTensor("images", input) }))
         {
-            runSw.Stop();
-            var postSw = System.Diagnostics.Stopwatch.StartNew();
             // seg [1,1,S,S] → 取連續陣列一次，後處理線性索引(同樣避開多維索引配置)。
             float[] seg = results.First(r => r.Name == "seg").AsTensor<float>().ToArray();
             for (int oy = 0; oy < H; oy++)
@@ -131,12 +126,7 @@ public sealed class ComicTextDetector : ITextMaskProvider, IDisposable
                     if (seg[cy * S + cx] > threshold) mask[orow + ox] = 1;
                 }
             }
-            postSw.Stop();
-            var dilSw = System.Diagnostics.Stopwatch.StartNew();
-            var outMask = dilate > 0 ? DilateMask(mask, W, H, dilate) : mask;
-            dilSw.Stop();
-            System.Diagnostics.Debug.WriteLine($"[CTD] {W}x{H} pre={preSw.ElapsedMilliseconds}ms run={runSw.ElapsedMilliseconds}ms post={postSw.ElapsedMilliseconds}ms dilate={dilSw.ElapsedMilliseconds}ms");
-            return outMask;
+            return dilate > 0 ? DilateMask(mask, W, H, dilate) : mask;
         }
     }
 
