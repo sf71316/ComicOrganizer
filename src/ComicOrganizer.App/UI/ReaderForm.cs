@@ -158,7 +158,7 @@ public partial class ReaderForm : Window, IThemedControl
 
 	private FormWindowState _prevWindowState;
 
-	private DateTime _lastWheelPageTurnTime = DateTime.MinValue;
+	private int _wheelAccum;   // 滾輪 delta 累積，每滿 WHEEL_DELTA(120) 翻一頁，防高解析滑鼠跳頁
 
 	private bool _isFullscreen;
 
@@ -490,22 +490,12 @@ public partial class ReaderForm : Window, IThemedControl
 		}
 		else if (_zoomMode == ReaderZoomMode.FitPage)
 		{
-			// 滾輪翻頁防抖：限制最小間隔 150 毫秒，避免滾輪過快或多重觸發導致跳頁。
-			// GPU 模式翻頁極輕量(預載命中即畫) → 略過防抖，對齊 PoC 快撥手感。
-			if (!UseGpuNow && (DateTime.Now - _lastWheelPageTurnTime).TotalMilliseconds < 150)
-			{
-				return;
-			}
-			_lastWheelPageTurnTime = DateTime.Now;
-
-			if (e.Delta > 0)
-			{
-				StepSpread(-1);
-			}
-			else
-			{
-				StepSpread(1);
-			}
+			// 累積 delta、每滿一個刻度(WHEEL_DELTA=120)才翻一頁。高解析/平滑滾輪一個實體刻度會送出
+			// 多個小 delta 事件，舊版「每事件翻一頁」→ 一刻度翻多頁(跳頁)；累積法對一般與高解析滑鼠都正確，
+			// 也免時間防抖(GPU/GDI+ 通用、快撥仍順)。
+			_wheelAccum += e.Delta;
+			while (_wheelAccum >= 120) { _wheelAccum -= 120; StepSpread(-1); }
+			while (_wheelAccum <= -120) { _wheelAccum += 120; StepSpread(1); }
 		}
 	}
 
