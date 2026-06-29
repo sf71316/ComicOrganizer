@@ -63,7 +63,11 @@ public sealed class ComicTextDetector : ITextMaskProvider, IDisposable
         int nw = (int)Math.Round(W * scale), nh = (int)Math.Round(H * scale);
         int padx = (S - nw) / 2, pady = (S - nh) / 2;
 
+        var preSw = System.Diagnostics.Stopwatch.StartNew();
+        // [1,3,S,S] 連續記憶體 → 直接寫 Buffer.Span(線性索引)，避開 tensor[a,b,c,d] 多維索引每次 new int[4] 的配置風暴。
         var input = new DenseTensor<float>(new[] { 1, 3, S, S });
+        var ispan = input.Buffer.Span;
+        const int plane = S * S;
         using (var canvas = new Bitmap(S, S, PixelFormat.Format32bppArgb))
         {
             using (var g = Graphics.FromImage(canvas))
@@ -77,29 +81,44 @@ public sealed class ComicTextDetector : ITextMaskProvider, IDisposable
             Marshal.Copy(cd.Scan0, cb, 0, cb.Length);
             canvas.UnlockBits(cd);
             for (int y = 0; y < S; y++)
+            {
+                int row = y * cd.Stride, orow = y * S;
                 for (int x = 0; x < S; x++)
                 {
-                    int o = y * cd.Stride + x * 4;
-                    input[0, 0, y, x] = cb[o + 2] / 255f; // R
-                    input[0, 1, y, x] = cb[o + 1] / 255f; // G
-                    input[0, 2, y, x] = cb[o] / 255f;     // B
+                    int o = row + x * 4, p = orow + x;
+                    ispan[p] = cb[o + 2] / 255f;             // R 平面
+                    ispan[plane + p] = cb[o + 1] / 255f;     // G 平面
+                    ispan[2 * plane + p] = cb[o] / 255f;     // B 平面
                 }
+            }
         }
+        preSw.Stop();
 
         byte[] mask = new byte[W * H];
+        var runSw = System.Diagnostics.Stopwatch.StartNew();
         using (var results = session.Run(new[] { NamedOnnxValue.CreateFromTensor("images", input) }))
         {
-            var seg = results.First(r => r.Name == "seg").AsTensor<float>();
+            runSw.Stop();
+            var postSw = System.Diagnostics.Stopwatch.StartNew();
+            // seg [1,1,S,S] → 取連續陣列一次，後處理線性索引(同樣避開多維索引配置)。
+            float[] seg = results.First(r => r.Name == "seg").AsTensor<float>().ToArray();
             for (int oy = 0; oy < H; oy++)
+            {
+                int orow = oy * W;
                 for (int ox = 0; ox < W; ox++)
                 {
                     int cx = (int)Math.Round(ox * scale) + padx, cy = (int)Math.Round(oy * scale) + pady;
                     if (cx < 0 || cy < 0 || cx >= S || cy >= S) continue;
-                    if (seg[0, 0, cy, cx] > threshold) mask[oy * W + ox] = 1;
+                    if (seg[cy * S + cx] > threshold) mask[orow + ox] = 1;
                 }
+            }
+            postSw.Stop();
+            var dilSw = System.Diagnostics.Stopwatch.StartNew();
+            var outMask = dilate > 0 ? DilateMask(mask, W, H, dilate) : mask;
+            dilSw.Stop();
+            System.Diagnostics.Debug.WriteLine($"[CTD] {W}x{H} pre={preSw.ElapsedMilliseconds}ms run={runSw.ElapsedMilliseconds}ms post={postSw.ElapsedMilliseconds}ms dilate={dilSw.ElapsedMilliseconds}ms");
+            return outMask;
         }
-
-        return dilate > 0 ? DilateMask(mask, W, H, dilate) : mask;
     }
 
     private static byte[] DilateMask(byte[] m, int W, int H, int d)
