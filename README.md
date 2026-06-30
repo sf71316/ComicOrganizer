@@ -1,40 +1,69 @@
 # ComicOrganizer
 
-漫畫 / 圖集 自動整理工具，C# WinForms 應用程式。智慧封面提取、模糊匹配自動歸檔、自我學習關鍵字對應目錄。
+本地**漫畫 / 圖集庫管理器**，C# WinForms 應用程式。從早期的「自動歸檔工具」長成完整的本地漫畫庫：智慧封面提取、模糊匹配自動歸檔、自我學習關鍵字對應目錄、SQLite metadata catalog 與縮圖快取、檔名 metadata 解析、nhentai 外部 metadata 同步、EhTag 標籤翻譯、內建閱讀器（OCR + LLM 翻譯）、搜尋 DSL 與虛擬庫。
 
 ## 功能特色
 
 ### 漫畫庫管理
-- 樹狀目錄瀏覽（左側 TreeView）+ 多分頁卡片瀏覽（右側 Tabs）
-- 三種卡片尺寸（小 / 中 / 大）+ 列表模式四種檢視，**每個 Tab 獨立模式**
-- 智慧封面提取：資料夾首圖 / `cover.*` 命名 / `.zip` `.cbz` 內首圖（受 `MaxScanDepth` 控制遞迴）
-- 列表模式 hover 顯示大圖預覽（floating popup，跟隨滑鼠）
-- 中鍵點擊 tree 節點開新分頁；右鍵選單支援另開分頁 / 重新整理
+- 樹狀導覽（Folder / 依作者 / 依標籤 / 我的庫 / 閱讀軌跡多模式）+ 多分頁卡片瀏覽
+- 三種卡片尺寸（小 / 中 / 大）+ 列表模式，**每個 Tab 獨立檢視模式**
+- 智慧封面提取：資料夾首圖 / `cover.*` 命名 / 壓縮檔（zip/cbz/rar/7z，走 SharpCompress）內首圖（受 `MaxScanDepth` 控制遞迴）
+- 列表模式 hover 大圖預覽（floating popup，跟隨滑鼠）
+- 右側詳情抽屜：作品資訊 / 作者資訊面板
 - 支援 WebP（透過 SixLabors.ImageSharp，補 GDI+ 不認 webp 的洞）
 
 ### 自動歸檔
 - 兩階段比對：
-  1. 自我學習關鍵字 → 目錄表（`MappingIntelligence`）
+  1. 自我學習關鍵字 → 目錄表（`MappingIntelligence`，持久化於 `mappings.json`）
   2. 否則用 `FuzzySharp.WeightedRatio` + 智能加權（完全包含 95、關鍵字命中 90）
 - 黑名單規則排除雜訊（"DL版"、"AI Generated"、Comic Market 編號 `C\d{2,3}` 等）
-- 預覽介面分群顯示（依目標目錄）+ 信心分數排序，使用者確認後才搬檔
+- 預覽介面分群顯示（依目標目錄）+ 信心分數排序，使用者確認後才搬檔（支援跨磁碟卷移動）
 - 「使用者確認的成功移動」進入學習庫，下次更聰明
 
+### Metadata / Catalog
+- SQLite metadata catalog（`cache.db`，Dapper + Microsoft.Data.Sqlite）+ 縮圖快取（`thumbs/`）
+- 檔名 / 資料夾名 metadata 解析（event / author / title / parody / language / 翻譯組）
+- 資料夾層級角色推測（Root / Author / Series / Work / Chapter / Image）
+- 完整重建索引 / 增量對帳（偵測新增・刪除・移動）/ 規則變更後重解析
+- nhentai 外部 metadata 同步（單本 / 作者批量，原始回應入庫避免重複呼叫，DPAPI 加密 API key）
+- EhTag 標籤翻譯（nhentai type/slug → 中文，簡體經 OpenCC 轉繁；背景檢查 GitHub release 更新）
+
+### 內建閱讀器
+- 來源：資料夾 / 壓縮檔（rar/7z，SharpCompress）/ PDF（PDFtoImage）
+- 單頁 / 雙頁 / 連續捲軸（RTL/LTR）版面、書籤、閱讀進度與計數
+- LRU + 鄰頁預載、壓縮檔背景預解、雙緩衝繪製
+- **可選 SkiaSharp / GPU（OpenGL）渲染**（並存於 GDI+，設定開關切換、GL 失敗自動退回）
+- **OCR → 翻譯 → 重繪管線**：
+  - OCR：PaddleOCR（離線）/ Windows 原生 OCR，可動態切換
+  - 翻譯：LLM（OpenAI-compatible / Ollama / Gemini / OpenRouter）日譯繁中
+  - 精準抹除原文：comic-text-detector ONNX 像素級文字遮罩（DirectML GPU 推論）
+  - flood-fill 量氣泡輪廓自排版、直排避免詞中斷行、內嵌獅尾黑體
+
+### 搜尋 / 虛擬庫
+- 搜尋 DSL：`artist:` / `tag:` / `language:` / `read:` 欄位、`-` 否定，未知 field 退化純文字
+- 使用者存的 DSL query → 動態虛擬庫，結果即時跑不快取
+
 ### 系統設定
-- Light / Dark / System 三主題切換（即時生效）
-- 多語介面（繁中 / English）
+- Light / Dark / System 三主題切換（即時生效）+ 多語介面（繁中 / English）
 - 路徑設定 + 外部圖片瀏覽器 + 啟動參數模板（`{path}` 佔位符）
-- `MaxScanDepth` 控制封面遞迴深度
+- 閱讀器設定（OCR 引擎、翻譯端點、GPU 渲染開關等）
+- 敏感值（nhentai key）以 Windows DPAPI（CurrentUser）加密儲存
 
 ## 技術堆疊
 
 | 類別 | 套件 / 技術 |
 |---|---|
-| Runtime | .NET 8 (`net8.0-windows7.0`) |
-| UI 框架 | WinForms + [AntdUI 2.3.11](https://github.com/AntdUI/AntdUI)（Ant Design 風格元件庫）|
-| 圖檔解碼 | System.Drawing.Common + SixLabors.ImageSharp（WebP 支援）|
+| Runtime | .NET 8（`net8.0-windows10.0.19041.0`，僅 Windows）|
+| UI 框架 | WinForms + [AntdUI 2.3.12](https://github.com/AntdUI/AntdUI)（Ant Design 風格元件庫）|
+| 圖檔解碼 | System.Drawing.Common + SixLabors.ImageSharp（WebP）|
+| GPU 渲染 | SkiaSharp + SkiaSharp.Views.WindowsForms（OpenGL，可選）|
+| 資料庫 | SQLite（Microsoft.Data.Sqlite + Dapper）|
+| 壓縮檔 | SharpCompress（ZIP/CBZ/RAR/7z）|
+| PDF | PDFtoImage |
+| OCR | PaddleOCRSharp + Paddle.Runtime.win_x64 / Windows 原生 OCR |
+| 文字遮罩 | comic-text-detector（ONNX，Microsoft.ML.OnnxRuntime.DirectML）|
+| 簡繁轉換 | OpenCCNET |
 | 模糊比對 | FuzzySharp |
-| 壓縮檔 | System.IO.Compression（ZIP/CBZ）|
 | 測試 | xUnit |
 
 ## 建置與執行
@@ -51,9 +80,12 @@ dotnet test src/ComicOrganizer.Tests/ComicOrganizer.Tests.csproj
 
 # 執行單一測試（依方法名）
 dotnet test src/ComicOrganizer.Tests/ComicOrganizer.Tests.csproj --filter "FullyQualifiedName~Test_JapaneseAuthorLearning_ShouldWork"
+
+# Release 發行（單一 exe，framework-dependent，需目標機有 .NET 8 runtime）
+dotnet publish src/ComicOrganizer.App/ComicOrganizer.App.csproj -c Release
 ```
 
-> ⚠️ 目標 framework `net8.0-windows`（WinForms），只能在 **Windows** 上 build / run。
+> ⚠️ 目標 framework `net8.0-windows10.0.19041.0`（WinForms + Windows 10 SDK API，如原生 OCR），只能在 **Windows** 上 build / run。
 
 ## 專案結構
 
@@ -61,49 +93,60 @@ dotnet test src/ComicOrganizer.Tests/ComicOrganizer.Tests.csproj --filter "Fully
 src/
 ├── ComicOrganizer.slnx
 ├── ComicOrganizer.App/
-│   ├── Core/                     # 核心邏輯
-│   │   ├── ConfigManager.cs       # JSON 設定持久化
-│   │   ├── MappingIntelligence.cs # 學習庫（mappings.json）
-│   │   ├── ArchiveOrganizer.cs    # 兩階段比對 + 智能評分
-│   │   ├── CoverManager.cs        # 封面提取（資料夾/zip/單檔）
-│   │   ├── ThemeManager.cs        # 主題切換廣播
-│   │   ├── ThemeColors.cs         # 主題色 token
-│   │   ├── LocalizationManager.cs # 多語管理
-│   │   └── IThemedControl.cs      # 主題/i18n 自管 interface
-│   ├── Models/                    # 資料模型
+│   ├── Core/
+│   │   ├── ArchiveOrganizer.cs        # 兩階段比對 + 智能評分
+│   │   ├── MappingIntelligence.cs     # 學習庫（mappings.json）
+│   │   ├── CoverManager.cs            # 封面提取（資料夾/壓縮檔/單檔）
+│   │   ├── FilenameMetadataParser.cs  # 檔名 metadata 解析
+│   │   ├── FolderRoleDetector.cs      # 資料夾層級角色推測
+│   │   ├── SqliteAssetMetaStore.cs    # cache.db catalog（Dapper）
+│   │   ├── Settings/                  # ConfigManager / 偏好 / DPAPI 加密
+│   │   ├── Cache/                     # 縮圖庫 / 背景寫入 / 重建・對帳服務
+│   │   ├── Reader/                    # 閱讀器來源 / OCR / 翻譯 / 文字遮罩 / 排版
+│   │   ├── Translation/               # EhTag 標籤翻譯
+│   │   ├── ExternalSync/              # nhentai metadata 整合
+│   │   ├── Search/                    # 搜尋 DSL parser / executor
+│   │   ├── VirtualLibrary/            # 動態虛擬庫
+│   │   └── Theming/                   # 主題 / 多語 / IThemedControl
+│   ├── Models/                        # AppConfig / UserPreferences / 資料模型
 │   ├── UI/
-│   │   ├── MainForm.*             # 主視窗
-│   │   ├── GalleryControl.*       # 漫畫庫管理（左 Tree + 右 Tabs）
-│   │   ├── ArchiveControl.*       # 自動歸檔
-│   │   ├── PreviewForm.*          # 歸檔預覽 + 確認
-│   │   ├── SettingsForm.*         # 設定
-│   │   ├── ComicCardControl.*     # 漫畫卡片（含 hover 工具列、tooltip）
-│   │   └── BufferedFlowLayoutPanel.cs   # FlowLayoutPanel 加 DoubleBuffer
-│   └── Properties/
-│       ├── Resources.resx         # 預設資源
-│       ├── Resources.zh-TW.resx   # 繁中
-│       └── Resources.en-US.resx   # English
-└── ComicOrganizer.Tests/
-    ├── SelfLearningTests.cs       # 自我學習回歸測試
-    ├── PersistenceTests.cs        # 學習庫存取
-    ├── RealDataHybridTest.cs      # 兩階段學習驗證
-    └── FullRealDataBatchTest.cs   # 大批量真實資料驗證
+│   │   ├── MainForm.*                 # 主視窗（menuStrip + contentHost）
+│   │   ├── UserControl/GalleryControl.*  # 漫畫庫管理（多 partial）
+│   │   ├── ArchiveControl.*           # 自動歸檔
+│   │   ├── MetadataManageControl.*    # 詮釋資料管理
+│   │   ├── ReaderForm.*               # 內建閱讀器（含 GPU partial）
+│   │   ├── SettingsForm.*             # 設定
+│   │   ├── PreviewForm.*              # 歸檔預覽 + 確認
+│   │   └── …（各式 dialog / picker）
+│   ├── Resources/                     # 翻譯庫 / 內嵌字體 / 繁體詞表
+│   └── Properties/                    # Resources.resx（zh-TW / en-US）
+└── ComicOrganizer.Tests/             # xUnit（歸檔・解析・快取・外部・翻譯・搜尋・閱讀器）
 ```
 
-## 設定檔
+## 資料持久化（皆在 exe 同層 `BaseDirectory`）
 
-| 檔案 | 預設位置 | 用途 |
-|---|---|---|
-| `appsettings.json` | `bin/.../appsettings.json` | 來源/根目錄、語言、主題、外部 viewer 等 |
-| `mappings.json` | App 工作目錄 | 學習得到的「關鍵字 → 目錄名」對應 |
+| 路徑 | 內容 |
+|---|---|
+| `appsettings.json` | `AppConfig`（路徑、外部 viewer、含 DPAPI 加密的 nhentai key）|
+| `preferences.json` | `UserPreferences`（主題 / 語言 / reader 偏好）|
+| `mappings.json` | 學習得到的「關鍵字 → 目錄名」對應 |
+| `cache.db` | SQLite metadata catalog（asset / metadata / author / tag / bookmark / 虛擬庫 / 外部來源…）|
+| `thumbs/` | 縮圖檔（雜湊命名）|
+| `translations/db.text.json.gz` | EhTag 翻譯庫 disk cache（無則用內嵌）|
+| `inference/` | PaddleOCR 模型檔、comic-text-detector ONNX |
 
 ## Roadmap
 
-- [ ] **封面 / 元資料快取庫**（SQLite + thumbnail files）大幅縮短重複進入目錄的載入時間
-- [ ] **FileSystemWatcher 增量更新**，不必整 lib 重掃
-- [ ] **作者階層識別**（多種庫結構模板 + FolderRoleLearner 學習庫）
-- [ ] **封面預繪 letterbox canvas**：載入後先繪到帶 letterbox bg 的固定尺寸 Bitmap，typeStrip overlay 完全融入背景；視覺最完整但實作較複雜
+- [ ] 歸檔衝突選擇介面
+- [ ] 歸檔 **Undo**
+- [ ] 搬檔前**空間檢查**
+- [ ] FileSystemWatcher 增量更新（不必整 lib 重掃）
 
 ## 授權
 
-私人專案。
+私人專案。內建閱讀器使用之第三方資源各自授權，且部分**僅限個人自用、不得散布**：
+
+- **comic-text-detector**（文字遮罩 ONNX 模型）— 原始碼 GPL-3.0；ONNX 重打包訓練自 Manga109-s，**僅限個人 / 學術用途，不得散布**。
+- **EhTagTranslation Database**（標籤翻譯庫）— CC BY-NC-SA 4.0。
+- **獅尾黑體 Medium**（譯文字體，思源黑體衍生）— SIL OFL 1.1。
+- **jieba-tw 繁體詞表**（避免詞中斷行）— MIT。
