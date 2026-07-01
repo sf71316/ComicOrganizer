@@ -144,9 +144,14 @@ src/
 
 ## 授權
 
-私人專案。內建閱讀器使用之第三方資源各自授權，且部分**僅限個人自用、不得散布**：
+本專案採 **[PolyForm Noncommercial License 1.0.0](LICENSE)** —— 可自由用於**個人、非商業**用途（使用 / 複製 / 散布 / 修改），但**不授予商業使用**。
 
-- **comic-text-detector**（文字遮罩 ONNX 模型）— 原始碼 GPL-3.0；ONNX 重打包訓練自 Manga109-s，**僅限個人 / 學術用途，不得散布**。
-- **EhTagTranslation Database**（標籤翻譯庫）— CC BY-NC-SA 4.0。
+⚠️ 本專案另含多項第三方資源，部分帶有額外限制（**NonCommercial** 或**個人／學術限定**），因此**整體僅供個人非商業用途**：
+
+- **comic-text-detector**（文字遮罩 ONNX 模型）— 源碼 GPL-3.0；訓練自 Manga109-s，**僅限個人／學術、不得散布** → 故採**按需下載、不隨 repo 散布**。
+- **EhTagTranslation Database**（標籤翻譯庫）— CC BY-NC-SA 4.0（**非商業**）。
 - **獅尾黑體 Medium**（譯文字體，思源黑體衍生）— SIL OFL 1.1。
-- **jieba-tw 繁體詞表**（避免詞中斷行）— MIT。
+- **jieba-tw 繁體詞表** — MIT。
+- **PaddleOCR 模型 / 各 NuGet 套件** — 詳見授權清單。
+
+完整第三方授權與出處見 **[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)**。
