@@ -36,3 +36,8 @@ ComicOrganizer.zip
 
 # Publish output
 Publish/
+
+# Antigravity CLI / local workspace artifacts
+.antigravitycli/
+agy-hud*
+test/

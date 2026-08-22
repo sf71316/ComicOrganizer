@@ -107,6 +107,7 @@ public partial class ReaderForm : Window, IThemedControl
 	private bool _enableTranslation = false;
 
 	private IOcrService _ocrService = new WindowsOcrService();
+	private int _currentOcrEngineType = 0;
 
 	private readonly LlmTranslationService _translationService = new LlmTranslationService(new HttpClient());
 
@@ -183,7 +184,8 @@ public partial class ReaderForm : Window, IThemedControl
 		EnableDoubleBuffer(picPage);
 		AppConfig appConfig = new ConfigManager().Load();
 		_debugEnvelope = appConfig.DebugMode;
-		_ocrService = appConfig.OcrEngineType == 1 ? new PaddleOcrService() : new WindowsOcrService();
+		_currentOcrEngineType = appConfig.OcrEngineType;
+		_ocrService = OcrPluginManager.CreateService(appConfig.OcrEngineType);
 		_maskProvider = appConfig.MaskEngineType == 2 ? new ComicTextDetector() : null;
 		_useGpuPref = appConfig.UseGpuRendering;
 		int num = Math.Max(1, appConfig.TranslationMaxConcurrency);
@@ -2012,13 +2014,10 @@ public partial class ReaderForm : Window, IThemedControl
 				token.ThrowIfCancellationRequested();
 				AppConfig config = new ConfigManager().Load();
 				_translationService.Configure(config.TranslationEndpoint, config.TranslationModelName, (LlmApiType)config.TranslationApiType, config.GetTranslationApiKey());
-				if (config.OcrEngineType == 1 && _ocrService is not PaddleOcrService)
+				if (_currentOcrEngineType != config.OcrEngineType || _ocrService == null)
 				{
-					_ocrService = new PaddleOcrService();
-				}
-				else if (config.OcrEngineType != 1 && _ocrService is not WindowsOcrService)
-				{
-					_ocrService = new WindowsOcrService();
+					_currentOcrEngineType = config.OcrEngineType;
+					_ocrService = OcrPluginManager.CreateService(config.OcrEngineType);
 				}
 				List<OcrBlock> rawBlocks = await _ocrService.RecognizeAsync(img);
 				ocrSw.Stop();

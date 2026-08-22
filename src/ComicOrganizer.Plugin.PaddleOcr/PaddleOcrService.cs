@@ -7,8 +7,9 @@ using System.Net.Http;
 using System.Threading.Tasks;
 using PaddleOCRSharp;
 using SharpCompress.Archives;
+using ComicOrganizer.App.Core;
 
-namespace ComicOrganizer.App.Core;
+namespace ComicOrganizer.Plugin.PaddleOcr;
 
 public class PaddleOcrService : IOcrService, IDisposable
 {

@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Xunit;
 using Xunit.Abstractions;
 using ComicOrganizer.App.Core;
+using ComicOrganizer.Plugin.PaddleOcr;
 
 namespace ComicOrganizer.Tests;
 

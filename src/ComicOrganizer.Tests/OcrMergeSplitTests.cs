@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using ComicOrganizer.App.Core;
+using ComicOrganizer.Plugin.PaddleOcr;
 using Xunit;
 
 namespace ComicOrganizer.Tests;

@@ -78,6 +78,9 @@ partial class SettingsForm
     private AntdUI.Checkbox cbDualPageSpreadFromCover;
     private AntdUI.Label labelOcrEngine;
     private AntdUI.Select selectOcrEngine;
+    private AntdUI.Button btnOpenPlugins;
+    private AntdUI.Button btnRefreshPlugins;
+    private AntdUI.Label lblOcrStatus;
     private AntdUI.Checkbox cbUseGpuRendering;
 
     // libraryPanel 控件
@@ -166,6 +169,9 @@ partial class SettingsForm
         cbUseBuiltInReader = new Checkbox();
         labelOcrEngine = new AntdUI.Label();
         selectOcrEngine = new AntdUI.Select();
+        btnOpenPlugins = new AntdUI.Button();
+        btnRefreshPlugins = new AntdUI.Button();
+        lblOcrStatus = new AntdUI.Label();
         cbUseGpuRendering = new Checkbox();
         externalPanel = new AntdUI.Panel();
         lblExtStatus = new AntdUI.Label();
@@ -648,6 +654,9 @@ partial class SettingsForm
         // 
         readerPanel.BackColor = Color.Transparent;
         readerPanel.Controls.Add(cbUseGpuRendering);
+        readerPanel.Controls.Add(lblOcrStatus);
+        readerPanel.Controls.Add(btnRefreshPlugins);
+        readerPanel.Controls.Add(btnOpenPlugins);
         readerPanel.Controls.Add(selectOcrEngine);
         readerPanel.Controls.Add(labelOcrEngine);
         readerPanel.Controls.Add(cbDualPageSpreadFromCover);
@@ -710,16 +719,44 @@ partial class SettingsForm
         // 
         selectOcrEngine.Location = new Point(40, 255);
         selectOcrEngine.Name = "selectOcrEngine";
-        selectOcrEngine.Size = new Size(250, 40);
+        selectOcrEngine.Size = new Size(300, 40);
         selectOcrEngine.TabIndex = 5;
+        // 
+        // btnOpenPlugins
+        // 
+        btnOpenPlugins.Location = new Point(350, 255);
+        btnOpenPlugins.Name = "btnOpenPlugins";
+        btnOpenPlugins.Size = new Size(120, 40);
+        btnOpenPlugins.TabIndex = 6;
+        btnOpenPlugins.Text = "開啟外掛目錄";
+        btnOpenPlugins.Click += btnOpenPlugins_Click;
+        // 
+        // btnRefreshPlugins
+        // 
+        btnRefreshPlugins.Location = new Point(480, 255);
+        btnRefreshPlugins.Name = "btnRefreshPlugins";
+        btnRefreshPlugins.Size = new Size(100, 40);
+        btnRefreshPlugins.TabIndex = 7;
+        btnRefreshPlugins.Text = "重新整理";
+        btnRefreshPlugins.Click += btnRefreshPlugins_Click;
+        // 
+        // lblOcrStatus
+        // 
+        lblOcrStatus.BackColor = Color.Transparent;
+        lblOcrStatus.Location = new Point(40, 305);
+        lblOcrStatus.Name = "lblOcrStatus";
+        lblOcrStatus.Size = new Size(540, 26);
+        lblOcrStatus.TabIndex = 8;
+        lblOcrStatus.Text = "OCR 狀態";
+        lblOcrStatus.Click += lblOcrStatus_Click;
         //
         // cbUseGpuRendering
         //
         cbUseGpuRendering.BackColor = Color.Transparent;
-        cbUseGpuRendering.Location = new Point(40, 315);
+        cbUseGpuRendering.Location = new Point(40, 345);
         cbUseGpuRendering.Name = "cbUseGpuRendering";
         cbUseGpuRendering.Size = new Size(500, 30);
-        cbUseGpuRendering.TabIndex = 6;
+        cbUseGpuRendering.TabIndex = 9;
         cbUseGpuRendering.Text = "底圖改用 GPU 繪製（實驗；GL 失敗自動退回，需重開閱讀器）";
         //
         // externalPanel

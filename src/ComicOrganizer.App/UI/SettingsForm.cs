@@ -70,6 +70,7 @@ public partial class SettingsForm : Window, IThemedControl
         lblPreciseEraseHint.ForeColor = Core.ThemeColors.Secondary;
         btnTestTrConnection.DefaultBack = Core.ThemeColors.Primary;
         labelOcrEngine.ForeColor = Core.ThemeColors.Text;
+        selectOcrEngine.SelectedIndexChanged += (s, e) => UpdateOcrStatusDisplay();
 
         this.Refresh();
     }
@@ -111,11 +112,9 @@ public partial class SettingsForm : Window, IThemedControl
         cbDualPageSpreadFromCover.Checked = Prefs.DualPageSpreadFromCover;
         cbUseGpuRendering.Checked = Config.UseGpuRendering;
 
-        // OCR 引擎載入
-        selectOcrEngine.Items.Clear();
-        selectOcrEngine.Items.Add("Windows Native OCR");
-        selectOcrEngine.Items.Add("PaddleOCR (日文漫畫推薦)");
-        selectOcrEngine.SelectedIndex = Math.Clamp(Config.OcrEngineType, 0, 1);
+        // OCR 引擎載入 (動態讀取可用外掛)
+        ReloadOcrEnginesDropdown();
+        UpdateOcrStatusDisplay();
 
         // 外部 metadata (#52)
         swEnableExternal.Checked = Config.EnableExternalMetadata;
@@ -469,7 +468,11 @@ public partial class SettingsForm : Window, IThemedControl
         Config.UseGpuRendering = cbUseGpuRendering.Checked;
         if (selectOcrEngine.SelectedIndex >= 0)
         {
-            Config.OcrEngineType = selectOcrEngine.SelectedIndex;
+            var ocrEngines = OcrPluginManager.GetAvailableEngines();
+            if (selectOcrEngine.SelectedIndex < ocrEngines.Count)
+            {
+                Config.OcrEngineType = ocrEngines[selectOcrEngine.SelectedIndex].EngineType;
+            }
         }
 
         // 外部 metadata (#52)
@@ -512,5 +515,121 @@ public partial class SettingsForm : Window, IThemedControl
     private void btnSave_Click(object sender, EventArgs e)
     {
         SaveAndClose();
+    }
+
+    private void btnOpenPlugins_Click(object? sender, EventArgs e)
+    {
+        string pluginsDir = OcrPluginManager.PluginsDirectory;
+        if (!Directory.Exists(pluginsDir))
+        {
+            try
+            {
+                Directory.CreateDirectory(pluginsDir);
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = pluginsDir,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            AntdUI.Message.error(this, $"無法開啟外掛資料夾: {ex.Message}");
+        }
+    }
+
+    private void ReloadOcrEnginesDropdown()
+    {
+        selectOcrEngine.Items.Clear();
+        var ocrEngines = OcrPluginManager.GetAvailableEngines();
+        int selectedOcrIdx = 0;
+        for (int i = 0; i < ocrEngines.Count; i++)
+        {
+            var eng = ocrEngines[i];
+            selectOcrEngine.Items.Add(eng.ToString());
+            if (eng.EngineType == Config.OcrEngineType)
+            {
+                selectedOcrIdx = i;
+            }
+        }
+        selectOcrEngine.SelectedIndex = selectedOcrIdx;
+    }
+
+    private void UpdateOcrStatusDisplay()
+    {
+        var engines = OcrPluginManager.GetAvailableEngines();
+        int selectedEngineType = 0;
+        if (selectOcrEngine.SelectedIndex >= 0 && selectOcrEngine.SelectedIndex < engines.Count)
+        {
+            selectedEngineType = engines[selectOcrEngine.SelectedIndex].EngineType;
+        }
+
+        if (selectedEngineType == 0)
+        {
+            lblOcrStatus.Text = "🟢 Windows 原生 OCR：系統內建已就緒，免額外下載模型。";
+            lblOcrStatus.ForeColor = Color.FromArgb(82, 196, 26);
+            lblOcrStatus.Cursor = Cursors.Default;
+        }
+        else
+        {
+            var diag = OcrPluginManager.GetPaddleOcrDiagnostics();
+            if (diag.IsHealthy)
+            {
+                lblOcrStatus.Text = "🟢 PaddleOCR：外掛與模型已就緒 (PP-OCRv6)。";
+                lblOcrStatus.ForeColor = Color.FromArgb(82, 196, 26);
+                lblOcrStatus.Cursor = Cursors.Default;
+            }
+            else if (diag.IsInstalled)
+            {
+                lblOcrStatus.Text = $"🟡 PaddleOCR：{diag.Summary}（點擊此處查看缺少清單）";
+                lblOcrStatus.ForeColor = Color.FromArgb(250, 140, 22);
+                lblOcrStatus.Cursor = Cursors.Hand;
+            }
+            else
+            {
+                lblOcrStatus.Text = $"🔴 PaddleOCR：{diag.Summary}（點擊此處查看缺漏清單與安裝引導）";
+                lblOcrStatus.ForeColor = Color.FromArgb(245, 34, 45);
+                lblOcrStatus.Cursor = Cursors.Hand;
+            }
+        }
+    }
+
+    private void btnRefreshPlugins_Click(object? sender, EventArgs e)
+    {
+        OcrPluginManager.Initialize(forceReload: true);
+        ReloadOcrEnginesDropdown();
+        UpdateOcrStatusDisplay();
+        AntdUI.Message.success(this, "外掛目錄已重新掃描！");
+    }
+
+    private void lblOcrStatus_Click(object? sender, EventArgs e)
+    {
+        var engines = OcrPluginManager.GetAvailableEngines();
+        if (selectOcrEngine.SelectedIndex >= 0 && selectOcrEngine.SelectedIndex < engines.Count && engines[selectOcrEngine.SelectedIndex].EngineType == 1)
+        {
+            var diag = OcrPluginManager.GetPaddleOcrDiagnostics();
+            if (!diag.IsHealthy)
+            {
+                string missingListStr = diag.MissingFiles.Count > 0 ? "• " + string.Join("\n• ", diag.MissingFiles) : "無缺漏檔案";
+                string msg = $"【PaddleOCR 外掛狀態】\n{diag.Summary}\n\n" +
+                             $"【外掛放置路徑】\n{diag.PluginDirectory}\n\n" +
+                             $"【缺少元件清單】\n{missingListStr}\n\n" +
+                             $"請將上述必要檔案放置於外掛資料夾後，點擊「重新整理」按鈕即可完成掛載。";
+
+                AntdUI.Modal.open(new AntdUI.Modal.Config(this, "PaddleOCR 外掛缺漏診斷", msg)
+                {
+                    Icon = AntdUI.TType.Warn,
+                    OkText = "了解"
+                });
+            }
+        }
     }
 }

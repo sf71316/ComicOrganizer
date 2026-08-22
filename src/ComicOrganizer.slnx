@@ -1,4 +1,5 @@
 <Solution>
   <Project Path="ComicOrganizer.App/ComicOrganizer.App.csproj" />
+  <Project Path="ComicOrganizer.Plugin.PaddleOcr/ComicOrganizer.Plugin.PaddleOcr.csproj" />
   <Project Path="ComicOrganizer.Tests/ComicOrganizer.Tests.csproj" />
 </Solution>
