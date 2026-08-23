@@ -16,6 +16,29 @@ public partial class GalleryControl : UserControl, IThemedControl
 
     private const string LazyPlaceholderTag = "__LAZY__";
 
+    public event Action<string>? StatusChanged;
+
+    private int _activeBackgroundJobs = 0;
+
+    private void ReportJobStarted(string message = "正在載入項目與封面...")
+    {
+        if (Interlocked.Increment(ref _activeBackgroundJobs) == 1)
+        {
+            try { this.BeginInvoke(new Action(() => StatusChanged?.Invoke(message))); }
+            catch { StatusChanged?.Invoke(message); }
+        }
+    }
+
+    private void ReportJobFinished()
+    {
+        if (Interlocked.Decrement(ref _activeBackgroundJobs) <= 0)
+        {
+            Interlocked.Exchange(ref _activeBackgroundJobs, 0);
+            try { this.BeginInvoke(new Action(() => StatusChanged?.Invoke("就緒"))); }
+            catch { StatusChanged?.Invoke("就緒"); }
+        }
+    }
+
     // 區分 tree 右鍵點在節點 vs 空白：NodeMouseClick 時設 true，MouseUp 看到 true 就跳過 blank menu
     private bool _treeRightOnNode;
 

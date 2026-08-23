@@ -300,14 +300,23 @@ public partial class GalleryControl
             }
         };
 
-        // 右鍵選單（原 hoverToolbar 功能）
+        // 點擊事件（中鍵另開分頁、右鍵選單）
         tableList.MouseClick += (s, e) =>
         {
-            if (e.Button != MouseButtons.Right) return;
             var cell = tableList.HitTest(e.X, e.Y, out _, out _);
             // 同 hover 邏輯：直接從 cell.Row.RECORD 取資料，避開 i_row 索引偏移
             var item = cell?.Row?.RECORD as GalleryListItem;
             if (item == null || string.IsNullOrEmpty(item.FullPath)) return;
+
+            if (e.Button == MouseButtons.Middle)
+            {
+                EnqueueReadIfEnabled(item.FullPath);
+                if (Directory.Exists(item.FullPath)) OpenFolderTab(item.FullPath, true);
+                else OpenForReading(item.FullPath);
+                return;
+            }
+
+            if (e.Button != MouseButtons.Right) return;
 
             var items = new List<AntdUI.IContextMenuStripItem>
             {

@@ -297,6 +297,16 @@ public partial class ComicCardControl : UserControl
         HookHover(typeIconLbl);
         HookHover(readStatusLbl);
 
+        MouseEventHandler stripClickHandler = (s, e) =>
+        {
+            if (e.Button == MouseButtons.Left) OpenPrimary();
+            else if (e.Button == MouseButtons.Middle) RequestNewTab?.Invoke(ItemPath, true);
+            else if (e.Button == MouseButtons.Right) ShowContextMenu();
+        };
+        typeStrip.MouseClick += stripClickHandler;
+        typeIconLbl.MouseClick += stripClickHandler;
+        readStatusLbl.MouseClick += stripClickHandler;
+
         // 📖 「閱讀」按鈕一律呼叫 viewer（不管 folder 還是 file）：
         // viewer 對目錄會挑首張圖開啟。「進入目錄」操作交給卡片左鍵點擊 / 縮圖點擊
         btnRead.Click += (s, e) => RequestOpenViewer?.Invoke(ItemPath);
@@ -461,10 +471,11 @@ public partial class ComicCardControl : UserControl
 
         pic.Paint += OnPicPaint;
 
-        // 點擊
+        // 點擊：左鍵依類型開啟、中鍵另開分頁、右鍵開啟選單
         MouseEventHandler clickHandler = (s, e) =>
         {
             if (e.Button == MouseButtons.Left) OpenPrimary();
+            else if (e.Button == MouseButtons.Middle) RequestNewTab?.Invoke(ItemPath, true);
             else if (e.Button == MouseButtons.Right) ShowContextMenu();
         };
         pic.MouseClick += clickHandler;

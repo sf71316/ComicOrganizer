@@ -340,11 +340,11 @@ public partial class GalleryControl
             var img = await _coverManager.GetCoverAsync(path, 300);
             if (img == null) return;
             if (this.IsDisposed) { img.Dispose(); return; }
-            this.Invoke(() =>
+            this.BeginInvoke(new Action(() =>
             {
                 if (!this.IsDisposed) detailDrawerHost.WorkPanel.SetCover(img);
                 else img.Dispose();
-            });
+            }));
         }
         catch { /* cover 取不到不影響 panel */ }
     }

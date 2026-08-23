@@ -92,37 +92,37 @@ public class CoverManager
     /// 非同步取得指定路徑的封面圖片。
     /// 有接 cache (AttachCache 呼叫過) 時優先讀 cache hit；miss 才走 decode 並背景寫 cache。
     /// </summary>
-    public async Task<Image?> GetCoverAsync(string path, int maxWidth = 200)
+    public Task<Image?> GetCoverAsync(string path, int maxWidth = 200)
     {
-        // ===== Cache hit fast path =====
-        if (_metaStore != null && _thumbStore != null && _cacheWriter != null)
+        return Task.Run(() =>
         {
-            var swCache = Stopwatch.StartNew();
-            var meta = _metaStore.Get(path);
-            if (meta?.CoverThumbKey != null && meta.Mtime == GetMtimeUnix(path))
+            // ===== Cache hit fast path =====
+            if (_metaStore != null && _thumbStore != null && _cacheWriter != null)
             {
-                using var stream = _thumbStore.OpenRead(meta.CoverThumbKey);
-                if (stream != null)
+                var swCache = Stopwatch.StartNew();
+                var meta = _metaStore.Get(path);
+                if (meta?.CoverThumbKey != null && meta.Mtime == GetMtimeUnix(path))
                 {
-                    try
+                    using var stream = _thumbStore.OpenRead(meta.CoverThumbKey);
+                    if (stream != null)
                     {
-                        var img = Image.FromStream(stream);
-                        _cacheWriter.EnqueueTouch(path);   // 非同步更新 last_accessed
-                        swCache.Stop();
-                        Log($"CACHE-HIT    '{Short(path)}' → {img.Width}x{img.Height,-12} total={swCache.ElapsedMilliseconds}ms");
-                        return img;
-                    }
-                    catch
-                    {
-                        // thumb 檔損壞 → fall through 走 decode + 重寫
+                        try
+                        {
+                            var img = Image.FromStream(stream);
+                            _cacheWriter.EnqueueTouch(path);   // 非同步更新 last_accessed
+                            swCache.Stop();
+                            Log($"CACHE-HIT    '{Short(path)}' → {img.Width}x{img.Height,-12} total={swCache.ElapsedMilliseconds}ms");
+                            return img;
+                        }
+                        catch
+                        {
+                            // thumb 檔損壞 → fall through 走 decode + 重寫
+                        }
                     }
                 }
             }
-        }
 
-        // ===== Cache miss → 既有 decode 路徑 =====
-        return await Task.Run(() =>
-        {
+            // ===== Cache miss → 既有 decode 路徑 =====
             var swTotal = Stopwatch.StartNew();
             string kind = "?";
             Image? result = null;

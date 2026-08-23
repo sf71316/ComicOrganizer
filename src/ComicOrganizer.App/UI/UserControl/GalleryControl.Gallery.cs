@@ -44,7 +44,12 @@ public partial class GalleryControl
         // 透過 queue 延遲 RecordRead；queue.Recorded event 會 RefreshCardReadStatusByPath
         card.RequestOpenFolder += p => { EnqueueReadIfEnabled(p); OpenFolderTab(p, false); };
         card.RequestOpenViewer += p => { EnqueueReadIfEnabled(p); OpenForReading(p); };
-        card.RequestNewTab += (p, forceNew) => { EnqueueReadIfEnabled(p); OpenFolderTab(p, forceNew); };
+        card.RequestNewTab += (p, forceNew) =>
+        {
+            EnqueueReadIfEnabled(p);
+            if (Directory.Exists(p)) OpenFolderTab(p, forceNew);
+            else OpenForReading(p);
+        };
         card.RequestExplorer += p => OpenInExplorer(p);
         card.RequestAuthorInfo += p => ShowAuthorInfo(p);
         card.RequestWorkDetail += p => ShowWorkDetail(p);
@@ -87,10 +92,9 @@ public partial class GalleryControl
     }
 
     /// <summary>非 folder 模式的 gallery 載入 — 直接吃 path list（asset.path），不走 DirectoryInfo 列舉。
-    /// 過濾「page-in-folder」：若 path 的父目錄也在 list，視為某 work 的內頁，跳過。
-    /// 避免目錄 + 該目錄內的單張圖檔同時出現造成卡片重疊。</summary>
     private Task LoadGalleryFromPathsAsync(FlowLayoutPanel container, IReadOnlyList<string> paths, GalleryViewMode mode)
     {
+        ReportJobStarted("正在載入項目與封面...");
         container.Controls.Clear();
         // 預建 path set 給 O(1) 查父目錄是否也在結果 — case-insensitive (Windows fs)
         var pathSet = new HashSet<string>(paths, StringComparer.OrdinalIgnoreCase);
@@ -98,23 +102,30 @@ public partial class GalleryControl
 
         AntdUI.Spin.open(container, async config =>
         {
-            const int ChunkSize = 8;
-            for (int i = 0; i < filtered.Count; i += ChunkSize)
+            try
             {
-                var chunk = filtered.Skip(i).Take(ChunkSize).ToList();
-                this.Invoke(() =>
+                const int ChunkSize = 8;
+                for (int i = 0; i < filtered.Count; i += ChunkSize)
                 {
-                    container.SuspendLayout();
-                    foreach (var p in chunk)
+                    var chunk = filtered.Skip(i).Take(ChunkSize).ToList();
+                    this.Invoke(() =>
                     {
-                        FileSystemInfo? fsi = Directory.Exists(p) ? new DirectoryInfo(p) : (File.Exists(p) ? new FileInfo(p) : null);
-                        if (fsi == null) continue;   // path 失效（檔案被刪 / 移動）— skip
-                        // 虛擬庫 mode：showMetadata=true → 卡片下方顯示 author 副標
-                        container.Controls.Add(BuildCardForGallery(fsi, mode, showMetadata: true));
-                    }
-                    container.ResumeLayout(true);
-                });
-                await Task.Delay(1);
+                        container.SuspendLayout();
+                        foreach (var p in chunk)
+                        {
+                            FileSystemInfo? fsi = Directory.Exists(p) ? new DirectoryInfo(p) : (File.Exists(p) ? new FileInfo(p) : null);
+                            if (fsi == null) continue;   // path 失效（檔案被刪 / 移動）— skip
+                            // 虛擬庫 mode：showMetadata=true → 卡片下方顯示 author 副標
+                            container.Controls.Add(BuildCardForGallery(fsi, mode, showMetadata: true));
+                        }
+                        container.ResumeLayout(true);
+                    });
+                    await Task.Delay(1);
+                }
+            }
+            finally
+            {
+                ReportJobFinished();
             }
         });
         return Task.CompletedTask;
@@ -137,7 +148,8 @@ public partial class GalleryControl
     {
         var img = await _coverManager.GetCoverAsync(path, 300);
         if (img == null || pic.IsDisposed) return;
-        this.Invoke(() => { pic.Image = img; });
+        try { this.BeginInvoke(new Action(() => { if (!pic.IsDisposed) pic.Image = img; })); }
+        catch { }
     }
 
     // ===== 滑鼠附近 floating preview popup =====
@@ -171,12 +183,19 @@ public partial class GalleryControl
         EnsurePreviewPopup();
         var img = await _coverManager.GetCoverAsync(path, 300);
         if (img == null || _previewForm == null || _previewPic == null) return;
-        this.Invoke(() =>
+        try
         {
-            _previewPic.Image = img;
-            UpdatePreviewPopupPosition();
-            if (!_previewForm.Visible) _previewForm.Show();
-        });
+            this.BeginInvoke(new Action(() =>
+            {
+                if (_previewPic != null && !_previewPic.IsDisposed)
+                {
+                    _previewPic.Image = img;
+                    UpdatePreviewPopupPosition();
+                    if (_previewForm != null && !_previewForm.Visible) _previewForm.Show();
+                }
+            }));
+        }
+        catch { }
     }
 
     private void UpdatePreviewPopupPosition()
@@ -232,7 +251,7 @@ public partial class GalleryControl
             {
                 var img = await _coverManager.GetCoverAsync(path, width);
                 if (img == null || this.IsDisposed) return;
-                try { this.Invoke(() => onLoaded(img)); }
+                try { this.BeginInvoke(new Action(() => onLoaded(img))); }
                 catch { /* form 已 dispose 等競態忽略 */ }
             }
             finally
@@ -244,85 +263,98 @@ public partial class GalleryControl
 
     private Task LoadGalleryListAsync(AntdUI.Table table, string path)
     {
+        ReportJobStarted("正在載入清單項目與封面...");
         AntdUI.Spin.open(this, async config =>
         {
-            // ===== Phase 1: 檔案掃描 + 列表 binding (Spin 遮蔽期間) =====
-            var fsInfos = await Task.Run(() =>
-                new DirectoryInfo(path).GetFileSystemInfos()
-                    .Where(ShouldShowInGallery)
-                    .OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
-                    .ToList());
-
-            var prepared = await Task.Run(() => fsInfos.Select(fs =>
+            try
             {
-                bool isDir = fs is DirectoryInfo;
-                long size = isDir ? 0 : ((FileInfo)fs).Length;
-                return (fs, isDir, size);
-            }).ToList());
+                // ===== Phase 1: 檔案掃描 + 列表 binding (Spin 遮蔽期間) =====
+                var fsInfos = await Task.Run(() =>
+                    new DirectoryInfo(path).GetFileSystemInfos()
+                        .Where(ShouldShowInGallery)
+                        .OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
+                        .ToList());
 
-            var list = new System.ComponentModel.BindingList<GalleryListItem>();
-            var thumbTasks = new List<Task>();
-
-            foreach (var (fs, isDir, size) in prepared)
-            {
-                var item = new GalleryListItem
+                var prepared = await Task.Run(() => fsInfos.Select(fs =>
                 {
-                    Name = fs.Name,
-                    Size = isDir ? "" : FormatSize(size),
-                    CreatedAt = fs.CreationTime.ToString("yyyy-MM-dd HH:mm"),
-                    IsFolder = isDir,
-                    FullPath = fs.FullName,
-                    Action = isDir
-                        ? new AntdUI.CellLink[]
-                        {
-                            new AntdUI.CellButton("OpenFolder", "", AntdUI.TTypeMini.Default)
+                    bool isDir = fs is DirectoryInfo;
+                    long size = isDir ? 0 : ((FileInfo)fs).Length;
+                    return (fs, isDir, size);
+                }).ToList());
+
+                var list = new System.ComponentModel.BindingList<GalleryListItem>();
+                var thumbTasks = new List<Task>();
+
+                foreach (var (fs, isDir, size) in prepared)
+                {
+                    var item = new GalleryListItem
+                    {
+                        Name = fs.Name,
+                        Size = isDir ? "" : FormatSize(size),
+                        CreatedAt = fs.CreationTime.ToString("yyyy-MM-dd HH:mm"),
+                        IsFolder = isDir,
+                        FullPath = fs.FullName,
+                        Action = isDir
+                            ? new AntdUI.CellLink[]
                             {
-                                Ghost = true,
-                                IconSvg = "RightOutlined",
+                                new AntdUI.CellButton("OpenFolder", "", AntdUI.TTypeMini.Default)
+                                {
+                                    Ghost = true,
+                                    IconSvg = "RightOutlined",
+                                }
                             }
-                        }
-                        : null,
-                };
-                list.Add(item);
-
-                // 縮圖任務 fire-and-forget — Thumbnail 是純資料賦值，不需 Invoke；
-                // 全部完成後再 reset DataSource 一次觸發整表重繪
-                var capturedItem = item;
-                thumbTasks.Add(Task.Run(async () =>
-                {
-                    var img = await _coverManager.GetCoverAsync(capturedItem.FullPath, 120);
-                    // CellImage(img, int) 第二個參數是 Radius 不是 Size！要靠 Size 屬性設邊長
-                    // 60×80 (3:4) 貼合漫畫封面比例
-                    if (img != null) capturedItem.Thumbnail = new AntdUI.CellImage(img)
-                    {
-                        Size = new Size(60, 80),
-                        Radius = 4,
-                        ImageFit = AntdUI.TFit.Cover,
+                            : null,
                     };
-                }));
-            }
+                    list.Add(item);
 
-            // 第一次 set：文字列表立即可見（縮圖欄空白）
-            this.Invoke(() => { table.DataSource = list; });
-
-            // ===== Phase 2: 縮圖背景載入（Spin 已關閉、列表可見） =====
-            if (thumbTasks.Count == 0) return;
-            _ = Task.Run(async () =>
-            {
-                await Task.WhenAll(thumbTasks);
-                if (this.IsDisposed) return;
-                try
-                {
-                    this.Invoke(() =>
+                    // 縮圖任務 fire-and-forget — 透過 Semaphore 控管並行數
+                    var capturedItem = item;
+                    thumbTasks.Add(Task.Run(async () =>
                     {
-                        if (table.IsDisposed) return;
-                        // AntdUI Table 對 ListChanged/PropertyChanged 不 hook，唯一可靠重繪辦法是 reset DataSource
-                        table.DataSource = null;
-                        table.DataSource = list;
-                    });
+                        await _coverSemaphore.WaitAsync();
+                        try
+                        {
+                            var img = await _coverManager.GetCoverAsync(capturedItem.FullPath, 120);
+                            if (img != null) capturedItem.Thumbnail = new AntdUI.CellImage(img)
+                            {
+                                Size = new Size(60, 80),
+                                Radius = 4,
+                                ImageFit = AntdUI.TFit.Cover,
+                            };
+                        }
+                        finally
+                        {
+                            _coverSemaphore.Release();
+                        }
+                    }));
                 }
-                catch { /* form/table 已 dispose 等競態忽略 */ }
-            });
+
+                // 第一次 set：文字列表立即可見（縮圖欄空白）
+                try { this.BeginInvoke(new Action(() => { if (!table.IsDisposed) table.DataSource = list; })); }
+                catch { }
+
+                // ===== Phase 2: 縮圖背景載入（Spin 已關閉、列表可見） =====
+                if (thumbTasks.Count == 0) return;
+                _ = Task.Run(async () =>
+                {
+                    await Task.WhenAll(thumbTasks);
+                    if (this.IsDisposed) return;
+                    try
+                    {
+                        this.BeginInvoke(new Action(() =>
+                        {
+                            if (table.IsDisposed) return;
+                            table.DataSource = null;
+                            table.DataSource = list;
+                        }));
+                    }
+                    catch { /* form/table 已 dispose 等競態忽略 */ }
+                });
+            }
+            finally
+            {
+                ReportJobFinished();
+            }
         });
 
         return Task.CompletedTask;
@@ -343,34 +375,42 @@ public partial class GalleryControl
 
     private Task LoadGalleryAsync(FlowLayoutPanel container, string path, GalleryViewMode mode)
     {
+        ReportJobStarted("正在載入項目與封面...");
         container.Controls.Clear();
 
         AntdUI.Spin.open(container, async config =>
         {
-            var items = await Task.Run(() =>
-                new DirectoryInfo(path).GetFileSystemInfos()
-                    .Where(ShouldShowInGallery)
-                    .OrderBy(i => i is DirectoryInfo ? 0 : 1)
-                    .ThenBy(i => i.Name)
-                    .ToList());
-
-            // 把 foreach 拆 chunks，批與批之間 await Task.Delay(1) 讓出 UI thread 給 Spin 動畫 paint。
-            // 整體時間幾乎相同 (Add HWND 時間不變) 但使用者看得到 Spin 在轉 + cards 分批冒出有 progress 感
-            const int ChunkSize = 8;
-            for (int i = 0; i < items.Count; i += ChunkSize)
+            try
             {
-                var chunk = items.Skip(i).Take(ChunkSize).ToList();
-                this.Invoke(() =>
+                var items = await Task.Run(() =>
+                    new DirectoryInfo(path).GetFileSystemInfos()
+                        .Where(ShouldShowInGallery)
+                        .OrderBy(i => i is DirectoryInfo ? 0 : 1)
+                        .ThenBy(i => i.Name)
+                        .ToList());
+
+                // 把 foreach 拆 chunks，批與批之間 await Task.Delay(1) 讓出 UI thread 給 Spin 動畫 paint。
+                // 整體時間幾乎相同 (Add HWND 時間不變) 但使用者看得到 Spin 在轉 + cards 分批冒出有 progress 感
+                const int ChunkSize = 8;
+                for (int i = 0; i < items.Count; i += ChunkSize)
                 {
-                    container.SuspendLayout();
-                    foreach (var item in chunk)
+                    var chunk = items.Skip(i).Take(ChunkSize).ToList();
+                    this.Invoke(() =>
                     {
-                        // folder mode：showMetadata=false（folder tree 已暗示 author，副標冗餘）
-                        container.Controls.Add(BuildCardForGallery(item, mode, showMetadata: false));
-                    }
-                    container.ResumeLayout(true);   // 該 chunk 的 cards 立刻 layout + paint
-                });
-                await Task.Delay(1);   // 讓 UI thread 喘口氣 paint Spin animation frame
+                        container.SuspendLayout();
+                        foreach (var item in chunk)
+                        {
+                            // folder mode：showMetadata=false（folder tree 已暗示 author，副標冗餘）
+                            container.Controls.Add(BuildCardForGallery(item, mode, showMetadata: false));
+                        }
+                        container.ResumeLayout(true);   // 該 chunk 的 cards 立刻 layout + paint
+                    });
+                    await Task.Delay(1);   // 讓 UI thread 喘口氣 paint Spin animation frame
+                }
+            }
+            finally
+            {
+                ReportJobFinished();
             }
         });
 
