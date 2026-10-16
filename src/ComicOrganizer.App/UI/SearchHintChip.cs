@@ -17,6 +17,8 @@ public class SearchHintChip : Label
 
     public SearchHintChip()
     {
+        SetStyle(ControlStyles.Selectable, false);
+        Cursor = Cursors.Hand;
         AutoSize = true;
         Margin = new Padding(2, 2, 6, 2);
         Padding = new Padding(2, 1, 2, 1);

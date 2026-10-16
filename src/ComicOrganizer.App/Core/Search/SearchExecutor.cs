@@ -72,29 +72,25 @@ public class SearchExecutor
                 return TryParseReadStatus(term.Value, out var status)
                     ? _store.ListWorksByReadStatus(status)
                     : Array.Empty<string>();
-            case SearchField.FreeText: return _store.SearchWorksByTitleOrFilename(term.Value);
+            case SearchField.FreeText: return _store.SearchWorksByTitleOrFilename(term.Value, limit: 0);
             default: return Array.Empty<string>();
         }
     }
 
     private IReadOnlyList<string> ResolveArtist(string keyword)
     {
-        var authors = _store.SearchAuthors(keyword, limit: 50);
+        var authors = _store.SearchAuthors(keyword, limit: 0);
         if (authors.Count == 0) return Array.Empty<string>();
-        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var a in authors)
-            foreach (var p in _store.ListWorksByAuthor(a.Id))
-                paths.Add(p);
-        return paths.ToList();
+        return _store.ListWorksByAuthors(authors.Select(a => a.Id).ToList());
     }
 
     private IReadOnlyList<string> ResolveTag(string keyword)
     {
         // 兩種命中方式 union：
         //   1. tag_translation.name LIKE %keyword% （中文 / 日文搜尋）
-        //   2. tag.name 前綴 LIKE keyword% （英文 slug 搜尋）
-        var tagIds = new HashSet<long>(_store.SearchTagIdsByTranslatedName(keyword, _lang, limit: 100));
-        foreach (var t in _store.SearchTags(keyword, limit: 100))
+        //   2. tag.name LIKE %keyword% （英文 slug 搜尋）
+        var tagIds = new HashSet<long>(_store.SearchTagIdsByTranslatedName(keyword, _lang, limit: 0));
+        foreach (var t in _store.SearchTags(keyword, limit: 0))
             tagIds.Add(t.Id);
 
         if (tagIds.Count == 0) return Array.Empty<string>();

@@ -33,7 +33,7 @@ public partial class GalleryControl
 
     /// <summary>開 tab 顯示一組 work paths（虛擬庫共用）。
     /// 沒有開啟中的 tab 時自動建一個（CreateNewTabPage helper），不再像之前靜默 return。</summary>
-    private void OpenVirtualWorksTab(string title, IReadOnlyList<string> paths, bool forceNew = false)
+    private void OpenVirtualWorksTab(string title, IReadOnlyList<string> paths, bool forceNew = false, string iconSvg = "TagOutlined")
     {
         var page = (!forceNew && tabsContent.SelectedTab != null && tabsContent.SelectedTab.Tag as string != "DASHBOARD"
                     ? tabsContent.SelectedTab
@@ -48,7 +48,7 @@ public partial class GalleryControl
         if (bc != null)
         {
             bc.Items.Clear();
-            bc.Items.Add(new AntdUI.BreadcrumbItem { Text = " " + title + " ", IconSvg = "TagOutlined" });
+            bc.Items.Add(new AntdUI.BreadcrumbItem { Text = " " + title + " ", IconSvg = iconSvg });
         }
         _ = LoadGalleryFromPathsAsync(flow, paths, GetTabMode(page));
     }

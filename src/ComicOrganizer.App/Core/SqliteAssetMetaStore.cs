@@ -898,6 +898,14 @@ INSERT OR IGNORE INTO author_alias (author_id, name, lang) VALUES (@authorId, @a
                 new { authorId }, _currentTx).AsList();
     }
 
+    public IReadOnlyList<AuthorAlias> ListAllAuthorAliases()
+    {
+        lock (_lock)
+            return _conn.Query<AuthorAlias>(
+                "SELECT id, author_id, name, lang FROM author_alias;",
+                transaction: _currentTx).AsList();
+    }
+
     public long? ResolveAuthorIdByPath(string path)
     {
         lock (_lock)
@@ -1173,28 +1181,46 @@ SELECT @dest, main_name, NULL FROM author WHERE id = @src;",
                 new { authorId, assetId }, _currentTx);
     }
 
+    public static string EscapeLike(string? input)
+    {
+        if (string.IsNullOrEmpty(input)) return "";
+        return input
+            .Replace(@"\", @"\\")
+            .Replace("%", @"\%")
+            .Replace("_", @"\_");
+    }
+
     public IReadOnlyList<Author> SearchAuthors(string prefix, int limit = 20)
     {
-        var pattern = (prefix ?? "").Trim() + "%";
-        lock (_lock)
-            return _conn.Query<Author>(@"
+        var pattern = "%" + EscapeLike((prefix ?? "").Trim()) + "%";
+        var sql = @"
 SELECT DISTINCT a.id, a.main_name, a.folder_path, a.learned_at
 FROM author a
 LEFT JOIN author_alias aa ON aa.author_id = a.id
-WHERE a.main_name LIKE @pattern OR aa.name LIKE @pattern
-ORDER BY a.main_name
-LIMIT @limit;", new { pattern, limit }, _currentTx).AsList();
+WHERE a.main_name LIKE @pattern ESCAPE '\' OR aa.name LIKE @pattern ESCAPE '\'
+ORDER BY a.main_name" + (limit > 0 ? " LIMIT @limit;" : ";");
+
+        lock (_lock)
+            return _conn.Query<Author>(sql, new { pattern, limit }, _currentTx).AsList();
     }
 
     public IReadOnlyList<Tag> SearchTags(string prefix, int limit = 20)
     {
-        var pattern = (prefix ?? "").Trim() + "%";
-        lock (_lock)
-            return _conn.Query<Tag>(@"
+        var pattern = "%" + EscapeLike((prefix ?? "").Trim()) + "%";
+        var sql = @"
 SELECT id, name, category FROM tag
-WHERE name LIKE @pattern
-ORDER BY name
-LIMIT @limit;", new { pattern, limit }, _currentTx).AsList();
+WHERE name LIKE @pattern ESCAPE '\'
+ORDER BY name" + (limit > 0 ? " LIMIT @limit;" : ";");
+
+        lock (_lock)
+            return _conn.Query<Tag>(sql, new { pattern, limit }, _currentTx).AsList();
+    }
+
+    public IReadOnlyList<Tag> GetTagsByIds(IReadOnlyList<long> ids)
+    {
+        if (ids.Count == 0) return Array.Empty<Tag>();
+        lock (_lock)
+            return _conn.Query<Tag>("SELECT id, name, category FROM tag WHERE id IN @ids;", new { ids }, _currentTx).AsList();
     }
 
     public IReadOnlyList<TagUsage> ListTagsByUsage()
@@ -1401,6 +1427,18 @@ ORDER BY am.title COLLATE NOCASE, a.path;",
                 new { id = authorId }, _currentTx).AsList();
     }
 
+    public IReadOnlyList<string> ListWorksByAuthors(IReadOnlyList<long> authorIds)
+    {
+        if (authorIds.Count == 0) return Array.Empty<string>();
+        lock (_lock)
+            return _conn.Query<string>(@"
+SELECT DISTINCT a.path FROM asset a
+JOIN asset_meta am ON a.id = am.asset_id
+WHERE am.author_id IN @ids
+ORDER BY am.title COLLATE NOCASE, a.path;",
+                new { ids = authorIds }, _currentTx).AsList();
+    }
+
     public IReadOnlyList<string> ListWorksByTags(IReadOnlyList<long> tagIds, bool intersect = true)
     {
         if (tagIds.Count == 0) return Array.Empty<string>();
@@ -1486,6 +1524,18 @@ LIMIT @lim;",
 
     public IReadOnlyList<string> ListReadingInProgress() => ListWorksByReadStatus(ReadStatus.Reading);
 
+    /// <summary>
+    /// 排除「含有子項目的容器資料夾」與「作者資料夾」的 SQL 條件（a 為外層 asset 別名）。
+    /// 使用 ASCII 相鄰字元範圍 ('\' ~ ']', '/' ~ '0') 讓 SQLite 直接走 idx_asset_path 覆蓋索引做 O(log N) 定位。
+    /// </summary>
+    private const string ExcludeNonWorkFoldersSql = @"
+  AND (a.is_folder = 0 OR NOT EXISTS (
+      SELECT 1 FROM asset c
+      WHERE (c.path > a.path || '\' AND c.path < a.path || ']')
+         OR (c.path > a.path || '/' AND c.path < a.path || '0')
+  ))
+  AND (a.path NOT IN (SELECT folder_path FROM author WHERE folder_path IS NOT NULL))";
+
     public IReadOnlyList<string> ListWorksByReadStatus(ReadStatus status)
     {
         // Unread 特殊：包含「沒 asset_meta」的 asset（從未開過 → 視同未讀）
@@ -1495,7 +1545,7 @@ LIMIT @lim;",
                 return _conn.Query<string>(@"
 SELECT a.path FROM asset a
 LEFT JOIN asset_meta am ON a.id = am.asset_id
-WHERE am.asset_id IS NULL OR am.read_status = @s
+WHERE (am.asset_id IS NULL OR am.read_status = @s)" + ExcludeNonWorkFoldersSql + @"
 ORDER BY a.path COLLATE NOCASE;",
                     new { s = (int)ReadStatus.Unread }, _currentTx).AsList();
         }
@@ -1511,24 +1561,25 @@ ORDER BY am.last_read DESC, am.title COLLATE NOCASE;",
     public IReadOnlyList<string> SearchWorksByTitleOrFilename(string keyword, int limit = 500)
     {
         if (string.IsNullOrWhiteSpace(keyword)) return Array.Empty<string>();
-        // SQLite LIKE 對 ASCII 預設 case-insensitive；CJK 字元 substring 比對也直接 work（不需 case fold）
-        var pattern = "%" + keyword.Trim() + "%";
-        lock (_lock)
-            return _conn.Query<string>(@"
+        // 只比對檔名 (a.name) 與標題 (am.title)，不比對包含根目錄的整條 path；排除含子項目的非作品資料夾
+        var pattern = "%" + EscapeLike(keyword.Trim()) + "%";
+        var sql = @"
 SELECT DISTINCT a.path FROM asset a
 LEFT JOIN asset_meta am ON a.id = am.asset_id
-WHERE a.path LIKE @p
-   OR am.title LIKE @p
-ORDER BY a.path COLLATE NOCASE
-LIMIT @limit;",
-                new { p = pattern, limit }, _currentTx).AsList();
+WHERE (a.name LIKE @p ESCAPE '\' OR am.title LIKE @p ESCAPE '\')" + ExcludeNonWorkFoldersSql + @"
+ORDER BY a.path COLLATE NOCASE" + (limit > 0 ? " LIMIT @limit;" : ";");
+
+        lock (_lock)
+            return _conn.Query<string>(sql, new { p = pattern, limit }, _currentTx).AsList();
     }
 
     public IReadOnlyList<string> ListAllAssetPaths()
     {
         lock (_lock)
-            return _conn.Query<string>(
-                "SELECT path FROM asset ORDER BY path COLLATE NOCASE;",
+            return _conn.Query<string>(@"
+SELECT a.path FROM asset a
+WHERE 1=1" + ExcludeNonWorkFoldersSql + @"
+ORDER BY a.path COLLATE NOCASE;",
                 transaction: _currentTx).AsList();
     }
 
@@ -1697,17 +1748,16 @@ ON CONFLICT(tag_id, lang) DO UPDATE SET
     public IReadOnlyList<long> SearchTagIdsByTranslatedName(string keyword, string? lang = null, int limit = 50)
     {
         if (string.IsNullOrWhiteSpace(keyword)) return Array.Empty<long>();
-        var pattern = "%" + keyword + "%";
+        var pattern = "%" + EscapeLike(keyword.Trim()) + "%";
+        var sql = lang == null ? @"
+SELECT DISTINCT tag_id FROM tag_translation
+WHERE name LIKE @p ESCAPE '\' COLLATE NOCASE" + (limit > 0 ? " LIMIT @lim;" : ";") : @"
+SELECT tag_id FROM tag_translation
+WHERE name LIKE @p ESCAPE '\' COLLATE NOCASE AND lang = @l" + (limit > 0 ? " LIMIT @lim;" : ";");
+
         lock (_lock)
         {
-            return _conn.Query<long>(lang == null ? @"
-SELECT DISTINCT tag_id FROM tag_translation
-WHERE name LIKE @p COLLATE NOCASE
-LIMIT @lim;" : @"
-SELECT tag_id FROM tag_translation
-WHERE name LIKE @p COLLATE NOCASE AND lang = @l
-LIMIT @lim;",
-                new { p = pattern, l = lang, lim = limit }, _currentTx).AsList();
+            return _conn.Query<long>(sql, new { p = pattern, l = lang, lim = limit }, _currentTx).AsList();
         }
     }
 

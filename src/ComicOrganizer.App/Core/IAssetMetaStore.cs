@@ -104,6 +104,9 @@ public interface IAssetMetaStore : IDisposable
 
     IReadOnlyList<AuthorAlias> ListAuthorAliases(long authorId);
 
+    /// <summary>列出全庫所有作者別名（給模糊推薦等批次比對用，避免 N+1）。</summary>
+    IReadOnlyList<AuthorAlias> ListAllAuthorAliases();
+
     /// <summary>從 path 解析 author_id：先查 Work 的 asset_meta.author_id；fallback Author folder 的 author.folder_path。</summary>
     long? ResolveAuthorIdByPath(string path);
 
@@ -187,8 +190,11 @@ public interface IAssetMetaStore : IDisposable
     /// <summary>name 前綴搜尋作者（main_name + alias 都比對）。給編輯時的 autocomplete 用。</summary>
     IReadOnlyList<Author> SearchAuthors(string prefix, int limit = 20);
 
-    /// <summary>name 前綴搜尋 tag。給編輯時的 autocomplete 用。</summary>
+    /// <summary>name 搜尋 tag。給編輯時或搜尋時的 autocomplete 用。</summary>
     IReadOnlyList<Tag> SearchTags(string prefix, int limit = 20);
+
+    /// <summary>依 ID 批次取 tag。</summary>
+    IReadOnlyList<Tag> GetTagsByIds(IReadOnlyList<long> ids);
 
     /// <summary>列所有 tag + 使用次數（asset_count + author_count）。給 Tag 列表頁用。</summary>
     IReadOnlyList<TagUsage> ListTagsByUsage();
@@ -249,6 +255,9 @@ public interface IAssetMetaStore : IDisposable
 
     /// <summary>列該作者所有作品 path（依 title 排序）。給「依作者」mode 用。</summary>
     IReadOnlyList<string> ListWorksByAuthor(long authorId);
+
+    /// <summary>批次查多位作者的所有作品 path（給 DSL artist: 查多作者用，避免 N+1）。</summary>
+    IReadOnlyList<string> ListWorksByAuthors(IReadOnlyList<long> authorIds);
 
     /// <summary>多 tag 過濾。intersect=true → AND（所有 tag 都要有）；false → OR（任一即可）。
     /// 給「依標籤」mode 多選 chip bar 用。</summary>

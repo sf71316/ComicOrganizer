@@ -115,7 +115,134 @@ public static class SearchQueryParser
         }
         return query;
     }
+
+    /// <summary>
+    /// 解析使用者當前正在輸入的欄位 token（例如 "artist:fl" 或 "-tag:"）。
+    /// 若末端不是 field: 格式（如純文字、未輸入冒號或不認識的欄位）回傳 null。
+    /// </summary>
+    public static ActiveFieldToken? ExtractActiveFieldToken(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return null;
+
+        // 找最後一個不在引號內的 whitespace
+        int lastTokenStart = 0;
+        bool inQuotes = false;
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] == '"')
+            {
+                inQuotes = !inQuotes;
+            }
+            else if (!inQuotes && (text[i] == ' ' || text[i] == '\t'))
+            {
+                lastTokenStart = i + 1;
+            }
+        }
+
+        if (lastTokenStart >= text.Length) return null;
+        var token = text[lastTokenStart..];
+
+        int offset = 0;
+        if (token.StartsWith('-'))
+        {
+            offset = 1;
+        }
+
+        var colonIdx = token.IndexOf(':', offset);
+        if (colonIdx < 0) return null;
+
+        var head = token[offset..colonIdx];
+        if (!FieldAliases.TryGetValue(head, out var field))
+            return null;
+
+        var prefix = token[..(colonIdx + 1)];
+        var rawValue = token[(colonIdx + 1)..];
+
+        // 若引號已經閉合（例如 tag:"big breasts"），視為該欄位 token 已完成輸入，不再觸發建議
+        if (rawValue.Length >= 2 && rawValue.StartsWith('"') && rawValue.EndsWith('"'))
+            return null;
+
+        var value = rawValue.Trim('"');
+
+        return new ActiveFieldToken(prefix, field, value, lastTokenStart);
+    }
+
+    /// <summary>
+    /// 將選取的建議值帶入搜尋字串，若值含空白自動加上雙引號，並在尾部補一個空白方便繼續輸入。
+    /// </summary>
+    public static string ApplySuggestion(string originalText, ActiveFieldToken token, string insertValue)
+    {
+        var formatted = insertValue.Contains(' ') || insertValue.Contains('\t')
+            ? $"\"{insertValue}\""
+            : insertValue;
+
+        var before = originalText[..token.StartIndex];
+        return before + token.Prefix + formatted + " ";
+    }
+
+    /// <summary>
+    /// 當使用者點擊欄位提示 Chip（例如 "artist:"、"tag:"）時，將欄位名稱帶入搜尋框。
+    /// 支援空字串補完、結尾空白追加、輸入前綴補完（如 "art" -> "artist:"、"-art" -> "-artist:"）以及最後 token 為其他字詞時補空白追加。
+    /// </summary>
+    public static string ApplyFieldChip(string? currentText, string fieldPrefix)
+    {
+        if (string.IsNullOrEmpty(currentText))
+        {
+            return fieldPrefix;
+        }
+
+        if (char.IsWhiteSpace(currentText[^1]))
+        {
+            return currentText + fieldPrefix;
+        }
+
+        // 找最後一個不在引號內的 whitespace
+        int lastTokenStart = 0;
+        bool inQuotes = false;
+        for (int i = 0; i < currentText.Length; i++)
+        {
+            if (currentText[i] == '"')
+            {
+                inQuotes = !inQuotes;
+            }
+            else if (!inQuotes && (currentText[i] == ' ' || currentText[i] == '\t'))
+            {
+                lastTokenStart = i + 1;
+            }
+        }
+
+        if (lastTokenStart >= currentText.Length)
+        {
+            return currentText + fieldPrefix;
+        }
+
+        var before = currentText[..lastTokenStart];
+        var lastToken = currentText[lastTokenStart..];
+
+        var fieldName = fieldPrefix.TrimEnd(':');
+
+        if (lastToken.StartsWith('-'))
+        {
+            var prefix = lastToken[1..];
+            if (!prefix.Contains(':') && (prefix.Length == 0 || fieldName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+            {
+                return before + "-" + fieldPrefix;
+            }
+        }
+        else
+        {
+            if (!lastToken.Contains(':') && fieldName.StartsWith(lastToken, StringComparison.OrdinalIgnoreCase))
+            {
+                return before + fieldPrefix;
+            }
+        }
+
+        return currentText + " " + fieldPrefix;
+    }
 }
+
+/// <summary>代表當前正在輸入且可觸發 autocomplete 的欄位 token。</summary>
+public record ActiveFieldToken(string Prefix, SearchField Field, string Value, int StartIndex);
 
 public enum SearchField
 {
