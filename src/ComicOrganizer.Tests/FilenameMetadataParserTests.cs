@@ -225,4 +225,67 @@ public class FilenameMetadataParserTests
         Assert.Equal("Title", p.Title);
         Assert.DoesNotContain(p.Tags, t => t.Name.Contains("Group"));
     }
+
+    [Fact]
+    public void Work_TouhouReitaisaiAndTraditionalChinese()
+    {
+        var p = FilenameMetadataParser.ParseWorkName("(例大祭15) [Circle (Artist)] Title [中國翻譯].zip");
+
+        Assert.Equal("Circle", p.AuthorMainName);
+        Assert.Equal("Artist", p.AuthorAlias);
+        Assert.Equal("Title", p.Title);
+        Assert.Equal("zh-TW", p.Language);
+        Assert.Null(p.TranslationGroup);
+        Assert.Contains(p.Tags, t => t.Name == "例大祭15" && t.Category == "event");
+        Assert.DoesNotContain(p.Tags, t => t.Name == "中國翻譯");
+    }
+
+    [Fact]
+    public void Work_VariousConventionEvents_RecognizedAsEventTag()
+    {
+        var conventions = new[]
+        {
+            ("(東方紅楼夢15) [Circle (Artist)] Title 1.zip", "東方紅楼夢15"),
+            ("(紅樓夢16) [Circle (Artist)] Title 2.zip", "紅樓夢16"),
+            ("(サンクリ2022) [Circle (Artist)] Title 3.zip", "サンクリ2022"),
+            ("(SC2020) [Circle (Artist)] Title 4.zip", "SC2020"),
+            ("(FF40) [Circle (Artist)] Title 5.zip", "FF40"),
+            ("(PF35) [Circle (Artist)] Title 6.zip", "PF35"),
+            ("(こみトレ30) [Circle (Artist)] Title 7.zip", "こみトレ30"),
+        };
+
+        foreach (var (filename, expectedEvent) in conventions)
+        {
+            var p = FilenameMetadataParser.ParseWorkName(filename);
+            Assert.Equal("Circle", p.AuthorMainName);
+            Assert.Equal("Artist", p.AuthorAlias);
+            Assert.Contains(p.Tags, t => t.Name == expectedEvent && t.Category == "event");
+        }
+    }
+
+    [Fact]
+    public void Work_VariousChineseAndJapaneseLanguageVariants()
+    {
+        var cases = new[]
+        {
+            ("[Author] Title [簡中].zip", "zh-CN"),
+            ("[Author] Title [簡體中文].zip", "zh-CN"),
+            ("[Author] Title [简体中文].zip", "zh-CN"),
+            ("[Author] Title [繁中].zip", "zh-TW"),
+            ("[Author] Title [繁體中文].zip", "zh-TW"),
+            ("[Author] Title [中国語].zip", "zh"),
+            ("[Author] Title [中國語].zip", "zh"),
+            ("[Author] Title [日本語].zip", "ja"),
+            ("[Author] Title [中文].zip", "zh"),
+            ("[Author] Title [中国翻訳].zip", "zh-CN"),
+            ("[Author] Title [中譯].zip", "zh-TW"),
+        };
+
+        foreach (var (filename, expectedLang) in cases)
+        {
+            var p = FilenameMetadataParser.ParseWorkName(filename);
+            Assert.Equal(expectedLang, p.Language);
+            Assert.Null(p.TranslationGroup);
+        }
+    }
 }

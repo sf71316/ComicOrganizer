@@ -52,14 +52,8 @@ public partial class AuthorWorksListPanel : UserControl, IThemedControl
             return;
         }
 
-        var info = _store.GetAuthorInfo(authorId);
-        if (info == null) { _all.Clear(); UpdateStatus(); return; }
-
-        _all = info.AllWorks.Select(w =>
-        {
-            var detail = _store!.GetWorkDetail(w.Path);
-            return BuildRow(w.Path, detail);
-        }).ToList();
+        var summaries = _store.ListAuthorWorkSummaries(authorId);
+        _all = summaries.Select(BuildRow).ToList();
 
         lblHeader.Text = string.Format(
             LocalizationManager.GetString("AuthorWorksHeaderFmt") ?? "「{0}」的作品（共 {1} 本）",
@@ -161,31 +155,27 @@ public partial class AuthorWorksListPanel : UserControl, IThemedControl
         btnSyncSelected.Enabled = ExternalMetadataEnabled && selected > 0;
     }
 
-    private static AuthorWorkRow BuildRow(string path, WorkDetail? detail)
+    private static AuthorWorkRow BuildRow(AuthorWorkSummary summary)
     {
-        // Status：無論有沒有 id 都允許同步（沒 id 走 search picker）；
-        // 已編輯 / 已綁定的 row sync icon 仍可點（user 強制覆蓋）— 由 ApplyMergeResult 自動標 manually_edited
         string status;
-        if (detail == null) status = "資料缺失";
-        else if (detail.ManuallyEdited) status = "已編輯";
-        else if (!string.IsNullOrEmpty(detail.ExternalId)) status = "已綁";
+        if (summary.ManuallyEdited) status = "已編輯";
+        else if (!string.IsNullOrEmpty(summary.ExternalId)) status = "已綁";
         else status = "可同步";
 
-        // 資料缺失的 row 不給 sync icon，其他都給
-        var actions = (detail == null) ? Array.Empty<CellLink>() : new CellLink[]
+        var actions = new CellLink[]
         {
             new CellButton("Sync", "", TTypeMini.Default) { Ghost = true, IconSvg = "ApiOutlined" },
         };
 
         return new AuthorWorkRow
         {
-            Path = path,
-            Title = detail?.Title ?? Path.GetFileNameWithoutExtension(path),
-            Language = detail?.Language ?? "",
-            PageCount = detail?.PageCount?.ToString() ?? "",
-            TagCount = (detail?.Tags?.Count ?? 0).ToString(),
-            ExternalId = detail?.ExternalId ?? "",
-            ManualMark = (detail?.ManuallyEdited ?? false) ? "✓" : "",
+            Path = summary.Path,
+            Title = !string.IsNullOrWhiteSpace(summary.Title) ? summary.Title : Path.GetFileNameWithoutExtension(summary.Path),
+            Language = summary.Language ?? "",
+            PageCount = summary.PageCount?.ToString() ?? "",
+            TagCount = summary.TagCount.ToString(),
+            ExternalId = summary.ExternalId ?? "",
+            ManualMark = summary.ManuallyEdited ? "✓" : "",
             Status = status,
             Selected = false,
             Action = actions,

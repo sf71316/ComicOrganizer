@@ -258,6 +258,64 @@ public class MetadataEditTests : IDisposable
     }
 
     [Fact]
+    public void MergeTag_PreservesAndMergesTranslations_WithoutOverwritingExisting()
+    {
+        var srcTag = _store.UpsertTag("src_tag");
+        var destTag = _store.UpsertTag("dest_tag");
+
+        // 來源標籤有 zh-TW (ehtag) 與 en (ehtag)
+        _store.UpsertTagTranslation(srcTag, "zh-TW", "來源中文", "ehtag");
+        _store.UpsertTagTranslation(srcTag, "en", "Source EN", "ehtag");
+
+        // 目標標籤已有 zh-TW (manual)
+        _store.UpsertTagTranslation(destTag, "zh-TW", "目標中文", "manual");
+
+        _store.MergeTag(srcTag, destTag);
+
+        // 來源標籤已刪，其翻譯已被 cascade 刪除
+        Assert.Empty(_store.ListTagTranslations(srcTag));
+
+        // 目標標籤：zh-TW 保留既有的「目標中文」(manual)，en 獲得來源的「Source EN」(ehtag)
+        var destTranslations = _store.ListTagTranslations(destTag);
+        Assert.Equal(2, destTranslations.Count);
+
+        var zhTw = destTranslations.First(t => t.Lang == "zh-TW");
+        Assert.Equal("目標中文", zhTw.Name);
+        Assert.Equal("manual", zhTw.Source);
+
+        var en = destTranslations.First(t => t.Lang == "en");
+        Assert.Equal("Source EN", en.Name);
+        Assert.Equal("ehtag", en.Source);
+    }
+
+    [Fact]
+    public void UpdateAssetPath_UpdatesBothPathAndName()
+    {
+        var assetId = SeedAsset(@"C:\Library\Author\OldFile.zip");
+        var before = _store.ListAssetEntries().First(e => e.Id == assetId);
+        Assert.Equal(@"C:\Library\Author\OldFile.zip", before.Path);
+        Assert.Equal("OldFile.zip", before.Name);
+
+        _store.UpdateAssetPath(assetId, @"C:\Library\Author\NewRenamedFile.zip");
+
+        var after = _store.ListAssetEntries().First(e => e.Id == assetId);
+        Assert.Equal(@"C:\Library\Author\NewRenamedFile.zip", after.Path);
+        Assert.Equal("NewRenamedFile.zip", after.Name);
+    }
+
+    [Fact]
+    public void UpdateAssetPath_FolderWithTrailingSlash_UpdatesNameCorrectly()
+    {
+        var assetId = SeedAsset(@"C:\Library\Author\OldDir\");
+        _store.UpdateAssetPath(assetId, @"C:\Library\Author\NewDir\");
+
+        var after = _store.ListAssetEntries().First(e => e.Id == assetId);
+        Assert.Equal(@"C:\Library\Author\NewDir\", after.Path);
+        Assert.Equal("NewDir", after.Name);
+    }
+
+
+    [Fact]
     public void DeleteTag_CascadesAssociations()
     {
         var tagId = _store.UpsertTag("temp");

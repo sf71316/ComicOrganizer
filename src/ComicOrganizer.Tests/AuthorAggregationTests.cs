@@ -263,6 +263,49 @@ public class AuthorAggregationTests : IDisposable
         Assert.Equal(ReadStatus.Unread, meta!.ReadStatus);
     }
 
+    [Fact]
+    public void ListAuthorWorkSummaries_ReturnsCorrectSummariesAndTagCounts()
+    {
+        // 先為 work1 設定 external_id, language, page_count, manually_edited
+        var w1Id = GetAssetId(_workPaths[0]);
+        var m1 = _store.GetMetadata(w1Id)!;
+        m1.Language = "zh-TW";
+        m1.PageCount = 32;
+        m1.ExternalId = "123456";
+        m1.ManuallyEdited = true;
+        _store.UpsertMetadata(m1);
+
+        var summaries = _store.ListAuthorWorkSummaries(_authorId);
+
+        Assert.Equal(5, summaries.Count);
+
+        // 依 Title 排序: Apple, Banana, Cherry, Date, Elderberry
+        Assert.Equal("Apple", summaries[0].Title);
+        Assert.Equal(_workPaths[0], summaries[0].Path);
+        Assert.Equal("zh-TW", summaries[0].Language);
+        Assert.Equal(32, summaries[0].PageCount);
+        Assert.Equal("123456", summaries[0].ExternalId);
+        Assert.True(summaries[0].ManuallyEdited);
+        Assert.Equal(1, summaries[0].TagCount); // "中文"
+
+        Assert.Equal("Banana", summaries[1].Title);
+        Assert.False(summaries[1].ManuallyEdited);
+        Assert.Equal(1, summaries[1].TagCount); // "中文"
+
+        Assert.Equal("Cherry", summaries[2].Title);
+        Assert.Equal(2, summaries[2].TagCount); // "中文", "DL版"
+
+        Assert.Equal("Date", summaries[3].Title);
+        Assert.Equal(0, summaries[3].TagCount);
+
+        Assert.Equal("Elderberry", summaries[4].Title);
+        Assert.Equal(0, summaries[4].TagCount);
+
+        // 查詢不存在的 author 回傳空集合
+        Assert.Empty(_store.ListAuthorWorkSummaries(999999));
+    }
+
+
     private long GetAssetId(string path)
     {
         using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath};");

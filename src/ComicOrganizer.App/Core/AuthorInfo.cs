@@ -49,3 +49,16 @@ public class RecentRead
     public long? LastRead { get; set; }
     public int ReadCount { get; set; }
 }
+
+/// <summary>
+/// 作者單一作品摘要（單條 SQL 批次撈取），提供給 AuthorWorksListPanel 消除 N+1 查詢。
+/// </summary>
+public record AuthorWorkSummary(
+    string Path,
+    string? Title,
+    string? Language,
+    int? PageCount,
+    string? ExternalId,
+    bool ManuallyEdited,
+    int TagCount);
+

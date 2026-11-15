@@ -9,30 +9,26 @@ namespace ComicOrganizer.App.UI;
 /// </summary>
 public partial class GalleryControl
 {
+    private bool _isPromptingUnsaved;
+    private bool _allowCloseWithoutPrompt;
+
     /// <summary>
     /// detailDrawerHost 內兩個 panel 的事件統一接：CloseRequested / 點作品 / Author 連結 / Explorer。
     /// 從 ctor 抽出避免 ctor 過長。
     /// </summary>
     private void WireDrawerEvents()
     {
-        // 兩個 panel 的 X 鈕都關掉 drawer
-        detailDrawerHost.AuthorPanel.CloseRequested += () => _detailDrawerForm?.Close();
-        detailDrawerHost.WorkPanel.CloseRequested += () => _detailDrawerForm?.Close();
+        // 兩個 panel 的 X 鈕都走未存檔防護關閉流程
+        detailDrawerHost.AuthorPanel.CloseRequested += () => RequestCloseDetailDrawer();
+        detailDrawerHost.WorkPanel.CloseRequested += () => RequestCloseDetailDrawer();
 
-        // 點 AuthorInfoPanel 的 RecentlyRead / AllWorks 行 → 等同卡片「閱讀」
+        // 點 AuthorInfoPanel 的 RecentlyRead / AllWorks 行 → 先檢查未存檔再決定是否開閱讀
         detailDrawerHost.AuthorPanel.RequestOpenWork += path =>
-            RecordReadAndOpenViewer(path, refreshAuthorPanel: true);
+            GuardUnsavedChanges(() => RecordReadAndOpenViewer(path, refreshAuthorPanel: true));
 
-        // WorkDetailPanel 的 Author 連結 → 切回 AuthorInfoPanel
+        // WorkDetailPanel 的 Author 連結 → 先檢查未存檔再切回 AuthorInfoPanel
         detailDrawerHost.WorkPanel.RequestOpenAuthor += authorId =>
-        {
-            if (_metaStore == null) return;
-            var info = _metaStore.GetAuthorInfo(authorId);
-            if (info == null)
-                detailDrawerHost.ShowAuthorEmpty(LocalizationManager.GetString("AuthorInfoNoData") ?? "作者資料缺失");
-            else
-                detailDrawerHost.ShowAuthor(info);
-        };
+            GuardUnsavedChanges(() => OpenAuthorByIdCore(authorId));
 
         // WorkDetailPanel 的「閱讀」按鈕 + cover 點擊
         detailDrawerHost.WorkPanel.RequestOpenViewer += path =>
@@ -108,7 +104,7 @@ public partial class GalleryControl
                                     BeginInvoke(new Action(() =>
                                     {
                                         if (IsDisposed) return;
-                                        _detailDrawerForm?.Close();
+                                        ForceCloseDetailDrawer();
                                         var ignored = LoadTreeAsync();
                                     }));
                                     return true;
@@ -197,8 +193,9 @@ public partial class GalleryControl
             _metaStore.UpsertMetadata(updated);
             _metaStore.SetAssetTags(assetId.Value, data.Tags);
 
-            // 刷面板 + 卡片 metadata view
-            ShowWorkDetail(data.Path);
+            // 刷面板 + 卡片 metadata view（已寫入 DB，先清編輯態避免重複提示）
+            detailDrawerHost.DiscardEditingState();
+            ShowWorkDetailCore(data.Path);
             RefreshCardReadStatusByPath(data.Path);
         }
         catch (Exception ex)
@@ -228,7 +225,8 @@ public partial class GalleryControl
                 BeginInvoke(() =>
                 {
                     if (IsDisposed) return;
-                    ShowWorkDetail(path);
+                    detailDrawerHost.DiscardEditingState();
+                    ShowWorkDetailCore(path);
                     RefreshCardReadStatusByPath(path);
                 });
                 return true;
@@ -275,15 +273,27 @@ public partial class GalleryControl
         // 走 queue 延遲提交：30s 後才實際 RecordRead；queue.Recorded event 觸發時自動刷卡片 icon
         EnqueueReadIfEnabled(path);
         OpenForReading(path);
-        if (refreshAuthorPanel) ShowAuthorInfo(path);
-        else ShowWorkDetail(path);
+        if (refreshAuthorPanel) ShowAuthorInfoCore(path);
+        else ShowWorkDetailCore(path);
+    }
+
+    private void OpenAuthorByIdCore(long authorId)
+    {
+        if (_metaStore == null) return;
+        var info = _metaStore.GetAuthorInfo(authorId);
+        if (info == null)
+            detailDrawerHost.ShowAuthorEmpty(LocalizationManager.GetString("AuthorInfoNoData") ?? "作者資料缺失");
+        else
+            detailDrawerHost.ShowAuthor(info);
     }
 
     /// <summary>
-    /// 解析 path 對應的 author，用 AntdUI.Drawer 從右邊滑出顯示。
-    /// Mask=false（不遮主畫面），點 drawer 外由 DrawerOutsideClickFilter 自動關閉。
+    /// 解析 path 對應的 author，用 AntdUI.Drawer 從右邊滑出顯示（含未存檔編輯保護）。
     /// </summary>
     private void ShowAuthorInfo(string path)
+        => GuardUnsavedChanges(() => ShowAuthorInfoCore(path));
+
+    private void ShowAuthorInfoCore(string path)
     {
         if (_metaStore == null)
         {
@@ -309,10 +319,13 @@ public partial class GalleryControl
     }
 
     /// <summary>
-    /// 解析 path 對應的作品詳細資料，用 AntdUI.Drawer 從右邊滑出顯示。
+    /// 解析 path 對應的作品詳細資料，用 AntdUI.Drawer 從右邊滑出顯示（含未存檔編輯保護）。
     /// 先以 null cover 開啟 drawer 避免閃爍，async 補上 cover image。
     /// </summary>
     private void ShowWorkDetail(string path)
+        => GuardUnsavedChanges(() => ShowWorkDetailCore(path));
+
+    private void ShowWorkDetailCore(string path)
     {
         if (_metaStore == null)
         {
@@ -330,6 +343,129 @@ public partial class GalleryControl
         detailDrawerHost.ShowWork(detail, null);
         EnsureDetailDrawerOpen();
         _ = LoadWorkCoverAsync(path);
+    }
+
+    private bool HasPendingUnsavedDrawerEdits()
+        => _detailDrawerForm != null && !_detailDrawerForm.IsDisposed && detailDrawerHost.HasUnsavedChanges;
+
+    private void GuardUnsavedChanges(Action proceed)
+    {
+        if (!HasPendingUnsavedDrawerEdits())
+        {
+            proceed();
+            return;
+        }
+
+        ConfirmDiscardUnsavedChanges(() =>
+        {
+            detailDrawerHost.DiscardEditingState();
+            proceed();
+        });
+    }
+
+    private void RequestCloseDetailDrawer()
+    {
+        if (_detailDrawerForm == null || _detailDrawerForm.IsDisposed) return;
+        if (!detailDrawerHost.HasUnsavedChanges)
+        {
+            ForceCloseDetailDrawer();
+            return;
+        }
+
+        ConfirmDiscardUnsavedChanges(ForceCloseDetailDrawer);
+    }
+
+    private void ForceCloseDetailDrawer()
+    {
+        detailDrawerHost.DiscardEditingState();
+        if (_detailDrawerForm == null || _detailDrawerForm.IsDisposed) return;
+        _allowCloseWithoutPrompt = true;
+        try
+        {
+            _detailDrawerForm.Close();
+        }
+        finally
+        {
+            _allowCloseWithoutPrompt = false;
+        }
+    }
+
+    private void ConfirmDiscardUnsavedChanges(Action onDiscardConfirmed)
+    {
+        if (_isPromptingUnsaved) return;
+
+        var form = this.FindForm();
+        if (form == null || form.IsDisposed)
+        {
+            onDiscardConfirmed();
+            return;
+        }
+
+        int confirmed = 0;
+        _isPromptingUnsaved = true;
+        try
+        {
+            UI.ModalEx.Open(new AntdUI.Modal.Config(form,
+                LocalizationManager.GetString("UnsavedChangesTitle") ?? "未儲存的編輯",
+                LocalizationManager.GetString("UnsavedChangesMessage") ?? "有未儲存的編輯內容，是否放棄變更？",
+                AntdUI.TType.Warn)
+            {
+                OkText = LocalizationManager.GetString("DiscardChanges") ?? "放棄變更",
+                CancelText = LocalizationManager.GetString("ContinueEditing") ?? "繼續編輯",
+                OnOk = _ =>
+                {
+                    Interlocked.Exchange(ref confirmed, 1);
+                    try
+                    {
+                        BeginInvoke(new Action(() =>
+                        {
+                            try
+                            {
+                                if (IsDisposed) return;
+                                onDiscardConfirmed();
+                            }
+                            finally
+                            {
+                                _isPromptingUnsaved = false;
+                            }
+                        }));
+                    }
+                    catch
+                    {
+                        _isPromptingUnsaved = false;
+                    }
+                    return true;
+                }
+            });
+        }
+        finally
+        {
+            if (Volatile.Read(ref confirmed) == 0)
+                _isPromptingUnsaved = false;
+        }
+    }
+
+    private void OnDetailDrawerFormClosing(object? sender, FormClosingEventArgs e)
+    {
+        if (_allowCloseWithoutPrompt) return;
+        if (e.CloseReason != CloseReason.UserClosing) return;
+        if (!detailDrawerHost.HasUnsavedChanges)
+        {
+            detailDrawerHost.DiscardEditingState();
+            return;
+        }
+
+        e.Cancel = true;
+        if (_isPromptingUnsaved) return;
+        try
+        {
+            BeginInvoke(new Action(() =>
+            {
+                if (IsDisposed) return;
+                RequestCloseDetailDrawer();
+            }));
+        }
+        catch { /* control disposed */ }
     }
 
     /// <summary>非同步載 work cover 後 marshal 回 UI thread 套到 WorkDetailPanel。</summary>
@@ -405,6 +541,13 @@ public partial class GalleryControl
         var ownerForm = this.FindForm();
         if (ownerForm == null) return;
 
+        // 若上一輪 filter 還在等放開滑鼠按鍵，先清掉避免殘留
+        if (_drawerClickFilter != null)
+        {
+            _drawerClickFilter.Detach();
+            _drawerClickFilter = null;
+        }
+
         // Drawer 量 Content.Size 決定 drawer 大小。每次強制 reset 成 380 × formHeight
         detailDrawerHost.Dock = DockStyle.None;
         detailDrawerHost.Size = new Size(420, ownerForm.ClientSize.Height);
@@ -419,19 +562,32 @@ public partial class GalleryControl
             {
                 if (_drawerClickFilter != null)
                 {
-                    Application.RemoveMessageFilter(_drawerClickFilter);
-                    _drawerClickFilter = null;
+                    _drawerClickFilter.MarkDrawerClosed();
+                    if (!_drawerClickFilter.HasPendingButtonUp)
+                    {
+                        _drawerClickFilter.Detach();
+                        _drawerClickFilter = null;
+                    }
                 }
+                if (_detailDrawerForm != null)
+                {
+                    _detailDrawerForm.FormClosing -= OnDetailDrawerFormClosing;
+                }
+                detailDrawerHost.DiscardEditingState();
                 _detailDrawerForm = null;
             },
         };
 
         _detailDrawerForm = AntdUI.Drawer.open(config);
 
-        // 點 drawer 以外區域 → 自動關閉（IMessageFilter 攔截 WM_LBUTTONDOWN）
+        // 點 drawer 以外區域 → 消費穿透點擊並以非同步方式觸發未存檔檢查與關閉
         if (_detailDrawerForm != null)
         {
-            _drawerClickFilter = new DrawerOutsideClickFilter(_detailDrawerForm);
+            _detailDrawerForm.FormClosing += OnDetailDrawerFormClosing;
+            _drawerClickFilter = new DrawerOutsideClickFilter(
+                _detailDrawerForm,
+                onOutsideClick: RequestCloseDetailDrawer,
+                isPrompting: () => _isPromptingUnsaved);
             Application.AddMessageFilter(_drawerClickFilter);
         }
     }

@@ -639,6 +639,12 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
     {
         lock (_lock)
         {
+            if (_currentTx != null)
+            {
+                action();
+                return;
+            }
+
             using var tx = _conn.BeginTransaction();
             _currentTx = tx;
             try
@@ -1006,6 +1012,32 @@ LIMIT 5;", new { authorId }, _currentTx).AsList();
         }
     }
 
+    public IReadOnlyList<AuthorWorkSummary> ListAuthorWorkSummaries(long authorId)
+    {
+        lock (_lock)
+        {
+            var rows = _conn.Query<(string Path, string? Title, string? Language, int? PageCount, string? ExternalId, long ManuallyEdited, long TagCount)>(@"
+SELECT a.path AS Path, am.title AS Title, am.language AS Language, am.page_count AS PageCount,
+       am.external_id AS ExternalId, am.manually_edited AS ManuallyEdited,
+       (SELECT COUNT(*) FROM asset_tag at WHERE at.asset_id = a.id) AS TagCount
+FROM asset a
+JOIN asset_meta am ON am.asset_id = a.id
+WHERE am.author_id = @authorId
+ORDER BY am.title IS NULL, am.title COLLATE NOCASE;",
+                new { authorId }, transaction: _currentTx);
+
+            return rows.Select(r => new AuthorWorkSummary(
+                r.Path,
+                r.Title,
+                r.Language,
+                r.PageCount,
+                r.ExternalId,
+                r.ManuallyEdited != 0,
+                (int)r.TagCount)).ToList();
+        }
+    }
+
+
     // ============================================================
     // Tag
     // ============================================================
@@ -1290,6 +1322,10 @@ INSERT OR IGNORE INTO author_tag (author_id, tag_id)
 SELECT author_id, @dest FROM author_tag WHERE tag_id = @src;",
                 new { dest = destId, src = srcId }, _currentTx);
             _conn.Execute("DELETE FROM author_tag WHERE tag_id = @src;", new { src = srcId }, _currentTx);
+            _conn.Execute(@"
+INSERT OR IGNORE INTO tag_translation (tag_id, lang, name, source, updated_at)
+SELECT @dest, lang, name, source, updated_at FROM tag_translation WHERE tag_id = @src;",
+                new { dest = destId, src = srcId }, _currentTx);
             _conn.Execute("DELETE FROM tag WHERE id = @src;", new { src = srcId }, _currentTx);
         });
     }
@@ -1326,9 +1362,14 @@ ORDER BY id;", transaction: _currentTx).AsList();
 
     public void UpdateAssetPath(long assetId, string newPath)
     {
+        var trimmed = (newPath ?? string.Empty).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var name = Path.GetFileName(trimmed);
+        if (string.IsNullOrEmpty(name))
+            name = newPath ?? string.Empty;
+
         lock (_lock)
-            _conn.Execute("UPDATE asset SET path = @p WHERE id = @id;",
-                new { p = newPath, id = assetId }, _currentTx);
+            _conn.Execute("UPDATE asset SET path = @p, name = @name WHERE id = @id;",
+                new { p = newPath, name, id = assetId }, _currentTx);
     }
 
     public void DeleteAssetById(long assetId)

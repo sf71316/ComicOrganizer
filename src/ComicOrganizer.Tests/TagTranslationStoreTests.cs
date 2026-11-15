@@ -143,4 +143,37 @@ public class TagTranslationStoreTests : IDisposable
         // tag 刪了，translation 也應 cascade 清掉
         Assert.Empty(_store.ListTagTranslations(tagId));
     }
+
+    [Fact]
+    public void SyncTranslationsToDb_PopulatesDbAndPreservesManual()
+    {
+        var translator = new TagTranslator();
+        Assert.True(translator.IsAvailable);
+
+        var idBigBreasts = SeedTag("big breasts");
+        var idMilf = SeedTag("milf");
+
+        // 手動譯文
+        _store.UpsertTagTranslation(idBigBreasts, "zh-TW", "自訂巨乳", "manual");
+
+        var map = new Dictionary<string, long>
+        {
+            { "big breasts", idBigBreasts },
+            { "milf", idMilf },
+        };
+
+        int written = translator.SyncTranslationsToDb(_store, "zh-TW", map);
+
+        Assert.Equal(1, written); // 只寫入 milf，big breasts 被 manual 保護
+
+        // big breasts 保持手動
+        var trBig = _store.ListTagTranslations(idBigBreasts).First(t => t.Lang == "zh-TW");
+        Assert.Equal("自訂巨乳", trBig.Name);
+        Assert.Equal("manual", trBig.Source);
+
+        // milf 寫入自動譯文 (source='ehtag')
+        var trMilf = _store.ListTagTranslations(idMilf).First(t => t.Lang == "zh-TW");
+        Assert.Equal("ehtag", trMilf.Source);
+        Assert.NotEmpty(trMilf.Name);
+    }
 }

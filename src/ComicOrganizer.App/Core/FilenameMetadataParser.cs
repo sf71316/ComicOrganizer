@@ -30,9 +30,9 @@ public static class FilenameMetadataParser
         @"\.(zip|cbz|cbr|rar|7z|pdf|jpg|jpeg|png|webp|bmp|gif)$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    // 開頭的 (CXX) Comic Market 編號
+    // 開頭的 (CXX) Comic Market 編號與常見同人展會
     private static readonly Regex EventRegex = new(
-        @"^\s*\((C\d{2,3}|COMIC[^)]*|COMITIA[^)]*)\)\s*",
+        @"^\s*\((C\d{2,3}|COMIC[^)]*|COMITIA[^)]*|例大祭[^)]*|東方[^)]*|紅楼夢[^)]*|紅樓夢[^)]*|サンクリ[^)]*|SC\d{2,4}|FF\d{2,3}|PF\d{2,3}|こみトレ[^)]*)\)\s*",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     // 第一個 [...] 視為 author block
@@ -61,11 +61,20 @@ public static class FilenameMetadataParser
         { "簡体中国語訳", "zh-CN" },
         { "簡体", "zh-CN" },
         { "简体", "zh-CN" },
+        { "簡中", "zh-CN" },
+        { "簡體中文", "zh-CN" },
+        { "简体中文", "zh-CN" },
         { "繁体中国語訳", "zh-TW" },
         { "繁體", "zh-TW" },
         { "繁体", "zh-TW" },
         { "中譯", "zh-TW" },
+        { "中國翻譯", "zh-TW" },
+        { "繁中", "zh-TW" },
+        { "繁體中文", "zh-TW" },
         { "中文", "zh" },
+        { "中国語", "zh" },
+        { "中國語", "zh" },
+        { "日本語", "ja" },
         { "English", "en" },
         { "英訳", "en" },
         { "Korean", "ko" },

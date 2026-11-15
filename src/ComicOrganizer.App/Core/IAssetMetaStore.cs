@@ -114,6 +114,13 @@ public interface IAssetMetaStore : IDisposable
     AuthorInfo? GetAuthorInfo(long authorId);
 
     /// <summary>
+    /// 批次查詢作者的所有作品摘要（含標題、語言、頁數、external_id、手動編輯標記與標籤數），
+    /// 單條 SQL 撈完，消除 UI 載入時的 N+1 查詢。
+    /// </summary>
+    IReadOnlyList<AuthorWorkSummary> ListAuthorWorkSummaries(long authorId);
+
+
+    /// <summary>
     /// 紀錄一次「讀過」：read_count++ / last_read=now / Unread→Reading。
     /// 沒 asset_meta 紀錄（如 Author / Library folder）no-op。
     /// </summary>

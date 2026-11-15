@@ -91,36 +91,71 @@ public partial class GalleryControl
         }
     }
 
-    /// <summary>非 folder 模式的 gallery 載入 — 直接吃 path list（asset.path），不走 DirectoryInfo 列舉。
-    private Task LoadGalleryFromPathsAsync(FlowLayoutPanel container, IReadOnlyList<string> paths, GalleryViewMode mode)
+    private int NextLoadGeneration(Control target)
+        => _loadGenerations.AddOrUpdate(target, 1, (_, prev) => prev + 1);
+
+    private void InvalidateLoadGeneration(Control? target)
     {
+        if (target != null) _loadGenerations.AddOrUpdate(target, 1, (_, prev) => prev + 1);
+    }
+
+    private bool IsCurrentLoadGeneration(Control target, int generation)
+        => !this.IsDisposed && !target.IsDisposed
+           && _loadGenerations.TryGetValue(target, out var cur) && cur == generation;
+
+    /// <summary>非 folder 模式的 gallery 載入 — 直接吃 path list（asset.path），不走 DirectoryInfo 列舉。</summary>
+    private Task LoadGalleryFromPathsAsync(FlowLayoutPanel container, IReadOnlyList<string> paths, GalleryViewMode mode)
+        => LoadGalleryFromPathsAsync(container, paths, () => mode);
+
+    private Task LoadGalleryFromPathsAsync(FlowLayoutPanel container, IReadOnlyList<string> paths, Func<GalleryViewMode> getMode)
+        => LoadGalleryCardsCoreAsync(
+            container,
+            () => VirtualTabPathHelper.ResolveExistingItems(paths),
+            getMode,
+            showMetadata: true);
+
+    private Task LoadGalleryCardsCoreAsync(
+        FlowLayoutPanel container,
+        Func<List<FileSystemInfo>> fetchItems,
+        Func<GalleryViewMode> getMode,
+        bool showMetadata)
+    {
+        int generation = NextLoadGeneration(container);
         ReportJobStarted("正在載入項目與封面...");
         container.Controls.Clear();
-        // 預建 path set 給 O(1) 查父目錄是否也在結果 — case-insensitive (Windows fs)
-        var pathSet = new HashSet<string>(paths, StringComparer.OrdinalIgnoreCase);
-        var filtered = paths.Where(p => !IsPageInsideFolderResult(p, pathSet)).ToList();
 
         AntdUI.Spin.open(container, async config =>
         {
             try
             {
+                if (!IsCurrentLoadGeneration(container, generation)) return;
+                var items = await Task.Run(fetchItems);
+                if (!IsCurrentLoadGeneration(container, generation)) return;
+
+                // 把 foreach 拆 chunks，批與批之間 await Task.Delay(1) 讓出 UI thread 給 Spin 動畫 paint。
+                // 整體時間幾乎相同 (Add HWND 時間不變) 但使用者看得到 Spin 在轉 + cards 分批冒出有 progress 感
                 const int ChunkSize = 8;
-                for (int i = 0; i < filtered.Count; i += ChunkSize)
+                for (int i = 0; i < items.Count; i += ChunkSize)
                 {
-                    var chunk = filtered.Skip(i).Take(ChunkSize).ToList();
-                    this.Invoke(() =>
+                    if (!IsCurrentLoadGeneration(container, generation)) break;
+                    var chunk = items.Skip(i).Take(ChunkSize).ToList();
+                    try
                     {
-                        container.SuspendLayout();
-                        foreach (var p in chunk)
+                        this.Invoke(() =>
                         {
-                            FileSystemInfo? fsi = Directory.Exists(p) ? new DirectoryInfo(p) : (File.Exists(p) ? new FileInfo(p) : null);
-                            if (fsi == null) continue;   // path 失效（檔案被刪 / 移動）— skip
-                            // 虛擬庫 mode：showMetadata=true → 卡片下方顯示 author 副標
-                            container.Controls.Add(BuildCardForGallery(fsi, mode, showMetadata: true));
-                        }
-                        container.ResumeLayout(true);
-                    });
-                    await Task.Delay(1);
+                            if (!IsCurrentLoadGeneration(container, generation)) return;
+                            var mode = getMode();
+                            container.SuspendLayout();
+                            foreach (var item in chunk)
+                            {
+                                container.Controls.Add(BuildCardForGallery(item, mode, showMetadata));
+                            }
+                            container.ResumeLayout(true);   // 該 chunk 的 cards 立刻 layout + paint
+                        });
+                    }
+                    catch (ObjectDisposedException) { break; }
+                    catch (InvalidOperationException) { break; }
+                    await Task.Delay(1);   // 讓 UI thread 喘口氣 paint Spin animation frame
                 }
             }
             finally
@@ -128,20 +163,8 @@ public partial class GalleryControl
                 ReportJobFinished();
             }
         });
-        return Task.CompletedTask;
-    }
 
-    /// <summary>檢查 path 是否為「某個也在結果集裡的目錄」之內頁（檔案）— 避免目錄 + 內頁圖檔同時出現重疊。
-    /// 規則：
-    ///   path 是檔案 + parent 路徑在結果集 → page-in-folder（true）
-    ///   path 是目錄 → 不視為 page（保留）
-    ///   path 是檔案 + parent 不在結果集 → 是頂層 work（保留）</summary>
-    private static bool IsPageInsideFolderResult(string path, HashSet<string> pathSet)
-    {
-        if (Directory.Exists(path)) return false;   // 目錄一定保留
-        var parent = Path.GetDirectoryName(path);
-        if (string.IsNullOrEmpty(parent)) return false;
-        return pathSet.Contains(parent);
+        return Task.CompletedTask;
     }
 
     private async Task LoadPreviewAsync(System.Windows.Forms.PictureBox pic, string path)
@@ -262,36 +285,66 @@ public partial class GalleryControl
     }
 
     private Task LoadGalleryListAsync(AntdUI.Table table, string path)
+        => LoadGalleryListCoreAsync(table, () =>
+            Directory.Exists(path)
+                ? new DirectoryInfo(path).GetFileSystemInfos()
+                    .Where(ShouldShowInGallery)
+                    .ToList()
+                : new List<FileSystemInfo>());
+
+    private Task LoadGalleryListFromPathsAsync(AntdUI.Table table, IReadOnlyList<string> paths)
+        => LoadGalleryListCoreAsync(table, () => VirtualTabPathHelper.ResolveExistingItems(paths));
+
+    private Task LoadGalleryListCoreAsync(AntdUI.Table table, Func<List<FileSystemInfo>> fetchItems)
     {
+        int generation = NextLoadGeneration(table);
+        if (!table.IsDisposed) table.DataSource = null;
+
         ReportJobStarted("正在載入清單項目與封面...");
         AntdUI.Spin.open(this, async config =>
         {
             try
             {
-                // ===== Phase 1: 檔案掃描 + 列表 binding (Spin 遮蔽期間) =====
-                var fsInfos = await Task.Run(() =>
-                    new DirectoryInfo(path).GetFileSystemInfos()
-                        .Where(ShouldShowInGallery)
-                        .OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
-                        .ToList());
+                if (!IsCurrentLoadGeneration(table, generation)) return;
 
-                var prepared = await Task.Run(() => fsInfos.Select(fs =>
+                // ===== Phase 1: 檔案掃描 + 排序 + 列表 binding (Spin 遮蔽期間) =====
+                var prepared = await Task.Run(() =>
                 {
-                    bool isDir = fs is DirectoryInfo;
-                    long size = isDir ? 0 : ((FileInfo)fs).Length;
-                    return (fs, isDir, size);
-                }).ToList());
+                    var fsInfos = fetchItems()
+                        .OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(i => i.FullName, StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
+                    var result = new List<(FileSystemInfo fs, bool isDir, long size, DateTime createdAt)>(fsInfos.Count);
+                    foreach (var fs in fsInfos)
+                    {
+                        bool isDir = fs is DirectoryInfo;
+                        long size = 0;
+                        DateTime createdAt;
+                        try
+                        {
+                            if (!isDir) size = ((FileInfo)fs).Length;
+                            createdAt = fs.CreationTime;
+                        }
+                        catch (IOException) { continue; }
+                        catch (UnauthorizedAccessException) { continue; }
+                        result.Add((fs, isDir, size, createdAt));
+                    }
+                    return result;
+                });
+
+                if (!IsCurrentLoadGeneration(table, generation)) return;
 
                 var list = new System.ComponentModel.BindingList<GalleryListItem>();
                 var thumbTasks = new List<Task>();
 
-                foreach (var (fs, isDir, size) in prepared)
+                foreach (var (fs, isDir, size, createdAt) in prepared)
                 {
                     var item = new GalleryListItem
                     {
                         Name = fs.Name,
                         Size = isDir ? "" : FormatSize(size),
-                        CreatedAt = fs.CreationTime.ToString("yyyy-MM-dd HH:mm"),
+                        CreatedAt = createdAt.ToString("yyyy-MM-dd HH:mm"),
                         IsFolder = isDir,
                         FullPath = fs.FullName,
                         Action = isDir
@@ -314,6 +367,7 @@ public partial class GalleryControl
                         await _coverSemaphore.WaitAsync();
                         try
                         {
+                            if (!IsCurrentLoadGeneration(table, generation)) return;
                             var img = await _coverManager.GetCoverAsync(capturedItem.FullPath, 120);
                             if (img != null) capturedItem.Thumbnail = new AntdUI.CellImage(img)
                             {
@@ -330,7 +384,14 @@ public partial class GalleryControl
                 }
 
                 // 第一次 set：文字列表立即可見（縮圖欄空白）
-                try { this.BeginInvoke(new Action(() => { if (!table.IsDisposed) table.DataSource = list; })); }
+                try
+                {
+                    this.BeginInvoke(new Action(() =>
+                    {
+                        if (IsCurrentLoadGeneration(table, generation))
+                            table.DataSource = list;
+                    }));
+                }
                 catch { }
 
                 // ===== Phase 2: 縮圖背景載入（Spin 已關閉、列表可見） =====
@@ -338,12 +399,12 @@ public partial class GalleryControl
                 _ = Task.Run(async () =>
                 {
                     await Task.WhenAll(thumbTasks);
-                    if (this.IsDisposed) return;
+                    if (!IsCurrentLoadGeneration(table, generation)) return;
                     try
                     {
                         this.BeginInvoke(new Action(() =>
                         {
-                            if (table.IsDisposed) return;
+                            if (!IsCurrentLoadGeneration(table, generation)) return;
                             table.DataSource = null;
                             table.DataSource = list;
                         }));
@@ -374,48 +435,20 @@ public partial class GalleryControl
     }
 
     private Task LoadGalleryAsync(FlowLayoutPanel container, string path, GalleryViewMode mode)
-    {
-        ReportJobStarted("正在載入項目與封面...");
-        container.Controls.Clear();
+        => LoadGalleryAsync(container, path, () => mode);
 
-        AntdUI.Spin.open(container, async config =>
-        {
-            try
-            {
-                var items = await Task.Run(() =>
-                    new DirectoryInfo(path).GetFileSystemInfos()
-                        .Where(ShouldShowInGallery)
-                        .OrderBy(i => i is DirectoryInfo ? 0 : 1)
-                        .ThenBy(i => i.Name)
-                        .ToList());
-
-                // 把 foreach 拆 chunks，批與批之間 await Task.Delay(1) 讓出 UI thread 給 Spin 動畫 paint。
-                // 整體時間幾乎相同 (Add HWND 時間不變) 但使用者看得到 Spin 在轉 + cards 分批冒出有 progress 感
-                const int ChunkSize = 8;
-                for (int i = 0; i < items.Count; i += ChunkSize)
-                {
-                    var chunk = items.Skip(i).Take(ChunkSize).ToList();
-                    this.Invoke(() =>
-                    {
-                        container.SuspendLayout();
-                        foreach (var item in chunk)
-                        {
-                            // folder mode：showMetadata=false（folder tree 已暗示 author，副標冗餘）
-                            container.Controls.Add(BuildCardForGallery(item, mode, showMetadata: false));
-                        }
-                        container.ResumeLayout(true);   // 該 chunk 的 cards 立刻 layout + paint
-                    });
-                    await Task.Delay(1);   // 讓 UI thread 喘口氣 paint Spin animation frame
-                }
-            }
-            finally
-            {
-                ReportJobFinished();
-            }
-        });
-
-        return Task.CompletedTask;
-    }
+    private Task LoadGalleryAsync(FlowLayoutPanel container, string path, Func<GalleryViewMode> getMode)
+        => LoadGalleryCardsCoreAsync(
+            container,
+            () => Directory.Exists(path)
+                ? new DirectoryInfo(path).GetFileSystemInfos()
+                    .Where(ShouldShowInGallery)
+                    .OrderBy(i => i is DirectoryInfo ? 0 : 1)
+                    .ThenBy(i => i.Name)
+                    .ToList()
+                : new List<FileSystemInfo>(),
+            getMode,
+            showMetadata: false);
 
     /// <summary>
     /// 「在檔案總管中開啟」共用邏輯：
@@ -554,5 +587,73 @@ public partial class GalleryControl
             var form = this.FindForm();
             if (form != null) AntdUI.Message.error(form, "開啟失敗: " + ex.Message);
         }
+    }
+}
+
+/// <summary>
+/// 虛擬分頁路徑清單過濾與解析 helper（卡片與清單模式共用，無 UI 依賴以利單元測試）。
+/// </summary>
+public static class VirtualTabPathHelper
+{
+    /// <summary>
+    /// 過濾虛擬路徑清單：
+    /// 1. 略過空白路徑並依大小寫不敏感去重（含結尾分隔符號正規化）。
+    /// 2. 排除「所在目錄也同時在結果集中」的單檔（避免目錄與內頁圖檔同時出現）。
+    /// </summary>
+    public static List<string> FilterVirtualPaths(IReadOnlyList<string> paths, Func<string, bool>? directoryExists = null)
+    {
+        if (paths.Count == 0) return new List<string>();
+        var isDir = directoryExists ?? Directory.Exists;
+        var pathSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var p in paths)
+        {
+            if (string.IsNullOrWhiteSpace(p)) continue;
+            pathSet.Add(Path.TrimEndingDirectorySeparator(p));
+        }
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var filtered = new List<string>(paths.Count);
+        foreach (var p in paths)
+        {
+            if (string.IsNullOrWhiteSpace(p)) continue;
+            var normalized = Path.TrimEndingDirectorySeparator(p);
+            if (!seen.Add(normalized)) continue;
+            if (!IsPageInsideFolderResult(normalized, pathSet, isDir))
+            {
+                filtered.Add(p);
+            }
+        }
+        return filtered;
+    }
+
+    /// <summary>
+    /// 檢查 path 是否為「某個也在結果集裡的目錄」之內頁（檔案）。
+    /// 目錄永遠保留；檔案若父目錄在 pathSet 中則視為內頁過濾掉。
+    /// </summary>
+    public static bool IsPageInsideFolderResult(string path, HashSet<string> pathSet, Func<string, bool>? directoryExists = null)
+    {
+        var isDir = directoryExists ?? Directory.Exists;
+        if (isDir(path)) return false;
+        var parent = Path.GetDirectoryName(path);
+        if (string.IsNullOrEmpty(parent)) return false;
+        return pathSet.Contains(Path.TrimEndingDirectorySeparator(parent));
+    }
+
+    /// <summary>
+    /// 過濾虛擬路徑並解析為實際存在的 FileSystemInfo 清單（失效／不存在路徑自動略過）。
+    /// </summary>
+    public static List<FileSystemInfo> ResolveExistingItems(IReadOnlyList<string> paths)
+    {
+        var filtered = FilterVirtualPaths(paths);
+        var items = new List<FileSystemInfo>(filtered.Count);
+        foreach (var p in filtered)
+        {
+            FileSystemInfo? fsi = Directory.Exists(p)
+                ? new DirectoryInfo(p)
+                : (File.Exists(p) ? new FileInfo(p) : null);
+            if (fsi != null) items.Add(fsi);
+        }
+        return items;
     }
 }

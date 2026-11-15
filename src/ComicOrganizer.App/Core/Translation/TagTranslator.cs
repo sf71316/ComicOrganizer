@@ -184,24 +184,27 @@ public class TagTranslator
     {
         if (!IsAvailable || nameToId.Count == 0) return 0;
 
-        // 預讀現有 manual 紀錄，避免覆蓋
-        var existingManual = new HashSet<long>();
-        foreach (var (_, tagId) in nameToId)
-        {
-            var existing = store.ListTagTranslations(tagId);
-            if (existing.Any(t => t.Lang == lang && t.Source == "manual"))
-                existingManual.Add(tagId);
-        }
-
         int written = 0;
-        foreach (var (name, tagId) in nameToId)
+        store.RunInTransaction(() =>
         {
-            if (existingManual.Contains(tagId)) continue;   // 手動的不動
-            var zh = TranslateAny(name);
-            if (string.IsNullOrEmpty(zh) || zh == name) continue;   // 沒翻譯 / 跟原文相同 → 不寫
-            store.UpsertTagTranslation(tagId, lang, zh, "ehtag");
-            written++;
-        }
+            // 預讀現有 manual 紀錄，避免覆蓋
+            var existingManual = new HashSet<long>();
+            foreach (var (_, tagId) in nameToId)
+            {
+                var existing = store.ListTagTranslations(tagId);
+                if (existing.Any(t => t.Lang == lang && t.Source == "manual"))
+                    existingManual.Add(tagId);
+            }
+
+            foreach (var (name, tagId) in nameToId)
+            {
+                if (existingManual.Contains(tagId)) continue;   // 手動的不動
+                var zh = TranslateAny(name);
+                if (string.IsNullOrEmpty(zh) || zh == name) continue;   // 沒翻譯 / 跟原文相同 → 不寫
+                store.UpsertTagTranslation(tagId, lang, zh, "ehtag");
+                written++;
+            }
+        });
         return written;
     }
 }

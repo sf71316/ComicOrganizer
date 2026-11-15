@@ -50,35 +50,44 @@ public class ReparseAllService
                 summary.Total = entries.Count;
 
                 int done = 0;
-                foreach (var entry in entries)
+                const int batchSize = 50;
+                for (int i = 0; i < entries.Count; i += batchSize)
                 {
                     ct.ThrowIfCancellationRequested();
-                    _tracker.Update(new CacheRebuildService.Progress
+                    var batch = entries.Skip(i).Take(batchSize).ToList();
+
+                    _metaStore.RunInTransaction(() =>
                     {
-                        Done = done,
-                        Total = entries.Count,
-                        CurrentPath = entry.Path,
+                        foreach (var entry in batch)
+                        {
+                            _tracker.Update(new CacheRebuildService.Progress
+                            {
+                                Done = done,
+                                Total = entries.Count,
+                                CurrentPath = entry.Path,
+                            });
+
+                            try
+                            {
+                                var existing = _metaStore.GetMetadata(entry.Id);
+                                if (existing != null && existing.ManuallyEdited)
+                                {
+                                    summary.Skipped++;
+                                }
+                                else
+                                {
+                                    ReparseSingle(entry, existing);
+                                    summary.Reparsed++;
+                                }
+                            }
+                            catch
+                            {
+                                summary.Failed++;
+                            }
+
+                            done++;
+                        }
                     });
-
-                    try
-                    {
-                        var existing = _metaStore.GetMetadata(entry.Id);
-                        if (existing != null && existing.ManuallyEdited)
-                        {
-                            summary.Skipped++;
-                        }
-                        else
-                        {
-                            ReparseSingle(entry, existing);
-                            summary.Reparsed++;
-                        }
-                    }
-                    catch
-                    {
-                        summary.Failed++;
-                    }
-
-                    done++;
                 }
 
                 _tracker.NotifyEnd(cancelled: false);

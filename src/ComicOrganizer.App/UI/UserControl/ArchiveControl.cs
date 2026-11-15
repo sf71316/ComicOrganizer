@@ -68,6 +68,20 @@ public partial class ArchiveControl : UserControl, IThemedControl
 
         tableArchive.ContextMenuStrip = menu;
 
+        // 綁定儲存格按鈕點擊事件（處理刪除）
+        tableArchive.CellButtonClick += (s, e) =>
+        {
+            if (e.Btn.Id == "Delete" && e.Record is ArchiveItem archiveItem)
+            {
+                if (tableArchive.DataSource is BindingList<ArchiveItem> list)
+                {
+                    list.Remove(archiveItem);
+                    lblStatus.Text = $"已移除項目，剩餘 {list.Count} 個項目";
+                    btnExecute.Enabled = list.Count > 0;
+                }
+            }
+        };
+
         // 綁定鍵盤 Space 監聽
         tableArchive.KeyDown += TableArchive_KeyDown;
 
@@ -184,22 +198,13 @@ public partial class ArchiveControl : UserControl, IThemedControl
         tableArchive.EmptyText = LocalizationManager.GetString("NoData");
 
         // Headers
-        if (tableArchive.Columns != null && tableArchive.Columns.Count >= 7)
+        if (tableArchive.Columns != null && tableArchive.Columns.Count >= 6)
         {
             tableArchive.Columns[1].Title = LocalizationManager.GetString("ArchiveColSource") ?? "來源名稱";
             tableArchive.Columns[2].Title = LocalizationManager.GetString("ArchiveColTarget") ?? "目標資料夾";
-
-            tableArchive.Columns[3].Title = LocalizationManager.GetString("ArchiveColDestinationPath");
-            if (tableArchive.Columns[3].Title == "ArchiveColDestinationPath")
-            {
-                tableArchive.Columns[3].Title = System.Threading.Thread.CurrentThread.CurrentUICulture.Name.StartsWith("zh")
-                    ? "預計歸檔路徑"
-                    : "Destination Path";
-            }
-
-            tableArchive.Columns[4].Title = LocalizationManager.GetString("ArchiveColConfidence") ?? "置信度";
-            tableArchive.Columns[5].Title = LocalizationManager.GetString("ArchiveColStatus") ?? "狀態";
-            tableArchive.Columns[6].Title = LocalizationManager.GetString("ArchiveColAction") ?? "操作";
+            tableArchive.Columns[3].Title = LocalizationManager.GetString("ArchiveColConfidence") ?? "置信度";
+            tableArchive.Columns[4].Title = LocalizationManager.GetString("ArchiveColStatus") ?? "狀態";
+            tableArchive.Columns[5].Title = LocalizationManager.GetString("ArchiveColAction") ?? "操作";
         }
 
         lblStatus.Text = LocalizationManager.GetString("StatusReady");
@@ -250,20 +255,27 @@ public partial class ArchiveControl : UserControl, IThemedControl
             return;
         }
 
+        if (string.IsNullOrWhiteSpace(_config.RootDirectory) || !Directory.Exists(_config.RootDirectory))
+        {
+            var form = this.FindForm();
+            if (form != null) AntdUI.Message.error(form, "無效的目標庫路徑");
+            return;
+        }
+
         btnScan.Loading = true;
         lblStatus.Text = "正在掃描匹配...";
 
         try
         {
-            var targetFolders = Directory.GetDirectories(_config.RootDirectory)
-                                         .Select(Path.GetFileName)
-                                         .Where(n => n != null).Cast<string>().ToList();
-            var sourceItems = Directory.GetFileSystemEntries(_config.UnorganizedDirectory);
-
             var list = new List<ArchiveItem>();
 
             await Task.Run(() =>
             {
+                var targetFolders = Directory.GetDirectories(_config.RootDirectory)
+                                             .Select(Path.GetFileName)
+                                             .Where(n => n != null).Cast<string>().ToList();
+                var sourceItems = Directory.GetFileSystemEntries(_config.UnorganizedDirectory);
+
                 foreach (var itemPath in sourceItems)
                 {
                     string name = Path.GetFileName(itemPath);
@@ -332,7 +344,29 @@ public partial class ArchiveControl : UserControl, IThemedControl
             return;
         }
 
-        using var preview = new PreviewForm(checkedItems, _config.RootDirectory, _intelligence, _organizer,
+        var validItems = checkedItems.Where(x => !string.IsNullOrWhiteSpace(x.DestinationPath)).ToList();
+        int skippedCount = checkedItems.Count - validItems.Count;
+
+        if (validItems.Count == 0)
+        {
+            var form = this.FindForm();
+            if (form != null)
+            {
+                AntdUI.Message.warn(form, "選取的項目皆尚未匹配到目標資料夾，請先取消勾選或等待匹配");
+            }
+            return;
+        }
+
+        if (skippedCount > 0)
+        {
+            var form = this.FindForm();
+            if (form != null)
+            {
+                AntdUI.Message.info(form, $"已自動略過 {skippedCount} 筆未匹配項目");
+            }
+        }
+
+        using var preview = new PreviewForm(validItems, _config.RootDirectory, _intelligence, _organizer,
             _config, _metaStore, _tagTranslator);
         preview.ShowDialog(this.FindForm());
 

@@ -66,6 +66,19 @@ public partial class AuthorInfoPanel : UserControl
     private readonly List<AuthorAlias> _editAliases = new();
     private readonly List<string> _editTags = new();
 
+    /// <summary>目前是否處於編輯模式。</summary>
+    public bool IsEditing => _isEditing;
+
+    /// <summary>處於編輯模式且相較原始資料有實際欄位異動時為 true。</summary>
+    public bool HasUnsavedChanges => _isEditing && HasAuthorUnsavedChanges();
+
+    /// <summary>強制放棄編輯狀態並重置編輯中欄位。</summary>
+    public void DiscardEditing()
+    {
+        if (_isEditing) SetEditMode(false);
+        else txtAddAliasName.Text = txtAddAliasLang.Text = txtAddTag.Text = "";
+    }
+
     public AuthorInfoPanel()
     {
         InitializeComponent();
@@ -210,6 +223,11 @@ public partial class AuthorInfoPanel : UserControl
     /// <summary>顯示「無資料」訊息（path 解析不到 author / GetAuthorInfo 回 null）。</summary>
     public void ShowEmpty(string message)
     {
+        _currentAuthorId = 0;
+        _currentInfo = null;
+        _editAliases.Clear();
+        _editTags.Clear();
+        SetEditMode(false);
         contentPanel.Visible = false;
         lblEmpty.Text = message;
         lblEmpty.Visible = true;
@@ -297,6 +315,19 @@ public partial class AuthorInfoPanel : UserControl
 
     // ===== 編輯模式（#45 Phase 3）=====
 
+    private bool HasAuthorUnsavedChanges()
+    {
+        if (_currentInfo == null) return false;
+        var snapshot = new AuthorEditSnapshot(
+            MainName: txtMainName.Text,
+            Aliases: _editAliases.Select(a => new AliasSnapshot(a.Name, a.Lang)).ToList(),
+            Tags: _editTags,
+            PendingAliasName: txtAddAliasName.Text,
+            PendingAliasLang: txtAddAliasLang.Text,
+            PendingTagInput: txtAddTag.Text);
+        return DrawerEditStateComparer.HasAuthorEditChanges(_currentInfo, snapshot);
+    }
+
     private void SetEditMode(bool editing)
     {
         _isEditing = editing;
@@ -323,17 +354,21 @@ public partial class AuthorInfoPanel : UserControl
         if (editing)
         {
             var info = _currentInfo;
-            if (info != null) txtMainName.Text = info.Author.MainName;
+            if (info != null) txtMainName.Text = info.Author.MainName ?? "";
             txtAddAliasName.Text = txtAddAliasLang.Text = txtAddTag.Text = "";
         }
-        else if (_currentInfo != null)
+        else
         {
-            // 取消編輯 — _editAliases / _editTags 重置回原始
-            _editAliases.Clear();
-            foreach (var a in _currentInfo.Aliases)
-                _editAliases.Add(new AuthorAlias { Id = a.Id, AuthorId = a.AuthorId, Name = a.Name, Lang = a.Lang });
-            _editTags.Clear();
-            _editTags.AddRange(_currentInfo.AuthorTags.Select(t => t.Name));
+            if (_currentInfo != null)
+            {
+                // 取消編輯 — _editAliases / _editTags 重置回原始
+                _editAliases.Clear();
+                foreach (var a in _currentInfo.Aliases)
+                    _editAliases.Add(new AuthorAlias { Id = a.Id, AuthorId = a.AuthorId, Name = a.Name, Lang = a.Lang });
+                _editTags.Clear();
+                _editTags.AddRange(_currentInfo.AuthorTags.Select(t => t.Name));
+            }
+            txtAddAliasName.Text = txtAddAliasLang.Text = txtAddTag.Text = "";
         }
         RebuildAliasEditChips();
         RebuildTagsView();

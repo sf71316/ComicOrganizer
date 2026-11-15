@@ -54,6 +54,19 @@ public partial class WorkDetailPanel : UserControl
     /// <summary>RebuildTagsView 一次 batch 查的 DB tag_translation 快取（tag.id → 譯文）。</summary>
     private IReadOnlyDictionary<long, string> _tagTranslationCache = new Dictionary<long, string>();
 
+    /// <summary>目前是否處於編輯模式。</summary>
+    public bool IsEditing => _isEditing;
+
+    /// <summary>處於編輯模式且相較原始資料有實際欄位異動時為 true。</summary>
+    public bool HasUnsavedChanges => _isEditing && HasWorkUnsavedChanges();
+
+    /// <summary>強制放棄編輯狀態並重置編輯中欄位。</summary>
+    public void DiscardEditing()
+    {
+        if (_isEditing) SetEditMode(false);
+        else txtAddTag.Text = "";
+    }
+
     /// <summary>由 host 注入 store — chip 顯示譯名時優先讀 schema v6 tag_translation（覆蓋 user 手動譯文）。</summary>
     public void SetMetaStore(IAssetMetaStore? store) => _store = store;
 
@@ -197,6 +210,10 @@ public partial class WorkDetailPanel : UserControl
     /// <summary>顯示「無資料」訊息。</summary>
     public void ShowEmpty(string message)
     {
+        _currentPath = "";
+        _currentDetail = null;
+        _editTags.Clear();
+        SetEditMode(false);
         contentPanel.Visible = false;
         lblEmpty.Text = message;
         lblEmpty.Visible = true;
@@ -204,6 +221,22 @@ public partial class WorkDetailPanel : UserControl
     }
 
     // ===== 編輯模式 =====
+
+    private bool HasWorkUnsavedChanges()
+    {
+        if (_currentDetail == null) return false;
+        var snapshot = new WorkEditSnapshot(
+            Title: txtTitle.Text,
+            AuthorName: txtAuthor.Text,
+            Series: txtSeries.Text,
+            ChapterNo: txtChapter.Text,
+            Language: txtLanguage.Text,
+            TranslationGroup: txtTranslationGroup.Text,
+            Rating: numRating.Value > 0 ? (int)numRating.Value : null,
+            Tags: _editTags,
+            PendingTagInput: txtAddTag.Text);
+        return DrawerEditStateComparer.HasWorkEditChanges(_currentDetail, snapshot);
+    }
 
     private void SetEditMode(bool editing)
     {
@@ -243,11 +276,15 @@ public partial class WorkDetailPanel : UserControl
             }
             txtAddTag.Text = "";
         }
-        else if (_currentDetail != null)
+        else
         {
-            // 取消編輯 — 重置 _editTags 為原始 tag list
-            _editTags.Clear();
-            _editTags.AddRange(_currentDetail.Tags.Select(t => t.Name));
+            if (_currentDetail != null)
+            {
+                // 取消編輯 — 重置 _editTags 為原始 tag list
+                _editTags.Clear();
+                _editTags.AddRange(_currentDetail.Tags.Select(t => t.Name));
+            }
+            txtAddTag.Text = "";
         }
         RebuildTagsView();
     }

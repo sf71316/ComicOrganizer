@@ -39,18 +39,18 @@ public partial class GalleryControl
                     ? tabsContent.SelectedTab
                     : null)
                    ?? CreateNewTabPage(title);
-        var flow = FindTabFlowLayout(page);
-        if (flow == null) return;
-        // 更新 tab 標題、清掉 folder Tag（避免後續 OpenFolderTab 把同 path 認成已開）
+        // 更新 tab 標題、清掉 folder Tag（避免後續 OpenFolderTab 把同 path 認成已開）並記錄虛擬路徑清單
         page.Text = title;
         page.Tag = null;
+        _tabVirtualPaths[page] = paths.ToList();
         var bc = FindTabBreadcrumb(page);
         if (bc != null)
         {
             bc.Items.Clear();
             bc.Items.Add(new AntdUI.BreadcrumbItem { Text = " " + title + " ", IconSvg = iconSvg });
         }
-        _ = LoadGalleryFromPathsAsync(flow, paths, GetTabMode(page));
+        SyncTabVisibility(page);
+        LoadCurrentViewMode(page);
     }
 
     // Tab 內子控件 lookup 共用方法。Tab 各自含 breadcrumb / flowLayout / tableList，
@@ -101,8 +101,9 @@ public partial class GalleryControl
 
     private void RefreshCurrentTab()
     {
-        if (tabsContent.SelectedTab?.Tag is not string path) return;
-        LoadCurrentViewMode(tabsContent.SelectedTab, path);
+        var page = tabsContent.SelectedTab;
+        if (page == null || page.Tag as string == "DASHBOARD") return;
+        LoadCurrentViewMode(page);
     }
 
     private void OpenFolderTab(string path, bool forceNew)
@@ -117,10 +118,11 @@ public partial class GalleryControl
 
             if (currentTab.Tag as string != "DASHBOARD")
             {
+                _tabVirtualPaths.Remove(currentTab);
                 currentTab.Text = folderName;
                 currentTab.Tag = path;
                 UpdateBreadcrumb(path);
-                LoadCurrentViewMode(currentTab, path);
+                LoadCurrentViewMode(currentTab);
                 return;
             }
         }
@@ -135,7 +137,7 @@ public partial class GalleryControl
         var newPage = CreateNewTabPage(folderName);
         newPage.Tag = path;
         UpdateBreadcrumb(path);
-        LoadCurrentViewMode(newPage, path);
+        LoadCurrentViewMode(newPage);
     }
 
     /// <summary>建一個空 TabPage（含 header / breadcrumb / refresh / S/M/L/List segView / contentHost / flow / table 完整結構），
@@ -377,18 +379,53 @@ public partial class GalleryControl
         return table;
     }
 
-    private void LoadCurrentViewMode(AntdUI.TabPage page, string path)
+    private void LoadCurrentViewMode(AntdUI.TabPage page)
     {
         var mode = GetTabMode(page);
-        if (mode == GalleryViewMode.List)
+        if (page.Tag is string path)
         {
-            var table = FindTabTable(page);
-            if (table != null) _ = LoadGalleryListAsync(table, path);
+            if (string.Equals(path, "DASHBOARD", StringComparison.Ordinal)) return;
+            if (mode == GalleryViewMode.List)
+            {
+                var table = FindTabTable(page);
+                if (table != null)
+                {
+                    InvalidateLoadGeneration(FindTabFlowLayout(page));
+                    _ = LoadGalleryListAsync(table, path);
+                }
+            }
+            else
+            {
+                var flow = FindTabFlowLayout(page);
+                if (flow != null)
+                {
+                    InvalidateLoadGeneration(FindTabTable(page));
+                    _ = LoadGalleryAsync(flow, path, () => GetTabMode(page));
+                }
+            }
+            return;
         }
-        else
+
+        if (_tabVirtualPaths.TryGetValue(page, out var vPaths))
         {
-            var flow = FindTabFlowLayout(page);
-            if (flow != null) _ = LoadGalleryAsync(flow, path, mode);
+            if (mode == GalleryViewMode.List)
+            {
+                var table = FindTabTable(page);
+                if (table != null)
+                {
+                    InvalidateLoadGeneration(FindTabFlowLayout(page));
+                    _ = LoadGalleryListFromPathsAsync(table, vPaths);
+                }
+            }
+            else
+            {
+                var flow = FindTabFlowLayout(page);
+                if (flow != null)
+                {
+                    InvalidateLoadGeneration(FindTabTable(page));
+                    _ = LoadGalleryFromPathsAsync(flow, vPaths, () => GetTabMode(page));
+                }
+            }
         }
     }
 }

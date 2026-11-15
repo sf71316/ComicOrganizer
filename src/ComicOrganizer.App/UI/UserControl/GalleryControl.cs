@@ -61,6 +61,17 @@ public partial class GalleryControl : UserControl, IThemedControl
     private readonly Dictionary<AntdUI.TabPage, GalleryViewMode> _tabViewModes = new();
 
     /// <summary>
+    /// 每個虛擬分頁（ByAuthor、ByTag、MyLib、ReadingTrack、Search）目前顯示的 work paths 清單。
+    /// 切換 S/M/L/List 檢視模式與重新整理時依此重載；tab 關閉或切換回實體資料夾時清掉避免殘留。
+    /// </summary>
+    private readonly Dictionary<AntdUI.TabPage, IReadOnlyList<string>> _tabVirtualPaths = new();
+
+    /// <summary>
+    /// 每個容器（FlowLayoutPanel / Table）的非同步載入世代號，用於連續快速切換檢視模式或重新整理時防止舊結果覆蓋新結果。
+    /// </summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Control, int> _loadGenerations = new();
+
+    /// <summary>
     /// 共用 TooltipComponent — attach 到動態建的 button (例：每個 tab 的 btnRefresh)，
     /// 跟主視窗生命週期一致；ArrowAlign 跟 Segmented TooltipConfig 一致 (Bottom)
     /// </summary>
@@ -148,13 +159,18 @@ public partial class GalleryControl : UserControl, IThemedControl
             else ShowTreeBlankContextMenu();
         };
 
-        // 處理頁籤關閉事件 — 清掉 _tabViewModes 內對應的 entry 避免 dispose 後 reference 殘留
+        // 處理頁籤關閉事件 — 清掉 _tabViewModes / _tabVirtualPaths / _loadGenerations 內對應的 entry 避免 dispose 後 reference 殘留
         tabsContent.ClosingPage += (s, e) =>
         {
             if (e.Value != null)
             {
                 if (e.Value.Tag as string == "DASHBOARD") return false;
                 _tabViewModes.Remove(e.Value);
+                _tabVirtualPaths.Remove(e.Value);
+                var flow = FindTabFlowLayout(e.Value);
+                if (flow != null) _loadGenerations.TryRemove(flow, out _);
+                var table = FindTabTable(e.Value);
+                if (table != null) _loadGenerations.TryRemove(table, out _);
             }
             return true;
         };
@@ -336,7 +352,7 @@ public partial class GalleryControl : UserControl, IThemedControl
         else
         {
             // 切到/離 List 必須重 load（FlowLayoutPanel ↔ Table 結構不同）
-            if (page.Tag is string path) LoadCurrentViewMode(page, path);
+            LoadCurrentViewMode(page);
         }
     }
 

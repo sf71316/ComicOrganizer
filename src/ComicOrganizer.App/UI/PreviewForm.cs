@@ -25,7 +25,8 @@ public partial class PreviewForm : Window, IThemedControl
         _metaStore = metaStore;
         _tagTranslator = tagTranslator;
 
-        _groups = items.GroupBy(x => x.DestinationPath)
+        var validItems = items.Where(x => !string.IsNullOrWhiteSpace(x.DestinationPath)).ToList();
+        _groups = validItems.GroupBy(x => x.DestinationPath)
                        .Select(g => new ArchiveGroup
                        {
                            DestinationPath = g.Key,
@@ -210,39 +211,43 @@ public partial class PreviewForm : Window, IThemedControl
             int currentCount = 0;
             foreach (var group in checkedGroups)
             {
+                if (string.IsNullOrWhiteSpace(group.DestinationPath)) continue;
+
                 foreach (var item in group.Items)
                 {
                     currentCount++;
-                    string targetPath = Path.Combine(group.DestinationPath, item.Source);
 
-                    this.Invoke(() =>
-                    {
-                        item.Status = "移動中...";
-                        lblProgress.Text = $"處理: {item.Source}";
-                        progress.Value = (int)((double)currentCount / totalFiles * 100);
-                    });
+                    item.Status = "移動中...";
+                    lblProgress.Text = $"處理: {item.Source}";
+                    progress.Value = (int)((double)currentCount / totalFiles * 100);
 
+                    string targetPath = "";
                     string moveStatus;
                     bool moved = false;
+
+                    string itemSource = item.Source;
+                    string itemFullPath = item.FullPath;
+                    string destDir = group.DestinationPath;
+
                     try
                     {
-                        string destDir = Path.GetDirectoryName(targetPath)!;
-                        if (!Directory.Exists(destDir)) Directory.CreateDirectory(destDir);
-                        if (Directory.Exists(item.FullPath)) MoveDirectory(item.FullPath, targetPath);
-                        else File.Move(item.FullPath, targetPath);
-                        moved = true;
-
-                        // 寫 catalog（前提：搬完才能 fetch metadata）
-                        if (_metaStore != null) UpsertCatalogForMovedItem(targetPath);
-
-                        // Learn keywords
-                        var kws = _organizer.ExtractAllKeywords(item.Source);
-                        foreach (var kw in kws)
+                        targetPath = await Task.Run(() =>
                         {
-                            if (_organizer.IsKeywordValidForTarget(kw, Path.GetFileName(group.DestinationPath)))
-                                _intelligence.Learn(kw, Path.GetFileName(group.DestinationPath));
-                        }
+                            string tp = ArchiveMoveHelper.MoveItemSafely(itemFullPath, destDir);
 
+                            // 寫 catalog（前提：搬完才能 fetch metadata）
+                            if (_metaStore != null) UpsertCatalogForMovedItem(tp);
+
+                            // Learn keywords
+                            var kws = _organizer.ExtractAllKeywords(itemSource);
+                            foreach (var kw in kws)
+                            {
+                                if (_organizer.IsKeywordValidForTarget(kw, Path.GetFileName(destDir)))
+                                    _intelligence.Learn(kw, Path.GetFileName(destDir));
+                            }
+                            return tp;
+                        });
+                        moved = true;
                         moveStatus = "完成";
                     }
                     catch (Exception ex)
@@ -254,7 +259,7 @@ public partial class PreviewForm : Window, IThemedControl
                     // 抓 metadata（搬成功 + 勾選 + 服務就緒）
                     if (moved && fetchEnabled && fetchService != null && strategy != null)
                     {
-                        this.Invoke(() => lblProgress.Text = $"處理: {item.Source} (抓 metadata...)");
+                        lblProgress.Text = $"處理: {item.Source} (抓 metadata...)";
                         try
                         {
                             var res = await fetchService.ProcessOneAsync(targetPath, strategy);
@@ -282,8 +287,7 @@ public partial class PreviewForm : Window, IThemedControl
                         }
                     }
 
-                    var finalStatus = moveStatus;
-                    this.Invoke(() => item.Status = finalStatus);
+                    item.Status = moveStatus;
                 }
             }
         }
@@ -335,42 +339,5 @@ public partial class PreviewForm : Window, IThemedControl
             });
         }
         catch { /* catalog 寫失敗不致命；下次 UpdateIndex 會補 */ }
-    }
-
-    private static void MoveDirectory(string sourceDir, string destDir)
-    {
-        string sourceRoot = Path.GetPathRoot(Path.GetFullPath(sourceDir)) ?? "";
-        string destRoot = Path.GetPathRoot(Path.GetFullPath(destDir)) ?? "";
-
-        if (string.Equals(sourceRoot, destRoot, StringComparison.OrdinalIgnoreCase))
-        {
-            Directory.Move(sourceDir, destDir);
-        }
-        else
-        {
-            CopyDirectory(sourceDir, destDir);
-            Directory.Delete(sourceDir, true);
-        }
-    }
-
-    private static void CopyDirectory(string sourceDir, string destDir)
-    {
-        var dir = new DirectoryInfo(sourceDir);
-        if (!dir.Exists)
-            throw new DirectoryNotFoundException($"Source directory not found: {sourceDir}");
-
-        Directory.CreateDirectory(destDir);
-
-        foreach (FileInfo file in dir.GetFiles())
-        {
-            string targetFilePath = Path.Combine(destDir, file.Name);
-            file.CopyTo(targetFilePath, true);
-        }
-
-        foreach (DirectoryInfo subDir in dir.GetDirectories())
-        {
-            string targetSubDirPath = Path.Combine(destDir, subDir.Name);
-            CopyDirectory(subDir.FullName, targetSubDirPath);
-        }
     }
 }

@@ -212,26 +212,34 @@ public partial class TagManagePanel : UserControl, IThemedControl
     // ── 列操作 ─────────────────────────────────────────────────────────
 
     /// <summary>對所有 tag 跑 EhTag 翻譯庫一次補進 tag_translation（manual 標記不動）。</summary>
-    private void OnTranslateAllClicked()
+    private async void OnTranslateAllClicked()
     {
         if (_metaStore == null || _translator == null || !_translator.IsAvailable) return;
         var form = this.FindForm();
         if (form == null) return;
 
-        // 進度提示（同步操作，所有 tag 即使 1000 個也是 in-memory dict lookup，幾百 ms）
-        AntdUI.Message.info(form,
-            LocalizationManager.GetString("TagTranslateAllRunning") ?? "翻譯中…", autoClose: 1);
+        btnTranslateAll.Enabled = false;
+        try
+        {
+            // 進度提示
+            AntdUI.Message.info(form,
+                LocalizationManager.GetString("TagTranslateAllRunning") ?? "翻譯中…", autoClose: 1);
 
-        var lang = CurrentLang;
-        // 用全部 tag (含已 manual 的)；SyncTranslationsToDb 內會跳過 manual
-        var nameToId = _allTags.ToDictionary(t => t.Name, t => t.Id, StringComparer.OrdinalIgnoreCase);
-        int written = _translator.SyncTranslationsToDb(_metaStore, lang, nameToId);
+            var lang = CurrentLang;
+            // 用全部 tag (含已 manual 的)；SyncTranslationsToDb 內會跳過 manual
+            var nameToId = _allTags.ToDictionary(t => t.Name, t => t.Id, StringComparer.OrdinalIgnoreCase);
+            int written = await Task.Run(() => _translator.SyncTranslationsToDb(_metaStore, lang, nameToId));
 
-        // refresh 顯示新譯文
-        Refresh();
-        AntdUI.Message.success(form, string.Format(
-            LocalizationManager.GetString("TagTranslateAllDoneFmt") ?? "翻譯完成：補了 {0} 個（共 {1} 個 tag）",
-            written, _allTags.Count));
+            // refresh 顯示新譯文
+            Refresh();
+            AntdUI.Message.success(form, string.Format(
+                LocalizationManager.GetString("TagTranslateAllDoneFmt") ?? "翻譯完成：補了 {0} 個（共 {1} 個 tag）",
+                written, _allTags.Count));
+        }
+        finally
+        {
+            btnTranslateAll.Enabled = true;
+        }
     }
 
     private void OnTranslateClicked(TagRow row)
