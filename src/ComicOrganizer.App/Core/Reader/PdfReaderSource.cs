@@ -6,16 +6,18 @@ namespace ComicOrganizer.App.Core;
 /// PDF 圖檔來源（#51 Phase 2-A）：用 PDFtoImage（PDFium + SkiaSharp）即時 render 每一頁成 PNG。
 ///
 /// 與 Folder/Archive 不同 — PDF 沒有「預先存好的 image bytes」，每頁都要 render。
-/// 進入時把整份 PDF 讀進 byte[] 常駐記憶體，OpenPage(i) 用 SavePng 直接寫進 MemoryStream。
+/// 進入時把整份 PDF 讀進 byte[] 常駐記憶體，OpenPage(i) 用 SavePng 直接寫進 MemoryStream；
+/// Dispose() 時立即釋放 _bytes 參考以回收大型 PDF 常駐記憶體。
 ///
 /// PDFium native 非執行緒安全 — 多頁 preload 會並發 OpenPage，內部 lock 序列化。
 /// </summary>
 public class PdfReaderSource : IReaderSource
 {
-    private readonly byte[] _bytes;
+    private byte[]? _bytes;
     private readonly int _pageCount;
     private readonly RenderOptions _renderOptions;
     private readonly object _lock = new();
+    private volatile bool _disposed;
 
     public string DisplayName { get; }
     public string RootPath { get; }
@@ -35,12 +37,16 @@ public class PdfReaderSource : IReaderSource
 
     public Stream OpenPage(int index)
     {
+        if (_disposed)
+            throw new ObjectDisposedException(nameof(PdfReaderSource));
         if (index < 0 || index >= _pageCount)
             throw new ArgumentOutOfRangeException(nameof(index));
 
         var ms = new MemoryStream();
         lock (_lock)
         {
+            if (_disposed || _bytes == null)
+                throw new ObjectDisposedException(nameof(PdfReaderSource));
             Conversion.SavePng(ms, _bytes, page: index, options: _renderOptions);
         }
         ms.Position = 0;
@@ -52,5 +58,13 @@ public class PdfReaderSource : IReaderSource
 
     public string GetPageName(int index) => $"Page {index + 1}";
 
-    public void Dispose() { /* byte[] 由 GC 回收，無 native handle 需釋放 */ }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        lock (_lock)
+        {
+            _bytes = null;
+        }
+    }
 }

@@ -49,5 +49,24 @@ public class FolderReaderSource : IReaderSource
     public string GetPageExtension(int index) => Path.GetExtension(_files[index]);
     public string GetPageName(int index) => Path.GetFileName(_files[index]);
 
+    public ReaderPageMetadata GetPageMetadata(int index)
+    {
+        if (index < 0 || index >= _files.Length) throw new ArgumentOutOfRangeException(nameof(index));
+
+        var filePath = _files[index];
+        var name = Path.GetFileName(filePath);
+        try
+        {
+            var fi = new FileInfo(filePath);
+            if (fi.Exists)
+                return new ReaderPageMetadata(index, name, fi.Length, fi.LastWriteTime);
+        }
+        catch
+        {
+            // 檔案讀取異常或已被移除時退回基本名稱
+        }
+        return new ReaderPageMetadata(index, name, null, null);
+    }
+
     public void Dispose() { /* nothing to dispose */ }
 }

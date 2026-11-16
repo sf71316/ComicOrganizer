@@ -1,10 +1,6 @@
 using System.Diagnostics;
 using ComicOrganizer.App.Core;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats.Jpeg;
-using SixLabors.ImageSharp.Formats.Png;
-using SixLabors.ImageSharp.Formats.Webp;
-using SixLabors.ImageSharp.PixelFormats;
+using SkiaSharp;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -13,12 +9,7 @@ namespace ComicOrganizer.Tests;
 /// <summary>
 /// 比較 reader pipeline 內不同格式的 decode 成本：
 ///   jpg / png / bmp → System.Drawing.Image.FromStream（GDI+ native）
-///   webp           → ImageSharp.Load + unsafe LockBits 直拷
-///
-/// 註：曾試過加 OpenCvSharp（libjpeg-turbo / libpng / libwebp）跑 benchmark：
-/// - jpg/png 反而 0.6× 慢（BitmapConverter.ToBitmap 內部 byte[] 中轉抵銷掉 native decode 優勢）
-/// - webp 1.45× 快但只省 ~117ms
-/// - 代價 30-50 MB native binary 不划算 → 不採用
+///   webp            → SkiaSharp SKCodec + LockBits 直拷（經 ReaderImageLoader）
 /// </summary>
 public class ImageFormatBenchmarkTest
 {
@@ -33,16 +24,20 @@ public class ImageFormatBenchmarkTest
         const int height = 2160;
         const int iterations = 20;
 
+        var info = new SKImageInfo(width, height, SKColorType.Bgra8888, SKAlphaType.Unpremul);
+        using var srcBmp = new SKBitmap(info);
         var srcBytes = new byte[width * height * 4];
         new Random(42).NextBytes(srcBytes);
-        using var src = SixLabors.ImageSharp.Image.LoadPixelData<Bgra32>(srcBytes, width, height);
+        System.Runtime.InteropServices.Marshal.Copy(srcBytes, 0, srcBmp.GetPixels(), srcBytes.Length);
 
-        var jpgStream = new MemoryStream();
-        var pngStream = new MemoryStream();
-        var webpStream = new MemoryStream();
-        src.Save(jpgStream, new JpegEncoder { Quality = 85 });
-        src.Save(pngStream, new PngEncoder());
-        src.Save(webpStream, new WebpEncoder { Quality = 85 });
+        using var srcImg = SKImage.FromBitmap(srcBmp);
+        using var jpgData = srcImg.Encode(SKEncodedImageFormat.Jpeg, 85);
+        using var pngData = srcImg.Encode(SKEncodedImageFormat.Png, 100);
+        using var webpData = srcImg.Encode(SKEncodedImageFormat.Webp, 85);
+
+        using var jpgStream = new MemoryStream(jpgData.ToArray());
+        using var pngStream = new MemoryStream(pngData.ToArray());
+        using var webpStream = new MemoryStream(webpData.ToArray());
 
         _output.WriteLine($"Encoded sizes: jpg={jpgStream.Length / 1024}KB, png={pngStream.Length / 1024}KB, webp={webpStream.Length / 1024}KB");
 
@@ -58,9 +53,9 @@ public class ImageFormatBenchmarkTest
         var (webpTime, webpAlloc) = Measure(webpStream, ".webp", iterations);
 
         _output.WriteLine($"=== Decode Benchmark (4K, {iterations} iter avg, ReaderImageLoader path) ===");
-        _output.WriteLine($"jpg  (GDI+ FromStream)         : {jpgTime,7:F2} ms, Alloc: {jpgAlloc,7:F2} MB/op");
-        _output.WriteLine($"png  (GDI+ FromStream)         : {pngTime,7:F2} ms, Alloc: {pngAlloc,7:F2} MB/op");
-        _output.WriteLine($"webp (ImageSharp+unsafe copy)  : {webpTime,7:F2} ms, Alloc: {webpAlloc,7:F2} MB/op");
+        _output.WriteLine($"jpg  (GDI+ FromStream)          : {jpgTime,7:F2} ms, Alloc: {jpgAlloc,7:F2} MB/op");
+        _output.WriteLine($"png  (GDI+ FromStream)          : {pngTime,7:F2} ms, Alloc: {pngAlloc,7:F2} MB/op");
+        _output.WriteLine($"webp (SkiaSharp+LockBits copy)  : {webpTime,7:F2} ms, Alloc: {webpAlloc,7:F2} MB/op");
     }
 
     private static (double time, double alloc) Measure(MemoryStream encoded, string ext, int iterations)

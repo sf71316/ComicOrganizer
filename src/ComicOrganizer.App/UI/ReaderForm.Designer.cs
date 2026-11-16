@@ -6,13 +6,19 @@ partial class ReaderForm
 
     private AntdUI.PageHeader windowBar;
     private System.Windows.Forms.Panel toolbar;
+    private System.Windows.Forms.FlowLayoutPanel toolbarLeft;
+    private System.Windows.Forms.FlowLayoutPanel toolbarRight;
     private AntdUI.Segmented segViewMode;
     private AntdUI.Segmented segZoomMode;
     private AntdUI.Slider sliderZoom;       // 連續捲動模式時顯示，取代 segZoomMode
     private AntdUI.Switch switchSeamless;   // 連續捲動模式：開啟 = 圖與圖無隔間
     private AntdUI.Label lblSeamless;
+    private AntdUI.Button btnPrevWork;
+    private AntdUI.Button btnNextWork;
     private AntdUI.Button btnInstantTranslation;
     private AntdUI.Button btnAllTranslation;
+    private AntdUI.Button btnDirection;
+    private AntdUI.Button btnSpreadCover;
     private AntdUI.Button btnBookmarkToggle;
     private AntdUI.Button btnBookmarkList;
     private AntdUI.Button btnFullscreen;
@@ -40,6 +46,10 @@ partial class ReaderForm
         AntdUI.SegmentedItem segZoomItem3 = new AntdUI.SegmentedItem();
         windowBar = new AntdUI.PageHeader();
         toolbar = new System.Windows.Forms.Panel();
+        toolbarLeft = new System.Windows.Forms.FlowLayoutPanel();
+        toolbarRight = new System.Windows.Forms.FlowLayoutPanel();
+        btnPrevWork = new AntdUI.Button();
+        btnNextWork = new AntdUI.Button();
         btnBookmarkToggle = new AntdUI.Button();
         btnBookmarkList = new AntdUI.Button();
         btnFullscreen = new AntdUI.Button();
@@ -49,6 +59,8 @@ partial class ReaderForm
         lblSeamless = new AntdUI.Label();
         btnInstantTranslation = new AntdUI.Button();
         btnAllTranslation = new AntdUI.Button();
+        btnDirection = new AntdUI.Button();
+        btnSpreadCover = new AntdUI.Button();
         segViewMode = new AntdUI.Segmented();
         scrollHost = new System.Windows.Forms.Panel();
         picPage = new System.Windows.Forms.PictureBox();
@@ -57,6 +69,8 @@ partial class ReaderForm
         lblStatus = new System.Windows.Forms.Label();
         btnStatusLoading = new AntdUI.Button();
         toolbar.SuspendLayout();
+        toolbarLeft.SuspendLayout();
+        toolbarRight.SuspendLayout();
         scrollHost.SuspendLayout();
         ((System.ComponentModel.ISupportInitialize)picPage).BeginInit();
         statusBar.SuspendLayout();
@@ -90,115 +104,163 @@ partial class ReaderForm
         //
         // toolbar
         //
-        toolbar.Controls.Add(btnFullscreen);
-        toolbar.Controls.Add(btnBookmarkList);
-        toolbar.Controls.Add(btnBookmarkToggle);
-        toolbar.Controls.Add(switchSeamless);
-        toolbar.Controls.Add(lblSeamless);
-        toolbar.Controls.Add(btnInstantTranslation);
-        toolbar.Controls.Add(btnAllTranslation);
-        toolbar.Controls.Add(sliderZoom);
-        toolbar.Controls.Add(segZoomMode);
-        toolbar.Controls.Add(segViewMode);
+        toolbar.Controls.Add(toolbarLeft);
+        toolbar.Controls.Add(toolbarRight);
         toolbar.Dock = System.Windows.Forms.DockStyle.Top;
         toolbar.Name = "toolbar";
         toolbar.Padding = new System.Windows.Forms.Padding(8, 4, 8, 4);
         toolbar.Size = new System.Drawing.Size(1024, 40);
         //
+        // toolbarLeft
+        //
+        toolbarLeft.AutoSize = true;
+        toolbarLeft.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+        toolbarLeft.BackColor = System.Drawing.Color.Transparent;
+        toolbarLeft.Controls.Add(btnPrevWork);
+        toolbarLeft.Controls.Add(btnNextWork);
+        toolbarLeft.Controls.Add(btnBookmarkToggle);
+        toolbarLeft.Controls.Add(btnBookmarkList);
+        toolbarLeft.Controls.Add(btnInstantTranslation);
+        toolbarLeft.Controls.Add(btnAllTranslation);
+        toolbarLeft.Controls.Add(btnDirection);
+        toolbarLeft.Controls.Add(btnSpreadCover);
+        toolbarLeft.Controls.Add(lblSeamless);
+        toolbarLeft.Controls.Add(switchSeamless);
+        toolbarLeft.FlowDirection = System.Windows.Forms.FlowDirection.LeftToRight;
+        toolbarLeft.Location = new System.Drawing.Point(8, 4);
+        toolbarLeft.Margin = new System.Windows.Forms.Padding(0);
+        toolbarLeft.Name = "toolbarLeft";
+        toolbarLeft.WrapContents = true;
+        //
+        // toolbarRight
+        //
+        toolbarRight.AutoSize = true;
+        toolbarRight.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+        toolbarRight.BackColor = System.Drawing.Color.Transparent;
+        toolbarRight.Controls.Add(segViewMode);
+        toolbarRight.Controls.Add(segZoomMode);
+        toolbarRight.Controls.Add(sliderZoom);
+        toolbarRight.Controls.Add(btnFullscreen);
+        toolbarRight.FlowDirection = System.Windows.Forms.FlowDirection.LeftToRight;
+        toolbarRight.Location = new System.Drawing.Point(668, 4);
+        toolbarRight.Margin = new System.Windows.Forms.Padding(0);
+        toolbarRight.Name = "toolbarRight";
+        toolbarRight.WrapContents = false;
+        //
+        // btnPrevWork — 上一部作品
+        //
+        btnPrevWork.Enabled = false;
+        btnPrevWork.IconSvg = "StepBackwardOutlined";
+        btnPrevWork.Margin = new System.Windows.Forms.Padding(0, 0, 4, 0);
+        btnPrevWork.Name = "btnPrevWork";
+        btnPrevWork.Size = new System.Drawing.Size(34, 32);
+        //
+        // btnNextWork — 下一部作品
+        //
+        btnNextWork.Enabled = false;
+        btnNextWork.IconSvg = "StepForwardOutlined";
+        btnNextWork.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
+        btnNextWork.Name = "btnNextWork";
+        btnNextWork.Size = new System.Drawing.Size(34, 32);
+        //
         // btnBookmarkToggle — 左側、toggle 當前頁書籤；icon 隨狀態切換
         //
-        btnBookmarkToggle.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left;
         btnBookmarkToggle.IconSvg = "StarOutlined";
-        btnBookmarkToggle.Location = new System.Drawing.Point(8, 4);
+        btnBookmarkToggle.Margin = new System.Windows.Forms.Padding(0, 0, 4, 0);
         btnBookmarkToggle.Name = "btnBookmarkToggle";
-        btnBookmarkToggle.Size = new System.Drawing.Size(40, 32);
+        btnBookmarkToggle.Size = new System.Drawing.Size(34, 32);
         //
         // btnBookmarkList — 左側、開書籤列表
         //
-        btnBookmarkList.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left;
         btnBookmarkList.IconSvg = "UnorderedListOutlined";
-        btnBookmarkList.Location = new System.Drawing.Point(52, 4);
+        btnBookmarkList.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
         btnBookmarkList.Name = "btnBookmarkList";
-        btnBookmarkList.Size = new System.Drawing.Size(40, 32);
+        btnBookmarkList.Size = new System.Drawing.Size(34, 32);
         //
         // btnFullscreen
         //
-        btnFullscreen.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right;
         btnFullscreen.IconSvg = "FullscreenOutlined";
-        btnFullscreen.Location = new System.Drawing.Point(976, 4);
+        btnFullscreen.Margin = new System.Windows.Forms.Padding(0);
         btnFullscreen.Name = "btnFullscreen";
-        btnFullscreen.Size = new System.Drawing.Size(40, 32);
+        btnFullscreen.Size = new System.Drawing.Size(34, 32);
         //
         // segZoomMode
         //
-        segZoomMode.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right;
         segZoomMode.Full = true;
         segZoomMode.Items.Add(segZoomItem1);
         segZoomMode.Items.Add(segZoomItem2);
         segZoomMode.Items.Add(segZoomItem3);
-        segZoomMode.Location = new System.Drawing.Point(820, 4);
+        segZoomMode.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
         segZoomMode.Name = "segZoomMode";
         segZoomMode.SelectIndex = 0;
-        segZoomMode.Size = new System.Drawing.Size(150, 32);
+        segZoomMode.Size = new System.Drawing.Size(144, 32);
         //
-        // sliderZoom — Continuous 模式才顯示，預設 hidden 與 segZoomMode 重疊位置
+        // sliderZoom — Continuous 模式才顯示，預設 hidden 與 segZoomMode 共用位置
         //
-        sliderZoom.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right;
-        sliderZoom.Location = new System.Drawing.Point(820, 4);
+        sliderZoom.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
         sliderZoom.Name = "sliderZoom";
         sliderZoom.ShowValue = true;
-        sliderZoom.Size = new System.Drawing.Size(150, 32);
+        sliderZoom.Size = new System.Drawing.Size(144, 32);
         sliderZoom.Visible = false;
         //
         // switchSeamless — Continuous 模式才顯示
         //
-        switchSeamless.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left;
-        switchSeamless.Location = new System.Drawing.Point(366, 6);
+        switchSeamless.Margin = new System.Windows.Forms.Padding(0, 2, 4, 0);
         switchSeamless.Name = "switchSeamless";
         switchSeamless.Size = new System.Drawing.Size(44, 28);
         switchSeamless.Visible = false;
         // 
         // btnInstantTranslation
         // 
-        btnInstantTranslation.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left;
-        btnInstantTranslation.Location = new System.Drawing.Point(96, 4);
+        btnInstantTranslation.Margin = new System.Windows.Forms.Padding(0, 0, 4, 0);
         btnInstantTranslation.Name = "btnInstantTranslation";
-        btnInstantTranslation.Size = new System.Drawing.Size(90, 32);
+        btnInstantTranslation.Size = new System.Drawing.Size(78, 32);
         btnInstantTranslation.TabIndex = 10;
         btnInstantTranslation.Text = "即時翻譯";
         // 
         // btnAllTranslation
         // 
-        btnAllTranslation.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left;
-        btnAllTranslation.Location = new System.Drawing.Point(192, 4);
+        btnAllTranslation.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
         btnAllTranslation.Name = "btnAllTranslation";
-        btnAllTranslation.Size = new System.Drawing.Size(90, 32);
+        btnAllTranslation.Size = new System.Drawing.Size(78, 32);
         btnAllTranslation.TabIndex = 11;
         btnAllTranslation.Text = "全部翻譯";
         //
+        // btnDirection — 即時切換 RTL / LTR 閱讀方向
+        //
+        btnDirection.Margin = new System.Windows.Forms.Padding(0, 0, 4, 0);
+        btnDirection.Name = "btnDirection";
+        btnDirection.Size = new System.Drawing.Size(64, 32);
+        btnDirection.Text = "右→左";
+        //
+        // btnSpreadCover — 雙頁封面獨立切換
+        //
+        btnSpreadCover.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
+        btnSpreadCover.Name = "btnSpreadCover";
+        btnSpreadCover.Size = new System.Drawing.Size(74, 32);
+        btnSpreadCover.Text = "封面獨立";
+        //
         // lblSeamless
         //
-        lblSeamless.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left;
         lblSeamless.AutoSize = false;
         lblSeamless.Font = new System.Drawing.Font("Microsoft JhengHei UI", 9F);
-        lblSeamless.Location = new System.Drawing.Point(298, 8);
+        lblSeamless.Margin = new System.Windows.Forms.Padding(2, 4, 2, 0);
         lblSeamless.Name = "lblSeamless";
-        lblSeamless.Size = new System.Drawing.Size(64, 24);
+        lblSeamless.Size = new System.Drawing.Size(52, 24);
         lblSeamless.Text = "無隔間";
         lblSeamless.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
         lblSeamless.Visible = false;
         //
         // segViewMode
         //
-        segViewMode.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right;
         segViewMode.Full = true;
         segViewMode.Items.Add(segViewItem1);
         segViewMode.Items.Add(segViewItem2);
         segViewMode.Items.Add(segViewItem3);
-        segViewMode.Location = new System.Drawing.Point(634, 4);
+        segViewMode.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
         segViewMode.Name = "segViewMode";
         segViewMode.SelectIndex = 0;
-        segViewMode.Size = new System.Drawing.Size(180, 32);
+        segViewMode.Size = new System.Drawing.Size(156, 32);
         //
         // scrollHost
         //
@@ -262,6 +324,11 @@ partial class ReaderForm
         Name = "ReaderForm";
         Text = "Reader";
         toolbar.ResumeLayout(false);
+        toolbar.PerformLayout();
+        toolbarLeft.ResumeLayout(false);
+        toolbarLeft.PerformLayout();
+        toolbarRight.ResumeLayout(false);
+        toolbarRight.PerformLayout();
         scrollHost.ResumeLayout(false);
         ((System.ComponentModel.ISupportInitialize)picPage).EndInit();
         statusBar.ResumeLayout(false);

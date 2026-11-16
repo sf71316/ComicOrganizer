@@ -56,4 +56,22 @@ public class UserPreferences
 
     /// <summary>左側導覽樹側邊欄寬度（SplitContainer.SplitterDistance）；null 表示使用預設寬度。</summary>
     public int? SidebarSplitterWidth { get; set; }
+
+    /// <summary>內建閱讀器上次視窗寬度；null 表示使用預設寬度。</summary>
+    public int? ReaderWindowWidth { get; set; }
+
+    /// <summary>內建閱讀器上次視窗高度；null 表示使用預設高度。</summary>
+    public int? ReaderWindowHeight { get; set; }
+
+    /// <summary>內建閱讀器上次關閉時是否為最大化狀態。</summary>
+    public bool ReaderWindowMaximized { get; set; } = false;
+
+    /// <summary>預設閱讀器檢視模式："SinglePage" / "DualPage" / "ContinuousScroll"。</summary>
+    public string DefaultReaderViewMode { get; set; } = "SinglePage";
+
+    /// <summary>預設閱讀器縮放模式："FitPage" / "FitWidth" / "Actual"。</summary>
+    public string DefaultReaderZoomMode { get; set; } = "FitPage";
+
+    /// <summary>跳頁選擇視窗是否隱藏上方縮圖導覽條。</summary>
+    public bool PagePickerHideThumbnails { get; set; } = false;
 }

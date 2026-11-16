@@ -170,6 +170,16 @@ public partial class GalleryControl : UserControl, IThemedControl
     private bool _userMovedSidebarSplitter;
     private bool _applyingSidebarDistance;
 
+    // 開書非同步化、防重複開窗與 380ms 延遲載入氣泡
+    private readonly Dictionary<string, ReaderForm> _openReadersByPath = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _openingReaderPaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly DelayedLoadingTracker _readerOpenTracker = new();
+    private System.Windows.Forms.Timer? _readerOpenTimer;
+    private long _readerOpenToken;
+    private AntdUI.Panel? _readerLoadingOverlay;
+    private AntdUI.Button? _readerLoadingSpinner;
+    private System.Windows.Forms.Label? _readerLoadingLabel;
+
     public GalleryControl()
     {
         InitializeComponent();
@@ -182,6 +192,8 @@ public partial class GalleryControl : UserControl, IThemedControl
             if (!_applyingSidebarDistance) _userMovedSidebarSplitter = true;
         };
         splitter2.SizeChanged += (s, e) => TryApplyPendingSidebarSplitterDistance();
+
+        InitReaderLoadingIndicator();
 
         WireDrawerEvents();
         WireViewModeToggle();
@@ -257,7 +269,118 @@ public partial class GalleryControl : UserControl, IThemedControl
         // 每個 Tab 自帶 breadcrumb，內容在 OpenFolderTab 建立 / 更新當前 Tab 時填好，
         // 切 Tab 不需重填，因此不綁 SelectedIndexChanged。
         ApplyLocalization();
-        Disposed += (_, _) => UnregisterXButtonFilter();
+        Disposed += (_, _) =>
+        {
+            UnregisterXButtonFilter();
+            CleanupReaderOpenLoading();
+        };
+    }
+
+    private void InitReaderLoadingIndicator()
+    {
+        _readerLoadingSpinner = new AntdUI.Button
+        {
+            Name = "readerLoadingSpinner",
+            Dock = DockStyle.Left,
+            Loading = true,
+            Ghost = true,
+            Size = LogicalToDeviceUnits(new Size(28, 28)),
+            ForeColor = Core.ThemeColors.Primary,
+            Enabled = true,
+        };
+        _readerLoadingLabel = new System.Windows.Forms.Label
+        {
+            Name = "readerLoadingLabel",
+            Dock = DockStyle.Fill,
+            Text = "正在載入閱讀器...",
+            TextAlign = ContentAlignment.MiddleLeft,
+            Font = new Font("Microsoft JhengHei UI", 9.5F),
+            ForeColor = Core.ThemeColors.Text,
+            BackColor = Color.Transparent,
+        };
+        _readerLoadingOverlay = new AntdUI.Panel
+        {
+            Name = "readerLoadingOverlay",
+            Size = LogicalToDeviceUnits(new Size(210, 44)),
+            Radius = 10,
+            BorderWidth = 1,
+            BorderColor = Core.ThemeColors.Border,
+            Back = Core.ThemeColors.Surface,
+            BackColor = Core.ThemeColors.Surface,
+            Padding = new Padding(12, 8, 12, 8),
+            Visible = false,
+        };
+        _readerLoadingOverlay.Controls.Add(_readerLoadingLabel);
+        _readerLoadingOverlay.Controls.Add(_readerLoadingSpinner);
+
+        splitter2.Panel2.Controls.Add(_readerLoadingOverlay);
+        _readerLoadingOverlay.BringToFront();
+        tabsContent.SizeChanged += (_, _) => CenterReaderLoadingOverlay();
+        tabsContent.LocationChanged += (_, _) => CenterReaderLoadingOverlay();
+
+        _readerOpenTimer = new System.Windows.Forms.Timer { Interval = DelayedLoadingTracker.DefaultDelayMs };
+        _readerOpenTimer.Tick += (_, _) =>
+        {
+            _readerOpenTimer?.Stop();
+            if (!IsDisposed && _readerOpenTracker.MarkDelayElapsed(_readerOpenToken))
+            {
+                ShowReaderLoadingOverlay();
+            }
+        };
+    }
+
+    private void CenterReaderLoadingOverlay()
+    {
+        if (_readerLoadingOverlay == null || _readerLoadingOverlay.IsDisposed || tabsContent.IsDisposed) return;
+        int x = tabsContent.Left + Math.Max(0, (tabsContent.Width - _readerLoadingOverlay.Width) / 2);
+        int y = tabsContent.Top + Math.Max(0, (tabsContent.Height - _readerLoadingOverlay.Height) / 2);
+        _readerLoadingOverlay.Location = new Point(x, y);
+    }
+
+    private long BeginReaderLoadingIndicator()
+    {
+        long token = _readerOpenTracker.Begin();
+        _readerOpenToken = token;
+        if (_readerLoadingOverlay != null && !_readerLoadingOverlay.IsDisposed)
+            _readerLoadingOverlay.Visible = false;
+        if (_readerOpenTimer != null)
+        {
+            _readerOpenTimer.Stop();
+            _readerOpenTimer.Start();
+        }
+        return token;
+    }
+
+    private void ShowReaderLoadingOverlay()
+    {
+        if (_readerLoadingOverlay == null || _readerLoadingOverlay.IsDisposed) return;
+        CenterReaderLoadingOverlay();
+        _readerLoadingOverlay.Visible = true;
+        _readerLoadingOverlay.BringToFront();
+    }
+
+    private void CompleteReaderLoadingIndicator(long token)
+    {
+        if (_readerOpenTracker.Complete(token))
+        {
+            _readerOpenTimer?.Stop();
+            if (_readerLoadingOverlay != null && !_readerLoadingOverlay.IsDisposed)
+                _readerLoadingOverlay.Visible = false;
+        }
+    }
+
+    private void CleanupReaderOpenLoading()
+    {
+        _readerOpenTracker.Reset();
+        if (_readerOpenTimer != null)
+        {
+            try { _readerOpenTimer.Stop(); _readerOpenTimer.Dispose(); } catch { }
+            _readerOpenTimer = null;
+        }
+        if (_readerLoadingOverlay != null && !_readerLoadingOverlay.IsDisposed)
+        {
+            _readerLoadingOverlay.Visible = false;
+        }
     }
 
     public void ApplyLocalization()
@@ -440,6 +563,20 @@ public partial class GalleryControl : UserControl, IThemedControl
                     if (link != null) link.ForeColor = Core.ThemeColors.Primary;
                 }
             }
+        }
+        if (_readerLoadingOverlay != null && !_readerLoadingOverlay.IsDisposed)
+        {
+            _readerLoadingOverlay.Back = Core.ThemeColors.Surface;
+            _readerLoadingOverlay.BackColor = Core.ThemeColors.Surface;
+            _readerLoadingOverlay.BorderColor = Core.ThemeColors.Border;
+        }
+        if (_readerLoadingLabel != null && !_readerLoadingLabel.IsDisposed)
+        {
+            _readerLoadingLabel.ForeColor = Core.ThemeColors.Text;
+        }
+        if (_readerLoadingSpinner != null && !_readerLoadingSpinner.IsDisposed)
+        {
+            _readerLoadingSpinner.ForeColor = Core.ThemeColors.Primary;
         }
         this.Refresh();
     }

@@ -99,6 +99,7 @@ public partial class ReaderForm
             }
             if (IsContinuous)
             {
+                CompletePageLoadingIndicator();
                 if (vScrollBarContinuous.Visible) vScrollBarContinuous.BringToFront();  // 捲軸需在 GL 畫布之上
                 if (!_enableTranslation) RequestGpuContinuousAroundCurrent();  // 譯文時底圖由 GDI+ 管線載入
                 _skCanvas.Invalidate();
@@ -161,23 +162,39 @@ public partial class ReaderForm
         int size = (_viewMode == ReaderViewMode.DualPage) ? SpreadSize(start) : 1;
         if (_enableTranslation)
         {
+            _skRenderer.SetProtectedRange(start, start + size - 1);
             // 譯文：底圖由 GDI+ 管線載入(OCR+合成都需要)；缺則觸發載入，載完 TryRenderCurrentSpread→重繪→合成。
+            bool anyMissing = false;
             for (int i = 0; i < size; i++)
             {
                 int p = start + i;
                 bool has;
                 lock (_cacheLock) has = _cache.ContainsKey(p);
-                if (!has && p < _source.PageCount) _ = LoadPageAsync(p);
+                if (!has && p < _source.PageCount)
+                {
+                    anyMissing = true;
+                    _ = LoadPageAsync(p);
+                }
             }
+            if (anyMissing) BeginPageLoadingIndicator(start);
+            else CompletePageLoadingIndicator();
             _skCanvas.Invalidate();
             return;
         }
         _skRenderer.Current = start;
+        _skRenderer.SetProtectedRange(start, start + size - 1);
+        bool anyGpuMissing = false;
         for (int i = 0; i < size; i++)
         {
             int p = start + i;
-            if (p < _source.PageCount && !_skRenderer.Contains(p)) _skRenderer.GetOrProduce(p);  // 同步解碼避免空白
+            if (p < _source.PageCount && !_skRenderer.Contains(p))
+            {
+                using var _ = _skRenderer.AcquireOrProduce(p);  // 同步解碼避免空白
+                if (!_skRenderer.Contains(p)) anyGpuMissing = true;
+            }
         }
+        if (anyGpuMissing) BeginPageLoadingIndicator(start);
+        else CompletePageLoadingIndicator();
         _skRenderer.RequestAround(start, GpuPreloadRadius);
         _skCanvas.Invalidate();
     }
@@ -193,7 +210,31 @@ public partial class ReaderForm
         int start = SpreadStart(_currentIndex);
         int size = (_viewMode == ReaderViewMode.DualPage) ? SpreadSize(start) : 1;
         if (idx < start || idx >= start + size) return;   // 只在「可見 spread」內的頁解好才重繪
-        try { BeginInvoke(() => { if (UseGpuNow) _skCanvas?.Invalidate(); }); } catch { /* 關閉中 */ }
+        try
+        {
+            BeginInvoke(() =>
+            {
+                if (IsDisposed || !UseGpuNow) return;
+                if (!_enableTranslation && _skRenderer != null)
+                {
+                    int curStart = SpreadStart(_currentIndex);
+                    int curSize = (_viewMode == ReaderViewMode.DualPage) ? SpreadSize(curStart) : 1;
+                    bool allReady = true;
+                    for (int i = 0; i < curSize; i++)
+                    {
+                        int p = curStart + i;
+                        if (p < _source.PageCount && !_skRenderer.Contains(p))
+                        {
+                            allReady = false;
+                            break;
+                        }
+                    }
+                    if (allReady) CompletePageLoadingIndicator();
+                }
+                _skCanvas?.Invalidate();
+            });
+        }
+        catch { /* 關閉中 */ }
     }
 
     /// <summary>GPU 繪製：依模式分派 連續/雙頁/單頁。</summary>
@@ -211,7 +252,32 @@ public partial class ReaderForm
         int start = SpreadStart(_currentIndex);
         int size = (_viewMode == ReaderViewMode.DualPage) ? SpreadSize(start) : 1;
         if (size == 2) DrawGpuDual(canvas, cw, ch, start);
-        else { var img = GpuImageFor(start); if (img != null) DrawFitCentered(canvas, img, cw, ch); }
+        else
+        {
+            using var imgRef = AcquireGpuPageImage(start);
+            if (imgRef.HasValidImage) DrawFitCentered(canvas, imgRef.Image!, cw, ch);
+        }
+    }
+
+    private readonly struct GpuImageRef : IDisposable
+    {
+        private readonly SkiaImageLease? _lease;
+        public SKImage? Image { get; }
+        public bool HasValidImage => Image != null && Image.Handle != IntPtr.Zero && Image.Width > 0 && Image.Height > 0;
+
+        public GpuImageRef(SKImage? unownedImage)
+        {
+            _lease = null;
+            Image = unownedImage;
+        }
+
+        public GpuImageRef(SkiaImageLease? lease)
+        {
+            _lease = lease;
+            Image = lease?.Image;
+        }
+
+        public void Dispose() => _lease?.Dispose();
     }
 
     /// <summary>雙頁：左右並排，依 RTL 決定左右頁；整組 fit-to-window 置中，各自垂直置中。</summary>
@@ -219,8 +285,10 @@ public partial class ReaderForm
     {
         int idxL = _rtl ? start + 1 : start;
         int idxR = _rtl ? start : start + 1;
-        var limg = GpuImageFor(idxL);
-        var rimg = GpuImageFor(idxR);
+        using var leftRef = AcquireGpuPageImage(idxL);
+        using var rightRef = AcquireGpuPageImage(idxR);
+        var limg = leftRef.HasValidImage ? leftRef.Image : null;
+        var rimg = rightRef.HasValidImage ? rightRef.Image : null;
         if (limg == null || rimg == null)
         {
             var any = limg ?? rimg;                       // 其一未解好 → 暫畫單張避免空白
@@ -241,40 +309,42 @@ public partial class ReaderForm
 
     private void DrawFitCentered(SKCanvas canvas, SKImage img, int cw, int ch)
     {
-        if (img.Width <= 0 || img.Height <= 0) return;
+        if (img.Handle == IntPtr.Zero || img.Width <= 0 || img.Height <= 0) return;
         float s = Math.Min((float)cw / img.Width, (float)ch / img.Height);
         float w = img.Width * s, h = img.Height * s;
         canvas.DrawImage(img, SKRect.Create((cw - w) / 2f, (ch - h) / 2f, w, h), GpuSampling);
     }
 
-    private SKImage? GetGpuImage(int idx)
+    private GpuImageRef AcquireGpuImage(int idx)
     {
-        if (_skRenderer == null || idx < 0 || idx >= _source.PageCount) return null;
-        return _skRenderer.Peek(idx) ?? _skRenderer.GetOrProduce(idx);
+        if (_skRenderer == null || idx < 0 || idx >= _source.PageCount) return default;
+        var lease = _skRenderer.AcquirePeek(idx) ?? _skRenderer.AcquireOrProduce(idx);
+        return new GpuImageRef(lease);
     }
 
-    /// <summary>單/雙頁取圖：譯文走合成、否則 raw 解碼。</summary>
-    private SKImage? GpuImageFor(int idx) =>
-        _enableTranslation ? GetTranslatedGpuImage(idx) : GetGpuImage(idx);
+    /// <summary>單/雙頁取圖（含譯文模式）：譯文走合成、否則持有 Skia lease。</summary>
+    private GpuImageRef AcquireGpuPageImage(int idx) =>
+        _enableTranslation ? AcquireTranslatedGpuImage(idx) : AcquireGpuImage(idx);
 
-    /// <summary>連續取圖：譯文走合成；非譯文只 Peek(不在 paint 同步解碼，缺則佔位、由預載補)。</summary>
-    private SKImage? GpuContinuousImage(int idx) =>
-        _enableTranslation ? GetTranslatedGpuImage(idx) : _skRenderer?.Peek(idx);
+    /// <summary>連續取圖：譯文走合成；非譯文只 AcquirePeek(不在 paint 同步解碼，缺則佔位、由預載補)。</summary>
+    private GpuImageRef AcquireGpuContinuousImage(int idx) =>
+        _enableTranslation ? AcquireTranslatedGpuImage(idx) : new GpuImageRef(_skRenderer?.AcquirePeek(idx));
 
     // ── Phase 4：譯文合成 ─────────────────────────────────
 
     /// <summary>
     /// 譯文取圖：頁譯文已完成(worker 結束、_gpuComposeReady) → GDI+ 合成(快取)；
-    /// 未完成 → 啟動譯文 + 顯示 Skia 獨立解碼的原始底圖(不碰 GDI+ 共用 bitmap，避免並發 GDI+ 錯誤)。
+    /// 未完成 → 啟動譯文 + 持有 Skia 獨立解碼原始底圖的 lease(不碰 GDI+ 共用 bitmap，避免並發 GDI+ 錯誤)。
     /// </summary>
-    private SKImage? GetTranslatedGpuImage(int idx)
+    private GpuImageRef AcquireTranslatedGpuImage(int idx)
     {
-        if (idx < 0 || idx >= _source.PageCount) return null;
+        if (idx < 0 || idx >= _source.PageCount) return default;
 
         bool ready;
         lock (_gpuTransLock)
         {
-            if (_gpuTransCache.TryGetValue(idx, out var hit)) return hit;
+            if (_gpuTransCache.TryGetValue(idx, out var hit) && hit.Handle != IntPtr.Zero)
+                return new GpuImageRef(hit);
             ready = _gpuComposeReady.Contains(idx);
         }
 
@@ -289,18 +359,23 @@ public partial class ReaderForm
                 {
                     lock (_gpuTransLock)
                     {
-                        if (_gpuTransCache.TryGetValue(idx, out var existed)) { sk.Dispose(); return existed; }
+                        if (_gpuTransCache.TryGetValue(idx, out var existed) && existed.Handle != IntPtr.Zero)
+                        {
+                            sk.Dispose();
+                            return new GpuImageRef(existed);
+                        }
                         if (_gpuTransCache.Count >= GpuTransCacheCap) EvictTranslatedGpu(idx);
                         _gpuTransCache[idx] = sk;
                     }
-                    return sk;
+                    return new GpuImageRef(sk);
                 }
             }
         }
 
-        // 未完成 → 確保譯文已啟動 + 暫顯示 Skia 原始底圖
+        // 未完成 → 確保譯文已啟動 + 暫顯示 Skia 原始底圖（持有 lease 保護不被背景釋放）
         EnsurePageTranslated(idx);
-        return _skRenderer?.Peek(idx) ?? _skRenderer?.GetOrProduce(idx);
+        var lease = _skRenderer?.AcquirePeek(idx) ?? _skRenderer?.AcquireOrProduce(idx);
+        return new GpuImageRef(lease);
     }
 
     /// <summary>譯文 worker 完成某頁(erase 後)：標記可合成、丟棄舊合成、重繪。line 2078 hook 呼叫(UI 執行緒)。</summary>
@@ -370,15 +445,17 @@ public partial class ReaderForm
     /// <summary>容量滿時淘汰一個非保留頁(避開 keep)。需在 _gpuTransLock 內呼叫。</summary>
     private void EvictTranslatedGpu(int keep)
     {
+        int spreadStart = SpreadStart(_currentIndex);
         foreach (var k in _gpuTransCache.Keys)
         {
-            if (k == keep || k == _currentIndex) continue;
+            if (k == keep || k == _currentIndex || k == spreadStart || k == spreadStart + 1) continue;
             if (_gpuTransCache.Remove(k, out var img)) img?.Dispose();
             return;
         }
         // 全是保留頁(極少見) → 清最舊一個
         foreach (var k in _gpuTransCache.Keys)
         {
+            if (k == keep) continue;
             if (_gpuTransCache.Remove(k, out var img)) img?.Dispose();
             return;
         }
@@ -402,20 +479,21 @@ public partial class ReaderForm
         {
             int y = _layout.GetPageY(i) - _virtualScrollY;
             int ph = _layout.GetPageHeight(i);
-            var img = GpuContinuousImage(i);
-            if (img == null)
+            using var imgRef = AcquireGpuContinuousImage(i);
+            if (!imgRef.HasValidImage)
             {
                 canvas.DrawRect(SKRect.Create(x, y, contentWidth, ph), phPaint);
                 continue;
             }
-            canvas.DrawImage(img, SKRect.Create(x, y, contentWidth, ph), GpuSampling);
+            canvas.DrawImage(imgRef.Image!, SKRect.Create(x, y, contentWidth, ph), GpuSampling);
         }
     }
 
-    /// <summary>連續：向 renderer 要 [first-6, last+6] 可見窗解碼。</summary>
+    /// <summary>連續：向 renderer 要 [first-6, last+6] 可見窗解碼，並保護可見窗 [first, last] 不被背景淘汰。</summary>
     private void RequestGpuContinuousWindow(int first, int last)
     {
         if (_skRenderer == null) return;
+        _skRenderer.SetProtectedRange(first, last);
         int from = Math.Max(0, first - 6);
         int to = Math.Min(_source.PageCount - 1, last + 6);
         _skRenderer.RequestRange(from, to);
@@ -430,7 +508,10 @@ public partial class ReaderForm
         var (first, last) = _layout.GetVisibleRange(_virtualScrollY, _virtualScrollY + vh);
         if (first < 0)
         {
-            _skRenderer.RequestRange(Math.Max(0, _currentIndex - 3), Math.Min(_source.PageCount - 1, _currentIndex + 3));
+            int from = Math.Max(0, _currentIndex - 3);
+            int to = Math.Min(_source.PageCount - 1, _currentIndex + 3);
+            _skRenderer.SetProtectedRange(from, to);
+            _skRenderer.RequestRange(from, to);
             return;
         }
         RequestGpuContinuousWindow(first, last);
@@ -440,8 +521,9 @@ public partial class ReaderForm
     private void OnGpuContinuousPageDecoded(int idx)
     {
         if (_layout == null || _skRenderer == null) return;
-        var img = _skRenderer.Peek(idx);
-        if (img != null && !_layout.IsMeasured(idx))
+        using var lease = _skRenderer.AcquirePeek(idx);
+        var img = lease?.Image;
+        if (img != null && img.Handle != IntPtr.Zero && img.Width > 0 && img.Height > 0 && !_layout.IsMeasured(idx))
         {
             _layout.SetMeasured(idx, img.Width, img.Height);
             int vh = picPage.Height;

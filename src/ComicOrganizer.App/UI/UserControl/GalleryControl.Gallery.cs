@@ -975,16 +975,184 @@ public partial class GalleryControl
     {
         if (_prefs?.UseBuiltInReader == true && WorkContextMenuHelper.CanUseBuiltInReader(path))
         {
-            try { OpenInBuiltInReader(path); return; }
-            catch
-            {
-                // 內建 reader 失敗 fallback 到外部 viewer，避免使用者點了沒反應
-            }
+            _ = OpenInBuiltInReaderAsync(path);
+            return;
         }
         OpenWithExternalViewer(path);
     }
 
-    private void OpenInBuiltInReader(string path)
+    private async Task OpenInBuiltInReaderAsync(
+        string path,
+        ReaderForm? replacingForm = null,
+        IReadOnlyList<string>? explicitSiblings = null)
+    {
+        string pathKey = DelayedLoadingTracker.NormalizePathKey(path);
+        if (string.IsNullOrEmpty(pathKey))
+        {
+            OpenWithExternalViewer(path);
+            return;
+        }
+
+        if (_openReadersByPath.TryGetValue(pathKey, out var existingForm))
+        {
+            if (!existingForm.IsDisposed)
+            {
+                if (existingForm.WindowState == FormWindowState.Minimized)
+                    existingForm.WindowState = FormWindowState.Normal;
+                existingForm.Activate();
+                if (replacingForm != null && !replacingForm.IsDisposed && !ReferenceEquals(existingForm, replacingForm))
+                {
+                    replacingForm.SkipClosingPrefsSave = true;
+                    replacingForm.Close();
+                }
+                return;
+            }
+            _openReadersByPath.Remove(pathKey);
+        }
+
+        if (!_openingReaderPaths.Add(pathKey)) return;
+
+        // 僅在活躍開書數從 0 → 1 時啟動 380ms 延遲計時器，避免併發點擊干擾既有的載入指示
+        if (_openingReaderPaths.Count == 1)
+        {
+            BeginReaderLoadingIndicator();
+        }
+
+        // 進背景執行緒前先擷取按鍵修飾符、偏好/設定與同分頁作品清單
+        bool useSkiaProbe = Control.ModifierKeys.HasFlag(Keys.Shift);
+        bool rtl = (_prefs?.DefaultReadingDirection ?? "rtl") == "rtl";
+        bool spreadFromCover = _prefs?.DualPageSpreadFromCover ?? false;
+        int thrSec = _config.ReadCountThresholdSeconds;
+        int thrPages = _config.ReadCountThresholdPages;
+        bool track = _prefs?.TrackReadingRecord ?? true;
+        var siblingCandidates = explicitSiblings ?? GetCurrentTabSiblingWorkPaths();
+
+        IReaderSource? source = null;
+        try
+        {
+            source = await Task.Run(() => CreateValidatedReaderSource(path));
+            if (IsDisposed)
+            {
+                source.Dispose();
+                source = null;
+                return;
+            }
+
+            FinishOpeningReaderPath(pathKey);
+
+            // [PoC 臨時] 按住 Shift 開啟 → 用 Skia/GPU 探測視窗
+            if (useSkiaProbe)
+            {
+                new SkiaReaderProbeForm(source).Show();
+                source = null;
+                return;
+            }
+
+            var form = new ReaderForm(
+                source,
+                rtl,
+                spreadFromCover,
+                _metaStore,
+                _readRecordQueue,
+                thrSec,
+                thrPages,
+                track,
+                _prefs,
+                onSavePrefs: () => RequestSavePreferences?.Invoke(),
+                siblingPaths: siblingCandidates,
+                onSwitchWorkAsync: (nextPath, oldForm) =>
+                    OpenInBuiltInReaderAsync(nextPath, replacingForm: oldForm, explicitSiblings: siblingCandidates));
+            source = null;
+            if (replacingForm != null && !replacingForm.IsDisposed)
+            {
+                replacingForm.CopyWindowPlacementTo(form);
+            }
+            _openReadersByPath[pathKey] = form;
+            form.FormClosed += (_, _) =>
+            {
+                if (_openReadersByPath.TryGetValue(pathKey, out var current) && ReferenceEquals(current, form))
+                    _openReadersByPath.Remove(pathKey);
+            };
+            form.Show();   // modeless，不阻擋 main form
+            if (replacingForm != null && !replacingForm.IsDisposed && !ReferenceEquals(replacingForm, form))
+            {
+                replacingForm.SkipClosingPrefsSave = true;
+                replacingForm.Close();
+            }
+        }
+        catch
+        {
+            source?.Dispose();
+            FinishOpeningReaderPath(pathKey);
+            if (!IsDisposed)
+            {
+                // 內建 reader 失敗（含空圖集）fallback 到外部 viewer，避免使用者點了沒反應
+                OpenWithExternalViewer(path);
+            }
+        }
+        finally
+        {
+            FinishOpeningReaderPath(pathKey);
+        }
+    }
+
+    private IReadOnlyList<string>? GetCurrentTabSiblingWorkPaths()
+    {
+        var page = tabsContent.SelectedTab;
+        if (page == null || page.IsDisposed) return null;
+
+        if (WorkContextMenuHelper.IsDashboardTag(page.Tag as string))
+        {
+            var result = new List<string>();
+            foreach (var flowName in new[] { "dbFlowRecentlyRead", "dbFlowRecentlyAdded" })
+            {
+                var dbFlow = FindInTab<FlowLayoutPanel>(page, flowName);
+                if (dbFlow == null || dbFlow.IsDisposed) continue;
+                foreach (var c in dbFlow.Controls.OfType<ComicCardControl>())
+                {
+                    if (!c.IsDisposed && c.Visible && !string.IsNullOrEmpty(c.ItemPath)
+                        && WorkContextMenuHelper.CanUseBuiltInReader(c.ItemPath))
+                    {
+                        result.Add(c.ItemPath);
+                    }
+                }
+            }
+            return result.Count > 0 ? result : null;
+        }
+
+        if (GetTabMode(page) == GalleryViewMode.List)
+        {
+            var table = FindTabTable(page);
+            if (table?.DataSource is IEnumerable<GalleryListItem> rows)
+            {
+                var list = rows
+                    .Where(r => !string.IsNullOrEmpty(r.FullPath) && WorkContextMenuHelper.CanUseBuiltInReader(r.FullPath))
+                    .Select(r => r.FullPath)
+                    .ToList();
+                return list.Count > 0 ? list : null;
+            }
+            return null;
+        }
+
+        var flow = FindTabFlowLayout(page);
+        if (flow == null || flow.IsDisposed) return null;
+        var cardPaths = flow.Controls.OfType<ComicCardControl>()
+            .Where(c => !c.IsDisposed && c.Visible && !string.IsNullOrEmpty(c.ItemPath)
+                        && WorkContextMenuHelper.CanUseBuiltInReader(c.ItemPath))
+            .Select(c => c.ItemPath)
+            .ToList();
+        return cardPaths.Count > 0 ? cardPaths : null;
+    }
+
+    private void FinishOpeningReaderPath(string pathKey)
+    {
+        if (_openingReaderPaths.Remove(pathKey) && _openingReaderPaths.Count == 0)
+        {
+            CompleteReaderLoadingIndicator(_readerOpenToken);
+        }
+    }
+
+    private static IReaderSource CreateValidatedReaderSource(string path)
     {
         IReaderSource source;
         var ext = Path.GetExtension(path);
@@ -1001,22 +1169,7 @@ public partial class GalleryControl
             source.Dispose();
             throw new InvalidOperationException("No images found");
         }
-
-        // [PoC 臨時] 按住 Shift 開啟 → 用 Skia/GPU 探測視窗（項目 4 再正式做選單入口）
-        if (Control.ModifierKeys.HasFlag(Keys.Shift))
-        {
-            new SkiaReaderProbeForm(source).Show();
-            return;
-        }
-
-        bool rtl = (_prefs?.DefaultReadingDirection ?? "rtl") == "rtl";
-        bool spreadFromCover = _prefs?.DualPageSpreadFromCover ?? false;
-        int thrSec = _config.ReadCountThresholdSeconds;
-        int thrPages = _config.ReadCountThresholdPages;
-        bool track = _prefs?.TrackReadingRecord ?? true;
-        var form = new ReaderForm(source, rtl, spreadFromCover, _metaStore,
-                                  _readRecordQueue, thrSec, thrPages, track);
-        form.Show();   // modeless，不阻擋 main form
+        return source;
     }
 
     /// <summary>card 點擊 → 排隊閱讀紀錄；TrackReadingRecord=false 時 no-op。</summary>

@@ -42,11 +42,20 @@ public partial class ReaderForm : Window, IThemedControl
 
 	private readonly IReaderSource _source;
 
-	private readonly bool _rtl;
+	private bool _rtl;
 
-	private readonly bool _spreadFromCover;
+	private bool _spreadFromCover;
 
 	private readonly IAssetMetaStore? _metaStore;
+
+	private readonly UserPreferences? _prefs;
+	private readonly Action? _onSavePrefs;
+	private readonly IReadOnlyList<string> _siblingWorks = Array.Empty<string>();
+	private readonly Func<string, ReaderForm, Task>? _onSwitchWorkAsync;
+	private readonly AntdUI.TooltipComponent _tooltip = new() { ArrowAlign = TAlign.Bottom };
+	private bool _isSwitchingWork;
+	private bool _suppressPrefSave;
+	internal bool SkipClosingPrefsSave { get; set; }
 
 	private int _currentIndex;
 
@@ -104,10 +113,28 @@ public partial class ReaderForm : Window, IThemedControl
 
 	private Image? _rightImage;
 
+	private int _renderedLeftIndex = -1;
+
+	private int _renderedRightIndex = -1;
+
 	private bool _enableTranslation = false;
 
-	private IOcrService _ocrService = new WindowsOcrService();
-	private int _currentOcrEngineType = 0;
+	private IOcrService? _ocrService;
+	private int _currentOcrEngineType = -1;
+	private readonly object _engineInitLock = new();
+	private readonly List<IDisposable> _retiredEngineDisposables = new();
+
+	// 超過 380ms 才顯示的頁面載入指示（狀態列 + GDI+ 中央懸浮徽章）
+	private readonly DelayedLoadingTracker _pageLoadTracker = new();
+	private readonly System.Windows.Forms.Timer _pageLoadTimer = new()
+	{
+		Interval = DelayedLoadingTracker.DefaultDelayMs
+	};
+	private long _pageLoadToken;
+	private int _pendingPageLoadIndex = -1;
+	private AntdUI.Panel? _pageLoadingOverlay;
+	private AntdUI.Button? _pageLoadingSpinner;
+	private System.Windows.Forms.Label? _pageLoadingLabel;
 
 	private readonly LlmTranslationService _translationService = new LlmTranslationService(new HttpClient());
 
@@ -175,7 +202,19 @@ public partial class ReaderForm : Window, IThemedControl
 
 	private bool IsContinuous => _viewMode == ReaderViewMode.ContinuousScroll;
 
-	public ReaderForm(IReaderSource source, bool rightToLeft = true, bool dualPageSpreadFromCover = false, IAssetMetaStore? metaStore = null, ReadRecordQueue? readRecordQueue = null, int readThresholdSeconds = 30, int readThresholdPages = 2, bool trackReadingRecord = true)
+	public ReaderForm(
+		IReaderSource source,
+		bool rightToLeft = true,
+		bool dualPageSpreadFromCover = false,
+		IAssetMetaStore? metaStore = null,
+		ReadRecordQueue? readRecordQueue = null,
+		int readThresholdSeconds = 30,
+		int readThresholdPages = 2,
+		bool trackReadingRecord = true,
+		UserPreferences? prefs = null,
+		Action? onSavePrefs = null,
+		IReadOnlyList<string>? siblingPaths = null,
+		Func<string, ReaderForm, Task>? onSwitchWorkAsync = null)
 	{
 		InitializeComponent();
 		// scrollHost 是 AutoScroll Panel 且預設無雙緩衝 → 翻頁時 picPage 重定位會讓 Panel 重繪背景而閃爍/頓挫；
@@ -184,9 +223,6 @@ public partial class ReaderForm : Window, IThemedControl
 		EnableDoubleBuffer(picPage);
 		AppConfig appConfig = new ConfigManager().Load();
 		_debugEnvelope = appConfig.DebugMode;
-		_currentOcrEngineType = appConfig.OcrEngineType;
-		_ocrService = OcrPluginManager.CreateService(appConfig.OcrEngineType);
-		_maskProvider = appConfig.MaskEngineType == 2 ? new ComicTextDetector() : null;
 		_useGpuPref = appConfig.UseGpuRendering;
 		int num = Math.Max(1, appConfig.TranslationMaxConcurrency);
 		_llmSemaphore = new SemaphoreSlim(num, num);
@@ -195,6 +231,10 @@ public partial class ReaderForm : Window, IThemedControl
 		_rtl = rightToLeft;
 		_spreadFromCover = dualPageSpreadFromCover;
 		_metaStore = metaStore;
+		_prefs = prefs;
+		_onSavePrefs = onSavePrefs;
+		_onSwitchWorkAsync = onSwitchWorkAsync;
+		_siblingWorks = ReaderNavigationHelper.ResolveSiblingWorks(source.RootPath, siblingPaths);
 		_readThresholdSeconds = Math.Max(1, readThresholdSeconds);
 		_readThresholdPages = Math.Max(1, readThresholdPages);
 		_trackReadingRecord = trackReadingRecord;
@@ -220,21 +260,146 @@ public partial class ReaderForm : Window, IThemedControl
 		_assetId = _metaStore?.GetAssetId(source.RootPath);
 		Text = source.DisplayName;
 		windowBar.SubText = source.DisplayName;
+		ApplySavedReaderWindowAndViewPrefs();
+		UpdateDirectionButtonUi();
+		UpdateSpreadCoverButtonUi();
+		UpdateSiblingNavigationUi();
+		InitPageLoadingOverlay();
 		ApplyThemeColors();
 		btnStatusLoading.SendToBack();
 		this.WireThemeAndLocalization();
 		picPage.Image = null;
 		picPage.Paint += OnPicPagePaint;
 		WireEvents();
+		LayoutToolbarGroups();
 		// GPU 畫布在 Load(handle 已建)才建，GL 失敗偵測才可靠 → 見 ReaderForm.Gpu.cs
-		base.Load += delegate { InitGpuCanvas(); };
-		if (source.PageCount > 0)
+		base.Load += delegate
+		{
+			InitGpuCanvas();
+			if (IsContinuous && _source.PageCount > 0)
+			{
+				EnterContinuousMode();
+			}
+		};
+		if (source.PageCount > 0 && !IsContinuous)
 		{
 			GoToPage(_currentIndex);
+		}
+		else if (source.PageCount > 0)
+		{
+			UpdatePageInfo();
 		}
 		else
 		{
 			lblStatus.Text = "(無圖檔)";
+		}
+	}
+
+	private void ApplySavedReaderWindowAndViewPrefs()
+	{
+		if (_prefs != null)
+		{
+			var workingArea = Screen.FromControl(this).WorkingArea;
+			this.Size = ReaderNavigationHelper.ClampReaderWindowSize(
+				_prefs.ReaderWindowWidth,
+				_prefs.ReaderWindowHeight,
+				workingArea);
+			if (_prefs.ReaderWindowMaximized)
+			{
+				this.WindowState = FormWindowState.Maximized;
+			}
+		}
+
+		_suppressPrefSave = true;
+		try
+		{
+			string zoomPref = ReaderNavigationHelper.NormalizeReaderZoomMode(_prefs?.DefaultReaderZoomMode);
+			(_zoomMode, segZoomMode.SelectIndex) = zoomPref switch
+			{
+				"FitWidth" => (ReaderZoomMode.FitWidth, 1),
+				"Actual" => (ReaderZoomMode.Actual, 2),
+				_ => (ReaderZoomMode.FitPage, 0),
+			};
+
+			string viewPref = ReaderNavigationHelper.NormalizeReaderViewMode(_prefs?.DefaultReaderViewMode);
+			(_viewMode, segViewMode.SelectIndex) = viewPref switch
+			{
+				"DualPage" => (ReaderViewMode.DualPage, 1),
+				"ContinuousScroll" => (ReaderViewMode.ContinuousScroll, 2),
+				_ => (ReaderViewMode.SinglePage, 0),
+			};
+
+			bool isCont = IsContinuous;
+			segZoomMode.Visible = !isCont;
+			sliderZoom.Visible = isCont;
+			switchSeamless.Visible = isCont;
+			lblSeamless.Visible = isCont;
+		}
+		finally
+		{
+			_suppressPrefSave = false;
+		}
+	}
+
+	private void CaptureAndSaveReaderPrefs()
+	{
+		if (_prefs == null || _suppressPrefSave) return;
+		var sizeToSave = WindowState == FormWindowState.Normal ? Size : RestoreBounds.Size;
+		if (sizeToSave.Width > 0 && sizeToSave.Height > 0)
+		{
+			_prefs.ReaderWindowWidth = sizeToSave.Width;
+			_prefs.ReaderWindowHeight = sizeToSave.Height;
+		}
+		_prefs.ReaderWindowMaximized = WindowState == FormWindowState.Maximized;
+		_prefs.DefaultReadingDirection = _rtl ? "rtl" : "ltr";
+		_prefs.DualPageSpreadFromCover = _spreadFromCover;
+		_prefs.DefaultReaderViewMode = _viewMode switch
+		{
+			ReaderViewMode.DualPage => "DualPage",
+			ReaderViewMode.ContinuousScroll => "ContinuousScroll",
+			_ => "SinglePage",
+		};
+		if (_zoomMode != ReaderZoomMode.Custom)
+		{
+			_prefs.DefaultReaderZoomMode = _zoomMode switch
+			{
+				ReaderZoomMode.FitWidth => "FitWidth",
+				ReaderZoomMode.Actual => "Actual",
+				_ => "FitPage",
+			};
+		}
+		_onSavePrefs?.Invoke();
+	}
+
+	private void LayoutToolbarGroups()
+	{
+		if (toolbar.IsDisposed || toolbarLeft.IsDisposed || toolbarRight.IsDisposed) return;
+		int padL = toolbar.Padding.Left;
+		int padR = toolbar.Padding.Right;
+		int padT = toolbar.Padding.Top;
+		int padB = toolbar.Padding.Bottom;
+		int availW = Math.Max(200, toolbar.ClientSize.Width - padL - padR);
+		int rightW = toolbarRight.Width;
+		int leftSingleW = toolbarLeft.GetPreferredSize(new Size(int.MaxValue, 32)).Width;
+
+		if (availW >= leftSingleW + 12 + rightW)
+		{
+			var maxSz = new Size(Math.Max(100, availW - rightW - 12), 0);
+			if (toolbarLeft.MaximumSize != maxSz) toolbarLeft.MaximumSize = maxSz;
+			toolbarLeft.Location = new Point(padL, padT);
+			toolbarRight.Location = new Point(Math.Max(padL, toolbar.ClientSize.Width - padR - rightW), padT);
+			int targetH = Math.Max(toolbarLeft.Height, toolbarRight.Height) + padT + padB;
+			if (toolbar.Height != targetH) toolbar.Height = targetH;
+		}
+		else
+		{
+			var maxSz = new Size(availW, 0);
+			if (toolbarLeft.MaximumSize != maxSz) toolbarLeft.MaximumSize = maxSz;
+			toolbarLeft.Location = new Point(padL, padT);
+			int row2Y = toolbarLeft.Bottom + 4;
+			toolbarRight.Location = new Point(Math.Max(padL, toolbar.ClientSize.Width - padR - rightW), row2Y);
+			int targetH = toolbarRight.Bottom + padB;
+			if (toolbar.Height != targetH) toolbar.Height = targetH;
 		}
 	}
 
@@ -244,11 +409,128 @@ public partial class ReaderForm : Window, IThemedControl
 		windowBar.BackColor = ThemeColors.Primary;
 		windowBar.ForeColor = ThemeColors.HeaderText;
 		toolbar.BackColor = ThemeColors.TabHeader;
+		toolbarLeft.BackColor = ThemeColors.TabHeader;
+		toolbarRight.BackColor = ThemeColors.TabHeader;
 		statusBar.BackColor = ThemeColors.TabHeader;
 		scrollHost.BackColor = ReaderContentBg;
 		picPage.BackColor = ReaderContentBg;
 		lblStatus.ForeColor = ThemeColors.Text;
 		btnStatusLoading.ForeColor = ThemeColors.Text;
+		foreach (var btn in new[] { btnPrevWork, btnNextWork, btnBookmarkToggle, btnBookmarkList, btnDirection, btnSpreadCover, btnFullscreen })
+		{
+			btn.ForeColor = ThemeColors.Text;
+		}
+		if (_pageLoadingOverlay != null && !_pageLoadingOverlay.IsDisposed)
+		{
+			_pageLoadingOverlay.Back = ThemeColors.Surface;
+			_pageLoadingOverlay.BackColor = ThemeColors.Surface;
+			_pageLoadingOverlay.BorderColor = ThemeColors.Border;
+		}
+		if (_pageLoadingLabel != null && !_pageLoadingLabel.IsDisposed)
+		{
+			_pageLoadingLabel.ForeColor = ThemeColors.Text;
+		}
+		if (_pageLoadingSpinner != null && !_pageLoadingSpinner.IsDisposed)
+		{
+			_pageLoadingSpinner.ForeColor = ThemeColors.Primary;
+		}
+	}
+
+	private void InitPageLoadingOverlay()
+	{
+		_pageLoadingSpinner = new AntdUI.Button
+		{
+			Name = "pageLoadingSpinner",
+			Dock = DockStyle.Left,
+			Loading = true,
+			Ghost = true,
+			Size = LogicalToDeviceUnits(new Size(26, 26)),
+			ForeColor = ThemeColors.Primary,
+			Enabled = true,
+		};
+		_pageLoadingLabel = new System.Windows.Forms.Label
+		{
+			Name = "pageLoadingLabel",
+			Dock = DockStyle.Fill,
+			Text = "載入頁面中...",
+			TextAlign = ContentAlignment.MiddleLeft,
+			Font = new Font("Microsoft JhengHei UI", 9.5F),
+			ForeColor = ThemeColors.Text,
+			BackColor = Color.Transparent,
+		};
+		_pageLoadingOverlay = new AntdUI.Panel
+		{
+			Name = "pageLoadingOverlay",
+			Size = LogicalToDeviceUnits(new Size(180, 42)),
+			Radius = 10,
+			BorderWidth = 1,
+			BorderColor = ThemeColors.Border,
+			Back = ThemeColors.Surface,
+			BackColor = ThemeColors.Surface,
+			Padding = new Padding(12, 8, 12, 8),
+			Visible = false,
+		};
+		_pageLoadingOverlay.Controls.Add(_pageLoadingLabel);
+		_pageLoadingOverlay.Controls.Add(_pageLoadingSpinner);
+		scrollHost.Controls.Add(_pageLoadingOverlay);
+		_pageLoadingOverlay.BringToFront();
+
+		scrollHost.Resize += delegate { CenterPageLoadingOverlay(); };
+		_pageLoadTimer.Tick += delegate
+		{
+			_pageLoadTimer.Stop();
+			if (base.IsDisposed) return;
+			if (_pageLoadTracker.MarkDelayElapsed(_pageLoadToken))
+			{
+				if (!UseGpuNow) ShowPageLoadingOverlay();
+				UpdateStatusBar();
+			}
+		};
+	}
+
+	private void CenterPageLoadingOverlay()
+	{
+		if (_pageLoadingOverlay == null || _pageLoadingOverlay.IsDisposed || scrollHost.IsDisposed) return;
+		int x = Math.Max(0, (scrollHost.ClientSize.Width - _pageLoadingOverlay.Width) / 2);
+		int y = Math.Max(0, (scrollHost.ClientSize.Height - _pageLoadingOverlay.Height) / 2);
+		_pageLoadingOverlay.Location = new Point(x, y);
+	}
+
+	private void ShowPageLoadingOverlay()
+	{
+		if (_pageLoadingOverlay == null || _pageLoadingOverlay.IsDisposed) return;
+		CenterPageLoadingOverlay();
+		_pageLoadingOverlay.Visible = true;
+		_pageLoadingOverlay.BringToFront();
+	}
+
+	private void HidePageLoadingOverlay()
+	{
+		if (_pageLoadingOverlay != null && !_pageLoadingOverlay.IsDisposed && _pageLoadingOverlay.Visible)
+		{
+			_pageLoadingOverlay.Visible = false;
+		}
+	}
+
+	private void BeginPageLoadingIndicator(int targetStartIndex)
+	{
+		if (_pageLoadTracker.IsBusy && _pendingPageLoadIndex == targetStartIndex) return;
+		_pendingPageLoadIndex = targetStartIndex;
+		_pageLoadToken = _pageLoadTracker.Begin();
+		HidePageLoadingOverlay();
+		_pageLoadTimer.Stop();
+		_pageLoadTimer.Start();
+	}
+
+	private void CompletePageLoadingIndicator(bool updateStatusBar = true)
+	{
+		_pendingPageLoadIndex = -1;
+		_pageLoadTimer.Stop();
+		if (_pageLoadTracker.Complete(_pageLoadToken))
+		{
+			HidePageLoadingOverlay();
+			if (updateStatusBar) UpdateStatusBar();
+		}
 	}
 
 	public void ApplyLocalization()
@@ -259,6 +541,14 @@ public partial class ReaderForm : Window, IThemedControl
 	{
 		sliderZoom.SetMinMax(20, 120);
 		sliderZoom.Value = (sliderZoom.MinValue + sliderZoom.MaxValue) / 2;
+		toolbar.Layout += delegate { LayoutToolbarGroups(); };
+		btnPrevWork.Click += delegate { _ = SwitchToAdjacentWorkAsync(-1); };
+		btnNextWork.Click += delegate { _ = SwitchToAdjacentWorkAsync(1); };
+		btnDirection.Click += delegate { ToggleReadingDirection(); };
+		btnSpreadCover.Click += delegate { ToggleSpreadFromCover(); };
+		lblStatus.Cursor = Cursors.Hand;
+		_tooltip.SetTip(lblStatus, "點擊輸入頁碼快速跳頁 (Ctrl+G)");
+		lblStatus.Click += delegate { OpenGoToPageDialog(); };
 		btnFullscreen.Click += delegate
 		{
 			ToggleFullscreen();
@@ -382,18 +672,22 @@ public partial class ReaderForm : Window, IThemedControl
 		base.FormClosing += delegate
 		{
 			SaveProgress();
+			if (!SkipClosingPrefsSave)
+			{
+				CaptureAndSaveReaderPrefs();
+			}
 			// UI thread 只做輕量收尾：停 timer(WinForms Timer 不宜跨執行緒釋放)、發取消信號，
 			// 隨即返回讓視窗立即消失。重量級釋放(等 worker 停 + ONNX/PaddleOCR native dispose ≈ 1 秒)丟背景。
 			try { _recordCheckTimer.Stop(); _recordCheckTimer.Dispose(); } catch { }
 			try { _scrollDebounce.Stop(); _scrollDebounce.Dispose(); } catch { }
+			try { _pageLoadTimer.Stop(); _pageLoadTimer.Dispose(); _pageLoadTracker.Reset(); } catch { }
+			try { _tooltip.Dispose(); } catch { }
 			try { _queueCts?.Cancel(); } catch { }
 
-			// 物件仍被欄位參照，背景釋放安全；依序：等 worker 停 → 釋圖快取/_source → 釋 OCR/mask/翻譯引擎。
+			// 物件仍被欄位參照，背景釋放安全；依序：等 worker 停 → 釋圖快取/_source → 鎖內取出延遲初始化之 OCR/mask → 釋放引擎。
 			var workers = _workerTasks.ToArray();
 			var cts = _queueCts;
 			var sem = _llmSemaphore;
-			var mask = _maskProvider;
-			var ocr = _ocrService;
 			var trans = _translationService;
 			System.Threading.Tasks.Task.Run(delegate
 			{
@@ -410,8 +704,25 @@ public partial class ReaderForm : Window, IThemedControl
 					}
 				}
 				catch { }
+				ITextMaskProvider? mask;
+				IOcrService? ocr;
+				IDisposable[] retired;
+				lock (_engineInitLock)
+				{
+					mask = _maskProvider;
+					_maskProvider = null;
+					ocr = _ocrService;
+					_ocrService = null;
+					_currentOcrEngineType = -1;
+					retired = _retiredEngineDisposables.ToArray();
+					_retiredEngineDisposables.Clear();
+				}
 				(mask as System.IDisposable)?.Dispose();   // ComicTextDetector ONNX session + DirectML GPU
 				(ocr as System.IDisposable)?.Dispose();      // PaddleOCR 引擎 native 模型記憶體
+				foreach (var oldEngine in retired)
+				{
+					try { oldEngine.Dispose(); } catch { }
+				}
 				(trans as System.IDisposable)?.Dispose();
 				try { cts?.Dispose(); sem?.Dispose(); } catch { }
 			});
@@ -574,6 +885,10 @@ public partial class ReaderForm : Window, IThemedControl
 				AdjustCustomZoom(0.9090909f);
 				e.Handled = true;
 				return;
+			case Keys.G:
+				OpenGoToPageDialog();
+				e.Handled = true;
+				return;
 			}
 		}
 		if (e.Shift && !e.Control && !e.Alt)
@@ -594,11 +909,26 @@ public partial class ReaderForm : Window, IThemedControl
 				return;
 			}
 		}
-		if (!e.Shift && !e.Control && !e.Alt && e.KeyCode == Keys.B)
+		if (!e.Shift && !e.Control && !e.Alt)
 		{
-			ToggleBookmarkOnCurrentPage();
-			e.Handled = true;
-			return;
+			if (e.KeyCode == Keys.B)
+			{
+				ToggleBookmarkOnCurrentPage();
+				e.Handled = true;
+				return;
+			}
+			if (e.KeyCode == Keys.OemOpenBrackets)
+			{
+				_ = SwitchToAdjacentWorkAsync(-1);
+				e.Handled = true;
+				return;
+			}
+			if (e.KeyCode == Keys.OemCloseBrackets)
+			{
+				_ = SwitchToAdjacentWorkAsync(1);
+				e.Handled = true;
+				return;
+			}
 		}
 		switch (e.KeyCode)
 		{
@@ -742,30 +1072,25 @@ public partial class ReaderForm : Window, IThemedControl
 		segZoomMode.SelectIndex = 0;
 		LayoutPic();
 		UpdateStatusBar();
+		CaptureAndSaveReaderPrefs();
 	}
 
 	private void OnZoomModeChanged(int idx)
 	{
-		if (1 == 0)
-		{
-		}
-		ReaderZoomMode readerZoomMode = idx switch
+		ReaderZoomMode readerZoomMode2 = idx switch
 		{
 			0 => ReaderZoomMode.FitPage, 
 			1 => ReaderZoomMode.FitWidth, 
 			2 => ReaderZoomMode.Actual, 
 			_ => ReaderZoomMode.FitPage, 
 		};
-		if (1 == 0)
-		{
-		}
-		ReaderZoomMode readerZoomMode2 = readerZoomMode;
 		if (readerZoomMode2 != _zoomMode)
 		{
 			_zoomMode = readerZoomMode2;
 			_customZoom = 1f;
 			LayoutPic();
 			UpdateStatusBar();
+			CaptureAndSaveReaderPrefs();
 		}
 	}
 
@@ -848,20 +1173,13 @@ public partial class ReaderForm : Window, IThemedControl
 
 	private void OnViewModeChanged(int idx)
 	{
-		if (1 == 0)
-		{
-		}
-		ReaderViewMode readerViewMode = idx switch
+		ReaderViewMode readerViewMode2 = idx switch
 		{
 			0 => ReaderViewMode.SinglePage, 
 			1 => ReaderViewMode.DualPage, 
 			2 => ReaderViewMode.ContinuousScroll, 
 			_ => ReaderViewMode.SinglePage, 
 		};
-		if (1 == 0)
-		{
-		}
-		ReaderViewMode readerViewMode2 = readerViewMode;
 		if (readerViewMode2 != _viewMode)
 		{
 			_viewMode = readerViewMode2;
@@ -870,6 +1188,8 @@ public partial class ReaderForm : Window, IThemedControl
 			sliderZoom.Visible = flag;
 			switchSeamless.Visible = flag;
 			lblSeamless.Visible = flag;
+			UpdateSpreadCoverButtonUi();
+			LayoutToolbarGroups();
 			if (flag)
 			{
 				EnterContinuousMode();
@@ -878,13 +1198,175 @@ public partial class ReaderForm : Window, IThemedControl
 			{
 				LeaveContinuousMode();
 			}
+			CaptureAndSaveReaderPrefs();
 		}
+	}
+
+	private void UpdateDirectionButtonUi()
+	{
+		btnDirection.Text = _rtl ? "右→左" : "左→右";
+		_tooltip.SetTip(btnDirection, _rtl ? "閱讀方向：右→左（點擊切換為左→右）" : "閱讀方向：左→右（點擊切換為右→左）");
+	}
+
+	private void UpdateSpreadCoverButtonUi()
+	{
+		btnSpreadCover.Type = _spreadFromCover ? TTypeMini.Primary : TTypeMini.Default;
+		btnSpreadCover.Enabled = true;
+		_tooltip.SetTip(btnSpreadCover, _spreadFromCover
+			? "雙頁模式：第 1 頁封面獨立成單頁（點擊關閉）"
+			: "雙頁模式：第 1、2 頁合併顯示（點擊開啟封面獨立）");
+	}
+
+	private void ToggleReadingDirection()
+	{
+		_rtl = !_rtl;
+		UpdateDirectionButtonUi();
+		if (!IsContinuous)
+		{
+			TryRenderCurrentSpread();
+			InvalidateContentCanvas();
+		}
+		UpdateStatusBar();
+		CaptureAndSaveReaderPrefs();
+	}
+
+	private void ToggleSpreadFromCover()
+	{
+		_spreadFromCover = !_spreadFromCover;
+		UpdateSpreadCoverButtonUi();
+		_currentIndex = SpreadStart(_currentIndex);
+		if (!IsContinuous && _source.PageCount > 0)
+		{
+			GoToPage(_currentIndex);
+		}
+		else
+		{
+			UpdatePageInfo();
+			UpdateStatusBar();
+		}
+		CaptureAndSaveReaderPrefs();
+	}
+
+	private void OpenGoToPageDialog()
+	{
+		if (_source.PageCount <= 0) return;
+		using var dlg = new ReaderPagePickerDialog(_source, _currentIndex, _prefs, _onSavePrefs);
+		if (_isFullscreen) dlg.TopMost = true;
+		var result = dlg.ShowDialog(this);
+		if (!IsDisposed)
+		{
+			this.Activate();
+			this.Focus();
+		}
+		if (result == DialogResult.OK)
+		{
+			GoToPage(dlg.SelectedPageIndex);
+		}
+	}
+
+	private void UpdateSiblingNavigationUi()
+	{
+		string? prevPath = ReaderNavigationHelper.GetAdjacentWorkPath(_siblingWorks, _source.RootPath, -1);
+		string? nextPath = ReaderNavigationHelper.GetAdjacentWorkPath(_siblingWorks, _source.RootPath, 1);
+		btnPrevWork.Enabled = !string.IsNullOrEmpty(prevPath) && !_isSwitchingWork;
+		btnNextWork.Enabled = !string.IsNullOrEmpty(nextPath) && !_isSwitchingWork;
+		_tooltip.SetTip(btnPrevWork, string.IsNullOrEmpty(prevPath) ? "已無上一部作品" : $"上一部：{Path.GetFileName(prevPath)} ([)");
+		_tooltip.SetTip(btnNextWork, string.IsNullOrEmpty(nextPath) ? "已無下一部作品" : $"下一部：{Path.GetFileName(nextPath)} (])");
+	}
+
+	private async Task SwitchToAdjacentWorkAsync(int delta)
+	{
+		if (_isSwitchingWork || IsDisposed) return;
+		string? targetPath = ReaderNavigationHelper.GetAdjacentWorkPath(_siblingWorks, _source.RootPath, delta);
+		if (string.IsNullOrEmpty(targetPath)) return;
+
+		_isSwitchingWork = true;
+		UpdateSiblingNavigationUi();
+		try
+		{
+			CaptureAndSaveReaderPrefs();
+			if (_onSwitchWorkAsync != null)
+			{
+				await _onSwitchWorkAsync(targetPath, this);
+			}
+			else
+			{
+				IReaderSource nextSource = await Task.Run(() => CreateStandaloneReaderSource(targetPath));
+				if (IsDisposed) { nextSource.Dispose(); return; }
+				var nextForm = new ReaderForm(
+					nextSource,
+					_rtl,
+					_spreadFromCover,
+					_metaStore,
+					readRecordQueue: null,
+					_readThresholdSeconds,
+					_readThresholdPages,
+					_trackReadingRecord,
+					_prefs,
+					_onSavePrefs,
+					_siblingWorks,
+					_onSwitchWorkAsync);
+				CopyWindowPlacementTo(nextForm);
+				nextForm.Show();
+				SkipClosingPrefsSave = true;
+				Close();
+			}
+		}
+		catch (Exception ex)
+		{
+			if (!IsDisposed)
+			{
+				AntdUI.Message.error(this, "切換作品失敗: " + ex.Message);
+			}
+		}
+		finally
+		{
+			if (!IsDisposed)
+			{
+				_isSwitchingWork = false;
+				UpdateSiblingNavigationUi();
+			}
+		}
+	}
+
+	internal void CopyWindowPlacementTo(Form nextForm)
+	{
+		nextForm.WindowState = FormWindowState.Normal;
+		nextForm.StartPosition = FormStartPosition.Manual;
+		if (WindowState == FormWindowState.Maximized)
+		{
+			nextForm.Bounds = RestoreBounds;
+			nextForm.WindowState = FormWindowState.Maximized;
+		}
+		else
+		{
+			nextForm.Bounds = Bounds;
+		}
+	}
+
+	private static IReaderSource CreateStandaloneReaderSource(string path)
+	{
+		var ext = Path.GetExtension(path);
+		IReaderSource source = SupportedExtensions.Archive.Contains(ext) && File.Exists(path)
+			? new ArchiveReaderSource(path)
+			: (SupportedExtensions.Pdf.Contains(ext) && File.Exists(path)
+				? new PdfReaderSource(path)
+				: new FolderReaderSource(path));
+		if (source.PageCount == 0)
+		{
+			source.Dispose();
+			throw new InvalidOperationException("No images found");
+		}
+		return source;
 	}
 
 	private void EnterContinuousMode()
 	{
+		CompletePageLoadingIndicator();
 		_leftImage = null;
 		_rightImage = null;
+		_renderedLeftIndex = -1;
+		_renderedRightIndex = -1;
 		scrollHost.AutoScroll = false;
 		vScrollBarContinuous.Visible = true;
 		_virtualScrollY = 0;
@@ -1154,21 +1636,37 @@ public partial class ReaderForm : Window, IThemedControl
 		}
 		if (value == null || (num == 2 && image == null))
 		{
-			_leftImage = null;
-			_rightImage = null;
-			InvalidateContentCanvas();
+			// 若畫面已顯示有效前頁則保留上一幀（防翻頁瞬間灰底閃爍），僅於初次尚無畫面時才重繪空白
+			if (_leftImage == null)
+			{
+				_renderedLeftIndex = -1;
+				_renderedRightIndex = -1;
+				InvalidateContentCanvas();
+			}
+			if (!UseGpuNow)
+			{
+				BeginPageLoadingIndicator(currentIndex);
+			}
 			lblStatus.Text = "讀取中…";
 			return;
+		}
+		if (!UseGpuNow || _enableTranslation)
+		{
+			CompletePageLoadingIndicator(updateStatusBar: false);
 		}
 		if (num == 1)
 		{
 			_leftImage = value;
 			_rightImage = null;
+			_renderedLeftIndex = currentIndex;
+			_renderedRightIndex = -1;
 		}
 		else
 		{
 			_leftImage = (_rtl ? image : value);
 			_rightImage = (_rtl ? value : image);
+			_renderedLeftIndex = (_rtl ? (currentIndex + 1) : currentIndex);
+			_renderedRightIndex = (_rtl ? currentIndex : (currentIndex + 1));
 		}
 		LayoutPic();
 		InvalidateContentCanvas();
@@ -1203,11 +1701,12 @@ public partial class ReaderForm : Window, IThemedControl
 			if (_rightImage == null)
 			{
 				Rectangle rectangle = new Rectangle(0, 0, picPage.Width, picPage.Height);
-				Image img1 = PageImageForPaint(_currentIndex, _leftImage);
+				int singleIndex = _renderedLeftIndex >= 0 ? _renderedLeftIndex : _currentIndex;
+				Image img1 = PageImageForPaint(singleIndex, _leftImage);
 				graphics.DrawImage(ScaledForPaint(img1, rectangle.Width, rectangle.Height), rectangle);
 				if (_enableTranslation)
 				{
-					RenderTranslationOverlay(graphics, img1, rectangle, _currentIndex);
+					RenderTranslationOverlay(graphics, img1, rectangle, singleIndex);
 				}
 				return;
 			}
@@ -1222,8 +1721,10 @@ public partial class ReaderForm : Window, IThemedControl
 			int y2 = (picPage.Height - num6) / 2;
 			Rectangle rectangle2 = new Rectangle(0, y, num4, num5);
 			Rectangle rectangle3 = new Rectangle(num4 + 5, y2, width, num6);
-			int pageIndexL = (_rtl ? (_currentIndex + 1) : _currentIndex);
-			int pageIndexR = (_rtl ? _currentIndex : (_currentIndex + 1));
+			int fallbackL = (_rtl ? (_currentIndex + 1) : _currentIndex);
+			int fallbackR = (_rtl ? _currentIndex : (_currentIndex + 1));
+			int pageIndexL = _renderedLeftIndex >= 0 ? _renderedLeftIndex : fallbackL;
+			int pageIndexR = _renderedRightIndex >= 0 ? _renderedRightIndex : fallbackR;
 			Image limg = PageImageForPaint(pageIndexL, _leftImage);
 			Image rimg = PageImageForPaint(pageIndexR, _rightImage);
 			graphics.DrawImage(ScaledForPaint(limg, rectangle2.Width, rectangle2.Height), rectangle2);
@@ -1364,6 +1865,11 @@ public partial class ReaderForm : Window, IThemedControl
 				}
 				if (item.Distance != 0 && _cache.TryGetValue(item.Key, out Image? value))
 				{
+					// 保留上一幀期間絕對不可淘汰並釋放仍被 _leftImage/_rightImage 參照的影像
+					if (ReferenceEquals(value, _leftImage) || ReferenceEquals(value, _rightImage))
+					{
+						continue;
+					}
 					DropScaled(value);
 					value.Dispose();
 					_cache.Remove(item.Key);
@@ -1378,6 +1884,8 @@ public partial class ReaderForm : Window, IThemedControl
 		// 注意：timer 已在 FormClosing(UI thread) 停止/釋放，此處不再碰(本方法現於背景執行緒呼叫)。
 		_leftImage = null;
 		_rightImage = null;
+		_renderedLeftIndex = -1;
+		_renderedRightIndex = -1;
 		lock (_cacheLock)
 		{
 			foreach (Image value in _cache.Values)
@@ -1785,7 +2293,7 @@ public partial class ReaderForm : Window, IThemedControl
 		{
 			lblStatus.Text = text2;
 		}
-		btnStatusLoading.Visible = _enableTranslation && flag;
+		btnStatusLoading.Visible = (_enableTranslation && flag) || _pageLoadTracker.IsIndicatorVisible;
 	}
 
 	private void EnsurePageTranslated(int pageIndex)
@@ -1975,6 +2483,38 @@ public partial class ReaderForm : Window, IThemedControl
 		}
 	}
 
+	private (IOcrService Ocr, ITextMaskProvider? Mask) EnsureTranslationEngines(AppConfig config)
+	{
+		lock (_engineInitLock)
+		{
+			if (_ocrService == null || _currentOcrEngineType != config.OcrEngineType)
+			{
+				// 可能有其他 worker 正在鎖外使用舊實例，先記錄於 _retiredEngineDisposables，待關閉停止 worker 後統一 Dispose
+				if (_ocrService is IDisposable oldOcr && !_retiredEngineDisposables.Contains(oldOcr))
+				{
+					_retiredEngineDisposables.Add(oldOcr);
+				}
+				_ocrService = OcrPluginManager.CreateService(config.OcrEngineType);
+				_currentOcrEngineType = config.OcrEngineType;
+			}
+
+			if (config.MaskEngineType == 2)
+			{
+				_maskProvider ??= new ComicTextDetector();
+			}
+			else if (_maskProvider != null)
+			{
+				if (_maskProvider is IDisposable oldMask && !_retiredEngineDisposables.Contains(oldMask))
+				{
+					_retiredEngineDisposables.Add(oldMask);
+				}
+				_maskProvider = null;
+			}
+
+			return (_ocrService, _maskProvider);
+		}
+	}
+
 	private async Task TranslatePageCoreAsync(int pageIndex, bool isHighPriority, CancellationToken token)
 	{
 		token.ThrowIfCancellationRequested();
@@ -2014,17 +2554,13 @@ public partial class ReaderForm : Window, IThemedControl
 				token.ThrowIfCancellationRequested();
 				AppConfig config = new ConfigManager().Load();
 				_translationService.Configure(config.TranslationEndpoint, config.TranslationModelName, (LlmApiType)config.TranslationApiType, config.GetTranslationApiKey());
-				if (_currentOcrEngineType != config.OcrEngineType || _ocrService == null)
-				{
-					_currentOcrEngineType = config.OcrEngineType;
-					_ocrService = OcrPluginManager.CreateService(config.OcrEngineType);
-				}
-				List<OcrBlock> rawBlocks = await _ocrService.RecognizeAsync(img);
+				var (ocrService, maskProvider) = EnsureTranslationEngines(config);
+				List<OcrBlock> rawBlocks = await ocrService.RecognizeAsync(img);
 				ocrSw.Stop();
 				Debug.WriteLine($"[Translation Flow] Page {pageIndex} OCR raw blocks count: {rawBlocks.Count}. OCR Elapsed: {ocrSw.ElapsedMilliseconds} ms.");
 				token.ThrowIfCancellationRequested();
 				Stopwatch mergeSw = Stopwatch.StartNew();
-				List<OcrBlock> mergedBlocks = _ocrService.MergeBlocks(rawBlocks);
+				List<OcrBlock> mergedBlocks = ocrService.MergeBlocks(rawBlocks);
 				mergeSw.Stop();
 				Debug.WriteLine($"[Translation Flow] Page {pageIndex} OCR merged blocks count: {mergedBlocks.Count}. Merge Elapsed: {mergeSw.ElapsedMilliseconds} ms.");
 				if (mergedBlocks.Count > 0)
@@ -2064,11 +2600,11 @@ public partial class ReaderForm : Window, IThemedControl
 				}
 				// 路線 2：用文字遮罩抹除原文，產生乾淨頁圖（只抹有譯文的氣泡，保留手繪狀聲詞）。
 				// 模型缺失/失敗則略過 → overlay 走逐欄白底 fallback。
-				if (_maskProvider != null && _maskProvider.IsAvailable && img is Bitmap pageBmp)
+				if (maskProvider != null && maskProvider.IsAvailable && img is Bitmap pageBmp)
 				{
 					try
 					{
-						var maskArr = _maskProvider.GetTextMask(pageBmp, mergedBlocks);
+						var maskArr = maskProvider.GetTextMask(pageBmp, mergedBlocks);
 						if (maskArr != null)
 						{
 							GateMaskToTranslatedBlocks(maskArr, pageBmp.Width, pageBmp.Height, mergedBlocks);

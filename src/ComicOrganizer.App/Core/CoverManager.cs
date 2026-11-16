@@ -8,7 +8,6 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using SharpCompress.Archives;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace ComicOrganizer.App.Core;
 
@@ -424,11 +423,11 @@ public class CoverManager
 
     private Image? LoadAndResizeImage(string filePath, int maxWidth)
     {
-        string ext = Path.GetExtension(filePath).ToLower();
+        string ext = Path.GetExtension(filePath).ToLowerInvariant();
         var swDecode = Stopwatch.StartNew();
-        if (ext == ".webp")
+        if (ext.Equals(".webp", StringComparison.OrdinalIgnoreCase))
         {
-            // GDI+ 不支援 WebP decoder，走 ImageSharp 載入後轉 GDI+ Bitmap
+            // GDI+ 不支援 WebP decoder，共用 ReaderImageLoader (SkiaSharp) 載入後轉 GDI+ Bitmap
             using (var img = LoadWebpAsBitmap(filePath))
             {
                 swDecode.Stop();
@@ -452,63 +451,17 @@ public class CoverManager
     }
 
     /// <summary>
-    /// 從 stream 載入圖片：webp 走 ImageSharp，其他走 GDI+ Image.FromStream。
+    /// 從 stream 載入圖片：webp 走 SkiaSharp（共用 ReaderImageLoader），其他走 GDI+ Image.FromStream。
     /// 用在 zip/cbz 內 entry 解壓後 stream → Image。
     /// </summary>
     private static Image LoadImageFromStream(Stream stream, string extension)
-    {
-        if (extension == ".webp")
-        {
-            using var imgSharp = SixLabors.ImageSharp.Image.Load<Bgra32>(stream);
-            return ConvertImageSharpToBitmap(imgSharp);
-        }
-        return Image.FromStream(stream);
-    }
+        => ReaderImageLoader.Decode(stream, extension);
 
     /// <summary>
-    /// 用 ImageSharp 載 webp 檔轉成 GDI+ Bitmap。
+    /// 用 SkiaSharp（共用 ReaderImageLoader）載入 webp 檔轉成 GDI+ Bitmap。
     /// </summary>
     private static Bitmap LoadWebpAsBitmap(string path)
-    {
-        using var imgSharp = SixLabors.ImageSharp.Image.Load<Bgra32>(path);
-        return ConvertImageSharpToBitmap(imgSharp);
-    }
-
-    /// <summary>
-    /// ImageSharp Bgra32 直接 pixel-copy 到 GDI+ Bitmap (Format32bppArgb)。
-    /// Bgra32 與 Format32bppArgb 記憶體 layout 一致，不需 R/B swap。
-    /// 比 PNG encode/decode round-trip 省 ~50~100ms (大圖)。
-    /// </summary>
-    private static Bitmap ConvertImageSharpToBitmap(SixLabors.ImageSharp.Image<Bgra32> imgSharp)
-    {
-        int width = imgSharp.Width;
-        int height = imgSharp.Height;
-        var bmp = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-        var rect = new Rectangle(0, 0, width, height);
-        var bmpData = bmp.LockBits(rect, System.Drawing.Imaging.ImageLockMode.WriteOnly,
-            System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-        try
-        {
-            unsafe
-            {
-                imgSharp.ProcessPixelRows(accessor =>
-                {
-                    for (int y = 0; y < height; y++)
-                    {
-                        var sourceRow = accessor.GetRowSpan(y);
-                        var targetRowPtr = (Bgra32*)(bmpData.Scan0 + y * bmpData.Stride);
-                        var targetRowSpan = new Span<Bgra32>(targetRowPtr, width);
-                        sourceRow.CopyTo(targetRowSpan);
-                    }
-                });
-            }
-        }
-        finally
-        {
-            bmp.UnlockBits(bmpData);
-        }
-        return bmp;
-    }
+        => ReaderImageLoader.DecodeWebpToBitmap(path);
 
     private Image ResizeImage(Image img, int maxWidth)
     {

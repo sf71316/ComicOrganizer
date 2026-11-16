@@ -1,5 +1,12 @@
 namespace ComicOrganizer.App.Core;
 
+/// <summary>單頁輕量 metadata（供跳頁清單延遲讀取，避免預先解壓）。</summary>
+public readonly record struct ReaderPageMetadata(
+    int PageIndex,
+    string Name,
+    long? SizeBytes,
+    DateTime? LastModified);
+
 /// <summary>
 /// 內建 reader 的圖檔來源抽象。FolderReaderSource / ArchiveReaderSource / (未來) PdfReaderSource
 /// 都實作此介面，ReaderForm 不在意背後是哪種來源。
@@ -24,4 +31,7 @@ public interface IReaderSource : IDisposable
 
     /// <summary>第 index 頁的顯示名稱（檔名或 archive entry name）。</summary>
     string GetPageName(int index);
+
+    /// <summary>取得第 index 頁的輕量 metadata（預設僅回傳檔名）。</summary>
+    ReaderPageMetadata GetPageMetadata(int index) => new(index, GetPageName(index), null, null);
 }

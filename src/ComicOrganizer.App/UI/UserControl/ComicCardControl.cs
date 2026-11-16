@@ -417,11 +417,11 @@ public partial class ComicCardControl : UserControl
         int sidePad = Math.Max(0, (hoverToolbar.Width - totalBtnWidth) / 2);
         hoverToolbar.Padding = new Padding(sidePad, 0, sidePad, 0);
 
-        int gap = LogicalToDeviceUnits(6);
-        int topOffset = (typeStrip != null ? typeStrip.Height : LogicalToDeviceUnits(24)) + gap;
-        int x = Math.Max(gap, pic.Width - hoverToolbar.Width - gap);
-        int y = Math.Min(Math.Max(gap, pic.Height - hoverToolbar.Height - gap), topOffset);
-        hoverToolbar.Location = new Point(x, y);
+        int bottomGap = LogicalToDeviceUnits(8);
+        hoverToolbar.Location = new Point(
+            (pic.Width - hoverToolbar.Width) / 2,
+            Math.Max(0, pic.Height - hoverToolbar.Height - bottomGap)
+        );
         hoverToolbar.Region = null;
     }
 
