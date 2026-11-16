@@ -1,3 +1,5 @@
+using ComicOrganizer.App.Models;
+
 namespace ComicOrganizer.App.Core;
 
 /// <summary>
@@ -131,6 +133,10 @@ public interface IAssetMetaStore : IDisposable
 
     /// <summary>取 path 對應的 read_status（沒 asset_meta 紀錄回 null）。給卡片 icon / menu disable 用。</summary>
     ReadStatus? GetReadStatus(string path);
+
+    /// <summary>批次查詢指定路徑集合的畫廊排序／過濾統計（title / read_status / read_count / last_read）。
+    /// 未入庫的路徑不回傳在字典中。</summary>
+    IReadOnlyDictionary<string, AssetGalleryStats> GetGalleryStatsByPaths(IEnumerable<string> paths);
 
     /// <summary>取 path 對應的 last_page（內建 reader 上次閱讀頁碼，0-based）。沒紀錄回 null。</summary>
     int? GetLastPage(string path);
@@ -352,6 +358,19 @@ public interface IAssetMetaStore : IDisposable
 
     /// <summary>取單一筆 — 編輯 dialog 用。找不到回 null。</summary>
     VirtualLibrary? GetVirtualLibrary(long id);
+
+    /// <summary>將作品 path 手動加入指定虛擬庫（若尚未建檔但磁碟路徑存在，會先建立基本 asset 紀錄）。
+    /// 回傳 true 若成功加入或已存在；false 若虛擬庫不存在或路徑無效。</summary>
+    bool AddWorkToVirtualLibrary(long libraryId, string path);
+
+    /// <summary>從指定虛擬庫手動清單移除作品。回傳是否有刪除到列。</summary>
+    bool RemoveWorkFromVirtualLibrary(long libraryId, string path);
+
+    /// <summary>列出指定虛擬庫手動加入的作品 path（依 added_at DESC, a.id DESC 排序）。</summary>
+    IReadOnlyList<string> ListManualVirtualLibraryWorks(long libraryId);
+
+    /// <summary>列出此作品目前已手動加入的虛擬庫 ID 集合（HashSet&lt;long&gt;）。</summary>
+    IReadOnlyCollection<long> ListVirtualLibraryIdsForWork(string path);
 
     // ===== Reader 書籤（#51 Phase 2-B）=====
 

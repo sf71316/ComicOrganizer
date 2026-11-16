@@ -24,29 +24,43 @@ public partial class GalleryControl
         }
     }
 
-    /// <summary>Tree 節點右鍵 → 四項選單（檔案總管 / 目前頁籤 / 另開頁籤 / 作者資訊），各帶 SVG icon。</summary>
+    /// <summary>Tree 節點右鍵 → 五項選單（檔案總管 / 複製路徑 / 目前頁籤 / 另開頁籤 / 作者資訊），各帶 SVG icon。</summary>
     private void ShowTreeNodeContextMenu(string path)
     {
         var items = new AntdUI.IContextMenuStripItem[]
         {
             new AntdUI.ContextMenuStripItem(LocalizationManager.GetString("MenuOpenInExplorer") ?? "檔案總管開啟")
-                { IconSvg = "FolderOpenOutlined" },
+                { ID = "tree_explorer", IconSvg = "FolderOpenOutlined" },
+            new AntdUI.ContextMenuStripItem(LocalizationManager.GetString("MenuCopyPath") ?? "📋 複製路徑")
+                { ID = "tree_copy_path", IconSvg = "CopyOutlined" },
             new AntdUI.ContextMenuStripItem(LocalizationManager.GetString("MenuOpenInCurrentTab") ?? "目前頁籤開啟")
-                { IconSvg = "FileOutlined" },
+                { ID = "tree_current_tab", IconSvg = "FileOutlined" },
             new AntdUI.ContextMenuStripItem(LocalizationManager.GetString("MenuOpenInNewTab") ?? "另開新頁籤")
-                { IconSvg = "PlusOutlined" },
+                { ID = "tree_new_tab", IconSvg = "PlusOutlined" },
             new AntdUI.ContextMenuStripItem(LocalizationManager.GetString("MenuAuthorInfo") ?? "作者資訊")
-                { IconSvg = "UserOutlined" },
+                { ID = "tree_author_info", IconSvg = "UserOutlined" },
         };
 
         AntdUI.ContextMenuStrip.open(treeFolders, mi =>
         {
-            string? t = mi.Text;
-            if (t == null) return;
-            if (t.Contains("檔案總管") || t.Contains("Explorer")) OpenInExplorer(path);
-            else if (t.Contains("目前頁籤") || t.Contains("Current")) OpenFolderTab(path, false);
-            else if (t.Contains("另開") || t.Contains("New Tab")) OpenFolderTab(path, true);
-            else if (t.Contains("作者") || t.Contains("Author")) ShowAuthorInfo(path);
+            switch (mi.ID)
+            {
+                case "tree_explorer":
+                    OpenInExplorer(path);
+                    break;
+                case "tree_copy_path":
+                    WorkContextMenuHelper.TryCopyText(path);
+                    break;
+                case "tree_current_tab":
+                    OpenFolderTab(path, false);
+                    break;
+                case "tree_new_tab":
+                    OpenFolderTab(path, true);
+                    break;
+                case "tree_author_info":
+                    ShowAuthorInfo(path);
+                    break;
+            }
         }, items);
     }
 
@@ -434,7 +448,13 @@ public partial class GalleryControl
             return;
         }
         var paths = vnode.ResolveWorks(_metaStore);
-        OpenVirtualWorksTab(vnode.DisplayName, paths, forceNew: true);
+        var vlibId = (vnode as MyVirtualLibraryNode)?.Library.Id;
+        OpenVirtualWorksTab(
+            vnode.DisplayName,
+            paths,
+            forceNew: true,
+            refreshResolver: () => vnode.ResolveWorks(_metaStore),
+            virtualLibraryId: vlibId);
     }
 
     /// <summary>左鍵點到虛擬庫 node — 依 mode 跟 node 類型決定行為。
@@ -466,7 +486,12 @@ public partial class GalleryControl
 
         // 其他 mode：直接開 tab 顯示作品
         var paths = vnode.ResolveWorks(_metaStore);
-        OpenVirtualWorksTab(vnode.DisplayName, paths);
+        var vlibId = (vnode as MyVirtualLibraryNode)?.Library.Id;
+        OpenVirtualWorksTab(
+            vnode.DisplayName,
+            paths,
+            refreshResolver: () => vnode.ResolveWorks(_metaStore),
+            virtualLibraryId: vlibId);
     }
 
     /// <summary>重建 chip bar — 每個 tag 一個 X 可移除；末端「✕ 清除全部」按鈕。

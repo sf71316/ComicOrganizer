@@ -7,6 +7,7 @@ partial class AuthorInfoPanel
     // Header
     private System.Windows.Forms.Panel headerPanel;
     private System.Windows.Forms.Label lblTitle;
+    private AntdUI.Button btnBackToWork;
     private AntdUI.Button btnEdit;
     private AntdUI.Button btnClose;
     private AntdUI.Button btnExpandMax;
@@ -57,6 +58,7 @@ partial class AuthorInfoPanel
     {
         headerPanel = new System.Windows.Forms.Panel();
         lblTitle = new System.Windows.Forms.Label();
+        btnBackToWork = new AntdUI.Button();
         btnEdit = new AntdUI.Button();
         btnClose = new AntdUI.Button();
         btnExpandMax = new AntdUI.Button();
@@ -107,6 +109,18 @@ partial class AuthorInfoPanel
         headerPanel.Controls.Add(lblTitle);
         headerPanel.Controls.Add(btnExpandMax);
         headerPanel.Controls.Add(btnClose);
+        headerPanel.Controls.Add(btnBackToWork);
+        //
+        // btnBackToWork — 由 WorkDetailPanel 跳來時顯示「← 返回作品」
+        //
+        btnBackToWork.Dock = System.Windows.Forms.DockStyle.Left;
+        btnBackToWork.Ghost = true;
+        btnBackToWork.IconRatio = 0.6F;
+        btnBackToWork.IconSvg = "ArrowLeftOutlined";
+        btnBackToWork.Name = "btnBackToWork";
+        btnBackToWork.Size = new System.Drawing.Size(92, 28);
+        btnBackToWork.Text = "返回作品";
+        btnBackToWork.Visible = false;
         //
         // lblTitle
         //

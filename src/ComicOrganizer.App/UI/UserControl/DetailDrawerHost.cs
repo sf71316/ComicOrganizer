@@ -11,6 +11,18 @@ public partial class DetailDrawerHost : UserControl
     public AuthorInfoPanel AuthorPanel => authorPanel;
     public WorkDetailPanel WorkPanel => workPanel;
 
+    /// <summary>左邊界拖曳調寬過程中即時觸發 — 請求寬度（px）。</summary>
+    public event Action<int>? RequestResizeWidth;
+
+    /// <summary>左邊界拖曳調寬放開滑鼠後觸發 — 最終寬度（px）供持久化。</summary>
+    public event Action<int>? ResizeCompleted;
+
+    private bool _isDraggingResize;
+    private bool _gripHover;
+    private int _dragStartScreenX;
+    private int _dragStartHostWidth;
+    private int _lastRequestedWidth;
+
     /// <summary>任一面板目前是否處於編輯模式。</summary>
     public bool IsEditing => authorPanel.IsEditing || workPanel.IsEditing;
 
@@ -21,6 +33,62 @@ public partial class DetailDrawerHost : UserControl
     {
         InitializeComponent();
         BackColor = ThemeColors.Surface;
+        leftResizeGrip.Width = LogicalToDeviceUnits(5);
+        leftResizeGrip.BackColor = ThemeColors.Surface;
+        WireResizeGrip();
+    }
+
+    private void WireResizeGrip()
+    {
+        leftResizeGrip.Paint += (s, e) =>
+        {
+            var lineColor = (_isDraggingResize || _gripHover) ? ThemeColors.Primary : ThemeColors.Border;
+            int lineWidth = (_isDraggingResize || _gripHover) ? 2 : 1;
+            using var pen = new Pen(lineColor, lineWidth);
+            e.Graphics.DrawLine(pen, 0, 0, 0, leftResizeGrip.Height);
+        };
+        leftResizeGrip.MouseEnter += (s, e) => { _gripHover = true; leftResizeGrip.Invalidate(); };
+        leftResizeGrip.MouseLeave += (s, e) => { _gripHover = false; leftResizeGrip.Invalidate(); };
+        leftResizeGrip.MouseDown += (s, e) =>
+        {
+            if (e.Button != MouseButtons.Left) return;
+            _isDraggingResize = true;
+            _dragStartScreenX = Control.MousePosition.X;
+            _dragStartHostWidth = FindForm()?.Width ?? Width;
+            _lastRequestedWidth = _dragStartHostWidth;
+            leftResizeGrip.Capture = true;
+            leftResizeGrip.Invalidate();
+        };
+        leftResizeGrip.MouseMove += (s, e) =>
+        {
+            if (!_isDraggingResize) return;
+            int deltaX = _dragStartScreenX - Control.MousePosition.X;
+            int targetWidth = _dragStartHostWidth + deltaX;
+            _lastRequestedWidth = targetWidth;
+            RequestResizeWidth?.Invoke(targetWidth);
+        };
+        leftResizeGrip.MouseUp += (s, e) =>
+        {
+            if (!_isDraggingResize || e.Button != MouseButtons.Left) return;
+            FinishDragResize();
+        };
+        leftResizeGrip.MouseCaptureChanged += (s, e) =>
+        {
+            if (_isDraggingResize && !leftResizeGrip.Capture)
+            {
+                FinishDragResize();
+            }
+        };
+    }
+
+    private void FinishDragResize()
+    {
+        if (!_isDraggingResize) return;
+        _isDraggingResize = false;
+        if (leftResizeGrip.Capture) leftResizeGrip.Capture = false;
+        leftResizeGrip.Invalidate();
+        int finalWidth = FindForm()?.Width ?? _lastRequestedWidth;
+        ResizeCompleted?.Invoke(finalWidth);
     }
 
     /// <summary>放棄兩個面板的未存檔編輯並退出編輯模式。</summary>

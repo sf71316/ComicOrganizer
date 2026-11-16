@@ -21,6 +21,7 @@ public class GalleryListItem : INotifyPropertyChanged
     // 互動用 — 不顯示成欄位
     public bool IsFolder { get; set; }
     public string FullPath { get; set; } = "";
+    public GalleryItemSortMetadata? SortMeta { get; set; }
 
     public event PropertyChangedEventHandler? PropertyChanged;
     protected void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));

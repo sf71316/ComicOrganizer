@@ -86,6 +86,27 @@ public partial class SettingsForm : Window, IThemedControl
         txtImageViewerArgs.Text = Config.ImageViewerArgs;
         cbDebug.Checked = Config.DebugMode;
         cbTrackReading.Checked = Prefs.TrackReadingRecord;
+
+        // 新分頁預設檢視與排序設定
+        selectDefaultViewMode.Items.Clear();
+        selectDefaultViewMode.Items.Add(LocalizationManager.GetString("ViewSmall") ?? "小卡片 (S)");
+        selectDefaultViewMode.Items.Add(LocalizationManager.GetString("ViewMedium") ?? "中卡片 (M)");
+        selectDefaultViewMode.Items.Add(LocalizationManager.GetString("ViewLarge") ?? "大卡片 (L)");
+        selectDefaultViewMode.Items.Add(LocalizationManager.GetString("ViewList") ?? "詳細列表");
+        selectDefaultViewMode.SelectedIndex = Prefs.DefaultGalleryViewMode switch
+        {
+            "Small" => 0,
+            "Large" => 2,
+            "List" => 3,
+            _ => 1,
+        };
+
+        selectDefaultSortField.Items.Clear();
+        selectDefaultSortField.Items.AddRange(new object[] { "名稱", "修改時間", "檔案大小", "最近閱讀", "閱讀次數" });
+        int sortIdx = (int)Prefs.DefaultGallerySortField;
+        selectDefaultSortField.SelectedIndex = Math.Clamp(sortIdx, 0, selectDefaultSortField.Items.Count - 1);
+        cbDefaultSortDescending.Checked = Prefs.DefaultGallerySortDescending;
+
         numMaxScanDepth.Value = Config.MaxScanDepth;
         LoadSizeWithUnit(Config.MinCoverFileSizeBytes, numMinCoverSize, selectMinCoverUnit);
         LoadSizeWithUnit(Config.MaxCoverFileSizeBytes, numMaxCoverSize, selectMaxCoverUnit);
@@ -319,6 +340,9 @@ public partial class SettingsForm : Window, IThemedControl
         label3.Text = LocalizationManager.GetString("SettingsImageViewer");
         labelTheme.Text = LocalizationManager.GetString("ThemeLabel") ?? "主題";
         labelLang.Text = LocalizationManager.GetString("LanguageLabel") ?? "語言";
+        labelDefaultViewMode.Text = LocalizationManager.GetString("SettingsDefaultViewMode") ?? "新分頁預設檢視模式";
+        labelDefaultSortField.Text = LocalizationManager.GetString("SettingsDefaultSortField") ?? "新分頁預設排序欄位";
+        cbDefaultSortDescending.Text = LocalizationManager.GetString("SettingsDefaultSortDescending") ?? "新分頁預設降冪排序";
         btnSave.Text = LocalizationManager.GetString("SettingsSave");
         btnCancel.Text = LocalizationManager.GetString("SettingsCancel");
         btnBrowseSource.Text = btnBrowseTarget.Text = btnBrowseViewer.Text = LocalizationManager.GetString("Browse") ?? "瀏覽";
@@ -457,6 +481,18 @@ public partial class SettingsForm : Window, IThemedControl
         Config.ImageViewerArgs = string.IsNullOrWhiteSpace(txtImageViewerArgs.Text) ? "\"{path}\"" : txtImageViewerArgs.Text;
         Config.DebugMode = cbDebug.Checked;
         Prefs.TrackReadingRecord = cbTrackReading.Checked;
+        Prefs.DefaultGalleryViewMode = selectDefaultViewMode.SelectedIndex switch
+        {
+            0 => "Small",
+            2 => "Large",
+            3 => "List",
+            _ => "Medium",
+        };
+        if (selectDefaultSortField.SelectedIndex >= 0 && selectDefaultSortField.SelectedIndex <= (int)GallerySortField.ReadCount)
+        {
+            Prefs.DefaultGallerySortField = (GallerySortField)selectDefaultSortField.SelectedIndex;
+        }
+        Prefs.DefaultGallerySortDescending = cbDefaultSortDescending.Checked;
         Config.MaxScanDepth = (int)numMaxScanDepth.Value;
         Config.MinCoverFileSizeBytes = SaveSizeWithUnit(numMinCoverSize, selectMinCoverUnit);
         Config.MaxCoverFileSizeBytes = SaveSizeWithUnit(numMaxCoverSize, selectMaxCoverUnit);

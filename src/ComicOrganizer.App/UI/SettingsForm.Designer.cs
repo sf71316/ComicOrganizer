@@ -18,7 +18,7 @@ partial class SettingsForm
     private AntdUI.Button btnMenuExternal;
 
     // 內容區四個 sub-panel（toggle Visible 切換）
-    private AntdUI.Panel generalPanel;
+    private System.Windows.Forms.Panel generalPanel;  // 用 Forms.Panel 才有 AutoScroll
     private System.Windows.Forms.Panel libraryPanel;  // 用 Forms.Panel 才有 AutoScroll
     private AntdUI.Panel readerPanel;
     private AntdUI.Panel externalPanel;
@@ -70,6 +70,11 @@ partial class SettingsForm
     private AntdUI.Select selectLang;
     private AntdUI.Checkbox cbDebug;
     private AntdUI.Checkbox cbTrackReading;
+    private AntdUI.Label labelDefaultViewMode;
+    private AntdUI.Select selectDefaultViewMode;
+    private AntdUI.Label labelDefaultSortField;
+    private AntdUI.Select selectDefaultSortField;
+    private AntdUI.Checkbox cbDefaultSortDescending;
 
     // readerPanel 控件
     private AntdUI.Checkbox cbUseBuiltInReader;
@@ -132,7 +137,12 @@ partial class SettingsForm
         btnMenuLibrary = new AntdUI.Button();
         btnMenuGeneral = new AntdUI.Button();
         content = new AntdUI.Panel();
-        generalPanel = new AntdUI.Panel();
+        generalPanel = new System.Windows.Forms.Panel();
+        cbDefaultSortDescending = new Checkbox();
+        selectDefaultSortField = new Select();
+        labelDefaultSortField = new AntdUI.Label();
+        selectDefaultViewMode = new Select();
+        labelDefaultViewMode = new AntdUI.Label();
         cbTrackReading = new Checkbox();
         cbDebug = new Checkbox();
         selectLang = new Select();
@@ -347,7 +357,14 @@ partial class SettingsForm
         // 
         // generalPanel
         // 
+        generalPanel.AutoScroll = true;
+        generalPanel.AutoScrollMinSize = new Size(0, 560);
         generalPanel.BackColor = Color.Transparent;
+        generalPanel.Controls.Add(cbDefaultSortDescending);
+        generalPanel.Controls.Add(selectDefaultSortField);
+        generalPanel.Controls.Add(labelDefaultSortField);
+        generalPanel.Controls.Add(selectDefaultViewMode);
+        generalPanel.Controls.Add(labelDefaultViewMode);
         generalPanel.Controls.Add(cbTrackReading);
         generalPanel.Controls.Add(cbDebug);
         generalPanel.Controls.Add(selectLang);
@@ -358,9 +375,49 @@ partial class SettingsForm
         generalPanel.Location = new Point(0, 0);
         generalPanel.Name = "generalPanel";
         generalPanel.Padding = new Padding(40, 30, 40, 30);
-        generalPanel.Radius = 0;
         generalPanel.Size = new Size(720, 562);
         generalPanel.TabIndex = 0;
+        // 
+        // cbDefaultSortDescending
+        // 
+        cbDefaultSortDescending.BackColor = Color.Transparent;
+        cbDefaultSortDescending.Location = new Point(40, 505);
+        cbDefaultSortDescending.Name = "cbDefaultSortDescending";
+        cbDefaultSortDescending.Size = new Size(300, 30);
+        cbDefaultSortDescending.TabIndex = 10;
+        cbDefaultSortDescending.Text = "新分頁預設降冪排序";
+        // 
+        // selectDefaultSortField
+        // 
+        selectDefaultSortField.Location = new Point(40, 450);
+        selectDefaultSortField.Name = "selectDefaultSortField";
+        selectDefaultSortField.Size = new Size(250, 40);
+        selectDefaultSortField.TabIndex = 9;
+        // 
+        // labelDefaultSortField
+        // 
+        labelDefaultSortField.BackColor = Color.Transparent;
+        labelDefaultSortField.Location = new Point(40, 415);
+        labelDefaultSortField.Name = "labelDefaultSortField";
+        labelDefaultSortField.Size = new Size(250, 30);
+        labelDefaultSortField.TabIndex = 8;
+        labelDefaultSortField.Text = "新分頁預設排序欄位";
+        // 
+        // selectDefaultViewMode
+        // 
+        selectDefaultViewMode.Location = new Point(40, 360);
+        selectDefaultViewMode.Name = "selectDefaultViewMode";
+        selectDefaultViewMode.Size = new Size(250, 40);
+        selectDefaultViewMode.TabIndex = 7;
+        // 
+        // labelDefaultViewMode
+        // 
+        labelDefaultViewMode.BackColor = Color.Transparent;
+        labelDefaultViewMode.Location = new Point(40, 325);
+        labelDefaultViewMode.Name = "labelDefaultViewMode";
+        labelDefaultViewMode.Size = new Size(250, 30);
+        labelDefaultViewMode.TabIndex = 6;
+        labelDefaultViewMode.Text = "新分頁預設檢視模式";
         // 
         // cbTrackReading
         // 

@@ -33,24 +33,95 @@ public partial class GalleryControl
 
     /// <summary>開 tab 顯示一組 work paths（虛擬庫共用）。
     /// 沒有開啟中的 tab 時自動建一個（CreateNewTabPage helper），不再像之前靜默 return。</summary>
-    private void OpenVirtualWorksTab(string title, IReadOnlyList<string> paths, bool forceNew = false, string iconSvg = "TagOutlined")
+    private void OpenVirtualWorksTab(
+        string title,
+        IReadOnlyList<string> paths,
+        bool forceNew = false,
+        string iconSvg = "TagOutlined",
+        Func<IReadOnlyList<string>>? refreshResolver = null,
+        long? virtualLibraryId = null)
     {
-        var page = (!forceNew && tabsContent.SelectedTab != null && tabsContent.SelectedTab.Tag as string != "DASHBOARD"
+        var page = (!forceNew && tabsContent.SelectedTab != null && !WorkContextMenuHelper.IsDashboardTag(tabsContent.SelectedTab.Tag as string)
                     ? tabsContent.SelectedTab
                     : null)
                    ?? CreateNewTabPage(title);
-        // 更新 tab 標題、清掉 folder Tag（避免後續 OpenFolderTab 把同 path 認成已開）並記錄虛擬路徑清單
-        page.Text = title;
-        page.Tag = null;
-        _tabVirtualPaths[page] = paths.ToList();
-        var bc = FindTabBreadcrumb(page);
-        if (bc != null)
+        var entry = TabNavigationEntry.ForVirtualWorks(title, paths, iconSvg, refreshResolver, virtualLibraryId);
+        ApplyNavigationEntryToTab(page, entry, recordHistory: true);
+    }
+
+    private void ApplyNavigationEntryToTab(AntdUI.TabPage page, TabNavigationEntry entry, bool recordHistory)
+    {
+        if (page == null || page.IsDisposed || WorkContextMenuHelper.IsDashboardTag(page.Tag as string)) return;
+
+        if (recordHistory)
         {
-            bc.Items.Clear();
-            bc.Items.Add(new AntdUI.BreadcrumbItem { Text = " " + title + " ", IconSvg = iconSvg });
+            GetOrCreateTabNavHistory(page).Push(entry);
         }
+
+        if (entry.Kind == TabNavigationEntryKind.Folder)
+        {
+            string folderPath = entry.FolderPath ?? "";
+            string title = string.IsNullOrWhiteSpace(entry.Title)
+                ? (Path.GetFileName(folderPath) is { Length: > 0 } name ? name : folderPath)
+                : entry.Title;
+
+            _tabVirtualPaths.Remove(page);
+            _tabVirtualRefreshers.Remove(page);
+            _tabVirtualLibraryIds.Remove(page);
+            page.Text = title;
+            page.Tag = folderPath;
+            UpdateBreadcrumbForPage(page, folderPath);
+        }
+        else
+        {
+            _tabVirtualPaths[page] = entry.VirtualPaths.ToList();
+            if (entry.RefreshResolver != null) _tabVirtualRefreshers[page] = entry.RefreshResolver;
+            else _tabVirtualRefreshers.Remove(page);
+            if (entry.VirtualLibraryId.HasValue) _tabVirtualLibraryIds[page] = entry.VirtualLibraryId.Value;
+            else _tabVirtualLibraryIds.Remove(page);
+
+            page.Text = entry.Title;
+            page.Tag = null;
+
+            var bc = FindTabBreadcrumb(page);
+            if (bc != null)
+            {
+                bc.Items.Clear();
+                bc.Items.Add(new AntdUI.BreadcrumbItem { Text = " " + entry.Title + " ", IconSvg = entry.IconSvg });
+            }
+        }
+
         SyncTabVisibility(page);
+        UpdateTabNavButtons(page);
         LoadCurrentViewMode(page);
+    }
+
+    private void NavigateTabHistory(AntdUI.TabPage? page, int delta)
+    {
+        if (page == null || page.IsDisposed || WorkContextMenuHelper.IsDashboardTag(page.Tag as string)) return;
+        var history = GetOrCreateTabNavHistory(page);
+        TabNavigationEntry? target = null;
+        bool moved = delta < 0 ? history.TryGoBack(out target) : (delta > 0 && history.TryGoForward(out target));
+        if (!moved || target == null)
+        {
+            UpdateTabNavButtons(page);
+            return;
+        }
+        ApplyNavigationEntryToTab(page, target, recordHistory: false);
+    }
+
+    private void NavigateBackCurrentTab() => NavigateTabHistory(tabsContent.SelectedTab, -1);
+
+    private void NavigateForwardCurrentTab() => NavigateTabHistory(tabsContent.SelectedTab, +1);
+
+    private void UpdateTabNavButtons(AntdUI.TabPage? page)
+    {
+        if (page == null || page.IsDisposed) return;
+        _tabNavHistories.TryGetValue(page, out var history);
+        var btnBack = FindInTab<AntdUI.Button>(page, "tabBtnBack");
+        if (btnBack != null && !btnBack.IsDisposed) btnBack.Enabled = history?.CanGoBack ?? false;
+        var btnForward = FindInTab<AntdUI.Button>(page, "tabBtnForward");
+        if (btnForward != null && !btnForward.IsDisposed) btnForward.Enabled = history?.CanGoForward ?? false;
     }
 
     // Tab 內子控件 lookup 共用方法。Tab 各自含 breadcrumb / flowLayout / tableList，
@@ -65,9 +136,11 @@ public partial class GalleryControl
     private FlowLayoutPanel? FindTabFlowLayout(AntdUI.TabPage? page) => FindInTab<FlowLayoutPanel>(page, "tabFlowLayout");
     private AntdUI.Table? FindTabTable(AntdUI.TabPage? page) => FindInTab<AntdUI.Table>(page, "tabTableList");
 
-    private void UpdateBreadcrumb(string path)
+    private void UpdateBreadcrumb(string path) => UpdateBreadcrumbForPage(tabsContent.SelectedTab, path);
+
+    private void UpdateBreadcrumbForPage(AntdUI.TabPage? page, string path)
     {
-        var bc = FindTabBreadcrumb(tabsContent.SelectedTab);
+        var bc = FindTabBreadcrumb(page);
         if (bc == null) return;
 
         bc.Items.Clear();
@@ -102,8 +175,155 @@ public partial class GalleryControl
     private void RefreshCurrentTab()
     {
         var page = tabsContent.SelectedTab;
-        if (page == null || page.Tag as string == "DASHBOARD") return;
+        if (page == null) return;
+        RefreshTab(page);
+    }
+
+    private void CloseCurrentTab()
+    {
+        var page = tabsContent.SelectedTab;
+        if (page == null || page.IsDisposed || WorkContextMenuHelper.IsDashboardTag(page.Tag as string)) return;
+        CloseTabPages(new[] { page });
+    }
+
+    private void SwitchAdjacentTab(bool reverse)
+    {
+        int count = tabsContent.Pages.Count;
+        int next = WindowLayoutHelper.GetNextTabIndex(tabsContent.SelectedIndex, count, reverse);
+        if (next >= 0 && next < count)
+        {
+            tabsContent.SelectedIndex = next;
+        }
+    }
+
+    private bool HandleQuickFilterEscape(AntdUI.TabPage? page)
+    {
+        if (page == null || page.IsDisposed || WorkContextMenuHelper.IsDashboardTag(page.Tag as string))
+            return false;
+
+        var txtFilter = FindInTab<AntdUI.Input>(page, "tabTxtQuickFilter");
+        if (txtFilter == null || txtFilter.IsDisposed || (!txtFilter.Focused && !txtFilter.ContainsFocus))
+            return false;
+
+        var sortState = GetOrCreateTabSortFilterState(page);
+        if (!string.IsNullOrEmpty(sortState.FilterKeyword) || sortState.ReadFilter != GalleryReadFilter.All)
+        {
+            _syncingSortUi = true;
+            try
+            {
+                sortState.FilterKeyword = "";
+                sortState.ReadFilter = GalleryReadFilter.All;
+                txtFilter.Text = "";
+                var seg = FindInTab<AntdUI.Segmented>(page, "tabFilterStatusSeg");
+                if (seg != null && !seg.IsDisposed) seg.SelectIndex = 0;
+            }
+            finally
+            {
+                _syncingSortUi = false;
+            }
+            ApplySortAndFilterToTab(page);
+        }
+
+        Control? galleryTarget = GetTabMode(page) == GalleryViewMode.List
+            ? FindTabTable(page)
+            : FindTabFlowLayout(page);
+        galleryTarget?.Focus();
+        return true;
+    }
+
+    private void RefreshTab(AntdUI.TabPage? page)
+    {
+        if (page == null || page.IsDisposed) return;
+        if (WorkContextMenuHelper.IsDashboardTag(page.Tag as string))
+        {
+            _ = LoadDashboardDataAsync(page);
+            return;
+        }
+        if (_tabVirtualRefreshers.TryGetValue(page, out var resolver))
+        {
+            try
+            {
+                _tabVirtualPaths[page] = resolver().ToList();
+            }
+            catch
+            {
+                // 若虛擬查詢暫時失敗則沿用既有路徑清單重載
+            }
+        }
         LoadCurrentViewMode(page);
+    }
+
+    private void CleanupTabState(AntdUI.TabPage page)
+    {
+        _tabViewModes.Remove(page);
+        _tabVirtualPaths.Remove(page);
+        _tabVirtualRefreshers.Remove(page);
+        _tabVirtualLibraryIds.Remove(page);
+        _tabSortFilterStates.Remove(page);
+        _tabFullListItems.Remove(page);
+        _tabNavHistories.Remove(page);
+        var flow = FindTabFlowLayout(page);
+        if (flow != null) _loadGenerations.TryRemove(flow, out _);
+        var table = FindTabTable(page);
+        if (table != null) _loadGenerations.TryRemove(table, out _);
+    }
+
+    private void CloseTabPages(IEnumerable<AntdUI.TabPage> targets)
+    {
+        var toClose = targets
+            .Where(p => p != null && !p.IsDisposed && !WorkContextMenuHelper.IsDashboardTag(p.Tag as string))
+            .Distinct()
+            .ToList();
+        if (toClose.Count == 0) return;
+
+        bool closeDispose = tabsContent.CloseDisposePage;
+        foreach (var page in toClose)
+        {
+            // 須在 Pages.Remove 之前清掉 state（Pages.Remove 在 CloseDisposePage=true 時會直接釋放子控件，且不會觸發 ClosingPage）
+            CleanupTabState(page);
+            tabsContent.Pages.Remove(page);
+            if (!closeDispose && !page.IsDisposed)
+            {
+                page.Dispose();
+            }
+        }
+    }
+
+    private void ShowTabHeaderContextMenu(AntdUI.TabPage targetPage)
+    {
+        var pages = tabsContent.Pages.Cast<AntdUI.TabPage>().ToList();
+        var menuItems = WorkContextMenuHelper.BuildTabHeaderMenuItems(pages, targetPage);
+
+        AntdUI.ContextMenuStrip.open(tabsContent, mi =>
+        {
+            switch (mi.ID)
+            {
+                case WorkContextMenuHelper.IdTabRefresh:
+                    RefreshTab(targetPage);
+                    break;
+                case WorkContextMenuHelper.IdTabCopyPath:
+                    if (targetPage.Tag is string copyPath && !WorkContextMenuHelper.IsDashboardTag(copyPath))
+                    {
+                        WorkContextMenuHelper.TryCopyText(copyPath);
+                    }
+                    break;
+                case WorkContextMenuHelper.IdTabOpenExplorer:
+                    if (targetPage.Tag is string folderPath && !WorkContextMenuHelper.IsDashboardTag(folderPath))
+                    {
+                        OpenInExplorer(folderPath);
+                    }
+                    break;
+                case WorkContextMenuHelper.IdTabCloseSelf:
+                    CloseTabPages(WorkContextMenuHelper.GetTabCloseTargets(pages, targetPage, TabCloseScope.Self));
+                    break;
+                case WorkContextMenuHelper.IdTabCloseOthers:
+                    CloseTabPages(WorkContextMenuHelper.GetTabCloseTargets(pages, targetPage, TabCloseScope.Others));
+                    break;
+                case WorkContextMenuHelper.IdTabCloseRight:
+                    CloseTabPages(WorkContextMenuHelper.GetTabCloseTargets(pages, targetPage, TabCloseScope.Right));
+                    break;
+            }
+        }, menuItems);
     }
 
     private void OpenFolderTab(string path, bool forceNew)
@@ -114,20 +334,20 @@ public partial class GalleryControl
         if (!forceNew && tabsContent.SelectedTab != null)
         {
             var currentTab = tabsContent.SelectedTab;
-            if ((string?)currentTab.Tag == path) return;
+            if (string.Equals(currentTab.Tag as string, path, StringComparison.OrdinalIgnoreCase)) return;
 
-            if (currentTab.Tag as string != "DASHBOARD")
+            if (!WorkContextMenuHelper.IsDashboardTag(currentTab.Tag as string))
             {
-                _tabVirtualPaths.Remove(currentTab);
-                currentTab.Text = folderName;
-                currentTab.Tag = path;
-                UpdateBreadcrumb(path);
-                LoadCurrentViewMode(currentTab);
+                ApplyNavigationEntryToTab(
+                    currentTab,
+                    TabNavigationEntry.ForFolder(path, folderName),
+                    recordHistory: true);
                 return;
             }
         }
 
-        var existingTab = tabsContent.Pages.Cast<AntdUI.TabPage>().FirstOrDefault(p => (string?)p.Tag == path);
+        var existingTab = tabsContent.Pages.Cast<AntdUI.TabPage>()
+            .FirstOrDefault(p => string.Equals(p.Tag as string, path, StringComparison.OrdinalIgnoreCase));
         if (existingTab != null)
         {
             tabsContent.SelectedTab = existingTab;
@@ -135,9 +355,10 @@ public partial class GalleryControl
         }
 
         var newPage = CreateNewTabPage(folderName);
-        newPage.Tag = path;
-        UpdateBreadcrumb(path);
-        LoadCurrentViewMode(newPage);
+        ApplyNavigationEntryToTab(
+            newPage,
+            TabNavigationEntry.ForFolder(path, folderName),
+            recordHistory: true);
     }
 
     /// <summary>建一個空 TabPage（含 header / breadcrumb / refresh / S/M/L/List segView / contentHost / flow / table 完整結構），
@@ -151,8 +372,10 @@ public partial class GalleryControl
             BackColor = Core.ThemeColors.Surface
         };
 
-        // 新 tab 預設 Medium。先存到 dictionary，後續控件用 GetTabMode(newPage) 取
-        _tabViewModes[newPage] = GalleryViewMode.Medium;
+        var defaultMode = GetDefaultGalleryViewMode();
+        // 新 tab 套用預設檢視模式。先存到 dictionary，後續控件用 GetTabMode(newPage) 取
+        _tabViewModes[newPage] = defaultMode;
+        var sortState = GetOrCreateTabSortFilterState(newPage);
 
         var headerPanel = new AntdUI.Panel
         {
@@ -188,7 +411,7 @@ public partial class GalleryControl
             BackHover = Core.ThemeColors.Secondary,
             Size = LogicalToDeviceUnits(new Size(40, 32)),
         };
-        btnRefresh.Click += (s, e) => RefreshCurrentTab();
+        btnRefresh.Click += (s, e) => RefreshTab(newPage);
         _btnTooltip.SetTip(btnRefresh, LocalizationManager.GetString("MenuRefresh"));
 
         // 4-segment view mode 切換器（Small / Medium / Large / List）
@@ -208,16 +431,190 @@ public partial class GalleryControl
         segViewMode.Items.Add(new AntdUI.SegmentedItem { Text = "M", Tooltip = LocalizationManager.GetString("ViewMedium") });
         segViewMode.Items.Add(new AntdUI.SegmentedItem { Text = "L", Tooltip = LocalizationManager.GetString("ViewLarge") });
         segViewMode.Items.Add(new AntdUI.SegmentedItem { IconSvg = "UnorderedListOutlined", Tooltip = LocalizationManager.GetString("ViewList") });
-        segViewMode.SelectIndex = (int)GalleryViewMode.Medium;
+        segViewMode.SelectIndex = (int)defaultMode;
         segViewMode.SelectIndexChanged += (s, e) =>
         {
             SetTabViewMode(newPage, (GalleryViewMode)segViewMode.SelectIndex);
         };
 
-        // Dock=Right 多控件時最後加的在最右邊：先加 segViewMode 再加 btnRefresh → segViewMode 在 btnRefresh 左
+        var btnSortDir = new AntdUI.Button
+        {
+            Name = "tabSortDir",
+            Dock = DockStyle.Right,
+            Ghost = true,
+            IconSvg = sortState.SortDescending ? "SortDescendingOutlined" : "SortAscendingOutlined",
+            IconRatio = 1F,
+            ForeColor = Core.ThemeColors.Text,
+            BackHover = Core.ThemeColors.Secondary,
+            Size = LogicalToDeviceUnits(new Size(36, 32)),
+        };
+        _btnTooltip.SetTip(btnSortDir, sortState.SortDescending ? "降冪排序" : "升冪排序");
+
+        var selSortField = new AntdUI.Select
+        {
+            Name = "tabSortField",
+            Dock = DockStyle.Right,
+            Size = LogicalToDeviceUnits(new Size(116, 28)),
+            BackColor = Core.ThemeColors.Background,
+            ForeColor = Core.ThemeColors.Text,
+            Font = new Font("Microsoft JhengHei UI", 9.5F),
+        };
+        selSortField.Items.AddRange(new object[] { "名稱", "修改時間", "檔案大小", "最近閱讀", "閱讀次數" });
+        selSortField.SelectedIndex = (int)sortState.SortField;
+
+        selSortField.SelectedIndexChanged += (s, e) =>
+        {
+            if (_syncingSortUi || selSortField.SelectedIndex < 0) return;
+            sortState.SortField = (Models.GallerySortField)selSortField.SelectedIndex;
+            SyncTableSortHeader(FindTabTable(newPage), sortState);
+            ApplySortAndFilterToTab(newPage);
+        };
+
+        btnSortDir.Click += (s, e) =>
+        {
+            sortState.SortDescending = !sortState.SortDescending;
+            UpdateSortDirectionButton(btnSortDir, sortState.SortDescending);
+            SyncTableSortHeader(FindTabTable(newPage), sortState);
+            ApplySortAndFilterToTab(newPage);
+        };
+
+        var btnBack = new AntdUI.Button
+        {
+            Name = "tabBtnBack",
+            Dock = DockStyle.Left,
+            Ghost = true,
+            IconSvg = "LeftOutlined",
+            IconRatio = 0.9F,
+            ForeColor = Core.ThemeColors.Text,
+            BackHover = Core.ThemeColors.Secondary,
+            Size = LogicalToDeviceUnits(new Size(32, 32)),
+            Enabled = false,
+        };
+        btnBack.Click += (s, e) => NavigateTabHistory(newPage, -1);
+        _btnTooltip.SetTip(btnBack, "上一頁 (Alt+Left)");
+
+        var btnForward = new AntdUI.Button
+        {
+            Name = "tabBtnForward",
+            Dock = DockStyle.Left,
+            Ghost = true,
+            IconSvg = "RightOutlined",
+            IconRatio = 0.9F,
+            ForeColor = Core.ThemeColors.Text,
+            BackHover = Core.ThemeColors.Secondary,
+            Size = LogicalToDeviceUnits(new Size(32, 32)),
+            Enabled = false,
+        };
+        btnForward.Click += (s, e) => NavigateTabHistory(newPage, +1);
+        _btnTooltip.SetTip(btnForward, "下一頁 (Alt+Right)");
+
+        // Dock=Right/Left 多控件時最後加的在最外側：
+        // 左→右視覺：[btnBack] [btnForward] [bc] [selSortField] [btnSortDir] [segViewMode] [btnRefresh]
         headerPanel.Controls.Add(bc);
+        headerPanel.Controls.Add(selSortField);
+        headerPanel.Controls.Add(btnSortDir);
         headerPanel.Controls.Add(segViewMode);
         headerPanel.Controls.Add(btnRefresh);
+        headerPanel.Controls.Add(btnForward);
+        headerPanel.Controls.Add(btnBack);
+
+        // 常駐就地過濾列（狀態 Segmented + 關鍵字輸入框 + 計數標籤 + 清除鈕）
+        var quickFilterBar = new AntdUI.Panel
+        {
+            Name = "tabQuickFilterBar",
+            Dock = DockStyle.Top,
+            Height = LogicalToDeviceUnits(36),
+            BackColor = Color.Transparent,
+            Back = Core.ThemeColors.Surface,
+            Padding = new Padding(8, 3, 8, 3),
+            Radius = 0,
+        };
+
+        var segFilterStatus = new AntdUI.Segmented
+        {
+            Name = "tabFilterStatusSeg",
+            Dock = DockStyle.Left,
+            Size = LogicalToDeviceUnits(new Size(240, 28)),
+            BackColor = Color.Transparent,
+            Font = new Font("Microsoft JhengHei UI", 9.5F),
+        };
+        segFilterStatus.Items.Add(new AntdUI.SegmentedItem { Text = "全部" });
+        segFilterStatus.Items.Add(new AntdUI.SegmentedItem { Text = "未讀" });
+        segFilterStatus.Items.Add(new AntdUI.SegmentedItem { Text = "進行中" });
+        segFilterStatus.Items.Add(new AntdUI.SegmentedItem { Text = "已完成" });
+        segFilterStatus.SelectIndex = (int)sortState.ReadFilter;
+
+        var lblFilterCount = new System.Windows.Forms.Label
+        {
+            Name = "tabLblFilterCount",
+            Dock = DockStyle.Right,
+            AutoSize = false,
+            Width = LogicalToDeviceUnits(120),
+            TextAlign = ContentAlignment.MiddleRight,
+            ForeColor = Core.ThemeColors.Text,
+            Font = new Font("Microsoft JhengHei UI", 9F),
+            Text = "",
+        };
+
+        var txtQuickFilter = new AntdUI.Input
+        {
+            Name = "tabTxtQuickFilter",
+            Dock = DockStyle.Right,
+            Width = LogicalToDeviceUnits(220),
+            PlaceholderText = LocalizationManager.GetString("QuickFilterPlaceholder") ?? "本頁過濾（檔名／標題）...",
+            PrefixSvg = "SearchOutlined",
+            AllowClear = true,
+            BackColor = Core.ThemeColors.Background,
+            ForeColor = Core.ThemeColors.Text,
+            Font = new Font("Microsoft JhengHei UI", 9.5F),
+        };
+
+        var btnClearFilter = new AntdUI.Button
+        {
+            Name = "tabBtnClearFilter",
+            Dock = DockStyle.Right,
+            Ghost = true,
+            IconSvg = "CloseOutlined",
+            IconRatio = 0.85F,
+            ForeColor = Core.ThemeColors.Text,
+            BackHover = Core.ThemeColors.Secondary,
+            Size = LogicalToDeviceUnits(new Size(32, 28)),
+        };
+        _btnTooltip.SetTip(btnClearFilter, LocalizationManager.GetString("FilterClearTooltip") ?? "清除過濾條件");
+
+        segFilterStatus.SelectIndexChanged += (s, e) =>
+        {
+            if (_syncingSortUi) return;
+            sortState.ReadFilter = (Models.GalleryReadFilter)segFilterStatus.SelectIndex;
+            ApplySortAndFilterToTab(newPage);
+        };
+        txtQuickFilter.TextChanged += (s, e) =>
+        {
+            if (_syncingSortUi) return;
+            sortState.FilterKeyword = txtQuickFilter.Text ?? "";
+            ApplySortAndFilterToTab(newPage);
+        };
+        btnClearFilter.Click += (s, e) =>
+        {
+            _syncingSortUi = true;
+            try
+            {
+                sortState.ReadFilter = Models.GalleryReadFilter.All;
+                sortState.FilterKeyword = "";
+                segFilterStatus.SelectIndex = 0;
+                txtQuickFilter.Text = "";
+            }
+            finally
+            {
+                _syncingSortUi = false;
+            }
+            ApplySortAndFilterToTab(newPage);
+        };
+
+        quickFilterBar.Controls.Add(segFilterStatus);
+        quickFilterBar.Controls.Add(lblFilterCount);
+        quickFilterBar.Controls.Add(txtQuickFilter);
+        quickFilterBar.Controls.Add(btnClearFilter);
 
         var contentHost = new System.Windows.Forms.Panel
         {
@@ -226,7 +623,7 @@ public partial class GalleryControl
             BackColor = Core.ThemeColors.Surface,
         };
 
-        bool isList = false;   // 新 tab 預設 Medium 不是 List
+        bool isList = defaultMode == GalleryViewMode.List;
 
         var flowLayout = new BufferedFlowLayoutPanel
         {
@@ -240,13 +637,16 @@ public partial class GalleryControl
         var tableList = CreateTabTable();
         tableList.Visible = isList;
 
-        // List view 表格的 mouse / click 行為（hover preview / OpenFolder button / 右鍵選單）
-        WireTabTableHandlers(tableList);
+        // List view 表格的 mouse / click 行為（hover preview / OpenFolder button / 排序 / 右鍵選單）
+        WireTabTableHandlers(newPage, tableList);
+        SyncTableSortHeader(tableList, sortState);
 
         contentHost.Controls.Add(flowLayout);
         contentHost.Controls.Add(tableList);
 
+        // Top-to-bottom 停靠反序：Fill 最先加，headerPanel 最後加在最上方
         newPage.Controls.Add(contentHost);
+        newPage.Controls.Add(quickFilterBar);
         newPage.Controls.Add(headerPanel);
         tabsContent.Pages.Add(newPage);
         tabsContent.SelectedTab = newPage;
@@ -255,8 +655,47 @@ public partial class GalleryControl
 
     /// <summary>List view 表格的 mouse handler 連線（hover preview popup / OpenFolder cell button / 右鍵選單）。
     /// 從 CreateNewTabPage 抽出 — 純設定 event，不持有狀態（currentPreviewPath 用 closure local var）。</summary>
-    private void WireTabTableHandlers(AntdUI.Table tableList)
+    private void WireTabTableHandlers(AntdUI.TabPage page, AntdUI.Table tableList)
     {
+        // 表頭排序切換：攔截 AntdUI 預設字串排序（return true），改用統一的 GallerySortFilterHelper 數值/時間/自然排序
+        tableList.SortModeChanged += (object s, AntdUI.TableSortModeEventArgs e) =>
+        {
+            Models.GallerySortField? mappedField = e.Column?.Key switch
+            {
+                "Name" => Models.GallerySortField.Name,
+                "Size" => Models.GallerySortField.Size,
+                "CreatedAt" => Models.GallerySortField.ModifiedTime,
+                _ => null
+            };
+            if (mappedField == null) return false;
+
+            var sortState = GetOrCreateTabSortFilterState(page);
+            bool nextDesc = e.SortMode switch
+            {
+                AntdUI.SortMode.DESC => true,
+                AntdUI.SortMode.ASC => false,
+                _ => false, // NONE 循環回到升冪，不清空排序狀態
+            };
+            sortState.SortField = mappedField.Value;
+            sortState.SortDescending = nextDesc;
+
+            _syncingSortUi = true;
+            try
+            {
+                var sel = page.Controls.Find("tabSortField", true).OfType<AntdUI.Select>().FirstOrDefault();
+                if (sel != null) sel.SelectedIndex = (int)sortState.SortField;
+                var btnDir = page.Controls.Find("tabSortDir", true).OfType<AntdUI.Button>().FirstOrDefault();
+                if (btnDir != null) UpdateSortDirectionButton(btnDir, sortState.SortDescending);
+                SyncTableSortHeader(tableList, sortState);
+            }
+            finally
+            {
+                _syncingSortUi = false;
+            }
+
+            ApplySortAndFilterToTab(page);
+            return true;
+        };
         // 縮圖 hover → 滑鼠附近 floating preview popup
         // 用 AntdUI.Table.HitTest 取 cell；
         //  - 資料：cell.Row.RECORD 直接讀綁定物件，避開 i_row 索引偏移
@@ -320,22 +759,15 @@ public partial class GalleryControl
 
             if (e.Button != MouseButtons.Right) return;
 
-            var items = new List<AntdUI.IContextMenuStripItem>
+            var ctx = new WorkMenuContext
             {
-                new AntdUI.ContextMenuStripItem("📖 閱讀"),
-                new AntdUI.ContextMenuStripItem("📂 檔案總管中開啟"),
+                Path = item.FullPath,
+                IsFolderNode = item.IsFolder,
+                CurrentStatus = _metaStore?.GetReadStatus(item.FullPath),
+                VirtualLibraries = _metaStore?.ListVirtualLibraries(),
+                WorkLibraryIds = _metaStore?.ListVirtualLibraryIdsForWork(item.FullPath),
             };
-            if (Directory.Exists(item.FullPath))
-            {
-                items.Insert(0, new AntdUI.ContextMenuStripItem("🔗 另開頁籤"));
-            }
-            AntdUI.ContextMenuStrip.open(tableList, mi =>
-            {
-                if (mi.Text == "📖 閱讀") OpenForReading(item.FullPath);
-                else if (mi.Text == "📂 檔案總管中開啟")
-                    OpenInExplorer(item.FullPath);
-                else if (mi.Text == "🔗 另開頁籤") OpenFolderTab(item.FullPath, true);
-            }, items.ToArray());
+            WorkContextMenuHelper.OpenWorkContextMenu(tableList, ctx, CreateWorkMenuActions());
         };
     }
 
@@ -360,7 +792,7 @@ public partial class GalleryControl
             new AntdUI.Column("Thumbnail", "縮圖", AntdUI.ColumnAlign.Center) { Width = "72" },
             new AntdUI.Column("Name", "名稱") { SortOrder = true },
             new AntdUI.Column("Size", "大小", AntdUI.ColumnAlign.Right) { Width = "100", SortOrder = true },
-            new AntdUI.Column("CreatedAt", "建立時間", AntdUI.ColumnAlign.Center) { Width = "160", SortOrder = true },
+            new AntdUI.Column("CreatedAt", "修改時間", AntdUI.ColumnAlign.Center) { Width = "160", SortOrder = true },
         };
         table.EnableHeaderResizing = true;
 
@@ -391,7 +823,7 @@ public partial class GalleryControl
                 if (table != null)
                 {
                     InvalidateLoadGeneration(FindTabFlowLayout(page));
-                    _ = LoadGalleryListAsync(table, path);
+                    _ = LoadGalleryListAsync(table, path, page);
                 }
             }
             else
@@ -400,7 +832,7 @@ public partial class GalleryControl
                 if (flow != null)
                 {
                     InvalidateLoadGeneration(FindTabTable(page));
-                    _ = LoadGalleryAsync(flow, path, () => GetTabMode(page));
+                    _ = LoadGalleryAsync(flow, path, () => GetTabMode(page), page);
                 }
             }
             return;
@@ -414,7 +846,7 @@ public partial class GalleryControl
                 if (table != null)
                 {
                     InvalidateLoadGeneration(FindTabFlowLayout(page));
-                    _ = LoadGalleryListFromPathsAsync(table, vPaths);
+                    _ = LoadGalleryListFromPathsAsync(table, vPaths, page);
                 }
             }
             else
@@ -423,7 +855,7 @@ public partial class GalleryControl
                 if (flow != null)
                 {
                     InvalidateLoadGeneration(FindTabTable(page));
-                    _ = LoadGalleryFromPathsAsync(flow, vPaths, () => GetTabMode(page));
+                    _ = LoadGalleryFromPathsAsync(flow, vPaths, () => GetTabMode(page), page);
                 }
             }
         }

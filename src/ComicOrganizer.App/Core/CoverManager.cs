@@ -93,11 +93,32 @@ public class CoverManager
     /// 有接 cache (AttachCache 呼叫過) 時優先讀 cache hit；miss 才走 decode 並背景寫 cache。
     /// </summary>
     public Task<Image?> GetCoverAsync(string path, int maxWidth = 200)
+        => GetCoverCoreAsync(path, maxWidth, bypassCache: false);
+
+    /// <summary>
+    /// 強制重新載入封面：移除既有縮圖檔並跳過 Cache-Hit fast path，
+    /// 從來源重新解碼並寫入最新縮圖快取後回傳。
+    /// </summary>
+    public Task<Image?> RefreshCoverAsync(string path, int maxWidth = ThumbWidth)
+        => GetCoverCoreAsync(path, maxWidth, bypassCache: true);
+
+    private Task<Image?> GetCoverCoreAsync(string path, int maxWidth, bool bypassCache)
     {
         return Task.Run(() =>
         {
+            if (bypassCache)
+            {
+                if (_metaStore != null && _thumbStore != null)
+                {
+                    var existing = _metaStore.Get(path);
+                    if (!string.IsNullOrEmpty(existing?.CoverThumbKey))
+                    {
+                        _thumbStore.Delete(existing.CoverThumbKey);
+                    }
+                }
+            }
             // ===== Cache hit fast path =====
-            if (_metaStore != null && _thumbStore != null && _cacheWriter != null)
+            else if (_metaStore != null && _thumbStore != null && _cacheWriter != null)
             {
                 var swCache = Stopwatch.StartNew();
                 var meta = _metaStore.Get(path);

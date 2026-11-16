@@ -46,6 +46,8 @@ public partial class WorkDetailPanel : UserControl
     }
 
     private string _currentPath = "";
+    /// <summary>目前顯示的作品路徑。</summary>
+    public string CurrentPath => _currentPath;
     private bool _isEditing;
     private WorkDetail? _currentDetail;
     private readonly List<string> _editTags = new();

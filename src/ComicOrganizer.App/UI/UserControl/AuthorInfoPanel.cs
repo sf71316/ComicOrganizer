@@ -1,4 +1,5 @@
 using ComicOrganizer.App.Core;
+using ComicOrganizer.App.Models;
 
 namespace ComicOrganizer.App.UI;
 
@@ -10,6 +11,9 @@ namespace ComicOrganizer.App.UI;
 public partial class AuthorInfoPanel : UserControl
 {
     public event Action? CloseRequested;
+
+    /// <summary>使用者按「返回作品」按鈕 — 切回來源 WorkDetailPanel（host 處理未存檔防護）。</summary>
+    public event Action? RequestBackToWork;
 
     /// <summary>使用者在 RecentlyRead / AllWorks 清單按下某個作品 — string 為 work path。</summary>
     public event Action<string>? RequestOpenWork;
@@ -79,6 +83,13 @@ public partial class AuthorInfoPanel : UserControl
         else txtAddAliasName.Text = txtAddAliasLang.Text = txtAddTag.Text = "";
     }
 
+    /// <summary>是否顯示「返回作品」按鈕（僅從 WorkDetailPanel 切換至作者資訊時啟用）。</summary>
+    public bool CanGoBackToWork
+    {
+        get => btnBackToWork.Visible;
+        set => btnBackToWork.Visible = value;
+    }
+
     public AuthorInfoPanel()
     {
         InitializeComponent();
@@ -90,7 +101,10 @@ public partial class AuthorInfoPanel : UserControl
         lblAliases.ForeColor = ThemeColors.Border;     // 次要色
         lblFolderPath.ForeColor = ThemeColors.Border;  // 次要色
 
+        btnBackToWork.Click += (s, e) => RequestBackToWork?.Invoke();
         btnClose.Click += (s, e) => CloseRequested?.Invoke();
+        contentPanel.SizeChanged += (s, e) => UpdateWrapWidths();
+        contentPanel.Layout += (s, e) => UpdateWrapWidths();
         btnExpandMax.Click += (s, e) => RequestToggleMaximize?.Invoke();
         btnResetAuthorReading.Click += (s, e) =>
         {
@@ -120,6 +134,7 @@ public partial class AuthorInfoPanel : UserControl
     private void ApplyLocalization()
     {
         lblTitle.Text = LocalizationManager.GetString("AuthorInfoTitle") ?? "作者資訊";
+        btnBackToWork.Text = LocalizationManager.GetString("AuthorInfoBackToWork") ?? "返回作品";
         lblTagsHeader.Text = LocalizationManager.GetString("AuthorInfoTopTags") ?? "主要標籤";
         lblRecentHeader.Text = LocalizationManager.GetString("AuthorInfoRecentRead") ?? "最近閱讀";
         lblAllWorksHeader.Text = LocalizationManager.GetString("AuthorInfoAllWorks") ?? "全部作品";
@@ -218,6 +233,7 @@ public partial class AuthorInfoPanel : UserControl
             }
         }
         flowAllWorks.ResumeLayout(true);
+        UpdateWrapWidths();
     }
 
     /// <summary>顯示「無資料」訊息（path 解析不到 author / GetAuthorInfo 回 null）。</summary>
@@ -251,6 +267,36 @@ public partial class AuthorInfoPanel : UserControl
             $"{completed}: {info.CompletedCount}    {dropped}: {info.DroppedCount}";
     }
 
+    private int ComputeWrapWidth()
+    {
+        int overhead = contentPanel.Padding.Horizontal + 8;
+        return DrawerWidthHelper.ComputeContentWrapWidth(contentPanel.ClientSize.Width, overhead);
+    }
+
+    private void UpdateWrapWidths()
+    {
+        if (IsDisposed || !contentPanel.Visible) return;
+        int wrapWidth = ComputeWrapWidth();
+
+        SetLabelMaxWidth(lblMainName, wrapWidth);
+        SetLabelMaxWidth(lblFolderPath, wrapWidth);
+        SetLabelMaxWidth(lblAliases, wrapWidth);
+        SetLabelMaxWidth(lblStats, wrapWidth);
+
+        foreach (var lbl in flowRecent.Controls.OfType<Label>())
+            SetLabelMaxWidth(lbl, wrapWidth);
+        foreach (var lbl in flowAllWorks.Controls.OfType<Label>())
+            SetLabelMaxWidth(lbl, wrapWidth);
+    }
+
+    private static void SetLabelMaxWidth(Label lbl, int wrapWidth)
+    {
+        if (lbl.MaximumSize.Width != wrapWidth)
+        {
+            lbl.MaximumSize = new Size(wrapWidth, 0);
+        }
+    }
+
     private Label BuildRecentItem(RecentRead rr)
     {
         var displayTitle = !string.IsNullOrWhiteSpace(rr.Title) ? rr.Title : Path.GetFileName(rr.Path);
@@ -260,7 +306,7 @@ public partial class AuthorInfoPanel : UserControl
         var lbl = new Label
         {
             AutoSize = true,
-            MaximumSize = new Size(240, 0),
+            MaximumSize = new Size(ComputeWrapWidth(), 0),
             Font = new Font("Microsoft JhengHei UI", 9F),
             Margin = new Padding(0, 0, 0, 4),
             Text = $"• {displayTitle}\n  {readCountStr}  ({timeStr})",
@@ -281,7 +327,7 @@ public partial class AuthorInfoPanel : UserControl
         var lbl = new Label
         {
             AutoSize = true,
-            MaximumSize = new Size(280, 0),
+            MaximumSize = new Size(ComputeWrapWidth(), 0),
             Font = new Font("Microsoft JhengHei UI", 9F),
             Margin = new Padding(0, 0, 0, 2),
             Text = $"• {displayTitle}{hintStr}",

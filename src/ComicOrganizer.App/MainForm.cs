@@ -45,6 +45,8 @@ public partial class MainForm : Window, IThemedControl
 
         InitializeComponent();
 
+        ApplySavedWindowLayout();
+
         this.WireThemeAndLocalization();
 
         _intelligence = new MappingIntelligence();
@@ -74,6 +76,8 @@ public partial class MainForm : Window, IThemedControl
         this.Load += (s, e) =>
         {
             galleryControl.Initialize(_config, _coverManager, _metaStore, _readRecordQueue, _prefs, _tagTranslator);
+            galleryControl.ApplySavedSidebarSplitterDistance(_prefs.SidebarSplitterWidth);
+            galleryControl.RequestSavePreferences += () => _prefsManager.Save(_prefs);
             galleryControl.StatusChanged += msg =>
             {
                 if (!_rebuildTracker.IsRunning)
@@ -100,10 +104,92 @@ public partial class MainForm : Window, IThemedControl
             ShowGallery();
         };
 
-        // 關閉時 flush 所有 pending 閱讀紀錄，避免「快關 app」流失計數
-        this.FormClosing += (s, e) => _readRecordQueue.Dispose();
+        // 關閉時先儲存視窗版面與側邊欄寬度，再 flush 所有 pending 閱讀紀錄，避免「快關 app」流失計數
+        this.FormClosing += (s, e) =>
+        {
+            SaveWindowLayoutPreferences();
+            _readRecordQueue.Dispose();
+        };
 
         WireMenuEvents();
+    }
+
+    private void ApplySavedWindowLayout()
+    {
+        var workingAreas = Screen.AllScreens.Select(s => s.WorkingArea).ToList();
+        var primary = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 800);
+        var validBounds = WindowLayoutHelper.ValidateWindowBounds(
+            _prefs.WindowX,
+            _prefs.WindowY,
+            _prefs.WindowWidth,
+            _prefs.WindowHeight,
+            workingAreas,
+            primary);
+
+        if (validBounds.HasValue)
+        {
+            StartPosition = FormStartPosition.Manual;
+            Bounds = validBounds.Value;
+        }
+
+        if (_prefs.WindowMaximized)
+        {
+            WindowState = FormWindowState.Maximized;
+        }
+    }
+
+    private void SaveWindowLayoutPreferences()
+    {
+        try
+        {
+            _prefs.WindowMaximized = WindowState == FormWindowState.Maximized;
+
+            Rectangle bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+            if (bounds.Width > 0 && bounds.Height > 0)
+            {
+                _prefs.WindowX = bounds.X;
+                _prefs.WindowY = bounds.Y;
+                _prefs.WindowWidth = bounds.Width;
+                _prefs.WindowHeight = bounds.Height;
+            }
+
+            int? splitterDist = galleryControl.GetSidebarSplitterDistance();
+            if (splitterDist.HasValue)
+            {
+                _prefs.SidebarSplitterWidth = splitterDist.Value;
+            }
+
+            _prefsManager.Save(_prefs);
+        }
+        catch { /* 關閉時寫檔失敗不阻擋關閉流程 */ }
+    }
+
+    protected override bool ProcessCmdKey(ref System.Windows.Forms.Message msg, Keys keyData)
+    {
+        if (keyData == (Keys.Control | Keys.D1) || keyData == (Keys.Control | Keys.NumPad1))
+        {
+            ShowGallery();
+            galleryControl.Focus();
+            return true;
+        }
+        if (keyData == (Keys.Control | Keys.D2) || keyData == (Keys.Control | Keys.NumPad2))
+        {
+            ShowArchive();
+            archiveControl.Focus();
+            return true;
+        }
+        if (keyData == (Keys.Control | Keys.D3) || keyData == (Keys.Control | Keys.NumPad3))
+        {
+            ShowMetadataManage();
+            metadataManageControl.Focus();
+            return true;
+        }
+        if (keyData == (Keys.Control | Keys.F) && galleryControl.Visible)
+        {
+            galleryControl.FocusSearchBox();
+            return true;
+        }
+        return base.ProcessCmdKey(ref msg, keyData);
     }
 
     private void WireMenuEvents()

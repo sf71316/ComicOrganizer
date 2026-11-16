@@ -1,4 +1,5 @@
 using ComicOrganizer.App.Core;
+using ComicOrganizer.App.Models;
 
 namespace ComicOrganizer.App.UI;
 
@@ -11,6 +12,7 @@ public partial class GalleryControl
 {
     private bool _isPromptingUnsaved;
     private bool _allowCloseWithoutPrompt;
+    private string? _returnToWorkPath;
 
     /// <summary>
     /// detailDrawerHost 內兩個 panel 的事件統一接：CloseRequested / 點作品 / Author 連結 / Explorer。
@@ -26,9 +28,48 @@ public partial class GalleryControl
         detailDrawerHost.AuthorPanel.RequestOpenWork += path =>
             GuardUnsavedChanges(() => RecordReadAndOpenViewer(path, refreshAuthorPanel: true));
 
-        // WorkDetailPanel 的 Author 連結 → 先檢查未存檔再切回 AuthorInfoPanel
+        // WorkDetailPanel 的 Author 連結 → 先檢查未存檔再切至 AuthorInfoPanel（記錄返回作品路徑）
         detailDrawerHost.WorkPanel.RequestOpenAuthor += authorId =>
-            GuardUnsavedChanges(() => OpenAuthorByIdCore(authorId));
+            GuardUnsavedChanges(() =>
+            {
+                var sourceWorkPath = detailDrawerHost.WorkPanel.CurrentPath;
+                _returnToWorkPath = string.IsNullOrWhiteSpace(sourceWorkPath) ? null : sourceWorkPath;
+                detailDrawerHost.AuthorPanel.CanGoBackToWork = _returnToWorkPath != null;
+                OpenAuthorByIdCore(authorId);
+            });
+
+        // AuthorInfoPanel 的「返回作品」按鈕 → 經未存檔防護切回來源作品詳情
+        detailDrawerHost.AuthorPanel.RequestBackToWork += () =>
+            GuardUnsavedChanges(() =>
+            {
+                var returnPath = _returnToWorkPath;
+                _returnToWorkPath = null;
+                detailDrawerHost.AuthorPanel.CanGoBackToWork = false;
+                if (!string.IsNullOrWhiteSpace(returnPath))
+                    ShowWorkDetailCore(returnPath);
+            });
+
+        // 左邊界拖曳調寬：即時預覽 + 放開後寫入 _prefs.DrawerWidth 並請求持久化
+        detailDrawerHost.RequestResizeWidth += requestedWidth =>
+        {
+            var ownerForm = this.FindForm();
+            if (ownerForm == null) return;
+            int clamped = DrawerWidthHelper.ClampDrawerWidth(requestedWidth, ownerForm.ClientSize.Width);
+            SetDrawerWidth(clamped);
+        };
+        detailDrawerHost.ResizeCompleted += finalWidth =>
+        {
+            var ownerForm = this.FindForm();
+            if (ownerForm == null) return;
+            int clamped = DrawerWidthHelper.ClampDrawerWidth(finalWidth, ownerForm.ClientSize.Width);
+            SetDrawerWidth(clamped);
+            _preMaximizedWidth = null;
+            if (_prefs != null && _prefs.DrawerWidth != clamped)
+            {
+                _prefs.DrawerWidth = clamped;
+                RequestSavePreferences?.Invoke();
+            }
+        };
 
         // WorkDetailPanel 的「閱讀」按鈕 + cover 點擊
         detailDrawerHost.WorkPanel.RequestOpenViewer += path =>
@@ -291,7 +332,12 @@ public partial class GalleryControl
     /// 解析 path 對應的 author，用 AntdUI.Drawer 從右邊滑出顯示（含未存檔編輯保護）。
     /// </summary>
     private void ShowAuthorInfo(string path)
-        => GuardUnsavedChanges(() => ShowAuthorInfoCore(path));
+        => GuardUnsavedChanges(() =>
+        {
+            _returnToWorkPath = null;
+            detailDrawerHost.AuthorPanel.CanGoBackToWork = false;
+            ShowAuthorInfoCore(path);
+        });
 
     private void ShowAuthorInfoCore(string path)
     {
@@ -327,6 +373,8 @@ public partial class GalleryControl
 
     private void ShowWorkDetailCore(string path)
     {
+        _returnToWorkPath = null;
+        detailDrawerHost.AuthorPanel.CanGoBackToWork = false;
         if (_metaStore == null)
         {
             detailDrawerHost.ShowWorkEmpty(LocalizationManager.GetString("WorkDetailNoData") ?? "找不到此作品的詳細資訊");
@@ -377,6 +425,9 @@ public partial class GalleryControl
 
     private void ForceCloseDetailDrawer()
     {
+        _returnToWorkPath = null;
+        detailDrawerHost.AuthorPanel.CanGoBackToWork = false;
+        _preMaximizedWidth = null;
         detailDrawerHost.DiscardEditingState();
         if (_detailDrawerForm == null || _detailDrawerForm.IsDisposed) return;
         _allowCloseWithoutPrompt = true;
@@ -490,11 +541,15 @@ public partial class GalleryControl
     private void ExpandDrawerTo(int minWidth)
     {
         if (_detailDrawerForm == null || _detailDrawerForm.IsDisposed) return;
-        if (_detailDrawerForm.Width >= minWidth) return;
-        SetDrawerWidth(minWidth);
+        var ownerForm = this.FindForm();
+        int targetWidth = ownerForm != null
+            ? DrawerWidthHelper.ClampDrawerWidth(minWidth, ownerForm.ClientSize.Width)
+            : Math.Max(DrawerWidthHelper.MinDrawerWidth, minWidth);
+        if (_detailDrawerForm.Width >= targetWidth) return;
+        SetDrawerWidth(targetWidth);
     }
 
-    /// <summary>「展開最大寬度」按鈕 toggle — 已在 max 狀態 → 回 580；不在 → 撐到接近螢幕邊。</summary>
+    /// <summary>「展開最大寬度」按鈕 toggle — 已在 max 狀態 → 回原寬度（_preMaximizedWidth ?? _prefs?.DrawerWidth ?? 580）；不在 → 撐到接近螢幕邊。</summary>
     private int? _preMaximizedWidth;
     private void ToggleDrawerMaximize()
     {
@@ -502,14 +557,17 @@ public partial class GalleryControl
         var ownerForm = this.FindForm();
         if (ownerForm == null) return;
 
-        // 接近螢幕邊：留 60 px 給 owner 的左側看得到（避免完全覆蓋）
-        var maxWidth = Math.Max(640, ownerForm.ClientSize.Width - 60);
+        // 接近螢幕邊：留 OwnerReservedMargin px 給 owner 的左側看得到（避免完全覆蓋）
+        var maxWidth = Math.Max(640, ownerForm.ClientSize.Width - DrawerWidthHelper.OwnerReservedMargin);
         var atMax = _detailDrawerForm.Width >= maxWidth - 4;   // 允許 4 px 容差
 
         if (atMax)
         {
-            // 還原：先用記下的值，沒有就回 580（edit-mode 預設）
-            SetDrawerWidth(_preMaximizedWidth ?? 580);
+            // 還原：先用記下的值，其次採用使用者偏好寬度，最後回 580（edit-mode 預設）
+            int requestedRestore = _preMaximizedWidth
+                ?? (_prefs?.DrawerWidth is > 0 ? _prefs.DrawerWidth.Value : 580);
+            int clampedRestore = DrawerWidthHelper.ClampDrawerWidth(requestedRestore, ownerForm.ClientSize.Width);
+            SetDrawerWidth(clampedRestore);
             _preMaximizedWidth = null;
         }
         else
@@ -529,7 +587,7 @@ public partial class GalleryControl
         _detailDrawerForm.Width = newWidth;
     }
 
-    /// <summary>共用 Drawer open/refresh 邏輯：已開→Activate；未開→新開 380 寬 Drawer。</summary>
+    /// <summary>共用 Drawer open/refresh 邏輯：已開→Activate；未開→依偏好寬度開啟 Drawer。</summary>
     private void EnsureDetailDrawerOpen()
     {
         if (_detailDrawerForm != null && !_detailDrawerForm.IsDisposed)
@@ -548,9 +606,10 @@ public partial class GalleryControl
             _drawerClickFilter = null;
         }
 
-        // Drawer 量 Content.Size 決定 drawer 大小。每次強制 reset 成 380 × formHeight
+        // Drawer 量 Content.Size 決定 drawer 大小，依使用者偏好與視窗寬度夾在合法範圍
+        int initialWidth = DrawerWidthHelper.ClampDrawerWidth(_prefs?.DrawerWidth, ownerForm.ClientSize.Width);
         detailDrawerHost.Dock = DockStyle.None;
-        detailDrawerHost.Size = new Size(420, ownerForm.ClientSize.Height);
+        detailDrawerHost.Size = new Size(initialWidth, ownerForm.ClientSize.Height);
 
         var config = new AntdUI.Drawer.Config(ownerForm, detailDrawerHost)
         {
@@ -572,7 +631,11 @@ public partial class GalleryControl
                 if (_detailDrawerForm != null)
                 {
                     _detailDrawerForm.FormClosing -= OnDetailDrawerFormClosing;
+                    _detailDrawerForm.KeyDown -= OnDetailDrawerKeyDown;
                 }
+                _returnToWorkPath = null;
+                detailDrawerHost.AuthorPanel.CanGoBackToWork = false;
+                _preMaximizedWidth = null;
                 detailDrawerHost.DiscardEditingState();
                 _detailDrawerForm = null;
             },
@@ -583,12 +646,24 @@ public partial class GalleryControl
         // 點 drawer 以外區域 → 消費穿透點擊並以非同步方式觸發未存檔檢查與關閉
         if (_detailDrawerForm != null)
         {
+            _detailDrawerForm.KeyPreview = true;
+            _detailDrawerForm.KeyDown += OnDetailDrawerKeyDown;
             _detailDrawerForm.FormClosing += OnDetailDrawerFormClosing;
             _drawerClickFilter = new DrawerOutsideClickFilter(
                 _detailDrawerForm,
                 onOutsideClick: RequestCloseDetailDrawer,
                 isPrompting: () => _isPromptingUnsaved);
             Application.AddMessageFilter(_drawerClickFilter);
+        }
+    }
+
+    private void OnDetailDrawerKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.KeyCode == Keys.Escape && !_isPromptingUnsaved)
+        {
+            e.Handled = true;
+            e.SuppressKeyPress = true;
+            RequestCloseDetailDrawer();
         }
     }
 }

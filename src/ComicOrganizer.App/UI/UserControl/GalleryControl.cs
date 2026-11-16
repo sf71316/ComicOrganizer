@@ -18,6 +18,9 @@ public partial class GalleryControl : UserControl, IThemedControl
 
     public event Action<string>? StatusChanged;
 
+    /// <summary>偏好設定在 GalleryControl 內部變更（如拖曳調整 Drawer 寬度）時請求宿主持久化。</summary>
+    public event Action? RequestSavePreferences;
+
     private int _activeBackgroundJobs = 0;
 
     private void ReportJobStarted(string message = "正在載入項目與封面...")
@@ -66,6 +69,32 @@ public partial class GalleryControl : UserControl, IThemedControl
     /// </summary>
     private readonly Dictionary<AntdUI.TabPage, IReadOnlyList<string>> _tabVirtualPaths = new();
 
+    /// <summary>虛擬分頁重新整理時用來重新計算路徑清單的回呼（無則沿用 _tabVirtualPaths）。</summary>
+    private readonly Dictionary<AntdUI.TabPage, Func<IReadOnlyList<string>>> _tabVirtualRefreshers = new();
+
+    /// <summary>虛擬閱讀清單分頁對應的 VirtualLibrary.Id（增減作品後自動連動刷新）。</summary>
+    private readonly Dictionary<AntdUI.TabPage, long> _tabVirtualLibraryIds = new();
+
+    /// <summary>每個分頁獨立的排序與就地過濾狀態。</summary>
+    private sealed class TabSortFilterState
+    {
+        public GallerySortField SortField { get; set; } = GallerySortField.Name;
+        public bool SortDescending { get; set; }
+        public GalleryReadFilter ReadFilter { get; set; } = GalleryReadFilter.All;
+        public string FilterKeyword { get; set; } = "";
+    }
+
+    private readonly Dictionary<AntdUI.TabPage, TabSortFilterState> _tabSortFilterStates = new();
+
+    /// <summary>每個分頁的上一頁／下一頁導航歷史。</summary>
+    private readonly Dictionary<AntdUI.TabPage, TabNavigationHistory> _tabNavHistories = new();
+
+    /// <summary>列表模式各分頁完整（未過濾）的 GalleryListItem 清單，供記憶體內即時過濾與排序。</summary>
+    private readonly Dictionary<AntdUI.TabPage, List<GalleryListItem>> _tabFullListItems = new();
+
+    private bool _syncingSortUi;
+    private XButtonMessageFilter? _xButtonFilter;
+
     /// <summary>
     /// 每個容器（FlowLayoutPanel / Table）的非同步載入世代號，用於連續快速切換檢視模式或重新整理時防止舊結果覆蓋新結果。
     /// </summary>
@@ -81,8 +110,43 @@ public partial class GalleryControl : UserControl, IThemedControl
 
     private GalleryViewMode GetTabMode(AntdUI.TabPage? page)
     {
-        if (page == null) return GalleryViewMode.Medium;
-        return _tabViewModes.TryGetValue(page, out var mode) ? mode : GalleryViewMode.Medium;
+        if (page == null) return GetDefaultGalleryViewMode();
+        return _tabViewModes.TryGetValue(page, out var mode) ? mode : GetDefaultGalleryViewMode();
+    }
+
+    private GalleryViewMode GetDefaultGalleryViewMode()
+    {
+        return _prefs?.DefaultGalleryViewMode switch
+        {
+            "Small" => GalleryViewMode.Small,
+            "Large" => GalleryViewMode.Large,
+            "List" => GalleryViewMode.List,
+            _ => GalleryViewMode.Medium,
+        };
+    }
+
+    private TabSortFilterState GetOrCreateTabSortFilterState(AntdUI.TabPage page)
+    {
+        if (!_tabSortFilterStates.TryGetValue(page, out var state))
+        {
+            state = new TabSortFilterState
+            {
+                SortField = _prefs?.DefaultGallerySortField ?? GallerySortField.Name,
+                SortDescending = _prefs?.DefaultGallerySortDescending ?? false,
+            };
+            _tabSortFilterStates[page] = state;
+        }
+        return state;
+    }
+
+    private TabNavigationHistory GetOrCreateTabNavHistory(AntdUI.TabPage page)
+    {
+        if (!_tabNavHistories.TryGetValue(page, out var history))
+        {
+            history = new TabNavigationHistory();
+            _tabNavHistories[page] = history;
+        }
+        return history;
     }
 
     /// <summary>當前開著的 Drawer Form ref；ShowAuthorInfo / ShowWorkDetail 時 open，CloseRequested 時 Close。</summary>
@@ -102,12 +166,22 @@ public partial class GalleryControl : UserControl, IThemedControl
     /// <summary>Tag mode chip → tag name 對應（chip remove 時用）。</summary>
     private readonly Dictionary<long, string> _selectedTagNames = new();
 
+    private int? _pendingSidebarDistance;
+    private bool _userMovedSidebarSplitter;
+    private bool _applyingSidebarDistance;
+
     public GalleryControl()
     {
         InitializeComponent();
 
         // GalleryControl 自己開 DoubleBuffer：tabsContent 切換 / resize 時減抖
         DoubleBuffered = true;
+
+        splitter2.SplitterMoving += (s, e) =>
+        {
+            if (!_applyingSidebarDistance) _userMovedSidebarSplitter = true;
+        };
+        splitter2.SizeChanged += (s, e) => TryApplyPendingSidebarSplitterDistance();
 
         WireDrawerEvents();
         WireViewModeToggle();
@@ -164,20 +238,26 @@ public partial class GalleryControl : UserControl, IThemedControl
         {
             if (e.Value != null)
             {
-                if (e.Value.Tag as string == "DASHBOARD") return false;
-                _tabViewModes.Remove(e.Value);
-                _tabVirtualPaths.Remove(e.Value);
-                var flow = FindTabFlowLayout(e.Value);
-                if (flow != null) _loadGenerations.TryRemove(flow, out _);
-                var table = FindTabTable(e.Value);
-                if (table != null) _loadGenerations.TryRemove(table, out _);
+                if (WorkContextMenuHelper.IsDashboardTag(e.Value.Tag as string)) return false;
+                CleanupTabState(e.Value);
             }
             return true;
+        };
+
+        // 分頁標頭右鍵選單
+        tabsContent.TabClick += (s, e) =>
+        {
+            if (e.Button == MouseButtons.Right && e.Item != null)
+            {
+                e.Cancel = true;
+                ShowTabHeaderContextMenu(e.Item);
+            }
         };
 
         // 每個 Tab 自帶 breadcrumb，內容在 OpenFolderTab 建立 / 更新當前 Tab 時填好，
         // 切 Tab 不需重填，因此不綁 SelectedIndexChanged。
         ApplyLocalization();
+        Disposed += (_, _) => UnregisterXButtonFilter();
     }
 
     public void ApplyLocalization()
@@ -204,6 +284,31 @@ public partial class GalleryControl : UserControl, IThemedControl
             foreach (var btn in page.Controls.Find("tabBtnRefresh", true).OfType<AntdUI.Button>())
             {
                 _btnTooltip.SetTip(btn, LocalizationManager.GetString("MenuRefresh"));
+            }
+            foreach (var btnBack in page.Controls.Find("tabBtnBack", true).OfType<AntdUI.Button>())
+            {
+                _btnTooltip.SetTip(btnBack, "上一頁 (Alt+Left)");
+            }
+            foreach (var btnFwd in page.Controls.Find("tabBtnForward", true).OfType<AntdUI.Button>())
+            {
+                _btnTooltip.SetTip(btnFwd, "下一頁 (Alt+Right)");
+            }
+            foreach (var btnDbRefresh in page.Controls.Find("dbBtnRefresh", true).OfType<AntdUI.Button>())
+            {
+                _btnTooltip.SetTip(btnDbRefresh, LocalizationManager.GetString("MenuRefresh") ?? "重新整理");
+            }
+            foreach (var btnDir in page.Controls.Find("tabSortDir", true).OfType<AntdUI.Button>())
+            {
+                var st = GetOrCreateTabSortFilterState(page);
+                _btnTooltip.SetTip(btnDir, st.SortDescending ? "降冪排序" : "升冪排序");
+            }
+            foreach (var btnClear in page.Controls.Find("tabBtnClearFilter", true).OfType<AntdUI.Button>())
+            {
+                _btnTooltip.SetTip(btnClear, LocalizationManager.GetString("FilterClearTooltip") ?? "清除過濾條件");
+            }
+            foreach (var txtFilter in page.Controls.Find("tabTxtQuickFilter", true).OfType<AntdUI.Input>())
+            {
+                txtFilter.PlaceholderText = LocalizationManager.GetString("QuickFilterPlaceholder") ?? "本頁過濾（檔名／標題）...";
             }
         }
     }
@@ -247,6 +352,38 @@ public partial class GalleryControl : UserControl, IThemedControl
                 p.BackColor = Core.ThemeColors.Surface;
             foreach (var p in page.Controls.Find("tabHeader", true).OfType<AntdUI.Panel>())
                 p.Back = Core.ThemeColors.TabHeader;
+            foreach (var p in page.Controls.Find("tabQuickFilterBar", true).OfType<AntdUI.Panel>())
+                p.Back = Core.ThemeColors.Surface;
+            foreach (var l in page.Controls.Find("tabLblFilterCount", true).OfType<System.Windows.Forms.Label>())
+                l.ForeColor = Core.ThemeColors.Text;
+            foreach (var inp in page.Controls.Find("tabTxtQuickFilter", true).OfType<AntdUI.Input>())
+            {
+                inp.BackColor = Core.ThemeColors.Background;
+                inp.ForeColor = Core.ThemeColors.Text;
+            }
+            foreach (var btn in page.Controls.Find("tabSortDir", true).OfType<AntdUI.Button>())
+            {
+                btn.ForeColor = Core.ThemeColors.Text;
+                btn.BackHover = Core.ThemeColors.Secondary;
+            }
+            foreach (var btnName in new[] { "tabBtnBack", "tabBtnForward" })
+            {
+                foreach (var btn in page.Controls.Find(btnName, true).OfType<AntdUI.Button>())
+                {
+                    btn.ForeColor = Core.ThemeColors.Text;
+                    btn.BackHover = Core.ThemeColors.Secondary;
+                }
+            }
+            foreach (var btn in page.Controls.Find("tabBtnClearFilter", true).OfType<AntdUI.Button>())
+            {
+                btn.ForeColor = Core.ThemeColors.Text;
+                btn.BackHover = Core.ThemeColors.Secondary;
+            }
+            foreach (var sel in page.Controls.Find("tabSortField", true).OfType<AntdUI.Select>())
+            {
+                sel.BackColor = Core.ThemeColors.Background;
+                sel.ForeColor = Core.ThemeColors.Text;
+            }
             foreach (var f in page.Controls.Find("tabFlowLayout", true).OfType<FlowLayoutPanel>())
                 f.BackColor = Core.ThemeColors.Surface;
             foreach (var t in page.Controls.Find("tabTableList", true).OfType<AntdUI.Table>())
@@ -265,22 +402,43 @@ public partial class GalleryControl : UserControl, IThemedControl
                 {
                     bannerFlow.BackColor = Core.ThemeColors.TabHeader;
                 }
-                var lblWelcome = page.Controls.Find("dbLblWelcome", true).OfType<System.Windows.Forms.Label>().FirstOrDefault();
-                if (lblWelcome != null)
+                var flowStats = page.Controls.Find("dbFlowStats", true).OfType<FlowLayoutPanel>().FirstOrDefault();
+                if (flowStats != null)
                 {
-                    lblWelcome.ForeColor = Core.ThemeColors.Text;
-                    lblWelcome.BackColor = Core.ThemeColors.TabHeader;
+                    flowStats.BackColor = Core.ThemeColors.TabHeader;
                 }
-                var lblStats = page.Controls.Find("dbLblStats", true).OfType<System.Windows.Forms.Label>().FirstOrDefault();
-                if (lblStats != null)
+                foreach (var btn in page.Controls.Find("dbBtnRefresh", true).OfType<AntdUI.Button>())
                 {
-                    lblStats.ForeColor = Core.ThemeColors.Text;
-                    lblStats.BackColor = Core.ThemeColors.TabHeader;
+                    btn.ForeColor = Core.ThemeColors.Text;
+                    btn.BackHover = Core.ThemeColors.Secondary;
+                }
+                foreach (var lblName in new[] { "dbLblWelcome", "dbLblStatsPrefix", "dbLblStatsMid1", "dbLblStatsMid2", "dbLblStatsSuffix" })
+                {
+                    var lbl = page.Controls.Find(lblName, true).OfType<System.Windows.Forms.Label>().FirstOrDefault();
+                    if (lbl != null)
+                    {
+                        lbl.ForeColor = Core.ThemeColors.Text;
+                        lbl.BackColor = Core.ThemeColors.TabHeader;
+                    }
+                }
+                foreach (var statName in new[] { "dbStatAll", "dbStatCompleted", "dbStatReading" })
+                {
+                    var lbl = page.Controls.Find(statName, true).OfType<System.Windows.Forms.Label>().FirstOrDefault();
+                    if (lbl != null)
+                    {
+                        lbl.ForeColor = Core.ThemeColors.Primary;
+                        lbl.BackColor = Core.ThemeColors.TabHeader;
+                    }
                 }
                 var lblRecentlyReadTitle = page.Controls.Find("dbLblRecentlyReadTitle", true).OfType<System.Windows.Forms.Label>().FirstOrDefault();
                 if (lblRecentlyReadTitle != null) lblRecentlyReadTitle.ForeColor = Core.ThemeColors.Text;
                 var lblRecentlyAddedTitle = page.Controls.Find("dbLblRecentlyAddedTitle", true).OfType<System.Windows.Forms.Label>().FirstOrDefault();
                 if (lblRecentlyAddedTitle != null) lblRecentlyAddedTitle.ForeColor = Core.ThemeColors.Text;
+                foreach (var linkName in new[] { "dbLinkMoreRecentRead", "dbLinkMoreRecentAdded" })
+                {
+                    var link = page.Controls.Find(linkName, true).OfType<System.Windows.Forms.Label>().FirstOrDefault();
+                    if (link != null) link.ForeColor = Core.ThemeColors.Primary;
+                }
             }
         }
         this.Refresh();
@@ -377,12 +535,193 @@ public partial class GalleryControl : UserControl, IThemedControl
         _prefs = prefs;
     }
 
+    /// <summary>套用已儲存的側邊欄寬度（若容器尚未撐開則延後至 SizeChanged 安全套用，不覆蓋使用者手動拖曳）。</summary>
+    public void ApplySavedSidebarSplitterDistance(int? savedDistance)
+    {
+        if (IsDisposed || splitter2.IsDisposed || savedDistance is not > 0) return;
+        _pendingSidebarDistance = savedDistance;
+        _userMovedSidebarSplitter = false;
+        TryApplyPendingSidebarSplitterDistance();
+    }
+
+    private void TryApplyPendingSidebarSplitterDistance()
+    {
+        if (_pendingSidebarDistance is not int target || _userMovedSidebarSplitter || IsDisposed || splitter2.IsDisposed)
+            return;
+
+        int minReadyWidth = WindowLayoutHelper.MinSidebarWidth + WindowLayoutHelper.MinGalleryContentWidth + splitter2.SplitterWidth;
+        if (splitter2.Width < minReadyWidth) return;
+
+        int clamped = WindowLayoutHelper.ClampSplitterDistance(
+            target,
+            splitter2.Width,
+            WindowLayoutHelper.MinSidebarWidth,
+            WindowLayoutHelper.MinGalleryContentWidth);
+
+        int minAllowed = Math.Max(splitter2.Panel1MinSize, WindowLayoutHelper.MinSidebarWidth);
+        int maxAllowed = Math.Max(minAllowed, splitter2.Width - splitter2.SplitterWidth - Math.Max(splitter2.Panel2MinSize, WindowLayoutHelper.MinGalleryContentWidth));
+        int finalDistance = Math.Clamp(clamped, minAllowed, maxAllowed);
+
+        _applyingSidebarDistance = true;
+        try
+        {
+            splitter2.SplitterDistance = finalDistance;
+        }
+        finally
+        {
+            _applyingSidebarDistance = false;
+        }
+        _pendingSidebarDistance = null;
+    }
+
+    /// <summary>取得目前側邊欄寬度供持久化。</summary>
+    public int? GetSidebarSplitterDistance()
+    {
+        if (IsDisposed || splitter2.IsDisposed) return null;
+        if (_pendingSidebarDistance.HasValue && !_userMovedSidebarSplitter) return _pendingSidebarDistance.Value;
+        return splitter2.SplitterDistance > 0 ? splitter2.SplitterDistance : null;
+    }
+
+    /// <summary>聚焦左側 DSL 搜尋框並全選內容。</summary>
+    public void FocusSearchBox()
+    {
+        if (IsDisposed || txtSearchDsl.IsDisposed) return;
+        txtSearchDsl.Focus();
+        txtSearchDsl.SelectAll();
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        RegisterXButtonFilter();
+    }
+
+    protected override void OnHandleDestroyed(EventArgs e)
+    {
+        UnregisterXButtonFilter();
+        base.OnHandleDestroyed(e);
+    }
+
+    private void RegisterXButtonFilter()
+    {
+        if (_xButtonFilter != null || IsDisposed) return;
+        _xButtonFilter = new XButtonMessageFilter(this);
+        Application.AddMessageFilter(_xButtonFilter);
+    }
+
+    private void UnregisterXButtonFilter()
+    {
+        if (_xButtonFilter == null) return;
+        Application.RemoveMessageFilter(_xButtonFilter);
+        _xButtonFilter = null;
+    }
+
+    private sealed class XButtonMessageFilter : IMessageFilter
+    {
+        private const int WM_XBUTTONUP = 0x020C;
+        private readonly GalleryControl _owner;
+
+        public XButtonMessageFilter(GalleryControl owner)
+        {
+            _owner = owner;
+        }
+
+        public bool PreFilterMessage(ref System.Windows.Forms.Message m)
+        {
+            if (m.Msg != WM_XBUTTONUP) return false;
+            if (_owner.IsDisposed || !_owner.IsHandleCreated || !_owner.Visible) return false;
+
+            var hostForm = _owner.FindForm();
+            if (hostForm == null || hostForm.IsDisposed || Form.ActiveForm != hostForm) return false;
+
+            var target = Control.FromHandle(m.HWnd);
+            if (target == null || (target != _owner && !_owner.Contains(target))) return false;
+
+            int action = TabNavigationHistory.ParseXButtonAction(m.WParam.ToInt64());
+            if (action < 0)
+            {
+                _owner.NavigateBackCurrentTab();
+                return true;
+            }
+            if (action > 0)
+            {
+                _owner.NavigateForwardCurrentTab();
+                return true;
+            }
+            return false;
+        }
+    }
+
     protected override bool ProcessCmdKey(ref System.Windows.Forms.Message msg, Keys keyData)
     {
         if (keyData == Keys.F5)
         {
             RefreshCurrentTab();
             return true;
+        }
+        if (keyData == (Keys.Alt | Keys.Left))
+        {
+            NavigateBackCurrentTab();
+            return true;
+        }
+        if (keyData == (Keys.Alt | Keys.Right))
+        {
+            NavigateForwardCurrentTab();
+            return true;
+        }
+        if (keyData == (Keys.Control | Keys.F))
+        {
+            FocusSearchBox();
+            return true;
+        }
+        if (keyData == (Keys.Control | Keys.W))
+        {
+            CloseCurrentTab();
+            return true;
+        }
+        if (keyData == (Keys.Control | Keys.Tab))
+        {
+            SwitchAdjacentTab(reverse: false);
+            return true;
+        }
+        if (keyData == (Keys.Control | Keys.Shift | Keys.Tab))
+        {
+            SwitchAdjacentTab(reverse: true);
+            return true;
+        }
+        if (keyData == Keys.Escape)
+        {
+            // 1. 優先關閉搜尋框的自動補全或 DSL 提示彈窗
+            bool inSearchBox = !txtSearchDsl.IsDisposed && (txtSearchDsl.Focused || txtSearchDsl.ContainsFocus);
+            if (inSearchBox)
+            {
+                bool closedSearchPopup = false;
+                if (_suggestBox != null && _suggestBox.Visible)
+                {
+                    _suggestDebounceTimer?.Stop();
+                    _suggestBox.HideSuggestions();
+                    closedSearchPopup = true;
+                }
+                if (searchHintBarHost.Visible)
+                {
+                    searchHintBarHost.Visible = false;
+                    closedSearchPopup = true;
+                }
+                if (closedSearchPopup) return true;
+            }
+
+            // 2. 若詳情抽屜開啟中，依未存檔防護關閉
+            if (_detailDrawerForm != null && !_detailDrawerForm.IsDisposed)
+            {
+                RequestCloseDetailDrawer();
+                return true;
+            }
+
+            // 3. 若就地過濾框聚焦，清除過濾並退回畫廊焦點
+            if (HandleQuickFilterEscape(tabsContent.SelectedTab))
+            {
+                return true;
+            }
         }
         return base.ProcessCmdKey(ref msg, keyData);
     }

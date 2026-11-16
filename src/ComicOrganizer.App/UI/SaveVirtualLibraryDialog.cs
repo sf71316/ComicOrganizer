@@ -20,6 +20,7 @@ public class SaveVirtualLibraryDialog : AntdUI.Window, IThemedControl
 {
     private readonly IAssetMetaStore _store;
     private readonly VirtualLibrary? _editing;
+    private readonly bool _allowEmptyDsl;
 
     private readonly AntdUI.Label lblNameHint;
     private readonly AntdUI.Input txtName;
@@ -51,18 +52,19 @@ public class SaveVirtualLibraryDialog : AntdUI.Window, IThemedControl
     public string ResultDsl { get; private set; } = "";
     public string? ResultIconSvg { get; private set; }
 
-    /// <summary>新增模式 — initialDsl 可選（從搜尋結果存入時帶入）。</summary>
-    public SaveVirtualLibraryDialog(IAssetMetaStore store, string? initialDsl = null)
-        : this(store, existing: null, initialDsl: initialDsl) { }
+    /// <summary>新增模式 — initialDsl 可選（從搜尋結果存入時帶入）；allowEmptyDsl=true 允許建立空白 DSL 的手動閱讀清單。</summary>
+    public SaveVirtualLibraryDialog(IAssetMetaStore store, string? initialDsl = null, bool allowEmptyDsl = false)
+        : this(store, existing: null, initialDsl: initialDsl, allowEmptyDsl: allowEmptyDsl) { }
 
     /// <summary>編輯模式 — 預填全部欄位。</summary>
-    public SaveVirtualLibraryDialog(IAssetMetaStore store, VirtualLibrary existing)
-        : this(store, existing: existing, initialDsl: null) { }
+    public SaveVirtualLibraryDialog(IAssetMetaStore store, VirtualLibrary existing, bool allowEmptyDsl = false)
+        : this(store, existing: existing, initialDsl: null, allowEmptyDsl: allowEmptyDsl || string.IsNullOrWhiteSpace(existing.Dsl)) { }
 
-    private SaveVirtualLibraryDialog(IAssetMetaStore store, VirtualLibrary? existing, string? initialDsl)
+    private SaveVirtualLibraryDialog(IAssetMetaStore store, VirtualLibrary? existing, string? initialDsl, bool allowEmptyDsl)
     {
         _store = store;
         _editing = existing;
+        _allowEmptyDsl = allowEmptyDsl;
 
         Text = existing != null
             ? (LocalizationManager.GetString("SaveVLibEditTitle") ?? "編輯自訂虛擬庫")
@@ -208,7 +210,9 @@ public class SaveVirtualLibraryDialog : AntdUI.Window, IThemedControl
         var dsl = (txtDsl.Text ?? "").Trim();
         if (string.IsNullOrEmpty(dsl))
         {
-            lblPreview.Text = "";
+            lblPreview.Text = _allowEmptyDsl
+                ? (LocalizationManager.GetString("SaveVLibManualHint") ?? "（手動閱讀清單，將收錄手動加入的作品）")
+                : "";
             return;
         }
         try
@@ -247,17 +251,23 @@ public class SaveVirtualLibraryDialog : AntdUI.Window, IThemedControl
         }
         if (string.IsNullOrEmpty(dsl))
         {
-            AntdUI.Message.warn(this, LocalizationManager.GetString("SaveVLibErrNoDsl") ?? "請輸入查詢條件");
-            txtDsl.Focus();
-            return;
+            if (!_allowEmptyDsl)
+            {
+                AntdUI.Message.warn(this, LocalizationManager.GetString("SaveVLibErrNoDsl") ?? "請輸入查詢條件");
+                txtDsl.Focus();
+                return;
+            }
         }
-        // 驗 DSL 至少能 parse
-        var query = SearchQueryParser.Parse(dsl);
-        if (query.IsEmpty)
+        else
         {
-            AntdUI.Message.warn(this, LocalizationManager.GetString("SaveVLibErrInvalidDsl") ?? "查詢條件無法解析");
-            txtDsl.Focus();
-            return;
+            // 驗 DSL 至少能 parse
+            var query = SearchQueryParser.Parse(dsl);
+            if (query.IsEmpty)
+            {
+                AntdUI.Message.warn(this, LocalizationManager.GetString("SaveVLibErrInvalidDsl") ?? "查詢條件無法解析");
+                txtDsl.Focus();
+                return;
+            }
         }
 
         ResultName = name;

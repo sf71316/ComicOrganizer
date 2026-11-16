@@ -26,4 +26,34 @@ public class UserPreferences
     /// <summary>是否啟用閱讀記錄功能（read_status 自動升級 / read_count++ / last_read 更新）。
     /// false 時 reader / 外部 viewer 都不寫這幾個欄位；last_page 仍會記錄（resume 用）。</summary>
     public bool TrackReadingRecord { get; set; } = true;
+
+    /// <summary>預設畫廊檢視模式："Small" / "Medium" / "Large" / "List"。</summary>
+    public string DefaultGalleryViewMode { get; set; } = "Medium";
+
+    /// <summary>預設畫廊排序欄位。</summary>
+    public GallerySortField DefaultGallerySortField { get; set; } = GallerySortField.Name;
+
+    /// <summary>預設畫廊是否降冪排序。</summary>
+    public bool DefaultGallerySortDescending { get; set; } = false;
+
+    /// <summary>詳情側邊抽屜（Drawer）寬度；null 表示使用預設寬度。</summary>
+    public int? DrawerWidth { get; set; }
+
+    /// <summary>主視窗上次位置 X；null 表示置中或由系統決定。</summary>
+    public int? WindowX { get; set; }
+
+    /// <summary>主視窗上次位置 Y；null 表示置中或由系統決定。</summary>
+    public int? WindowY { get; set; }
+
+    /// <summary>主視窗上次寬度；null 表示使用設計期預設寬度。</summary>
+    public int? WindowWidth { get; set; }
+
+    /// <summary>主視窗上次高度；null 表示使用設計期預設高度。</summary>
+    public int? WindowHeight { get; set; }
+
+    /// <summary>主視窗上次關閉時是否為最大化狀態。</summary>
+    public bool WindowMaximized { get; set; } = false;
+
+    /// <summary>左側導覽樹側邊欄寬度（SplitContainer.SplitterDistance）；null 表示使用預設寬度。</summary>
+    public int? SidebarSplitterWidth { get; set; }
 }

@@ -53,12 +53,27 @@ public class MyVirtualLibraryNode : IVirtualLibraryNode
     public string? IconSvg => Library.IconSvg ?? "BookOutlined";
     public IReadOnlyList<string> ResolveWorks(IAssetMetaStore store)
     {
+        var merged = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         var query = SearchQueryParser.Parse(Library.Dsl);
-        if (query.IsEmpty) return Array.Empty<string>();
-        // 走預設 culture lang（DSL tag 譯名搜尋）— 跟 ExecuteDslSearch 一致
-        var lang = System.Globalization.CultureInfo.CurrentUICulture.Name.StartsWith("zh", StringComparison.OrdinalIgnoreCase)
-            ? "zh-TW" : null;
-        return new SearchExecutor(store, lang).Execute(query);
+        if (!query.IsEmpty)
+        {
+            // 走預設 culture lang（DSL tag 譯名搜尋）— 跟 ExecuteDslSearch 一致
+            var lang = System.Globalization.CultureInfo.CurrentUICulture.Name.StartsWith("zh", StringComparison.OrdinalIgnoreCase)
+                ? "zh-TW" : null;
+            foreach (var path in new SearchExecutor(store, lang).Execute(query))
+            {
+                if (seen.Add(path)) merged.Add(path);
+            }
+        }
+
+        foreach (var path in store.ListManualVirtualLibraryWorks(Library.Id))
+        {
+            if (seen.Add(path)) merged.Add(path);
+        }
+
+        return merged;
     }
 }
 

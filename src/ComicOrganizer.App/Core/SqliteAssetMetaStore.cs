@@ -1,3 +1,4 @@
+using ComicOrganizer.App.Models;
 using Dapper;
 using Microsoft.Data.Sqlite;
 
@@ -52,6 +53,7 @@ public class SqliteAssetMetaStore : IAssetMetaStore
             ApplyV6Additions();
             ApplyV7Additions();
             ApplyV8Additions();
+            EnsureVirtualLibraryItemTable();
             _conn.Execute("INSERT INTO schema_version (version) VALUES (@v);", new { v = CurrentSchemaVersion });
             return;
         }
@@ -89,8 +91,25 @@ public class SqliteAssetMetaStore : IAssetMetaStore
         {
             ApplyV8Additions();
         }
+        EnsureVirtualLibraryItemTable();
         _conn.Execute("DELETE FROM schema_version; INSERT INTO schema_version (version) VALUES (@v);",
             new { v = CurrentSchemaVersion });
+    }
+
+    /// <summary>確保手動虛擬庫清單關聯表 virtual_library_item 存在（相容既有 schema v8 DB）。</summary>
+    private void EnsureVirtualLibraryItemTable()
+    {
+        _conn.Execute(@"
+CREATE TABLE IF NOT EXISTS virtual_library_item (
+    library_id  INTEGER NOT NULL,
+    asset_id    INTEGER NOT NULL,
+    added_at    INTEGER NOT NULL,
+    PRIMARY KEY(library_id, asset_id),
+    FOREIGN KEY(library_id) REFERENCES virtual_library(id) ON DELETE CASCADE,
+    FOREIGN KEY(asset_id) REFERENCES asset(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_virtual_library_item_asset ON virtual_library_item(asset_id);
+");
     }
 
     /// <summary>v2 → v3：asset_meta 加 last_page 欄位（Phase 1.3 reader 進度保存用）。</summary>
@@ -802,6 +821,47 @@ JOIN asset a ON a.id = am.asset_id
 WHERE a.path = @path LIMIT 1;", new { path }, _currentTx);
             return v.HasValue ? (ReadStatus)v.Value : null;
         }
+    }
+
+    public IReadOnlyDictionary<string, AssetGalleryStats> GetGalleryStatsByPaths(IEnumerable<string> paths)
+    {
+        var result = new Dictionary<string, AssetGalleryStats>(StringComparer.OrdinalIgnoreCase);
+        if (paths == null) return result;
+
+        var uniquePaths = paths
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (uniquePaths.Count == 0) return result;
+
+        const int BatchSize = 500;
+        lock (_lock)
+        {
+            for (int offset = 0; offset < uniquePaths.Count; offset += BatchSize)
+            {
+                var batch = uniquePaths.GetRange(offset, Math.Min(BatchSize, uniquePaths.Count - offset));
+                var rows = _conn.Query<(string Path, string? Title, int ReadStatus, int ReadCount, long? LastRead)>(@"
+SELECT a.path AS Path,
+       m.title AS Title,
+       COALESCE(m.read_status, 0) AS ReadStatus,
+       COALESCE(m.read_count, 0) AS ReadCount,
+       m.last_read AS LastRead
+FROM asset a
+LEFT JOIN asset_meta m ON m.asset_id = a.id
+WHERE a.path IN @paths;",
+                    new { paths = batch }, _currentTx);
+
+                foreach (var r in rows)
+                {
+                    var status = Enum.IsDefined(typeof(ReadStatus), r.ReadStatus)
+                        ? (ReadStatus)r.ReadStatus
+                        : ReadStatus.Unread;
+                    result[r.Path] = new AssetGalleryStats(r.Title, status, r.ReadCount, r.LastRead);
+                }
+            }
+        }
+
+        return result;
     }
 
     public int? GetLastPage(string path)
@@ -1692,6 +1752,110 @@ FROM virtual_library WHERE id = @id;",
                 r.Value.Id, r.Value.Name, r.Value.Dsl, r.Value.IconSvg,
                 r.Value.SortOrder, r.Value.Pinned != 0,
                 r.Value.CreatedAt, r.Value.UpdatedAt);
+        }
+    }
+
+    public bool AddWorkToVirtualLibrary(long libraryId, string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+
+        lock (_lock)
+        {
+            var libExists = _conn.ExecuteScalar<long>(
+                "SELECT COUNT(*) FROM virtual_library WHERE id = @libraryId;",
+                new { libraryId }, _currentTx) > 0;
+            if (!libExists) return false;
+
+            var assetId = _conn.ExecuteScalar<long?>(
+                "SELECT id FROM asset WHERE path = @path LIMIT 1;",
+                new { path }, _currentTx);
+
+            if (!assetId.HasValue)
+            {
+                bool isFolder = Directory.Exists(path);
+                bool isFile = !isFolder && File.Exists(path);
+                if (!isFolder && !isFile) return false;
+
+                var trimmed = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var name = Path.GetFileName(trimmed);
+                if (string.IsNullOrEmpty(name)) name = path;
+
+                long? fileSize = null;
+                if (isFile)
+                {
+                    try { fileSize = new FileInfo(path).Length; } catch { }
+                }
+
+                long mtime = 0;
+                try
+                {
+                    DateTime t = isFolder
+                        ? Directory.GetLastWriteTimeUtc(path)
+                        : File.GetLastWriteTimeUtc(path);
+                    mtime = new DateTimeOffset(t, TimeSpan.Zero).ToUnixTimeSeconds();
+                }
+                catch { }
+
+                assetId = UpsertCatalogInternal(new AssetMeta
+                {
+                    Path = path,
+                    Name = name,
+                    IsFolder = isFolder,
+                    FileSize = fileSize,
+                    Mtime = mtime,
+                    LastScanned = NowUnix(),
+                });
+            }
+
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            _conn.Execute(@"
+INSERT OR IGNORE INTO virtual_library_item (library_id, asset_id, added_at)
+VALUES (@libraryId, @assetId, @addedAt);",
+                new { libraryId, assetId = assetId.Value, addedAt = now }, _currentTx);
+            return true;
+        }
+    }
+
+    public bool RemoveWorkFromVirtualLibrary(long libraryId, string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+
+        lock (_lock)
+        {
+            var affected = _conn.Execute(@"
+DELETE FROM virtual_library_item
+WHERE library_id = @libraryId
+  AND asset_id = (SELECT id FROM asset WHERE path = @path LIMIT 1);",
+                new { libraryId, path }, _currentTx);
+            return affected > 0;
+        }
+    }
+
+    public IReadOnlyList<string> ListManualVirtualLibraryWorks(long libraryId)
+    {
+        lock (_lock)
+            return _conn.Query<string>(@"
+SELECT a.path
+FROM virtual_library_item vli
+JOIN asset a ON a.id = vli.asset_id
+WHERE vli.library_id = @libraryId
+ORDER BY vli.added_at DESC, a.id DESC;",
+                new { libraryId }, _currentTx).AsList();
+    }
+
+    public IReadOnlyCollection<long> ListVirtualLibraryIdsForWork(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return new HashSet<long>();
+
+        lock (_lock)
+        {
+            var ids = _conn.Query<long>(@"
+SELECT vli.library_id
+FROM virtual_library_item vli
+JOIN asset a ON a.id = vli.asset_id
+WHERE a.path = @path;",
+                new { path }, _currentTx);
+            return new HashSet<long>(ids);
         }
     }
 

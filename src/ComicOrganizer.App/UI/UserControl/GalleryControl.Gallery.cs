@@ -18,11 +18,16 @@ public partial class GalleryControl
     /// <param name="mode">S/M/L/List view mode（影響卡片 size + 內部 layout）。</param>
     /// <param name="showMetadata">虛擬庫 mode 套作品 metadata view 在卡片上（folder mode 不套，
     /// 因為 folder tree 已暗示作者，重複顯示冗餘）。</param>
-    private ComicCardControl BuildCardForGallery(FileSystemInfo fsi, GalleryViewMode mode, bool showMetadata)
+    private ComicCardControl BuildCardForGallery(
+        FileSystemInfo fsi,
+        GalleryViewMode mode,
+        bool showMetadata,
+        GalleryItemSortMetadata? sortMeta = null)
     {
         bool isFolderNode = fsi is DirectoryInfo;
         var card = new ComicCardControl();
         card.SetData(fsi, isFolderNode);
+        card.Tag = sortMeta ?? BuildSortMetadata(fsi, statsMap: null);
 
         if (showMetadata)
         {
@@ -38,9 +43,10 @@ public partial class GalleryControl
             var view = _metaStore.GetMetadataView(p);
             return (lp, view?.PageCount);
         };
+        card.VirtualLibrariesProvider = () => _metaStore?.ListVirtualLibraries() ?? Array.Empty<VirtualLibrary>();
+        card.WorkLibraryIdsProvider = p => _metaStore?.ListVirtualLibraryIdsForWork(p) ?? Array.Empty<long>();
         card.RefreshProgress();
 
-        var c = card;   // 給 lambda capture 用，避免 foreach var closure 疑慮
         // 透過 queue 延遲 RecordRead；queue.Recorded event 會 RefreshCardReadStatusByPath
         card.RequestOpenFolder += p => { EnqueueReadIfEnabled(p); OpenFolderTab(p, false); };
         card.RequestOpenViewer += p => { EnqueueReadIfEnabled(p); OpenForReading(p); };
@@ -51,21 +57,19 @@ public partial class GalleryControl
             else OpenForReading(p);
         };
         card.RequestExplorer += p => OpenInExplorer(p);
+        card.RequestRefreshCover += p => _ = RefreshWorkCoverAsync(p);
         card.RequestAuthorInfo += p => ShowAuthorInfo(p);
         card.RequestWorkDetail += p => ShowWorkDetail(p);
+        card.RequestToggleVirtualLibrary += (p, libId) => ToggleWorkInVirtualLibrary(libId, p);
+        card.RequestCreateVirtualLibraryAndAdd += p => CreateVirtualLibraryAndAddWork(p);
         // 強制走外部開啟（不看 UseBuiltInReader 偏好）：漫畫格式 → 外部 viewer；其他 → 系統預設
         card.RequestOpenWithExternal += p =>
         {
             EnqueueReadIfEnabled(p);
-            if (CanUseBuiltInReader(p)) OpenWithExternalViewer(p);
+            if (WorkContextMenuHelper.CanUseBuiltInReader(p)) OpenWithExternalViewer(p);
             else OpenWithSystemDefault(p);
         };
-        card.RequestSetReadStatus += (p, status) =>
-        {
-            _metaStore?.SetReadStatus(p, status);
-            c.RefreshReadStatusIcon();
-            c.RefreshProgress();
-        };
+        card.RequestSetReadStatus += (p, status) => SetWorkReadStatus(p, status);
 
         // 目錄與檔案都試著載封面：CoverManager 對目錄會遞迴往下找首張圖檔（受 MaxScanDepth 限制）
         // 統一以 Large 寬度載入，切換 view mode 時 pic.ImageFit=Contain 縮放顯示，不需重新載
@@ -73,20 +77,265 @@ public partial class GalleryControl
         return card;
     }
 
-    /// <summary>掃所有 tab 的卡片，找 ItemPath 相符者刷 read status icon 與進度條。</summary>
-    private void RefreshCardReadStatusByPath(string path)
+    /// <summary>建立列表模式與共用右鍵選單使用的動作集合，確保與卡片模式行為 100% 一致。</summary>
+    private WorkMenuActions CreateWorkMenuActions() => new()
+    {
+        OpenPrimary = p =>
+        {
+            EnqueueReadIfEnabled(p);
+            if (Directory.Exists(p)) OpenFolderTab(p, false);
+            else OpenForReading(p);
+        },
+        OpenExternal = p =>
+        {
+            EnqueueReadIfEnabled(p);
+            if (WorkContextMenuHelper.CanUseBuiltInReader(p)) OpenWithExternalViewer(p);
+            else OpenWithSystemDefault(p);
+        },
+        OpenNewTab = p =>
+        {
+            EnqueueReadIfEnabled(p);
+            if (Directory.Exists(p)) OpenFolderTab(p, true);
+            else OpenForReading(p);
+        },
+        OpenInExplorer = p => OpenInExplorer(p),
+        RefreshCover = p => _ = RefreshWorkCoverAsync(p),
+        ShowAuthorInfo = p => ShowAuthorInfo(p),
+        ShowWorkDetail = p => ShowWorkDetail(p),
+        ToggleVirtualLibrary = (p, libId) => ToggleWorkInVirtualLibrary(libId, p),
+        CreateVirtualLibraryAndAdd = p => CreateVirtualLibraryAndAddWork(p),
+        SetReadStatus = (p, status) => SetWorkReadStatus(p, status),
+    };
+
+    private void SetWorkReadStatus(string path, ReadStatus status)
+    {
+        _metaStore?.SetReadStatus(path, status);
+        RefreshCardReadStatusByPath(path);
+    }
+
+    private IEnumerable<ComicCardControl> EnumerateAllCards()
     {
         foreach (AntdUI.TabPage page in tabsContent.Pages)
         {
+            if (page.IsDisposed) continue;
+            if (WorkContextMenuHelper.IsDashboardTag(page.Tag as string))
+            {
+                foreach (var flowName in new[] { "dbFlowRecentlyRead", "dbFlowRecentlyAdded" })
+                {
+                    var dbFlow = FindInTab<FlowLayoutPanel>(page, flowName);
+                    if (dbFlow == null) continue;
+                    foreach (var c in dbFlow.Controls.OfType<ComicCardControl>())
+                        yield return c;
+                }
+                continue;
+            }
             var flow = FindTabFlowLayout(page);
             if (flow == null) continue;
             foreach (var c in flow.Controls.OfType<ComicCardControl>())
+                yield return c;
+        }
+    }
+
+    /// <summary>掃所有 tab 的卡片（含 Dashboard）與列表緩存，刷 read status icon、進度條與排序過濾中繼資料。</summary>
+    private void RefreshCardReadStatusByPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        AssetGalleryStats? latestStats = null;
+        if (_metaStore != null)
+        {
+            var statsMap = _metaStore.GetGalleryStatsByPaths(new[] { path });
+            statsMap.TryGetValue(path, out latestStats);
+        }
+
+        foreach (var c in EnumerateAllCards())
+        {
+            if (!c.IsDisposed && string.Equals(c.ItemPath, path, StringComparison.OrdinalIgnoreCase))
             {
-                if (string.Equals(c.ItemPath, path, StringComparison.OrdinalIgnoreCase))
+                c.RefreshReadStatusIcon();
+                c.RefreshProgress();
+                if (latestStats != null && c.Tag is GalleryItemSortMetadata meta)
                 {
-                    c.RefreshReadStatusIcon();
-                    c.RefreshProgress();
+                    c.Tag = meta with
+                    {
+                        DisplayTitle = latestStats.Title ?? meta.DisplayTitle,
+                        ReadStatus = latestStats.ReadStatus,
+                        ReadCount = latestStats.ReadCount,
+                        LastRead = latestStats.LastRead,
+                    };
                 }
+            }
+        }
+
+        foreach (var kv in _tabFullListItems)
+        {
+            foreach (var row in kv.Value)
+            {
+                if (string.Equals(row.FullPath, path, StringComparison.OrdinalIgnoreCase) && latestStats != null && row.SortMeta != null)
+                {
+                    row.SortMeta = row.SortMeta with
+                    {
+                        DisplayTitle = latestStats.Title ?? row.SortMeta.DisplayTitle,
+                        ReadStatus = latestStats.ReadStatus,
+                        ReadCount = latestStats.ReadCount,
+                        LastRead = latestStats.LastRead,
+                    };
+                }
+            }
+        }
+
+        foreach (AntdUI.TabPage page in tabsContent.Pages)
+        {
+            if (page.IsDisposed || WorkContextMenuHelper.IsDashboardTag(page.Tag as string)) continue;
+            var state = GetOrCreateTabSortFilterState(page);
+            bool needsReapply = state.ReadFilter != GalleryReadFilter.All
+                || state.SortField is GallerySortField.LastRead or GallerySortField.ReadCount;
+            if (!needsReapply) continue;
+
+            bool containsPath = (_tabFullListItems.TryGetValue(page, out var list) && list.Any(r => string.Equals(r.FullPath, path, StringComparison.OrdinalIgnoreCase)))
+                || (FindTabFlowLayout(page)?.Controls.OfType<ComicCardControl>().Any(c => string.Equals(c.ItemPath, path, StringComparison.OrdinalIgnoreCase)) ?? false);
+            if (containsPath)
+            {
+                ApplySortAndFilterToTab(page);
+            }
+        }
+    }
+
+    /// <summary>強制重新解碼指定路徑的封面並更新所有開啟分頁中的卡片與列表縮圖。</summary>
+    private async Task RefreshWorkCoverAsync(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || IsDisposed) return;
+        ReportJobStarted("正在重新載入封面...");
+        Image? freshImg = null;
+        try
+        {
+            freshImg = await _coverManager.RefreshCoverAsync(path, MaxCardCoverWidth);
+        }
+        finally
+        {
+            ReportJobFinished();
+        }
+
+        if (IsDisposed)
+        {
+            freshImg?.Dispose();
+            return;
+        }
+
+        if (freshImg == null)
+        {
+            var form = this.FindForm();
+            if (form != null && !form.IsDisposed)
+                AntdUI.Message.warn(form, "無法重新載入封面");
+            return;
+        }
+
+        void ApplyUpdatedCover()
+        {
+            using (freshImg)
+            {
+                if (IsDisposed) return;
+                foreach (var card in EnumerateAllCards())
+                {
+                    if (!card.IsDisposed && string.Equals(card.ItemPath, path, StringComparison.OrdinalIgnoreCase))
+                    {
+                        card.SetCover(new Bitmap(freshImg));
+                    }
+                }
+
+                foreach (AntdUI.TabPage page in tabsContent.Pages)
+                {
+                    if (page.IsDisposed) continue;
+                    var table = FindTabTable(page);
+                    if (table == null || table.IsDisposed) continue;
+                    if (table.DataSource is not System.ComponentModel.BindingList<GalleryListItem> list) continue;
+
+                    bool updated = false;
+                    foreach (var row in list)
+                    {
+                        if (!string.Equals(row.FullPath, path, StringComparison.OrdinalIgnoreCase)) continue;
+                        var oldImg = row.Thumbnail?.Image;
+                        var newCellImg = new AntdUI.CellImage(new Bitmap(freshImg))
+                        {
+                            Size = new Size(60, 80),
+                            Radius = 4,
+                            ImageFit = AntdUI.TFit.Cover,
+                        };
+                        row.Thumbnail = newCellImg;
+                        if (oldImg != null && !ReferenceEquals(oldImg, newCellImg.Image))
+                        {
+                            oldImg.Dispose();
+                        }
+                        updated = true;
+                    }
+                    if (updated) table.Invalidate();
+                }
+            }
+        }
+
+        if (InvokeRequired)
+        {
+            try { BeginInvoke((Action)ApplyUpdatedCover); }
+            catch { freshImg.Dispose(); }
+        }
+        else
+        {
+            ApplyUpdatedCover();
+        }
+    }
+
+    /// <summary>切換作品在指定自訂虛擬閱讀清單的手動收錄狀態，並同步刷新對應分頁（若已開啟）。</summary>
+    private void ToggleWorkInVirtualLibrary(long libraryId, string path)
+    {
+        if (_metaStore == null || string.IsNullOrWhiteSpace(path)) return;
+        var existingIds = _metaStore.ListVirtualLibraryIdsForWork(path);
+        bool currentlyInList = existingIds.Contains(libraryId);
+        bool changed = currentlyInList
+            ? _metaStore.RemoveWorkFromVirtualLibrary(libraryId, path)
+            : _metaStore.AddWorkToVirtualLibrary(libraryId, path);
+
+        var libName = _metaStore.GetVirtualLibrary(libraryId)?.Name ?? "閱讀清單";
+        var form = this.FindForm();
+        if (form != null && !form.IsDisposed && changed)
+        {
+            AntdUI.Message.success(form, currentlyInList
+                ? $"已從「{libName}」移出"
+                : $"已加入「{libName}」");
+        }
+
+        RefreshOpenTabsForVirtualLibrary(libraryId);
+    }
+
+    /// <summary>開啟建立自訂虛擬庫對話框（允許空白 DSL 建立手動清單），建立後立即加入此作品。</summary>
+    private void CreateVirtualLibraryAndAddWork(string path)
+    {
+        if (_metaStore == null || string.IsNullOrWhiteSpace(path)) return;
+        var form = this.FindForm();
+        if (form == null || form.IsDisposed) return;
+
+        using var dlg = new SaveVirtualLibraryDialog(_metaStore, initialDsl: null, allowEmptyDsl: true);
+        if (dlg.ShowDialog(form) != DialogResult.OK) return;
+
+        long newId = _metaStore.CreateVirtualLibrary(dlg.ResultName, dlg.ResultDsl, dlg.ResultIconSvg);
+        bool added = _metaStore.AddWorkToVirtualLibrary(newId, path);
+
+        if (_currentViewMode == TreeViewMode.MyLib)
+        {
+            _ = LoadTreeAsync();
+        }
+
+        AntdUI.Message.success(form, added
+            ? $"已建立「{dlg.ResultName}」並加入作品"
+            : $"已建立「{dlg.ResultName}」");
+    }
+
+    private void RefreshOpenTabsForVirtualLibrary(long libraryId)
+    {
+        foreach (AntdUI.TabPage page in tabsContent.Pages.Cast<AntdUI.TabPage>().ToList())
+        {
+            if (page.IsDisposed) continue;
+            if (_tabVirtualLibraryIds.TryGetValue(page, out var tabLibId) && tabLibId == libraryId)
+            {
+                RefreshTab(page);
             }
         }
     }
@@ -105,50 +354,81 @@ public partial class GalleryControl
 
     /// <summary>非 folder 模式的 gallery 載入 — 直接吃 path list（asset.path），不走 DirectoryInfo 列舉。</summary>
     private Task LoadGalleryFromPathsAsync(FlowLayoutPanel container, IReadOnlyList<string> paths, GalleryViewMode mode)
-        => LoadGalleryFromPathsAsync(container, paths, () => mode);
+        => LoadGalleryFromPathsAsync(container, paths, () => mode, ownerPage: null);
 
-    private Task LoadGalleryFromPathsAsync(FlowLayoutPanel container, IReadOnlyList<string> paths, Func<GalleryViewMode> getMode)
+    private Task LoadGalleryFromPathsAsync(
+        FlowLayoutPanel container,
+        IReadOnlyList<string> paths,
+        Func<GalleryViewMode> getMode,
+        AntdUI.TabPage? ownerPage = null)
         => LoadGalleryCardsCoreAsync(
             container,
             () => VirtualTabPathHelper.ResolveExistingItems(paths),
             getMode,
-            showMetadata: true);
+            showMetadata: true,
+            ownerPage: ownerPage);
 
     private Task LoadGalleryCardsCoreAsync(
         FlowLayoutPanel container,
         Func<List<FileSystemInfo>> fetchItems,
         Func<GalleryViewMode> getMode,
-        bool showMetadata)
+        bool showMetadata,
+        AntdUI.TabPage? ownerPage = null)
     {
         int generation = NextLoadGeneration(container);
         ReportJobStarted("正在載入項目與封面...");
         container.Controls.Clear();
+        UpdateTabFilterCountLabel(ownerPage, 0, 0);
 
         AntdUI.Spin.open(container, async config =>
         {
             try
             {
                 if (!IsCurrentLoadGeneration(container, generation)) return;
-                var items = await Task.Run(fetchItems);
+                var initialState = ownerPage != null ? GetOrCreateTabSortFilterState(ownerPage) : new TabSortFilterState();
+                var prepared = await Task.Run(() =>
+                {
+                    var rawItems = fetchItems();
+                    var statsMap = _metaStore?.GetGalleryStatsByPaths(rawItems.Select(i => i.FullName));
+                    var list = new List<(FileSystemInfo Fs, GalleryItemSortMetadata Meta)>(rawItems.Count);
+                    foreach (var fs in rawItems)
+                    {
+                        list.Add((fs, BuildSortMetadata(fs, statsMap)));
+                    }
+                    return GallerySortFilterHelper.SortItems(
+                        list,
+                        x => x.Meta,
+                        initialState.SortField,
+                        initialState.SortDescending);
+                });
                 if (!IsCurrentLoadGeneration(container, generation)) return;
 
                 // 把 foreach 拆 chunks，批與批之間 await Task.Delay(1) 讓出 UI thread 給 Spin 動畫 paint。
                 // 整體時間幾乎相同 (Add HWND 時間不變) 但使用者看得到 Spin 在轉 + cards 分批冒出有 progress 感
                 const int ChunkSize = 8;
-                for (int i = 0; i < items.Count; i += ChunkSize)
+                for (int i = 0; i < prepared.Count; i += ChunkSize)
                 {
                     if (!IsCurrentLoadGeneration(container, generation)) break;
-                    var chunk = items.Skip(i).Take(ChunkSize).ToList();
+                    var chunk = prepared.Skip(i).Take(ChunkSize).ToList();
                     try
                     {
                         this.Invoke(() =>
                         {
                             if (!IsCurrentLoadGeneration(container, generation)) return;
                             var mode = getMode();
+                            var liveState = ownerPage != null ? GetOrCreateTabSortFilterState(ownerPage) : null;
                             container.SuspendLayout();
-                            foreach (var item in chunk)
+                            foreach (var entry in chunk)
                             {
-                                container.Controls.Add(BuildCardForGallery(item, mode, showMetadata));
+                                var card = BuildCardForGallery(entry.Fs, mode, showMetadata, entry.Meta);
+                                if (liveState != null)
+                                {
+                                    card.Visible = GallerySortFilterHelper.MatchesFilter(
+                                        entry.Meta,
+                                        liveState.ReadFilter,
+                                        liveState.FilterKeyword);
+                                }
+                                container.Controls.Add(card);
                             }
                             container.ResumeLayout(true);   // 該 chunk 的 cards 立刻 layout + paint
                         });
@@ -156,6 +436,20 @@ public partial class GalleryControl
                     catch (ObjectDisposedException) { break; }
                     catch (InvalidOperationException) { break; }
                     await Task.Delay(1);   // 讓 UI thread 喘口氣 paint Spin animation frame
+                }
+
+                if (ownerPage != null && IsCurrentLoadGeneration(container, generation))
+                {
+                    try
+                    {
+                        this.Invoke(() =>
+                        {
+                            if (IsCurrentLoadGeneration(container, generation))
+                                ApplySortAndFilterToTab(ownerPage);
+                        });
+                    }
+                    catch (ObjectDisposedException) { }
+                    catch (InvalidOperationException) { }
                 }
             }
             finally
@@ -284,21 +578,31 @@ public partial class GalleryControl
         });
     }
 
-    private Task LoadGalleryListAsync(AntdUI.Table table, string path)
-        => LoadGalleryListCoreAsync(table, () =>
-            Directory.Exists(path)
+    private Task LoadGalleryListAsync(AntdUI.Table table, string path, AntdUI.TabPage? ownerPage = null)
+        => LoadGalleryListCoreAsync(
+            table,
+            () => Directory.Exists(path)
                 ? new DirectoryInfo(path).GetFileSystemInfos()
                     .Where(ShouldShowInGallery)
                     .ToList()
-                : new List<FileSystemInfo>());
+                : new List<FileSystemInfo>(),
+            ownerPage);
 
-    private Task LoadGalleryListFromPathsAsync(AntdUI.Table table, IReadOnlyList<string> paths)
-        => LoadGalleryListCoreAsync(table, () => VirtualTabPathHelper.ResolveExistingItems(paths));
+    private Task LoadGalleryListFromPathsAsync(AntdUI.Table table, IReadOnlyList<string> paths, AntdUI.TabPage? ownerPage = null)
+        => LoadGalleryListCoreAsync(table, () => VirtualTabPathHelper.ResolveExistingItems(paths), ownerPage);
 
-    private Task LoadGalleryListCoreAsync(AntdUI.Table table, Func<List<FileSystemInfo>> fetchItems)
+    private Task LoadGalleryListCoreAsync(
+        AntdUI.Table table,
+        Func<List<FileSystemInfo>> fetchItems,
+        AntdUI.TabPage? ownerPage = null)
     {
         int generation = NextLoadGeneration(table);
         if (!table.IsDisposed) table.DataSource = null;
+        if (ownerPage != null)
+        {
+            _tabFullListItems.Remove(ownerPage);
+            UpdateTabFilterCountLabel(ownerPage, 0, 0);
+        }
 
         ReportJobStarted("正在載入清單項目與封面...");
         AntdUI.Spin.open(this, async config =>
@@ -307,46 +611,55 @@ public partial class GalleryControl
             {
                 if (!IsCurrentLoadGeneration(table, generation)) return;
 
-                // ===== Phase 1: 檔案掃描 + 排序 + 列表 binding (Spin 遮蔽期間) =====
+                // ===== Phase 1: 檔案掃描 + 批次 DB stats + 列表 binding (Spin 遮蔽期間) =====
                 var prepared = await Task.Run(() =>
                 {
-                    var fsInfos = fetchItems()
-                        .OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
-                        .ThenBy(i => i.FullName, StringComparer.OrdinalIgnoreCase)
-                        .ToList();
+                    var fsInfos = fetchItems();
+                    var statsMap = _metaStore?.GetGalleryStatsByPaths(fsInfos.Select(i => i.FullName));
 
-                    var result = new List<(FileSystemInfo fs, bool isDir, long size, DateTime createdAt)>(fsInfos.Count);
+                    var result = new List<(FileSystemInfo fs, bool isDir, long size, DateTime modifiedAt, GalleryItemSortMetadata meta)>(fsInfos.Count);
                     foreach (var fs in fsInfos)
                     {
                         bool isDir = fs is DirectoryInfo;
                         long size = 0;
-                        DateTime createdAt;
+                        DateTime modifiedAt;
                         try
                         {
                             if (!isDir) size = ((FileInfo)fs).Length;
-                            createdAt = fs.CreationTime;
+                            modifiedAt = fs.LastWriteTime;
                         }
                         catch (IOException) { continue; }
                         catch (UnauthorizedAccessException) { continue; }
-                        result.Add((fs, isDir, size, createdAt));
+                        var meta = new GalleryItemSortMetadata(
+                            fs.FullName,
+                            fs.Name,
+                            statsMap != null && statsMap.TryGetValue(fs.FullName, out var st) ? st.Title : null,
+                            isDir,
+                            size,
+                            modifiedAt.Ticks,
+                            statsMap != null && statsMap.TryGetValue(fs.FullName, out st) ? st.ReadStatus : ReadStatus.Unread,
+                            statsMap != null && statsMap.TryGetValue(fs.FullName, out st) ? st.ReadCount : 0,
+                            statsMap != null && statsMap.TryGetValue(fs.FullName, out st) ? st.LastRead : null);
+                        result.Add((fs, isDir, size, modifiedAt, meta));
                     }
                     return result;
                 });
 
                 if (!IsCurrentLoadGeneration(table, generation)) return;
 
-                var list = new System.ComponentModel.BindingList<GalleryListItem>();
-                var thumbTasks = new List<Task>();
+                var fullItems = new List<GalleryListItem>(prepared.Count);
+                var thumbTasks = new List<(GalleryListItem Row, Task<AntdUI.CellImage?> Task)>(prepared.Count);
 
-                foreach (var (fs, isDir, size, createdAt) in prepared)
+                foreach (var (fs, isDir, size, modifiedAt, meta) in prepared)
                 {
                     var item = new GalleryListItem
                     {
                         Name = fs.Name,
                         Size = isDir ? "" : FormatSize(size),
-                        CreatedAt = createdAt.ToString("yyyy-MM-dd HH:mm"),
+                        CreatedAt = modifiedAt.ToString("yyyy-MM-dd HH:mm"),
                         IsFolder = isDir,
                         FullPath = fs.FullName,
+                        SortMeta = meta,
                         Action = isDir
                             ? new AntdUI.CellLink[]
                             {
@@ -358,18 +671,19 @@ public partial class GalleryControl
                             }
                             : null,
                     };
-                    list.Add(item);
+                    fullItems.Add(item);
 
-                    // 縮圖任務 fire-and-forget — 透過 Semaphore 控管並行數
-                    var capturedItem = item;
-                    thumbTasks.Add(Task.Run(async () =>
+                    // 縮圖任務在背景解碼成 CellImage，統一回 UI 執行緒指派 Row.Thumbnail，避免跨緒觸發 PropertyChanged
+                    var fullPath = item.FullPath;
+                    var thumbTask = Task.Run<AntdUI.CellImage?>(async () =>
                     {
                         await _coverSemaphore.WaitAsync();
                         try
                         {
-                            if (!IsCurrentLoadGeneration(table, generation)) return;
-                            var img = await _coverManager.GetCoverAsync(capturedItem.FullPath, 120);
-                            if (img != null) capturedItem.Thumbnail = new AntdUI.CellImage(img)
+                            if (!IsCurrentLoadGeneration(table, generation)) return null;
+                            var img = await _coverManager.GetCoverAsync(fullPath, 120);
+                            if (img == null) return null;
+                            return new AntdUI.CellImage(img)
                             {
                                 Size = new Size(60, 80),
                                 Radius = 4,
@@ -380,16 +694,25 @@ public partial class GalleryControl
                         {
                             _coverSemaphore.Release();
                         }
-                    }));
+                    });
+                    thumbTasks.Add((item, thumbTask));
                 }
 
-                // 第一次 set：文字列表立即可見（縮圖欄空白）
+                // 第一次 set：文字列表立即可見（縮圖欄空白），套用目前排序與就地過濾
                 try
                 {
                     this.BeginInvoke(new Action(() =>
                     {
-                        if (IsCurrentLoadGeneration(table, generation))
-                            table.DataSource = list;
+                        if (!IsCurrentLoadGeneration(table, generation)) return;
+                        if (ownerPage != null)
+                        {
+                            _tabFullListItems[ownerPage] = fullItems;
+                            ApplySortAndFilterToTab(ownerPage);
+                        }
+                        else
+                        {
+                            table.DataSource = new System.ComponentModel.BindingList<GalleryListItem>(fullItems);
+                        }
                     }));
                 }
                 catch { }
@@ -398,15 +721,27 @@ public partial class GalleryControl
                 if (thumbTasks.Count == 0) return;
                 _ = Task.Run(async () =>
                 {
-                    await Task.WhenAll(thumbTasks);
+                    await Task.WhenAll(thumbTasks.Select(t => t.Task));
                     if (!IsCurrentLoadGeneration(table, generation)) return;
                     try
                     {
                         this.BeginInvoke(new Action(() =>
                         {
                             if (!IsCurrentLoadGeneration(table, generation)) return;
+                            foreach (var (row, task) in thumbTasks)
+                            {
+                                if (task.IsCompletedSuccessfully && task.Result != null)
+                                    row.Thumbnail = task.Result;
+                            }
                             table.DataSource = null;
-                            table.DataSource = list;
+                            if (ownerPage != null)
+                            {
+                                ApplySortAndFilterToTab(ownerPage);
+                            }
+                            else
+                            {
+                                table.DataSource = new System.ComponentModel.BindingList<GalleryListItem>(fullItems);
+                            }
                         }));
                     }
                     catch { /* form/table 已 dispose 等競態忽略 */ }
@@ -435,20 +770,181 @@ public partial class GalleryControl
     }
 
     private Task LoadGalleryAsync(FlowLayoutPanel container, string path, GalleryViewMode mode)
-        => LoadGalleryAsync(container, path, () => mode);
+        => LoadGalleryAsync(container, path, () => mode, ownerPage: null);
 
-    private Task LoadGalleryAsync(FlowLayoutPanel container, string path, Func<GalleryViewMode> getMode)
+    private Task LoadGalleryAsync(
+        FlowLayoutPanel container,
+        string path,
+        Func<GalleryViewMode> getMode,
+        AntdUI.TabPage? ownerPage = null)
         => LoadGalleryCardsCoreAsync(
             container,
             () => Directory.Exists(path)
                 ? new DirectoryInfo(path).GetFileSystemInfos()
                     .Where(ShouldShowInGallery)
-                    .OrderBy(i => i is DirectoryInfo ? 0 : 1)
-                    .ThenBy(i => i.Name)
                     .ToList()
                 : new List<FileSystemInfo>(),
             getMode,
-            showMetadata: false);
+            showMetadata: false,
+            ownerPage: ownerPage);
+
+    private void ApplySortAndFilterToTab(AntdUI.TabPage? page)
+    {
+        if (page == null || page.IsDisposed || WorkContextMenuHelper.IsDashboardTag(page.Tag as string)) return;
+        var state = GetOrCreateTabSortFilterState(page);
+        var mode = GetTabMode(page);
+
+        if (mode == GalleryViewMode.List)
+        {
+            var table = FindTabTable(page);
+            if (table == null || table.IsDisposed) return;
+            if (!_tabFullListItems.TryGetValue(page, out var fullItems)) return;
+
+            var filtered = fullItems
+                .Where(item => GallerySortFilterHelper.MatchesFilter(
+                    item.SortMeta ?? BuildListItemFallbackMeta(item),
+                    state.ReadFilter,
+                    state.FilterKeyword))
+                .ToList();
+            var sorted = GallerySortFilterHelper.SortItems(
+                filtered,
+                item => item.SortMeta ?? BuildListItemFallbackMeta(item),
+                state.SortField,
+                state.SortDescending);
+            table.DataSource = new System.ComponentModel.BindingList<GalleryListItem>(sorted);
+            UpdateTabFilterCountLabel(page, sorted.Count, fullItems.Count);
+            return;
+        }
+
+        var flow = FindTabFlowLayout(page);
+        if (flow == null || flow.IsDisposed) return;
+        var cards = flow.Controls.OfType<ComicCardControl>().ToList();
+        var sortedCards = GallerySortFilterHelper.SortItems(
+            cards,
+            GetCardSortMeta,
+            state.SortField,
+            state.SortDescending);
+
+        int visibleCount = 0;
+        flow.SuspendLayout();
+        try
+        {
+            for (int i = 0; i < sortedCards.Count; i++)
+            {
+                var card = sortedCards[i];
+                bool matches = GallerySortFilterHelper.MatchesFilter(
+                    GetCardSortMeta(card),
+                    state.ReadFilter,
+                    state.FilterKeyword);
+                if (card.Visible != matches) card.Visible = matches;
+                if (matches) visibleCount++;
+                if (flow.Controls.GetChildIndex(card, false) != i)
+                    flow.Controls.SetChildIndex(card, i);
+            }
+        }
+        finally
+        {
+            flow.ResumeLayout(true);
+        }
+        UpdateTabFilterCountLabel(page, visibleCount, cards.Count);
+    }
+
+    private void UpdateSortDirectionButton(AntdUI.Button btn, bool descending)
+    {
+        if (btn.IsDisposed) return;
+        btn.IconSvg = descending ? "SortDescendingOutlined" : "SortAscendingOutlined";
+        _btnTooltip.SetTip(btn, descending ? "降冪排序" : "升冪排序");
+    }
+
+    private static void SyncTableSortHeader(AntdUI.Table? table, TabSortFilterState state)
+    {
+        if (table == null || table.IsDisposed || table.Columns == null) return;
+        string? activeKey = state.SortField switch
+        {
+            GallerySortField.Name => "Name",
+            GallerySortField.Size => "Size",
+            GallerySortField.ModifiedTime => "CreatedAt",
+            _ => null
+        };
+        var activeMode = state.SortDescending ? AntdUI.SortMode.DESC : AntdUI.SortMode.ASC;
+        foreach (var col in table.Columns)
+        {
+            if (!col.SortOrder) continue;
+            col.SortMode = string.Equals(col.Key, activeKey, StringComparison.Ordinal)
+                ? activeMode
+                : AntdUI.SortMode.NONE;
+        }
+        table.Invalidate();
+    }
+
+    private static void UpdateTabFilterCountLabel(AntdUI.TabPage? page, int visibleCount, int totalCount)
+    {
+        if (page == null || page.IsDisposed) return;
+        var lbl = page.Controls.Find("tabLblFilterCount", true).OfType<System.Windows.Forms.Label>().FirstOrDefault();
+        if (lbl == null || lbl.IsDisposed) return;
+        lbl.Text = totalCount == 0
+            ? "0 項"
+            : (visibleCount == totalCount ? $"共 {totalCount} 項" : $"顯示 {visibleCount} / {totalCount} 項");
+    }
+
+    private GalleryItemSortMetadata BuildSortMetadata(
+        FileSystemInfo fs,
+        IReadOnlyDictionary<string, AssetGalleryStats>? statsMap)
+    {
+        bool isDir = fs is DirectoryInfo;
+        long size = 0;
+        long modifiedTicks = 0;
+        try
+        {
+            if (!isDir) size = ((FileInfo)fs).Length;
+            modifiedTicks = fs.LastWriteTime.Ticks;
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+
+        AssetGalleryStats? st = null;
+        statsMap?.TryGetValue(fs.FullName, out st);
+        return new GalleryItemSortMetadata(
+            fs.FullName,
+            fs.Name,
+            st?.Title,
+            isDir,
+            size,
+            modifiedTicks,
+            st?.ReadStatus ?? ReadStatus.Unread,
+            st?.ReadCount ?? 0,
+            st?.LastRead);
+    }
+
+    private GalleryItemSortMetadata GetCardSortMeta(ComicCardControl card)
+    {
+        if (card.Tag is GalleryItemSortMetadata meta) return meta;
+        var name = string.IsNullOrEmpty(card.ItemPath) ? "" : Path.GetFileName(card.ItemPath);
+        var fallback = new GalleryItemSortMetadata(
+            card.ItemPath ?? "",
+            name,
+            null,
+            Directory.Exists(card.ItemPath),
+            0,
+            0,
+            ReadStatus.Unread,
+            0,
+            null);
+        card.Tag = fallback;
+        return fallback;
+    }
+
+    private static GalleryItemSortMetadata BuildListItemFallbackMeta(GalleryListItem item)
+        => new(
+            item.FullPath,
+            item.Name,
+            null,
+            item.IsFolder,
+            0,
+            0,
+            ReadStatus.Unread,
+            0,
+            null);
 
     /// <summary>
     /// 「在檔案總管中開啟」共用邏輯：
@@ -477,7 +973,7 @@ public partial class GalleryControl
     /// </summary>
     private void OpenForReading(string path)
     {
-        if (_prefs?.UseBuiltInReader == true && CanUseBuiltInReader(path))
+        if (_prefs?.UseBuiltInReader == true && WorkContextMenuHelper.CanUseBuiltInReader(path))
         {
             try { OpenInBuiltInReader(path); return; }
             catch
@@ -486,17 +982,6 @@ public partial class GalleryControl
             }
         }
         OpenWithExternalViewer(path);
-    }
-
-    private static bool CanUseBuiltInReader(string path)
-    {
-        if (Directory.Exists(path)) return true;   // FolderReaderSource 會檢查內含圖
-        if (!File.Exists(path)) return false;
-        var ext = Path.GetExtension(path);
-        if (SupportedExtensions.Archive.Contains(ext)) return true;
-        if (SupportedExtensions.Pdf.Contains(ext)) return true;
-        // 單檔圖檔也支援 — FolderReaderSource 會 enumerate 同層 (Honeyview 行為)
-        return SupportedExtensions.Image.Contains(ext);
     }
 
     private void OpenInBuiltInReader(string path)

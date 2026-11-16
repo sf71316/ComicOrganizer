@@ -22,13 +22,16 @@ public partial class ComicCardControl : UserControl
     /// 非漫畫格式（PDF/EPUB 等）走系統預設程式。</summary>
     public event Action<string>? RequestOpenWithExternal;
     public event Action<string, ReadStatus>? RequestSetReadStatus;
+    public event Action<string>? RequestRefreshCover;
+    public event Action<string, long>? RequestToggleVirtualLibrary;
+    public event Action<string>? RequestCreateVirtualLibraryAndAdd;
     private const int CornerRadius = 8;
     private Color _currentBgColor = Color.White;
     // 手動觸發 AntdUI.Tooltip.open + 自管 delay：
     // TooltipComponent.SetTip 對 AntdUI.Panel 不可靠（AntdUI 自繪 control 的 hover events 不一定走 IExtenderProvider），
-    // 改用 hover→Timer→Tooltip.open 模式：1 秒內 leave 取消，不顯示；stay 1s+ 才顯示
+    // 改用 hover→Timer→Tooltip.open 模式：0.4 秒內 leave 取消，不顯示；stay 0.4s+ 才顯示
     private string _itemName = "";
-    private readonly System.Windows.Forms.Timer _tooltipDelayTimer = new() { Interval = 2000 };
+    private readonly System.Windows.Forms.Timer _tooltipDelayTimer = new() { Interval = 400 };
     private bool _tooltipShown = false;
 
     /// <summary>
@@ -66,6 +69,12 @@ public partial class ComicCardControl : UserControl
 
     /// <summary>查詢卡片當前 read_status 的 callback（由 GalleryControl 注入）。</summary>
     public Func<string, ReadStatus?>? ReadStatusProvider { get; set; }
+
+    /// <summary>查詢所有自訂虛擬閱讀清單的 callback（由 GalleryControl 注入）。</summary>
+    public Func<IReadOnlyList<VirtualLibrary>>? VirtualLibrariesProvider { get; set; }
+
+    /// <summary>查詢此作品已手動加入之虛擬閱讀清單 ID 集合的 callback（由 GalleryControl 注入）。</summary>
+    public Func<string, IReadOnlyCollection<long>>? WorkLibraryIdsProvider { get; set; }
     public ComicCardControl()
     {
         InitializeComponent();
@@ -408,11 +417,11 @@ public partial class ComicCardControl : UserControl
         int sidePad = Math.Max(0, (hoverToolbar.Width - totalBtnWidth) / 2);
         hoverToolbar.Padding = new Padding(sidePad, 0, sidePad, 0);
 
-        int bottomGap = LogicalToDeviceUnits(8);
-        hoverToolbar.Location = new Point(
-            (pic.Width - hoverToolbar.Width) / 2,
-            pic.Height - hoverToolbar.Height - bottomGap
-        );
+        int gap = LogicalToDeviceUnits(6);
+        int topOffset = (typeStrip != null ? typeStrip.Height : LogicalToDeviceUnits(24)) + gap;
+        int x = Math.Max(gap, pic.Width - hoverToolbar.Width - gap);
+        int y = Math.Min(Math.Max(gap, pic.Height - hoverToolbar.Height - gap), topOffset);
+        hoverToolbar.Location = new Point(x, y);
         hoverToolbar.Region = null;
     }
 
@@ -548,7 +557,13 @@ public partial class ComicCardControl : UserControl
 
     public void SetCover(Image? cover)
     {
-        if (cover != null) pic.Image = cover;
+        if (cover == null || IsDisposed || pic.IsDisposed) return;
+        var oldImg = pic.Image;
+        pic.Image = cover;
+        if (oldImg != null && !ReferenceEquals(oldImg, cover))
+        {
+            oldImg.Dispose();
+        }
     }
 
 
@@ -591,7 +606,7 @@ public partial class ComicCardControl : UserControl
         lbl.Padding = new Padding(4, 4, 4, 4);
 
         lbl.AutoSize = false;                // 確保 Dock=Fill 控制 size，不被 AutoSize 縮回單行
-        lbl.AutoEllipsis = false;            // 不顯示截斷 ...
+        lbl.AutoEllipsis = true;             // 超出兩三行時顯示截斷 ...
         lbl.UseCompatibleTextRendering = true;  // GDI+ DrawString 對 CJK 無空格的情況可字元級斷行
         lbl.Font = new Font("Microsoft JhengHei UI", fontSize);
 
@@ -601,132 +616,27 @@ public partial class ComicCardControl : UserControl
 
     private void ShowContextMenu()
     {
-        var menuItems = new List<AntdUI.IContextMenuStripItem>();
-        if (IsFolderNode) menuItems.Add(new AntdUI.ContextMenuStripItem("📂 進入目錄"));
-        else menuItems.Add(new AntdUI.ContextMenuStripItem("👁 閱讀"));
-        // 強制走外部開啟 — 漫畫格式用設定的 image viewer；其他格式（PDF/EPUB 等）走系統預設程式
-        var externalLabel = CanUseBuiltInReader(ItemPath)
-            ? "🔗 使用外部閱讀器開啟"
-            : "🔗 使用外部程式開啟";
-        menuItems.Add(new AntdUI.ContextMenuStripItem(externalLabel));
-        menuItems.Add(new AntdUI.ContextMenuStripItem("另開頁籤"));
-        menuItems.Add(new AntdUI.ContextMenuStripItemDivider());
-        menuItems.Add(new AntdUI.ContextMenuStripItem("📂 在檔案總管中開啟"));
-        menuItems.Add(new AntdUI.ContextMenuStripItem("👤 作者資訊"));
-        // 詳細資訊只對 Work 顯示（其他層級沒 metadata 可看）
-        if (IsWorkAsset(ItemPath))
+        var ctx = new WorkMenuContext
         {
-            menuItems.Add(new AntdUI.ContextMenuStripItem("ℹ 詳細資訊"));
-        }
-        // 閱讀狀態三項只對 Work 顯示（壓縮檔 / pdf / 純圖檔資料夾≥2張無子目錄）
-        if (IsWorkAsset(ItemPath))
+            Path = ItemPath,
+            IsFolderNode = IsFolderNode,
+            CurrentStatus = ReadStatusProvider?.Invoke(ItemPath),
+            VirtualLibraries = VirtualLibrariesProvider?.Invoke(),
+            WorkLibraryIds = WorkLibraryIdsProvider?.Invoke(ItemPath),
+        };
+        var actions = new WorkMenuActions
         {
-            // 當前 status 對應的選項要 disable（已是該狀態，不能重複設定）
-            var current = ReadStatusProvider?.Invoke(ItemPath);
-            menuItems.Add(new AntdUI.ContextMenuStripItemDivider());
-            menuItems.Add(new AntdUI.ContextMenuStripItem("✅ 標為已完成") { Enabled = current != ReadStatus.Completed });
-            menuItems.Add(new AntdUI.ContextMenuStripItem("⏹ 標為放棄") { Enabled = current != ReadStatus.Dropped });
-            menuItems.Add(new AntdUI.ContextMenuStripItem("↺ 重置為未讀") { Enabled = current != ReadStatus.Unread && current != null });
-        }
-
-        AntdUI.ContextMenuStrip.open(this, menuItem =>
-        {
-            var t = menuItem.Text;
-            if (t == null) return;
-            if (t.Contains("外部") || t.Contains("External"))
-            {
-                RequestOpenWithExternal?.Invoke(ItemPath);
-            }
-            else if (t.Contains("進入") || t.Contains("閱讀"))
-            {
-                OpenPrimary();
-            }
-            else if (t == "另開頁籤")
-            {
-                RequestNewTab?.Invoke(ItemPath, true);
-            }
-            else if (t.Contains("檔案總管"))
-            {
-                RequestExplorer?.Invoke(ItemPath);
-            }
-            else if (t.Contains("作者") || t.Contains("Author"))
-            {
-                RequestAuthorInfo?.Invoke(ItemPath);
-            }
-            else if (t.Contains("詳細") || t.Contains("Detail"))
-            {
-                RequestWorkDetail?.Invoke(ItemPath);
-            }
-            else if (t.Contains("已完成") || t.Contains("Completed"))
-            {
-                RequestSetReadStatus?.Invoke(ItemPath, ReadStatus.Completed);
-            }
-            else if (t.Contains("放棄") || t.Contains("Dropped"))
-            {
-                RequestSetReadStatus?.Invoke(ItemPath, ReadStatus.Dropped);
-            }
-            else if (t.Contains("未讀") || t.Contains("Unread"))
-            {
-                RequestSetReadStatus?.Invoke(ItemPath, ReadStatus.Unread);
-            }
-        }, menuItems.ToArray());
-    }
-
-    /// <summary>
-    /// 是否能用內建閱讀器開啟。reader 支援：壓縮檔（SupportedExtensions.Archive）/ PDF / 單張圖檔 / 含圖資料夾。
-    /// </summary>
-    private static bool CanUseBuiltInReader(string path)
-    {
-        if (Directory.Exists(path))
-        {
-            // 含至少 1 張圖即可（FolderReaderSource enumerate 直接子檔）
-            foreach (var f in Directory.EnumerateFiles(path))
-            {
-                if (SupportedExtensions.Image.Contains(Path.GetExtension(f)))
-                    return true;
-            }
-            return false;
-        }
-        if (!File.Exists(path)) return false;
-        var ext = Path.GetExtension(path);
-        if (SupportedExtensions.Archive.Contains(ext)) return true;
-        if (SupportedExtensions.Pdf.Contains(ext)) return true;
-        if (SupportedExtensions.Image.Contains(ext)) return true;
-        return false;
-    }
-
-    /// <summary>
-    /// 是否為「Work」asset（可被閱讀、可被標 read_status）。判定條件：
-    /// (1) 檔案副檔名為 archive/pdf
-    /// (2) 目錄無子目錄且含 ≥2 張圖檔
-    /// 其他（Author folder / Library / Category / 純空目錄）→ false
-    /// </summary>
-    private static bool IsWorkAsset(string path)
-    {
-        if (string.IsNullOrEmpty(path)) return false;
-        try
-        {
-            if (File.Exists(path))
-            {
-                var ext = Path.GetExtension(path);
-                return SupportedExtensions.Archive.Contains(ext) || SupportedExtensions.Pdf.Contains(ext);
-            }
-            if (Directory.Exists(path))
-            {
-                // 含子目錄 → 不是 Work（章節集 / 作者夾）
-                if (Directory.EnumerateDirectories(path).Any()) return false;
-                int imgCount = 0;
-                foreach (var f in Directory.EnumerateFiles(path))
-                {
-                    if (SupportedExtensions.Image.Contains(Path.GetExtension(f)))
-                    {
-                        if (++imgCount >= 2) return true;   // 達標早退
-                    }
-                }
-                return false;
-            }
-        }
-        catch { /* 路徑被刪、權限不足等 */ }
-        return false;
+            OpenPrimary = _ => OpenPrimary(),
+            OpenExternal = p => RequestOpenWithExternal?.Invoke(p),
+            OpenNewTab = p => RequestNewTab?.Invoke(p, true),
+            OpenInExplorer = p => RequestExplorer?.Invoke(p),
+            RefreshCover = p => RequestRefreshCover?.Invoke(p),
+            ShowAuthorInfo = p => RequestAuthorInfo?.Invoke(p),
+            ShowWorkDetail = p => RequestWorkDetail?.Invoke(p),
+            ToggleVirtualLibrary = (p, libId) => RequestToggleVirtualLibrary?.Invoke(p, libId),
+            CreateVirtualLibraryAndAdd = p => RequestCreateVirtualLibraryAndAdd?.Invoke(p),
+            SetReadStatus = (p, status) => RequestSetReadStatus?.Invoke(p, status),
+        };
+        WorkContextMenuHelper.OpenWorkContextMenu(this, ctx, actions);
     }
 }
