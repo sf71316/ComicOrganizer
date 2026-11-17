@@ -1,17 +1,19 @@
 using PDFtoImage;
+using SkiaSharp;
 
 namespace ComicOrganizer.App.Core;
 
 /// <summary>
-/// PDF 圖檔來源（#51 Phase 2-A）：用 PDFtoImage（PDFium + SkiaSharp）即時 render 每一頁成 PNG。
+/// PDF 圖檔來源（#51 Phase 2-A）：用 PDFtoImage（PDFium + SkiaSharp）即時 render 每一頁。
 ///
 /// 與 Folder/Archive 不同 — PDF 沒有「預先存好的 image bytes」，每頁都要 render。
-/// 進入時把整份 PDF 讀進 byte[] 常駐記憶體，OpenPage(i) 用 SavePng 直接寫進 MemoryStream；
+/// 進入時把整份 PDF 讀進 byte[] 常駐記憶體，支援透過 <see cref="ISkiaBitmapSource"/> 直接產出 <see cref="SKBitmap"/>
+/// （免去 PNG 編解碼往返），並保留 <see cref="OpenPage"/> 相容既有串流呼叫端；
 /// Dispose() 時立即釋放 _bytes 參考以回收大型 PDF 常駐記憶體。
 ///
-/// PDFium native 非執行緒安全 — 多頁 preload 會並發 OpenPage，內部 lock 序列化。
+/// PDFium native 非執行緒安全 — 多頁 preload 會並發存取，內部 lock 序列化。
 /// </summary>
-public class PdfReaderSource : IReaderSource
+public class PdfReaderSource : IReaderSource, ISkiaBitmapSource
 {
     private byte[]? _bytes;
     private readonly int _pageCount;
@@ -51,6 +53,21 @@ public class PdfReaderSource : IReaderSource
         }
         ms.Position = 0;
         return ms;
+    }
+
+    public SKBitmap? OpenPageBitmap(int index)
+    {
+        if (_disposed)
+            throw new ObjectDisposedException(nameof(PdfReaderSource));
+        if (index < 0 || index >= _pageCount)
+            throw new ArgumentOutOfRangeException(nameof(index));
+
+        lock (_lock)
+        {
+            if (_disposed || _bytes == null)
+                throw new ObjectDisposedException(nameof(PdfReaderSource));
+            return Conversion.ToImage(_bytes, page: index, options: _renderOptions);
+        }
     }
 
     /// <summary>render 結果一律是 PNG，給 ReaderImageLoader.Decode 走 GDI+ Image.FromStream 路徑。</summary>

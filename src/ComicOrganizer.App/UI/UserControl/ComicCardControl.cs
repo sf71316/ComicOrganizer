@@ -25,6 +25,7 @@ public partial class ComicCardControl : UserControl
     public event Action<string>? RequestRefreshCover;
     public event Action<string, long>? RequestToggleVirtualLibrary;
     public event Action<string>? RequestCreateVirtualLibraryAndAdd;
+    public event Action<string>? RequestSearchDsl;
     private const int CornerRadius = 8;
     private Color _currentBgColor = Color.White;
     // 手動觸發 AntdUI.Tooltip.open + 自管 delay：
@@ -75,6 +76,9 @@ public partial class ComicCardControl : UserControl
 
     /// <summary>查詢此作品已手動加入之虛擬閱讀清單 ID 集合的 callback（由 GalleryControl 注入）。</summary>
     public Func<string, IReadOnlyCollection<long>>? WorkLibraryIdsProvider { get; set; }
+
+    /// <summary>右鍵開啟時延遲查詢作者／系列／翻譯組供「🔍 延伸搜尋」使用（由 GalleryControl 注入）。</summary>
+    public Func<string, (string? AuthorName, string? Series, string? TranslationGroup)>? ExtendedSearchInfoProvider { get; set; }
     public ComicCardControl()
     {
         InitializeComponent();
@@ -616,6 +620,7 @@ public partial class ComicCardControl : UserControl
 
     private void ShowContextMenu()
     {
+        var extInfo = ExtendedSearchInfoProvider?.Invoke(ItemPath) ?? default;
         var ctx = new WorkMenuContext
         {
             Path = ItemPath,
@@ -623,6 +628,9 @@ public partial class ComicCardControl : UserControl
             CurrentStatus = ReadStatusProvider?.Invoke(ItemPath),
             VirtualLibraries = VirtualLibrariesProvider?.Invoke(),
             WorkLibraryIds = WorkLibraryIdsProvider?.Invoke(ItemPath),
+            AuthorName = extInfo.AuthorName,
+            Series = extInfo.Series,
+            TranslationGroup = extInfo.TranslationGroup,
         };
         var actions = new WorkMenuActions
         {
@@ -636,6 +644,7 @@ public partial class ComicCardControl : UserControl
             ToggleVirtualLibrary = (p, libId) => RequestToggleVirtualLibrary?.Invoke(p, libId),
             CreateVirtualLibraryAndAdd = p => RequestCreateVirtualLibraryAndAdd?.Invoke(p),
             SetReadStatus = (p, status) => RequestSetReadStatus?.Invoke(p, status),
+            ExecuteSearchDsl = dsl => RequestSearchDsl?.Invoke(dsl),
         };
         WorkContextMenuHelper.OpenWorkContextMenu(this, ctx, actions);
     }

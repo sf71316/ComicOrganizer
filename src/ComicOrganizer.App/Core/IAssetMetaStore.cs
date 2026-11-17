@@ -339,6 +339,12 @@ public interface IAssetMetaStore : IDisposable
     /// 沒 asset_meta 的也列入；依 path 排序。</summary>
     IReadOnlyList<string> ListAllAssetPaths();
 
+    /// <summary>series 子字串模糊搜尋（給 DSL series: 用）。空字串回空清單。</summary>
+    IReadOnlyList<string> ListWorksBySeries(string keyword);
+
+    /// <summary>translation_group 子字串模糊搜尋（給 DSL group:/translator:/scanlator: 用）。空字串回空清單。</summary>
+    IReadOnlyList<string> ListWorksByTranslationGroup(string keyword);
+
     // ===== 自訂虛擬庫（#54 Phase 1）=====
 
     /// <summary>建一個新自訂虛擬庫，回新 id。created_at / updated_at 用 now ms。</summary>

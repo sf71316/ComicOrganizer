@@ -75,6 +75,9 @@ public partial class GalleryControl : UserControl, IThemedControl
     /// <summary>虛擬閱讀清單分頁對應的 VirtualLibrary.Id（增減作品後自動連動刷新）。</summary>
     private readonly Dictionary<AntdUI.TabPage, long> _tabVirtualLibraryIds = new();
 
+    /// <summary>搜尋／作者等可儲存虛擬分頁對應的 DSL 條件（供分頁工具列「存為清單」按鈕使用）。</summary>
+    private readonly Dictionary<AntdUI.TabPage, string> _tabSearchDsls = new();
+
     /// <summary>每個分頁獨立的排序與就地過濾狀態。</summary>
     private sealed class TabSortFilterState
     {
@@ -433,6 +436,11 @@ public partial class GalleryControl : UserControl, IThemedControl
             {
                 txtFilter.PlaceholderText = LocalizationManager.GetString("QuickFilterPlaceholder") ?? "本頁過濾（檔名／標題）...";
             }
+            foreach (var btnSaveVLib in page.Controls.Find("tabBtnSaveVLib", true).OfType<AntdUI.Button>())
+            {
+                btnSaveVLib.Text = "存為清單";
+                _btnTooltip.SetTip(btnSaveVLib, "將目前搜尋條件存為自訂閱讀清單");
+            }
         }
     }
 
@@ -498,6 +506,11 @@ public partial class GalleryControl : UserControl, IThemedControl
                 }
             }
             foreach (var btn in page.Controls.Find("tabBtnClearFilter", true).OfType<AntdUI.Button>())
+            {
+                btn.ForeColor = Core.ThemeColors.Text;
+                btn.BackHover = Core.ThemeColors.Secondary;
+            }
+            foreach (var btn in page.Controls.Find("tabBtnSaveVLib", true).OfType<AntdUI.Button>())
             {
                 btn.ForeColor = Core.ThemeColors.Text;
                 btn.BackHover = Core.ThemeColors.Secondary;

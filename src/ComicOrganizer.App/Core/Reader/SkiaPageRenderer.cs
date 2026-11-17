@@ -99,6 +99,10 @@ public sealed class SkiaPageRenderer : IDisposable
 
     // 背景預載 worker
     private readonly ConcurrentQueue<int> _queue = new();
+    private readonly ConcurrentQueue<int> _priorityQueue = new();
+    private readonly HashSet<int> _queuedNormal = new();
+    private readonly HashSet<int> _queuedPriority = new();
+    private readonly HashSet<int> _inFlight = new();
     private readonly AutoResetEvent _signal = new(false);
     private readonly Thread _worker;
     private volatile bool _shuttingDown;
@@ -119,11 +123,17 @@ public sealed class SkiaPageRenderer : IDisposable
         _worker.Start();
     }
 
-    /// <summary>來源 bytes → 完整解碼成 raster SKImage（背景執行緒亦可呼叫）。一般模式的預設 producer。</summary>
+    /// <summary>來源 bytes 或直接 bitmap 來源 → 完整解碼成 raster SKImage（背景執行緒亦可呼叫）。一般模式的預設 producer。</summary>
     public static SKImage? DecodeFromSource(IReaderSource source, int index)
     {
         try
         {
+            if (source is ISkiaBitmapSource skiaSource)
+            {
+                using var directBmp = skiaSource.OpenPageBitmap(index);
+                return directBmp == null ? null : SKImage.FromBitmap(directBmp);
+            }
+
             using var stream = source.OpenPage(index);
             using var ms = new MemoryStream();
             stream.CopyTo(ms);
@@ -228,14 +238,42 @@ public sealed class SkiaPageRenderer : IDisposable
         return slot?.Image;
     }
 
+    /// <summary>把指定頁排入前景優先解碼佇列並喚醒 worker（用於當前可見頁未命中快取時）。</summary>
+    public void RequestPriority(int index)
+    {
+        if (_shuttingDown) return;
+        Enqueue(index, priority: true);
+        try { _signal.Set(); } catch (ObjectDisposedException) { }
+    }
+
+    /// <summary>
+    /// 將可見跨頁 <c>[start, start + size - 1]</c> 排入前景優先佇列，
+    /// 其餘鄰頁（由近到遠 <c>1..radius</c>）排入一般背景預載佇列並喚醒 worker。
+    /// </summary>
+    public void RequestSpreadAndAround(int start, int size, int radius)
+    {
+        if (_shuttingDown) return;
+        int effectiveSize = Math.Max(1, size);
+        for (int i = 0; i < effectiveSize; i++)
+        {
+            Enqueue(start + i, priority: true);
+        }
+        for (int d = 1; d <= radius; d++)
+        {
+            Enqueue(start + effectiveSize - 1 + d, priority: false);
+            Enqueue(start - d, priority: false);
+        }
+        try { _signal.Set(); } catch (ObjectDisposedException) { }
+    }
+
     /// <summary>把 index 鄰頁(由近到遠)排進解碼佇列並喚醒 worker。</summary>
     public void RequestAround(int index, int radius)
     {
         if (_shuttingDown) return;
         for (int d = 0; d <= radius; d++)
         {
-            if (d == 0) Enqueue(index);
-            else { Enqueue(index + d); Enqueue(index - d); }
+            if (d == 0) Enqueue(index, priority: false);
+            else { Enqueue(index + d, priority: false); Enqueue(index - d, priority: false); }
         }
         try { _signal.Set(); } catch (ObjectDisposedException) { }
     }
@@ -245,38 +283,103 @@ public sealed class SkiaPageRenderer : IDisposable
     {
         if (_shuttingDown) return;
         if (from > to) (from, to) = (to, from);
-        for (int i = from; i <= to; i++) Enqueue(i);
+        for (int i = from; i <= to; i++) Enqueue(i, priority: false);
         try { _signal.Set(); } catch (ObjectDisposedException) { }
     }
 
-    private void Enqueue(int index)
+    private void Enqueue(int index, bool priority)
     {
-        if (index < 0 || index >= _pageCount) return;
-        lock (_cacheLock) if (_cache.ContainsKey(index)) return;
-        _queue.Enqueue(index);
+        if (index < 0 || index >= _pageCount || _shuttingDown) return;
+        lock (_cacheLock)
+        {
+            if (_shuttingDown || _cache.ContainsKey(index) || _inFlight.Contains(index))
+                return;
+
+            if (priority)
+            {
+                if (_queuedPriority.Add(index))
+                    _priorityQueue.Enqueue(index);
+            }
+            else
+            {
+                if (!_queuedPriority.Contains(index) && _queuedNormal.Add(index))
+                    _queue.Enqueue(index);
+            }
+        }
     }
 
     private void DecodeLoop()
     {
         while (!_shuttingDown)
         {
-            try { _signal.WaitOne(); }
-            catch (ObjectDisposedException) { break; }
+            int idx = -1;
+            bool hasWork = false;
+            int gen = 0;
 
-            while (!_shuttingDown && _queue.TryDequeue(out int idx))
+            lock (_cacheLock)
             {
-                lock (_cacheLock) if (_cache.ContainsKey(idx)) continue;
-                int gen = Volatile.Read(ref _clearGeneration);
-                var img = _produce(idx);
-                if (img == null) continue;
-                if (_shuttingDown || gen != Volatile.Read(ref _clearGeneration))
+                if (_shuttingDown) break;
+
+                while (_priorityQueue.TryDequeue(out int pIdx))
                 {
-                    img.Dispose();
-                    continue;
+                    bool removed = _queuedPriority.Remove(pIdx);
+                    _queuedNormal.Remove(pIdx);
+                    if (removed && !_cache.ContainsKey(pIdx) && !_inFlight.Contains(pIdx))
+                    {
+                        idx = pIdx;
+                        hasWork = true;
+                        break;
+                    }
                 }
-                Insert(idx, img, retainForCaller: false);
-                PageReady?.Invoke(idx);
+
+                if (!hasWork)
+                {
+                    while (_queue.TryDequeue(out int nIdx))
+                    {
+                        if (_queuedNormal.Remove(nIdx) && !_cache.ContainsKey(nIdx) && !_inFlight.Contains(nIdx))
+                        {
+                            idx = nIdx;
+                            hasWork = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (hasWork)
+                {
+                    _inFlight.Add(idx);
+                    gen = Volatile.Read(ref _clearGeneration);
+                }
             }
+
+            if (!hasWork)
+            {
+                try { _signal.WaitOne(); }
+                catch (ObjectDisposedException) { break; }
+                continue;
+            }
+
+            SKImage? img;
+            try
+            {
+                img = _produce(idx);
+            }
+            finally
+            {
+                lock (_cacheLock)
+                {
+                    _inFlight.Remove(idx);
+                }
+            }
+
+            if (img == null) continue;
+            if (_shuttingDown || gen != Volatile.Read(ref _clearGeneration))
+            {
+                img.Dispose();
+                continue;
+            }
+            Insert(idx, img, retainForCaller: false);
+            PageReady?.Invoke(idx);
         }
     }
 
@@ -350,8 +453,12 @@ public sealed class SkiaPageRenderer : IDisposable
             toRelease = new List<CacheSlot>(_cache.Values);
             _cache.Clear();
             _lru.Clear();
+            _queuedPriority.Clear();
+            _queuedNormal.Clear();
+            _inFlight.Clear();
+            while (_priorityQueue.TryDequeue(out _)) { }
+            while (_queue.TryDequeue(out _)) { }
         }
-        while (_queue.TryDequeue(out _)) { }
         foreach (var s in toRelease) s.Release();
     }
 

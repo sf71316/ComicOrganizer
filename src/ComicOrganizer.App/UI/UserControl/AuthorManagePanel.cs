@@ -46,6 +46,9 @@ public partial class AuthorManagePanel : UserControl, IThemedControl
     /// <summary>使用者點 row 上的 sync icon — 對單本跑 Phase E 流程。</summary>
     public event Action<string>? RequestSyncOne;
 
+    /// <summary>使用者點擊列上「在畫廊檢視」按鈕時觸發（傳入 artist:... DSL）。</summary>
+    public event Action<string>? RequestViewInGallery;
+
     public void Initialize(IAssetMetaStore metaStore, TagTranslator? translator = null)
     {
         _metaStore = metaStore;
@@ -78,12 +81,12 @@ public partial class AuthorManagePanel : UserControl, IThemedControl
         tableAuthors.Columns = new ColumnCollection
         {
             new Column("MainName",   LocalizationManager.GetString("AuthorColMainName")  ?? "主名")    { Width = "20%", SortOrder = true },
-            new Column("FolderPath", LocalizationManager.GetString("AuthorColFolder")    ?? "實體資料夾"){ Width = "21%" },
+            new Column("FolderPath", LocalizationManager.GetString("AuthorColFolder")    ?? "實體資料夾"){ Width = "17%" },
             new Column("AliasCount", LocalizationManager.GetString("AuthorColAliases")   ?? "別名數")  { Width = "8%",  SortOrder = true, Align = ColumnAlign.Right },
             new Column("TagCount",   LocalizationManager.GetString("AuthorColTags")      ?? "標籤數")  { Width = "8%",  SortOrder = true, Align = ColumnAlign.Right },
             new Column("WorkCount",  LocalizationManager.GetString("AuthorColWorks")     ?? "作品數")  { Width = "9%",  SortOrder = true, Align = ColumnAlign.Right },
             new Column("LearnedAt",  LocalizationManager.GetString("AuthorColLearnedAt") ?? "建立時間"){ Width = "20%", SortOrder = true },
-            new Column("Action",     LocalizationManager.GetString("TagColAction")       ?? "操作")    { Width = "14%" },
+            new Column("Action",     LocalizationManager.GetString("TagColAction")       ?? "操作")    { Width = "18%" },
         };
     }
 
@@ -127,6 +130,10 @@ public partial class AuthorManagePanel : UserControl, IThemedControl
             if (e.Record is not AuthorRow row) return;
             switch (e.Btn.Id)
             {
+                case "Search":
+                    var dsl = SearchQueryParser.BuildFieldToken("artist", row.MainName);
+                    if (!string.IsNullOrEmpty(dsl)) RequestViewInGallery?.Invoke(dsl);
+                    break;
                 case "Rename": OnRenameClicked(row); break;
                 case "Merge":  OnMergeClicked(row);  break;
             }
@@ -179,6 +186,7 @@ public partial class AuthorManagePanel : UserControl, IThemedControl
             : "",
         Action = new CellLink[]
         {
+            new CellButton("Search", "", TTypeMini.Primary) { Ghost = true, IconSvg = "SearchOutlined"     },
             new CellButton("Rename", "", TTypeMini.Default) { Ghost = true, IconSvg = "EditOutlined"        },
             new CellButton("Merge",  "", TTypeMini.Default) { Ghost = true, IconSvg = "MergeCellsOutlined" },
         }

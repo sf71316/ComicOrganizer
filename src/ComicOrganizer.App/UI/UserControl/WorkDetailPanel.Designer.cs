@@ -21,13 +21,15 @@ partial class WorkDetailPanel
     private System.Windows.Forms.PictureBox picCover;
     private System.Windows.Forms.Label lblWorkTitle;
     private AntdUI.Input txtTitle;        // edit mode 取代 lblWorkTitle
+    private System.Windows.Forms.FlowLayoutPanel authorRowPanel;
     private System.Windows.Forms.LinkLabel lnkAuthor;
+    private System.Windows.Forms.LinkLabel lnkSearchAuthor;
     private AntdUI.Select txtAuthor;      // edit mode 取代 lnkAuthor（輸入作者名 → save 時 UpsertAuthor）— Select with EhTag autocomplete
 
     // metadata grid
     private AntdUI.Divider divider1;
-    private System.Windows.Forms.Label lblMetaInfo;
-    private System.Windows.Forms.TableLayoutPanel editGrid;   // edit mode 取代 lblMetaInfo
+    private System.Windows.Forms.FlowLayoutPanel viewMetaPanel;
+    private System.Windows.Forms.TableLayoutPanel editGrid;   // edit mode 取代 viewMetaPanel
     private AntdUI.Input txtSeries;
     private AntdUI.Input txtChapter;
     private AntdUI.Input txtLanguage;
@@ -66,7 +68,11 @@ partial class WorkDetailPanel
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing && (components != null)) components.Dispose();
+        if (disposing)
+        {
+            _chipTooltip.Dispose();
+            components?.Dispose();
+        }
         base.Dispose(disposing);
     }
 
@@ -84,10 +90,12 @@ partial class WorkDetailPanel
         picCover = new System.Windows.Forms.PictureBox();
         lblWorkTitle = new System.Windows.Forms.Label();
         txtTitle = new AntdUI.Input();
+        authorRowPanel = new System.Windows.Forms.FlowLayoutPanel();
         lnkAuthor = new System.Windows.Forms.LinkLabel();
+        lnkSearchAuthor = new System.Windows.Forms.LinkLabel();
         txtAuthor = new AntdUI.Select();
         divider1 = new AntdUI.Divider();
-        lblMetaInfo = new System.Windows.Forms.Label();
+        viewMetaPanel = new System.Windows.Forms.FlowLayoutPanel();
         editGrid = new System.Windows.Forms.TableLayoutPanel();
         txtSeries = new AntdUI.Input();
         txtChapter = new AntdUI.Input();
@@ -197,10 +205,10 @@ partial class WorkDetailPanel
         layout.Controls.Add(coverPanel, 0, 0);
         layout.Controls.Add(lblWorkTitle, 0, 1);     // view 標題
         layout.Controls.Add(txtTitle, 0, 2);          // edit 標題
-        layout.Controls.Add(lnkAuthor, 0, 3);         // view 作者
+        layout.Controls.Add(authorRowPanel, 0, 3);    // view 作者 + 同作者畫廊入口
         layout.Controls.Add(txtAuthor, 0, 4);         // edit 作者
         layout.Controls.Add(divider1, 0, 5);
-        layout.Controls.Add(lblMetaInfo, 0, 6);       // view metadata
+        layout.Controls.Add(viewMetaPanel, 0, 6);     // view metadata
         layout.Controls.Add(editGrid, 0, 7);          // edit metadata grid
         layout.Controls.Add(divider2, 0, 8);
         layout.Controls.Add(lblReadStatsHeader, 0, 9);
@@ -249,13 +257,35 @@ partial class WorkDetailPanel
         txtTitle.Size = new System.Drawing.Size(340, 32);
         txtTitle.Visible = false;
         //
+        // authorRowPanel
+        //
+        authorRowPanel.AutoSize = true;
+        authorRowPanel.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+        authorRowPanel.Dock = System.Windows.Forms.DockStyle.Fill;
+        authorRowPanel.FlowDirection = System.Windows.Forms.FlowDirection.LeftToRight;
+        authorRowPanel.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
+        authorRowPanel.Name = "authorRowPanel";
+        authorRowPanel.WrapContents = true;
+        authorRowPanel.Controls.Add(lnkAuthor);
+        authorRowPanel.Controls.Add(lnkSearchAuthor);
+        //
         // lnkAuthor
         //
         lnkAuthor.AutoSize = true;
         lnkAuthor.Font = new System.Drawing.Font("Microsoft JhengHei UI", 9.5F);
-        lnkAuthor.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
+        lnkAuthor.Margin = new System.Windows.Forms.Padding(0, 0, 8, 0);
         lnkAuthor.Name = "lnkAuthor";
         lnkAuthor.Text = "";
+        //
+        // lnkSearchAuthor
+        //
+        lnkSearchAuthor.AutoSize = true;
+        lnkSearchAuthor.Font = new System.Drawing.Font("Microsoft JhengHei UI", 8.5F);
+        lnkSearchAuthor.LinkBehavior = System.Windows.Forms.LinkBehavior.HoverUnderline;
+        lnkSearchAuthor.Margin = new System.Windows.Forms.Padding(0, 1, 0, 0);
+        lnkSearchAuthor.Name = "lnkSearchAuthor";
+        lnkSearchAuthor.Text = "🔍 在畫廊搜尋";
+        lnkSearchAuthor.Visible = false;
         //
         // txtAuthor (edit mode 替換 lnkAuthor — 輸入作者主名，save 時 UpsertAuthor 取或建)
         //
@@ -291,13 +321,15 @@ partial class WorkDetailPanel
         divider5.Name = "divider5";
 
         //
-        // lblMetaInfo - 多行 metadata（view mode）
+        // viewMetaPanel - 互動式 metadata（view mode）
         //
-        lblMetaInfo.AutoSize = true;
-        lblMetaInfo.Font = new System.Drawing.Font("Microsoft JhengHei UI", 9.5F);
-        lblMetaInfo.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
-        lblMetaInfo.Name = "lblMetaInfo";
-        lblMetaInfo.Text = "";
+        viewMetaPanel.AutoSize = true;
+        viewMetaPanel.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+        viewMetaPanel.Dock = System.Windows.Forms.DockStyle.Fill;
+        viewMetaPanel.FlowDirection = System.Windows.Forms.FlowDirection.TopDown;
+        viewMetaPanel.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
+        viewMetaPanel.Name = "viewMetaPanel";
+        viewMetaPanel.WrapContents = false;
         //
         // editGrid（edit mode metadata 表單：5 row × 2 col）
         //

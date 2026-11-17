@@ -52,6 +52,13 @@ public partial class ReaderForm : Window, IThemedControl
 	private readonly Action? _onSavePrefs;
 	private readonly IReadOnlyList<string> _siblingWorks = Array.Empty<string>();
 	private readonly Func<string, ReaderForm, Task>? _onSwitchWorkAsync;
+	private readonly Action<string>? _onExploreSearch;
+	private readonly IReadOnlyList<ReaderExploreOption> _exploreOptions = Array.Empty<ReaderExploreOption>();
+	private bool _endExploreDismissed;
+	private System.Windows.Forms.Panel? _endExploreBanner;
+	private System.Windows.Forms.Label? _lblEndExplorePrompt;
+	private AntdUI.Button? _btnCloseEndExplore;
+	private readonly List<AntdUI.Button> _endExploreButtons = new();
 	private readonly AntdUI.TooltipComponent _tooltip = new() { ArrowAlign = TAlign.Bottom };
 	private bool _isSwitchingWork;
 	private bool _suppressPrefSave;
@@ -214,7 +221,8 @@ public partial class ReaderForm : Window, IThemedControl
 		UserPreferences? prefs = null,
 		Action? onSavePrefs = null,
 		IReadOnlyList<string>? siblingPaths = null,
-		Func<string, ReaderForm, Task>? onSwitchWorkAsync = null)
+		Func<string, ReaderForm, Task>? onSwitchWorkAsync = null,
+		Action<string>? onExploreSearch = null)
 	{
 		InitializeComponent();
 		// scrollHost 是 AutoScroll Panel 且預設無雙緩衝 → 翻頁時 picPage 重定位會讓 Panel 重繪背景而閃爍/頓挫；
@@ -234,7 +242,22 @@ public partial class ReaderForm : Window, IThemedControl
 		_prefs = prefs;
 		_onSavePrefs = onSavePrefs;
 		_onSwitchWorkAsync = onSwitchWorkAsync;
+		_onExploreSearch = onExploreSearch;
 		_siblingWorks = ReaderNavigationHelper.ResolveSiblingWorks(source.RootPath, siblingPaths);
+		if (_metaStore != null)
+		{
+			var detail = _metaStore.GetWorkDetail(source.RootPath);
+			var authorName = detail?.AuthorMainName;
+			if (string.IsNullOrWhiteSpace(authorName))
+			{
+				var authorId = _metaStore.ResolveAuthorIdByPath(source.RootPath);
+				if (authorId.HasValue)
+				{
+					authorName = _metaStore.GetAuthorInfo(authorId.Value)?.Author.MainName;
+				}
+			}
+			_exploreOptions = ReaderNavigationHelper.BuildExploreOptions(authorName, detail?.Series, detail?.TranslationGroup);
+		}
 		_readThresholdSeconds = Math.Max(1, readThresholdSeconds);
 		_readThresholdPages = Math.Max(1, readThresholdPages);
 		_trackReadingRecord = trackReadingRecord;
@@ -265,6 +288,7 @@ public partial class ReaderForm : Window, IThemedControl
 		UpdateSpreadCoverButtonUi();
 		UpdateSiblingNavigationUi();
 		InitPageLoadingOverlay();
+		InitExploreControls();
 		ApplyThemeColors();
 		btnStatusLoading.SendToBack();
 		this.WireThemeAndLocalization();
@@ -276,17 +300,24 @@ public partial class ReaderForm : Window, IThemedControl
 		base.Load += delegate
 		{
 			InitGpuCanvas();
-			if (IsContinuous && _source.PageCount > 0)
+			if (_source.PageCount > 0)
 			{
-				EnterContinuousMode();
+				if (IsContinuous)
+				{
+					EnterContinuousMode();
+				}
+				else
+				{
+					GoToPage(_currentIndex);
+				}
 			}
 		};
-		if (source.PageCount > 0 && !IsContinuous)
+		if (source.PageCount > 0)
 		{
-			GoToPage(_currentIndex);
-		}
-		else if (source.PageCount > 0)
-		{
+			if (!IsContinuous)
+			{
+				_currentIndex = SpreadStart(_currentIndex);
+			}
 			UpdatePageInfo();
 		}
 		else
@@ -416,9 +447,30 @@ public partial class ReaderForm : Window, IThemedControl
 		picPage.BackColor = ReaderContentBg;
 		lblStatus.ForeColor = ThemeColors.Text;
 		btnStatusLoading.ForeColor = ThemeColors.Text;
-		foreach (var btn in new[] { btnPrevWork, btnNextWork, btnBookmarkToggle, btnBookmarkList, btnDirection, btnSpreadCover, btnFullscreen })
+		foreach (var btn in new[] { btnPrevWork, btnNextWork, btnBookmarkToggle, btnBookmarkList, btnExplore, btnDirection, btnSpreadCover, btnFullscreen })
 		{
 			btn.ForeColor = ThemeColors.Text;
+		}
+		if (_endExploreBanner != null && !_endExploreBanner.IsDisposed)
+		{
+			_endExploreBanner.BackColor = ThemeColors.TabHeader;
+		}
+		if (_lblEndExplorePrompt != null && !_lblEndExplorePrompt.IsDisposed)
+		{
+			_lblEndExplorePrompt.ForeColor = ThemeColors.Text;
+		}
+		if (_btnCloseEndExplore != null && !_btnCloseEndExplore.IsDisposed)
+		{
+			_btnCloseEndExplore.ForeColor = ThemeColors.Text;
+			_btnCloseEndExplore.BackHover = ThemeColors.Secondary;
+		}
+		foreach (var btn in _endExploreButtons)
+		{
+			if (!btn.IsDisposed)
+			{
+				btn.ForeColor = ThemeColors.Text;
+				btn.BackHover = ThemeColors.Secondary;
+			}
 		}
 		if (_pageLoadingOverlay != null && !_pageLoadingOverlay.IsDisposed)
 		{
@@ -560,6 +612,10 @@ public partial class ReaderForm : Window, IThemedControl
 		btnBookmarkList.Click += delegate
 		{
 			OpenBookmarkList();
+		};
+		btnExplore.Click += delegate
+		{
+			OpenExploreMenu();
 		};
 		if (!_assetId.HasValue)
 		{
@@ -1305,7 +1361,8 @@ public partial class ReaderForm : Window, IThemedControl
 					_prefs,
 					_onSavePrefs,
 					_siblingWorks,
-					_onSwitchWorkAsync);
+					_onSwitchWorkAsync,
+					_onExploreSearch);
 				CopyWindowPlacementTo(nextForm);
 				nextForm.Show();
 				SkipClosingPrefsSave = true;
@@ -1387,6 +1444,7 @@ public partial class ReaderForm : Window, IThemedControl
 		ScrollContinuousTo(_layout.GetPageY(_currentIndex));
 		picPage.Invalidate();
 		UpdateStatusBar();
+		UpdateEndExploreBannerVisibility();
 	}
 
 	private void LeaveContinuousMode()
@@ -1551,8 +1609,7 @@ public partial class ReaderForm : Window, IThemedControl
 		{
 			img = await Task.Run(delegate
 			{
-				using Stream stream = _source.OpenPage(index);
-				var dec = ReaderImageLoader.Decode(stream, _source.GetPageExtension(index));
+				var dec = ReaderImageLoader.Decode(_source, index);
 				if (preScale)
 				{
 					var sz = FitDisplaySize(dec.Width, dec.Height, vw, vh, zmode, czoom);
@@ -1812,6 +1869,7 @@ public partial class ReaderForm : Window, IThemedControl
 			{
 				TryAutoComplete();
 			}
+			UpdateEndExploreBannerVisibility();
 			_scrollDebounce.Stop();
 			_scrollDebounce.Start();
 		}
@@ -1926,6 +1984,7 @@ public partial class ReaderForm : Window, IThemedControl
 			statusBar.Visible = true;
 			_isFullscreen = false;
 		}
+		UpdateEndExploreBannerVisibility();
 	}
 
 	private void UpdatePageInfo()
@@ -1935,6 +1994,181 @@ public partial class ReaderForm : Window, IThemedControl
 		string text = ((num == 1) ? $"{currentIndex + 1} / {_source.PageCount}" : $"{currentIndex + 1}-{currentIndex + 2} / {_source.PageCount}");
 		windowBar.Text = text;
 		RefreshBookmarkIcon();
+		UpdateEndExploreBannerVisibility();
+	}
+
+	private void InitExploreControls()
+	{
+		bool canExplore = _onExploreSearch != null && _exploreOptions.Count > 0;
+		btnExplore.Visible = canExplore;
+		if (!canExplore) return;
+
+		_tooltip.SetTip(btnExplore, "探索同作者／同系列／同翻譯組作品");
+
+		_endExploreBanner = new System.Windows.Forms.Panel
+		{
+			Name = "endExploreBanner",
+			Dock = DockStyle.Bottom,
+			Height = LogicalToDeviceUnits(38),
+			Padding = new Padding(12, 4, 8, 4),
+			Visible = false,
+		};
+		_endExploreBanner.Paint += (s, e) =>
+		{
+			using var pen = new Pen(ThemeColors.Border);
+			e.Graphics.DrawLine(pen, 0, 0, _endExploreBanner.Width, 0);
+		};
+
+		var flow = new FlowLayoutPanel
+		{
+			Dock = DockStyle.Fill,
+			FlowDirection = FlowDirection.LeftToRight,
+			WrapContents = false,
+			BackColor = Color.Transparent,
+			Padding = new Padding(0, 2, 0, 0),
+		};
+
+		_lblEndExplorePrompt = new System.Windows.Forms.Label
+		{
+			AutoSize = true,
+			Text = "✨ 已閱畢本篇",
+			Font = new Font("Microsoft JhengHei UI", 9F, FontStyle.Bold),
+			Margin = new Padding(0, 5, 10, 0),
+		};
+		flow.Controls.Add(_lblEndExplorePrompt);
+
+		foreach (var opt in _exploreOptions)
+		{
+			string btnText = opt.Kind switch
+			{
+				ReaderExploreKind.Author => "👤 同作者作品",
+				ReaderExploreKind.Series => "📚 同系列作品",
+				ReaderExploreKind.TranslationGroup => "🏷 同翻譯組作品",
+				_ => "🔍 相關作品",
+			};
+			int btnWidth = opt.Kind == ReaderExploreKind.TranslationGroup ? 132 : 120;
+			var btn = new AntdUI.Button
+			{
+				Text = btnText,
+				Size = LogicalToDeviceUnits(new Size(btnWidth, 28)),
+				Font = new Font("Microsoft JhengHei UI", 8.5F),
+				Margin = new Padding(0, 0, 6, 0),
+				Cursor = Cursors.Hand,
+				Tag = opt.Dsl,
+			};
+			_tooltip.SetTip(btn, $"{btnText}：{opt.Value}");
+			var capturedDsl = opt.Dsl;
+			btn.Click += delegate { TriggerExploreSearch(capturedDsl); };
+			_endExploreButtons.Add(btn);
+			flow.Controls.Add(btn);
+		}
+
+		_btnCloseEndExplore = new AntdUI.Button
+		{
+			Dock = DockStyle.Right,
+			Ghost = true,
+			IconSvg = "CloseOutlined",
+			IconRatio = 0.65F,
+			Size = LogicalToDeviceUnits(new Size(28, 28)),
+			Cursor = Cursors.Hand,
+		};
+		_tooltip.SetTip(_btnCloseEndExplore, "關閉提示");
+		_btnCloseEndExplore.Click += delegate
+		{
+			_endExploreDismissed = true;
+			if (_endExploreBanner != null && !_endExploreBanner.IsDisposed)
+			{
+				_endExploreBanner.Visible = false;
+			}
+		};
+
+		// Fill 先加、Right 後加；將 banner 放在 scrollHost 之後（index = scrollIdx + 1），即置於 statusBar 之上、scrollHost 之下
+		_endExploreBanner.Controls.Add(flow);
+		_endExploreBanner.Controls.Add(_btnCloseEndExplore);
+		Controls.Add(_endExploreBanner);
+		int scrollIdx = Controls.GetChildIndex(scrollHost);
+		Controls.SetChildIndex(_endExploreBanner, scrollIdx + 1);
+	}
+
+	private void OpenExploreMenu()
+	{
+		if (_onExploreSearch == null || _exploreOptions.Count == 0) return;
+
+		var items = _exploreOptions.Select(opt =>
+		{
+			string prefix = opt.Kind switch
+			{
+				ReaderExploreKind.Author => "👤 搜尋同作者",
+				ReaderExploreKind.Series => "📚 搜尋同系列",
+				ReaderExploreKind.TranslationGroup => "🏷 搜尋同翻譯組",
+				_ => "🔍 搜尋",
+			};
+			return (AntdUI.IContextMenuStripItem)new AntdUI.ContextMenuStripItem($"{prefix}：{opt.Value}")
+			{
+				Tag = opt.Dsl,
+			};
+		}).ToArray();
+
+		AntdUI.ContextMenuStrip.open(btnExplore, mi =>
+		{
+			if (mi.Tag is string dsl && !string.IsNullOrEmpty(dsl))
+			{
+				TriggerExploreSearch(dsl);
+			}
+		}, items);
+	}
+
+	private void TriggerExploreSearch(string dsl)
+	{
+		if (string.IsNullOrWhiteSpace(dsl) || _onExploreSearch == null) return;
+		if (_isFullscreen)
+		{
+			ToggleFullscreen();
+		}
+		_onExploreSearch(dsl);
+	}
+
+	private void UpdateEndExploreBannerVisibility()
+	{
+		if (_endExploreBanner == null || _endExploreBanner.IsDisposed) return;
+
+		bool canShow = !_isFullscreen
+			&& !_endExploreDismissed
+			&& _onExploreSearch != null
+			&& _exploreOptions.Count > 0
+			&& _source.PageCount > 0;
+		if (!canShow)
+		{
+			if (_endExploreBanner.Visible) _endExploreBanner.Visible = false;
+			return;
+		}
+
+		bool atEnd;
+		if (IsContinuous)
+		{
+			if (_layout == null)
+			{
+				atEnd = false;
+			}
+			else
+			{
+				int vh = picPage.Height > 0 ? picPage.Height : scrollHost.ClientSize.Height;
+				// 顯示 banner 時會縮減 scrollHost 高度，計算可視範圍與 maxY 時補回 banner 高度以避免邊界震盪
+				int effectiveVh = vh + (_endExploreBanner.Visible ? _endExploreBanner.Height : 0);
+				var (_, lastVisible) = _layout.GetVisibleRange(_virtualScrollY, _virtualScrollY + effectiveVh);
+				int effectiveMaxY = Math.Max(0, _layout.TotalHeight - effectiveVh);
+				atEnd = lastVisible >= _source.PageCount - 1 || _virtualScrollY >= effectiveMaxY - 20;
+			}
+		}
+		else
+		{
+			atEnd = ReaderNavigationHelper.IsLastSpreadReached(_currentIndex, SpreadSize(_currentIndex), _source.PageCount);
+		}
+
+		if (_endExploreBanner.Visible != atEnd)
+		{
+			_endExploreBanner.Visible = atEnd;
+		}
 	}
 
 	private void RefreshBookmarkIcon()
@@ -2532,9 +2766,7 @@ public partial class ReaderForm : Window, IThemedControl
 		}
 		if (img == null)
 		{
-			using Stream stream = _source.OpenPage(pageIndex);
-			string ext = _source.GetPageExtension(pageIndex);
-			img = ReaderImageLoader.Decode(stream, ext);
+			img = ReaderImageLoader.Decode(_source, pageIndex);
 		}
 		if (img == null)
 		{

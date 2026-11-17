@@ -35,8 +35,19 @@ public partial class WorkDetailPanel : UserControl
     /// <summary>使用者按「展開最大寬度」 — host 把 drawer 撐到接近螢幕邊（toggle：第二次點回 EditModeMinWidth）。</summary>
     public event Action? RequestToggleMaximize;
 
+    /// <summary>使用者從作品詳情點擊標籤／作者／系列／語言／翻譯組要求以 DSL 搜尋（dsl, newTab）。</summary>
+    public event Action<string, bool>? RequestSearchDsl;
+
+    /// <summary>使用者要求將搜尋條件 token 追加到目前搜尋欄（AND）。</summary>
+    public event Action<string>? RequestAppendSearchTerm;
+
     /// <summary>edit 模式 drawer 至少需要的寬度（涵蓋 title / author / series 長 input + label）。</summary>
     private const int EditModeMinWidth = 580;
+
+    private static readonly Font MetaRegularFont = new("Microsoft JhengHei UI", 9.5F);
+    private static readonly Font MetaLinkHoverFont = new("Microsoft JhengHei UI", 9.5F, FontStyle.Underline);
+
+    private readonly ToolTip _chipTooltip = new();
 
     /// <summary>由 host 設定 — 控制「從 nhentai 拉取」按鈕是否顯示（依 config.EnableExternalMetadata）。</summary>
     public bool ShowFetchExternalButton
@@ -101,6 +112,10 @@ public partial class WorkDetailPanel : UserControl
         picCover.BackColor = ThemeColors.TabHeader;
         lnkAuthor.LinkColor = ThemeColors.Primary;
         lnkAuthor.ActiveLinkColor = ThemeColors.Primary;
+        lnkSearchAuthor.LinkColor = ThemeColors.Primary;
+        lnkSearchAuthor.ActiveLinkColor = ThemeColors.Primary;
+        lnkSearchAuthor.LinkClicked += OnSearchAuthorLinkClicked;
+        _chipTooltip.SetToolTip(lnkSearchAuthor, "在畫廊新分頁搜尋此作者的所有作品");
         lblFileInfo.ForeColor = ThemeColors.Border;
 
         btnClose.Click += (s, e) => CloseRequested?.Invoke();
@@ -170,7 +185,7 @@ public partial class WorkDetailPanel : UserControl
             ? detail.Title
             : Path.GetFileName(detail.Path);
 
-        // author 連結
+        // author 連結 + 同作者畫廊搜尋入口
         if (!string.IsNullOrWhiteSpace(detail.AuthorMainName) && detail.AuthorId.HasValue)
         {
             var authorLabel = LocalizationManager.GetString("WorkDetailAuthor") ?? "作者";
@@ -181,15 +196,19 @@ public partial class WorkDetailPanel : UserControl
             lnkAuthor.LinkClicked -= OnAuthorLinkClicked;
             lnkAuthor.LinkClicked += OnAuthorLinkClicked;
             lnkAuthor.Visible = true;
+            lnkSearchAuthor.Visible = true;
+            authorRowPanel.Visible = !_isEditing;
         }
         else
         {
             lnkAuthor.Text = "";
             lnkAuthor.Visible = false;
+            lnkSearchAuthor.Visible = false;
+            authorRowPanel.Visible = false;
         }
 
-        // metadata grid
-        lblMetaInfo.Text = FormatMetaInfo(detail);
+        // metadata grid（view mode 互動化）
+        RebuildMetaView(detail);
 
         // 閱讀記錄
         lblReadStats.Text = FormatReadStats(detail);
@@ -246,9 +265,13 @@ public partial class WorkDetailPanel : UserControl
         // 進 edit mode → 通知 host 撐寬 drawer（不縮回，尊重 user 中途調整）
         if (editing) RequestExpandWidth?.Invoke(EditModeMinWidth);
         // view 控件
+        bool hasAuthor = _currentDetail?.AuthorId.HasValue == true
+            && !string.IsNullOrWhiteSpace(_currentDetail.AuthorMainName);
         lblWorkTitle.Visible = !editing;
-        lnkAuthor.Visible = !editing && _currentDetail?.AuthorId.HasValue == true;
-        lblMetaInfo.Visible = !editing;
+        authorRowPanel.Visible = !editing && hasAuthor;
+        lnkAuthor.Visible = !editing && hasAuthor;
+        lnkSearchAuthor.Visible = !editing && hasAuthor;
+        viewMetaPanel.Visible = !editing;
         // edit 控件
         txtTitle.Visible = editing;
         txtAuthor.Visible = editing;
@@ -294,7 +317,7 @@ public partial class WorkDetailPanel : UserControl
     private void RebuildTagsView()
     {
         flowTags.SuspendLayout();
-        flowTags.Controls.Clear();
+        DisposeChildControls(flowTags);
 
         // 先 batch 查 DB tag_translation 快取（schema v6）— 避免 BuildChip N+1
         var detailTags = _currentDetail?.Tags ?? new List<Tag>();
@@ -352,8 +375,7 @@ public partial class WorkDetailPanel : UserControl
         // 翻譯後 hover 顯示原文（給使用者識別 slug）
         if (display != name)
         {
-            var tooltip = new ToolTip();
-            tooltip.SetToolTip(chip, name);
+            _chipTooltip.SetToolTip(chip, name);
         }
         if (editable)
         {
@@ -363,6 +385,24 @@ public partial class WorkDetailPanel : UserControl
                 _editTags.Remove(capturedName);
                 BeginInvoke(new Action(RebuildTagsView));
                 return true;
+            };
+        }
+        else
+        {
+            var capturedName = name;
+            chip.Cursor = Cursors.Hand;
+            chip.MouseClick += (s, e) =>
+            {
+                var token = SearchQueryParser.BuildFieldToken("tag", capturedName);
+                if (string.IsNullOrEmpty(token)) return;
+                if (e.Button == MouseButtons.Left)
+                {
+                    RequestSearchDsl?.Invoke(token, true);
+                }
+                else if (e.Button == MouseButtons.Right)
+                {
+                    OpenFieldSearchContextMenu(chip, "標籤", capturedName, token, "複製標籤名稱");
+                }
             };
         }
         return chip;
@@ -406,6 +446,195 @@ public partial class WorkDetailPanel : UserControl
         if (lnkAuthor.Tag is long authorId) RequestOpenAuthor?.Invoke(authorId);
     }
 
+    private void OnSearchAuthorLinkClicked(object? sender, LinkLabelLinkClickedEventArgs e)
+    {
+        var authorName = _currentDetail?.AuthorMainName;
+        if (string.IsNullOrWhiteSpace(authorName)) return;
+        var dsl = SearchQueryParser.BuildFieldToken("artist", authorName);
+        if (!string.IsNullOrEmpty(dsl))
+            RequestSearchDsl?.Invoke(dsl, true);
+    }
+
+    private void RebuildMetaView(WorkDetail d)
+    {
+        viewMetaPanel.SuspendLayout();
+        DisposeChildControls(viewMetaPanel);
+
+        if (!string.IsNullOrWhiteSpace(d.Series))
+        {
+            var suffix = string.IsNullOrWhiteSpace(d.ChapterNo) ? null : "  " + d.ChapterNo;
+            viewMetaPanel.Controls.Add(BuildMetaLinkRow(
+                labelKind: "系列",
+                value: d.Series,
+                dslField: "series",
+                copyActionLabel: "複製系列名稱",
+                extraSuffix: suffix));
+        }
+
+        if (!string.IsNullOrWhiteSpace(d.Language))
+        {
+            viewMetaPanel.Controls.Add(BuildMetaLinkRow(
+                labelKind: "語言",
+                value: d.Language,
+                dslField: "language",
+                copyActionLabel: "複製語言代碼"));
+        }
+
+        if (!string.IsNullOrWhiteSpace(d.TranslationGroup))
+        {
+            viewMetaPanel.Controls.Add(BuildMetaLinkRow(
+                labelKind: "翻譯組",
+                value: d.TranslationGroup,
+                dslField: "group",
+                copyActionLabel: "複製翻譯組名稱"));
+        }
+
+        var infoLines = new List<string>();
+        if (d.PageCount.HasValue)
+            infoLines.Add($"頁數: {d.PageCount} p");
+        if (d.Rating.HasValue)
+            infoLines.Add($"評分: {new string('★', d.Rating.Value)}{new string('☆', Math.Max(0, 5 - d.Rating.Value))}");
+        if (!string.IsNullOrWhiteSpace(d.ExternalId))
+            infoLines.Add($"外部 ID: {d.ExternalId}");
+
+        if (infoLines.Count > 0)
+        {
+            viewMetaPanel.Controls.Add(new Label
+            {
+                AutoSize = true,
+                MaximumSize = new Size(340, 0),
+                Font = MetaRegularFont,
+                Margin = new Padding(0, 2, 0, 0),
+                Text = string.Join("\n", infoLines),
+            });
+        }
+
+        if (viewMetaPanel.Controls.Count == 0)
+        {
+            viewMetaPanel.Controls.Add(BuildEmptyHint("(無詳細 metadata)"));
+        }
+
+        viewMetaPanel.ResumeLayout(true);
+    }
+
+    private FlowLayoutPanel BuildMetaLinkRow(
+        string labelKind,
+        string value,
+        string dslField,
+        string copyActionLabel,
+        string? extraSuffix = null)
+    {
+        var row = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true,
+            Margin = new Padding(0, 0, 0, 2),
+        };
+
+        var lblPrefix = new Label
+        {
+            AutoSize = true,
+            Font = MetaRegularFont,
+            Margin = new Padding(0),
+            Text = $"{labelKind}: ",
+        };
+        row.Controls.Add(lblPrefix);
+
+        var lblValue = new Label
+        {
+            AutoSize = true,
+            MaximumSize = new Size(270, 0),
+            Font = MetaRegularFont,
+            ForeColor = ThemeColors.Primary,
+            Cursor = Cursors.Hand,
+            Margin = new Padding(0),
+            Text = value,
+        };
+        lblValue.MouseEnter += (s, e) => lblValue.Font = MetaLinkHoverFont;
+        lblValue.MouseLeave += (s, e) => lblValue.Font = MetaRegularFont;
+        lblValue.MouseClick += (s, e) =>
+        {
+            var token = SearchQueryParser.BuildFieldToken(dslField, value);
+            if (string.IsNullOrEmpty(token)) return;
+            if (e.Button == MouseButtons.Left)
+            {
+                RequestSearchDsl?.Invoke(token, true);
+            }
+            else if (e.Button == MouseButtons.Right)
+            {
+                OpenFieldSearchContextMenu(lblValue, labelKind, value, token, copyActionLabel);
+            }
+        };
+        row.Controls.Add(lblValue);
+
+        if (!string.IsNullOrWhiteSpace(extraSuffix))
+        {
+            row.Controls.Add(new Label
+            {
+                AutoSize = true,
+                Font = MetaRegularFont,
+                Margin = new Padding(0),
+                Text = extraSuffix,
+            });
+        }
+
+        return row;
+    }
+
+    private void OpenFieldSearchContextMenu(
+        Control anchor,
+        string labelKind,
+        string copyValue,
+        string token,
+        string copyActionLabel)
+    {
+        const string idNewTab = "search_new_tab";
+        const string idCurrentTab = "search_current_tab";
+        const string idAppend = "search_append";
+        const string idCopy = "copy_value";
+
+        var items = new AntdUI.IContextMenuStripItem[]
+        {
+            new AntdUI.ContextMenuStripItem($"在新分頁搜尋此{labelKind}") { ID = idNewTab },
+            new AntdUI.ContextMenuStripItem($"在目前分頁搜尋此{labelKind}") { ID = idCurrentTab },
+            new AntdUI.ContextMenuStripItem("加入目前搜尋欄 (AND)") { ID = idAppend },
+            new AntdUI.ContextMenuStripItemDivider(),
+            new AntdUI.ContextMenuStripItem(copyActionLabel) { ID = idCopy },
+        };
+
+        AntdUI.ContextMenuStrip.open(anchor, mi =>
+        {
+            switch (mi.ID)
+            {
+                case idNewTab:
+                    RequestSearchDsl?.Invoke(token, true);
+                    break;
+                case idCurrentTab:
+                    RequestSearchDsl?.Invoke(token, false);
+                    break;
+                case idAppend:
+                    RequestAppendSearchTerm?.Invoke(token);
+                    break;
+                case idCopy:
+                    WorkContextMenuHelper.TryCopyText(copyValue);
+                    break;
+            }
+        }, items);
+    }
+
+    private void DisposeChildControls(Control container)
+    {
+        while (container.Controls.Count > 0)
+        {
+            var ctrl = container.Controls[0];
+            container.Controls.RemoveAt(0);
+            _chipTooltip.SetToolTip(ctrl, null);
+            ctrl.Dispose();
+        }
+    }
+
     private static Label BuildEmptyHint(string text) => new Label
     {
         AutoSize = true,
@@ -413,27 +642,6 @@ public partial class WorkDetailPanel : UserControl
         ForeColor = ThemeColors.Border,
         Font = new Font("Microsoft JhengHei UI", 9F, FontStyle.Italic),
     };
-
-    private static string FormatMetaInfo(WorkDetail d)
-    {
-        var lines = new List<string>();
-        if (!string.IsNullOrWhiteSpace(d.Series))
-        {
-            var v = d.Series + (string.IsNullOrWhiteSpace(d.ChapterNo) ? "" : "  " + d.ChapterNo);
-            lines.Add($"系列: {v}");
-        }
-        if (!string.IsNullOrWhiteSpace(d.Language))
-            lines.Add($"語言: {d.Language}");
-        if (!string.IsNullOrWhiteSpace(d.TranslationGroup))
-            lines.Add($"翻譯組: {d.TranslationGroup}");
-        if (d.PageCount.HasValue)
-            lines.Add($"頁數: {d.PageCount} p");
-        if (d.Rating.HasValue)
-            lines.Add($"評分: {new string('★', d.Rating.Value)}{new string('☆', Math.Max(0, 5 - d.Rating.Value))}");
-        if (!string.IsNullOrWhiteSpace(d.ExternalId))
-            lines.Add($"外部 ID: {d.ExternalId}");
-        return lines.Count == 0 ? "(無詳細 metadata)" : string.Join("\n", lines);
-    }
 
     private static string FormatReadStats(WorkDetail d)
     {

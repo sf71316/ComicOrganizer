@@ -211,4 +211,81 @@ public class TabNavigationHistoryTests
     {
         Assert.Equal(expectedAction, TabNavigationHistory.ParseXButtonAction(wParam));
     }
+
+    [Fact]
+    public void ForVirtualWorks_SearchDsl_RetainedAndRestoredAcrossBackForward()
+    {
+        var history = new TabNavigationHistory();
+
+        var folder = TabNavigationEntry.ForFolder(@"C:\Comics\AuthorA");
+        var legacyVirtual = TabNavigationEntry.ForVirtualWorks(
+            "作者作品",
+            new[] { @"C:\Comics\AuthorA\1.zip" },
+            "UserOutlined");
+        var blankDslVirtual = TabNavigationEntry.ForVirtualWorks(
+            "空白搜尋",
+            Array.Empty<string>(),
+            "SearchOutlined",
+            searchDsl: "   ");
+        var searchVirtual = TabNavigationEntry.ForVirtualWorks(
+            "series:Fate (2)",
+            new[] { @"C:\Comics\AuthorA\fgo1.zip", @"C:\Comics\AuthorA\fgo2.zip" },
+            "SearchOutlined",
+            refreshResolver: () => new[] { @"C:\Comics\AuthorA\fgo1.zip", @"C:\Comics\AuthorA\fgo2.zip" },
+            searchDsl: "series:Fate");
+
+        Assert.Null(folder.SearchDsl);
+        Assert.Null(legacyVirtual.SearchDsl);
+        Assert.Null(blankDslVirtual.SearchDsl);
+        Assert.Equal("series:Fate", searchVirtual.SearchDsl);
+
+        Assert.True(history.Push(folder));
+        Assert.True(history.Push(legacyVirtual));
+        Assert.True(history.Push(searchVirtual));
+
+        Assert.True(history.TryGoBack(out var backToLegacy));
+        Assert.Null(backToLegacy!.SearchDsl);
+
+        Assert.True(history.TryGoBack(out var backToFolder));
+        Assert.Null(backToFolder!.SearchDsl);
+
+        Assert.True(history.TryGoForward(out var fwdToLegacy));
+        Assert.Null(fwdToLegacy!.SearchDsl);
+
+        Assert.True(history.TryGoForward(out var fwdToSearch));
+        Assert.Equal("series:Fate", fwdToSearch!.SearchDsl);
+    }
+
+    [Fact]
+    public void Push_SameDestination_UpdatesSearchDslInPlace()
+    {
+        var history = new TabNavigationHistory();
+        var paths = new[] { @"C:\Comics\AuthorA\fgo1.zip" };
+
+        var initial = TabNavigationEntry.ForVirtualWorks(
+            "作者: Flugel",
+            paths,
+            "UserOutlined");
+        var updatedWithDsl = TabNavigationEntry.ForVirtualWorks(
+            "作者: Flugel",
+            paths,
+            "UserOutlined",
+            searchDsl: "artist:Flugel");
+        var clearedDsl = TabNavigationEntry.ForVirtualWorks(
+            "作者: Flugel",
+            paths,
+            "UserOutlined",
+            searchDsl: null);
+
+        Assert.True(history.Push(initial));
+        Assert.Null(history.Current!.SearchDsl);
+
+        Assert.False(history.Push(updatedWithDsl));
+        Assert.Equal(1, history.Count);
+        Assert.Equal("artist:Flugel", history.Current!.SearchDsl);
+
+        Assert.False(history.Push(clearedDsl));
+        Assert.Equal(1, history.Count);
+        Assert.Null(history.Current!.SearchDsl);
+    }
 }

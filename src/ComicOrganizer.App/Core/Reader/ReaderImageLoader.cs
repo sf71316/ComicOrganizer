@@ -20,6 +20,60 @@ public static class ReaderImageLoader
         return Image.FromStream(stream);
     }
 
+    /// <summary>
+    /// 從 <see cref="IReaderSource"/> 解碼指定頁成 GDI+ <see cref="Image"/>。
+    /// 若來源支援 <see cref="ISkiaBitmapSource"/> 且可直接產出 <see cref="SKBitmap"/>，
+    /// 則直接轉換為 <see cref="Bitmap"/>，略過 PNG 編解碼往返。
+    /// </summary>
+    public static Image Decode(IReaderSource source, int index)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (source is ISkiaBitmapSource skiaSource)
+        {
+            using var skBitmap = skiaSource.OpenPageBitmap(index);
+            if (skBitmap != null)
+                return CopySkBitmapToGdiBitmap(skBitmap);
+        }
+
+        using var stream = source.OpenPage(index);
+        return Decode(stream, source.GetPageExtension(index));
+    }
+
+    /// <summary>
+    /// 從 <see cref="IReaderSource"/> 解碼並等比例縮放成輕量縮圖 <see cref="Bitmap"/>。
+    /// 若來源支援 <see cref="ISkiaBitmapSource"/>，直接在 Skia 等比縮放後轉成 <see cref="Bitmap"/>。
+    /// </summary>
+    public static Bitmap DecodeThumbnail(IReaderSource source, int index, int maxWidth, int maxHeight)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        int targetMaxW = Math.Max(1, maxWidth);
+        int targetMaxH = Math.Max(1, maxHeight);
+
+        if (source is ISkiaBitmapSource skiaSource)
+        {
+            using var skBitmap = skiaSource.OpenPageBitmap(index);
+            if (skBitmap != null && skBitmap.Width > 0 && skBitmap.Height > 0)
+            {
+                float scale = Math.Min(1f, Math.Min((float)targetMaxW / skBitmap.Width, (float)targetMaxH / skBitmap.Height));
+                int outW = Math.Clamp((int)Math.Round(skBitmap.Width * scale), 1, targetMaxW);
+                int outH = Math.Clamp((int)Math.Round(skBitmap.Height * scale), 1, targetMaxH);
+
+                if (skBitmap.Width == outW && skBitmap.Height == outH)
+                    return CopySkBitmapToGdiBitmap(skBitmap);
+
+                var resizeInfo = new SKImageInfo(outW, outH, SKColorType.Bgra8888, SKAlphaType.Unpremul);
+                using var resized = skBitmap.Resize(resizeInfo, new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None));
+                if (resized != null)
+                    return CopySkBitmapToGdiBitmap(resized);
+
+                return CopySkBitmapToGdiBitmap(skBitmap);
+            }
+        }
+
+        using var stream = source.OpenPage(index);
+        return DecodeThumbnail(stream, source.GetPageExtension(index), targetMaxW, targetMaxH);
+    }
+
     /// <summary>從實體 WebP 檔案解碼成 GDI+ Bitmap (Format32bppArgb)。</summary>
     public static Bitmap DecodeWebpToBitmap(string filePath)
     {
@@ -202,40 +256,67 @@ public static class ReaderImageLoader
 
     private static Bitmap CopySkBitmapToGdiBitmap(SKBitmap skBitmap)
     {
+        ArgumentNullException.ThrowIfNull(skBitmap);
         int w = skBitmap.Width;
         int h = skBitmap.Height;
-        var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+        if (w <= 0 || h <= 0)
+            throw new InvalidDataException($"SKBitmap 尺寸無效：{w}x{h}。");
+
+        SKBitmap? converted = null;
+        SKBitmap src = skBitmap;
+        if (skBitmap.ColorType != SKColorType.Bgra8888 || skBitmap.AlphaType != SKAlphaType.Unpremul)
+        {
+            var targetInfo = new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Unpremul);
+            converted = new SKBitmap(targetInfo);
+            using var srcPixmap = skBitmap.PeekPixels();
+            if (srcPixmap == null || !srcPixmap.ReadPixels(targetInfo, converted.GetPixels(), converted.RowBytes))
+            {
+                converted.Dispose();
+                converted = skBitmap.Copy(SKColorType.Bgra8888)
+                    ?? throw new InvalidDataException("無法轉換 SKBitmap 至 Bgra8888 格式。");
+            }
+            src = converted;
+        }
+
         try
         {
-            var rect = new Rectangle(0, 0, w, h);
-            var bmpData = bmp.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+            var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
             try
             {
-                int copyBytes = Math.Min(skBitmap.RowBytes, Math.Abs(bmpData.Stride));
-                unsafe
+                var rect = new Rectangle(0, 0, w, h);
+                var bmpData = bmp.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+                try
                 {
-                    byte* srcBase = (byte*)skBitmap.GetPixels().ToPointer();
-                    byte* dstBase = (byte*)bmpData.Scan0.ToPointer();
-                    for (int y = 0; y < h; y++)
+                    int copyBytes = Math.Min(src.RowBytes, Math.Abs(bmpData.Stride));
+                    unsafe
                     {
-                        Buffer.MemoryCopy(
-                            srcBase + (long)y * skBitmap.RowBytes,
-                            dstBase + (long)y * bmpData.Stride,
-                            Math.Abs(bmpData.Stride),
-                            copyBytes);
+                        byte* srcBase = (byte*)src.GetPixels().ToPointer();
+                        byte* dstBase = (byte*)bmpData.Scan0.ToPointer();
+                        for (int y = 0; y < h; y++)
+                        {
+                            Buffer.MemoryCopy(
+                                srcBase + (long)y * src.RowBytes,
+                                dstBase + (long)y * bmpData.Stride,
+                                Math.Abs(bmpData.Stride),
+                                copyBytes);
+                        }
                     }
                 }
+                finally
+                {
+                    bmp.UnlockBits(bmpData);
+                }
+                return bmp;
             }
-            finally
+            catch
             {
-                bmp.UnlockBits(bmpData);
+                bmp.Dispose();
+                throw;
             }
-            return bmp;
         }
-        catch
+        finally
         {
-            bmp.Dispose();
-            throw;
+            converted?.Dispose();
         }
     }
 }

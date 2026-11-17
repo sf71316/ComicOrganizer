@@ -45,6 +45,7 @@ public partial class GalleryControl
         };
         card.VirtualLibrariesProvider = () => _metaStore?.ListVirtualLibraries() ?? Array.Empty<VirtualLibrary>();
         card.WorkLibraryIdsProvider = p => _metaStore?.ListVirtualLibraryIdsForWork(p) ?? Array.Empty<long>();
+        card.ExtendedSearchInfoProvider = GetExtendedSearchInfo;
         card.RefreshProgress();
 
         // 透過 queue 延遲 RecordRead；queue.Recorded event 會 RefreshCardReadStatusByPath
@@ -62,6 +63,7 @@ public partial class GalleryControl
         card.RequestWorkDetail += p => ShowWorkDetail(p);
         card.RequestToggleVirtualLibrary += (p, libId) => ToggleWorkInVirtualLibrary(libId, p);
         card.RequestCreateVirtualLibraryAndAdd += p => CreateVirtualLibraryAndAddWork(p);
+        card.RequestSearchDsl += dsl => _ = ExecuteDslSearchAsync(dsl, forceNewTab: true, updateSearchBox: true);
         // 強制走外部開啟（不看 UseBuiltInReader 偏好）：漫畫格式 → 外部 viewer；其他 → 系統預設
         card.RequestOpenWithExternal += p =>
         {
@@ -105,7 +107,24 @@ public partial class GalleryControl
         ToggleVirtualLibrary = (p, libId) => ToggleWorkInVirtualLibrary(libId, p),
         CreateVirtualLibraryAndAdd = p => CreateVirtualLibraryAndAddWork(p),
         SetReadStatus = (p, status) => SetWorkReadStatus(p, status),
+        ExecuteSearchDsl = dsl => _ = ExecuteDslSearchAsync(dsl, forceNewTab: true, updateSearchBox: true),
     };
+
+    private (string? AuthorName, string? Series, string? TranslationGroup) GetExtendedSearchInfo(string path)
+    {
+        if (_metaStore == null || string.IsNullOrWhiteSpace(path)) return default;
+        var detail = _metaStore.GetWorkDetail(path);
+        var authorName = detail?.AuthorMainName;
+        if (string.IsNullOrWhiteSpace(authorName))
+        {
+            var authorId = _metaStore.ResolveAuthorIdByPath(path);
+            if (authorId.HasValue)
+            {
+                authorName = _metaStore.GetAuthorInfo(authorId.Value)?.Author.MainName;
+            }
+        }
+        return (authorName, detail?.Series, detail?.TranslationGroup);
+    }
 
     private void SetWorkReadStatus(string path, ReadStatus status)
     {
@@ -1025,12 +1044,25 @@ public partial class GalleryControl
         int thrSec = _config.ReadCountThresholdSeconds;
         int thrPages = _config.ReadCountThresholdPages;
         bool track = _prefs?.TrackReadingRecord ?? true;
-        var siblingCandidates = explicitSiblings ?? GetCurrentTabSiblingWorkPaths();
+        bool hasPreResolvedSiblings = explicitSiblings != null;
+        var rawSiblingCandidates = explicitSiblings ?? GetCurrentTabSiblingWorkPaths();
 
         IReaderSource? source = null;
+        IReadOnlyList<string>? resolvedSiblings = hasPreResolvedSiblings ? rawSiblingCandidates : null;
         try
         {
-            source = await Task.Run(() => CreateValidatedReaderSource(path));
+            source = await Task.Run(() =>
+            {
+                var validatedSource = CreateValidatedReaderSource(path);
+                if (!hasPreResolvedSiblings && rawSiblingCandidates != null && rawSiblingCandidates.Count > 0)
+                {
+                    var filtered = rawSiblingCandidates
+                        .Where(WorkContextMenuHelper.CanUseBuiltInReader)
+                        .ToList();
+                    resolvedSiblings = filtered.Count > 0 ? filtered : null;
+                }
+                return validatedSource;
+            });
             if (IsDisposed)
             {
                 source.Dispose();
@@ -1059,9 +1091,21 @@ public partial class GalleryControl
                 track,
                 _prefs,
                 onSavePrefs: () => RequestSavePreferences?.Invoke(),
-                siblingPaths: siblingCandidates,
+                siblingPaths: resolvedSiblings,
                 onSwitchWorkAsync: (nextPath, oldForm) =>
-                    OpenInBuiltInReaderAsync(nextPath, replacingForm: oldForm, explicitSiblings: siblingCandidates));
+                    OpenInBuiltInReaderAsync(nextPath, replacingForm: oldForm, explicitSiblings: resolvedSiblings),
+                onExploreSearch: dsl =>
+                {
+                    if (IsDisposed) return;
+                    var mainForm = FindForm();
+                    if (mainForm != null && !mainForm.IsDisposed)
+                    {
+                        if (mainForm.WindowState == FormWindowState.Minimized)
+                            mainForm.WindowState = FormWindowState.Normal;
+                        mainForm.Activate();
+                    }
+                    _ = ExecuteDslSearchAsync(dsl, forceNewTab: true, updateSearchBox: true);
+                });
             source = null;
             if (replacingForm != null && !replacingForm.IsDisposed)
             {
@@ -1110,8 +1154,7 @@ public partial class GalleryControl
                 if (dbFlow == null || dbFlow.IsDisposed) continue;
                 foreach (var c in dbFlow.Controls.OfType<ComicCardControl>())
                 {
-                    if (!c.IsDisposed && c.Visible && !string.IsNullOrEmpty(c.ItemPath)
-                        && WorkContextMenuHelper.CanUseBuiltInReader(c.ItemPath))
+                    if (!c.IsDisposed && c.Visible && !string.IsNullOrEmpty(c.ItemPath))
                     {
                         result.Add(c.ItemPath);
                     }
@@ -1126,7 +1169,7 @@ public partial class GalleryControl
             if (table?.DataSource is IEnumerable<GalleryListItem> rows)
             {
                 var list = rows
-                    .Where(r => !string.IsNullOrEmpty(r.FullPath) && WorkContextMenuHelper.CanUseBuiltInReader(r.FullPath))
+                    .Where(r => !string.IsNullOrEmpty(r.FullPath))
                     .Select(r => r.FullPath)
                     .ToList();
                 return list.Count > 0 ? list : null;
@@ -1137,8 +1180,7 @@ public partial class GalleryControl
         var flow = FindTabFlowLayout(page);
         if (flow == null || flow.IsDisposed) return null;
         var cardPaths = flow.Controls.OfType<ComicCardControl>()
-            .Where(c => !c.IsDisposed && c.Visible && !string.IsNullOrEmpty(c.ItemPath)
-                        && WorkContextMenuHelper.CanUseBuiltInReader(c.ItemPath))
+            .Where(c => !c.IsDisposed && c.Visible && !string.IsNullOrEmpty(c.ItemPath))
             .Select(c => c.ItemPath)
             .ToList();
         return cardPaths.Count > 0 ? cardPaths : null;

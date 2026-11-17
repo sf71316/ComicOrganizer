@@ -633,9 +633,7 @@ public sealed class ReaderPagePickerDialog : Form
                 bmp = await Task.Run(() =>
                 {
                     if (token.IsCancellationRequested) return null;
-                    using var stream = _source.OpenPage(pageIndex);
-                    string ext = _source.GetPageExtension(pageIndex);
-                    return ReaderImageLoader.DecodeThumbnail(stream, ext, maxW, maxH);
+                    return ReaderImageLoader.DecodeThumbnail(_source, pageIndex, maxW, maxH);
                 }, token);
             }
             catch

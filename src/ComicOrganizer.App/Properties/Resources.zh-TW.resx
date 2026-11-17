@@ -1297,4 +1297,10 @@ FS 掃描 {0} 件 / DB 索引 {1} 件</value>
   <data name="AllTranslationConfirmTitle" xml:space="preserve">
     <value>全部翻譯</value>
   </data>
+  <data name="QuickFilterPlaceholder" xml:space="preserve">
+    <value>本頁過濾（檔名／標題）...</value>
+  </data>
+  <data name="FilterClearTooltip" xml:space="preserve">
+    <value>清除過濾條件</value>
+  </data>
 </root>

@@ -21,6 +21,7 @@ partial class ReaderForm
     private AntdUI.Button btnSpreadCover;
     private AntdUI.Button btnBookmarkToggle;
     private AntdUI.Button btnBookmarkList;
+    private AntdUI.Button btnExplore;
     private AntdUI.Button btnFullscreen;
     private System.Windows.Forms.Panel scrollHost;
     private System.Windows.Forms.PictureBox picPage;
@@ -52,6 +53,7 @@ partial class ReaderForm
         btnNextWork = new AntdUI.Button();
         btnBookmarkToggle = new AntdUI.Button();
         btnBookmarkList = new AntdUI.Button();
+        btnExplore = new AntdUI.Button();
         btnFullscreen = new AntdUI.Button();
         segZoomMode = new AntdUI.Segmented();
         sliderZoom = new AntdUI.Slider();
@@ -120,6 +122,7 @@ partial class ReaderForm
         toolbarLeft.Controls.Add(btnNextWork);
         toolbarLeft.Controls.Add(btnBookmarkToggle);
         toolbarLeft.Controls.Add(btnBookmarkList);
+        toolbarLeft.Controls.Add(btnExplore);
         toolbarLeft.Controls.Add(btnInstantTranslation);
         toolbarLeft.Controls.Add(btnAllTranslation);
         toolbarLeft.Controls.Add(btnDirection);
@@ -176,6 +179,15 @@ partial class ReaderForm
         btnBookmarkList.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
         btnBookmarkList.Name = "btnBookmarkList";
         btnBookmarkList.Size = new System.Drawing.Size(34, 32);
+        //
+        // btnExplore — 探索同作者／同系列／同翻譯組作品
+        //
+        btnExplore.IconSvg = "SearchOutlined";
+        btnExplore.Margin = new System.Windows.Forms.Padding(0, 0, 6, 0);
+        btnExplore.Name = "btnExplore";
+        btnExplore.Size = new System.Drawing.Size(74, 32);
+        btnExplore.Text = "探索";
+        btnExplore.Visible = false;
         //
         // btnFullscreen
         //

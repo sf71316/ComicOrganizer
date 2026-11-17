@@ -16,6 +16,9 @@ public partial class TagManagePanel : UserControl, IThemedControl
     private string _searchText = "";
     private string _categoryFilter = CategoryAllToken;
 
+    /// <summary>使用者點擊列上「在畫廊檢視」按鈕時觸發（傳入 tag:... DSL）。</summary>
+    public event Action<string>? RequestViewInGallery;
+
     public void SetTagTranslator(TagTranslator? translator)
     {
         _translator = translator;
@@ -51,13 +54,13 @@ public partial class TagManagePanel : UserControl, IThemedControl
         tableTags.EmptyText = "（無資料）";
         tableTags.Columns = new ColumnCollection
         {
-            new Column("Name",       LocalizationManager.GetString("TagColName")     ?? "名稱")     { Width = "20%", SortOrder = true },
-            new Column("Localized",  LocalizationManager.GetString("TagColLocalized")?? "中文")     { Width = "16%" },
-            new Column("Category",   LocalizationManager.GetString("TagColCategory") ?? "分類")     { Width = "16%", SortOrder = true },
+            new Column("Name",       LocalizationManager.GetString("TagColName")     ?? "名稱")     { Width = "18%", SortOrder = true },
+            new Column("Localized",  LocalizationManager.GetString("TagColLocalized")?? "中文")     { Width = "15%" },
+            new Column("Category",   LocalizationManager.GetString("TagColCategory") ?? "分類")     { Width = "15%", SortOrder = true },
             new Column("AssetCount", LocalizationManager.GetString("TagColWorks")    ?? "作品數")   { Width = "9%", SortOrder = true, Align = ColumnAlign.Right },
             new Column("AuthorCount",LocalizationManager.GetString("TagColAuthors")  ?? "作者數")   { Width = "9%", SortOrder = true, Align = ColumnAlign.Right },
             new Column("TotalCount", LocalizationManager.GetString("TagColTotal")    ?? "總計")     { Width = "9%", SortOrder = true, Align = ColumnAlign.Right },
-            new Column("Action",     LocalizationManager.GetString("TagColAction")   ?? "操作")     { Width = "21%" },
+            new Column("Action",     LocalizationManager.GetString("TagColAction")   ?? "操作")     { Width = "25%" },
         };
     }
 
@@ -85,6 +88,10 @@ public partial class TagManagePanel : UserControl, IThemedControl
             if (e.Record is not TagRow row) return;
             switch (e.Btn.Id)
             {
+                case "Search":
+                    var dsl = SearchQueryParser.BuildFieldToken("tag", row.Name);
+                    if (!string.IsNullOrEmpty(dsl)) RequestViewInGallery?.Invoke(dsl);
+                    break;
                 case "Rename":    OnRenameClicked(row);    break;
                 case "Translate": OnTranslateClicked(row); break;
                 case "Category":  OnCategoryClicked(row);  break;
@@ -200,6 +207,7 @@ public partial class TagManagePanel : UserControl, IThemedControl
             TotalCount = t.TotalCount,
             Action = new CellLink[]
             {
+                new CellButton("Search",     "", TTypeMini.Primary) { Ghost = true, IconSvg = "SearchOutlined"      },
                 new CellButton("Rename",     "", TTypeMini.Default) { Ghost = true, IconSvg = "EditOutlined"      },
                 new CellButton("Translate",  "", TTypeMini.Default) { Ghost = true, IconSvg = "TranslationOutlined" },
                 new CellButton("Category",   "", TTypeMini.Default) { Ghost = true, IconSvg = "AppstoreOutlined" },

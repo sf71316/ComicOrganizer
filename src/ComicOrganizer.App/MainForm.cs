@@ -101,6 +101,14 @@ public partial class MainForm : Window, IThemedControl
             metadataManageControl.RequestSyncOne += async path =>
                 await galleryControl.SyncOneWork(path);
 
+            // 詮釋資料管理（標籤／作者）→ 在畫廊檢視對應搜尋結果
+            metadataManageControl.RequestSearchInGallery += dsl =>
+            {
+                ShowGallery();
+                galleryControl.Focus();
+                _ = galleryControl.ExecuteDslSearchAsync(dsl, forceNewTab: true, updateSearchBox: true);
+            };
+
             ShowGallery();
         };
 

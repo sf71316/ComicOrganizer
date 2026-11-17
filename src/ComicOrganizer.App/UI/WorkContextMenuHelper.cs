@@ -21,6 +21,9 @@ public sealed class WorkMenuContext
     public ReadStatus? CurrentStatus { get; init; }
     public IReadOnlyList<VirtualLibrary>? VirtualLibraries { get; init; }
     public IReadOnlyCollection<long>? WorkLibraryIds { get; init; }
+    public string? AuthorName { get; init; }
+    public string? Series { get; init; }
+    public string? TranslationGroup { get; init; }
 }
 
 /// <summary>作品／目錄右鍵選單各動作回呼，供卡片模式與列表模式共用。</summary>
@@ -37,6 +40,7 @@ public sealed class WorkMenuActions
     public Action<string, long>? ToggleVirtualLibrary { get; init; }
     public Action<string>? CreateVirtualLibraryAndAdd { get; init; }
     public Action<string, ReadStatus>? SetReadStatus { get; init; }
+    public Action<string>? ExecuteSearchDsl { get; init; }
 }
 
 /// <summary>
@@ -55,6 +59,8 @@ public static class WorkContextMenuHelper
     public const string IdRefreshCover = "refresh_cover";
     public const string IdAuthorInfo = "author_info";
     public const string IdWorkDetail = "work_detail";
+    public const string IdExtendedSearch = "extended_search";
+    public const string IdExtendedSearchRun = "extended_search_run";
     public const string IdAddToList = "add_to_list";
     public const string IdAddToListToggle = "add_to_list_toggle";
     public const string IdAddToListCreate = "add_to_list_create";
@@ -181,6 +187,20 @@ public static class WorkContextMenuHelper
             {
                 ID = IdWorkDetail,
             });
+        }
+
+        var extendedSub = BuildExtendedSearchSubItems(ctx);
+        if (extendedSub.Length > 0)
+        {
+            items.Add(new AntdUI.ContextMenuStripItem("🔍 延伸搜尋")
+            {
+                ID = IdExtendedSearch,
+                Sub = extendedSub,
+            });
+        }
+
+        if (isWork)
+        {
             items.Add(new AntdUI.ContextMenuStripItem("📚 加入閱讀清單")
             {
                 ID = IdAddToList,
@@ -217,6 +237,34 @@ public static class WorkContextMenuHelper
         }
 
         return items.ToArray();
+    }
+
+    /// <summary>依上下文建立「🔍 延伸搜尋」子選單項目（作者／系列／翻譯組）。</summary>
+    public static AntdUI.IContextMenuStripItem[] BuildExtendedSearchSubItems(WorkMenuContext ctx)
+    {
+        var sub = new List<AntdUI.IContextMenuStripItem>();
+        TryAddExtendedSearchItem(sub, "👤 搜尋同作者", "artist", ctx.AuthorName);
+        TryAddExtendedSearchItem(sub, "📚 搜尋同系列", "series", ctx.Series);
+        TryAddExtendedSearchItem(sub, "🏷 搜尋同翻譯組", "group", ctx.TranslationGroup);
+        return sub.ToArray();
+    }
+
+    private static void TryAddExtendedSearchItem(
+        List<AntdUI.IContextMenuStripItem> sub,
+        string labelPrefix,
+        string fieldName,
+        string? rawValue)
+    {
+        if (string.IsNullOrWhiteSpace(rawValue)) return;
+        var value = rawValue.Trim();
+        var token = SearchQueryParser.BuildFieldToken(fieldName, value);
+        if (string.IsNullOrEmpty(token)) return;
+
+        sub.Add(new AntdUI.ContextMenuStripItem($"{labelPrefix}：{value}")
+        {
+            ID = IdExtendedSearchRun,
+            Tag = token,
+        });
     }
 
     private static AntdUI.IContextMenuStripItem[] BuildAddToListSubItems(
@@ -284,6 +332,12 @@ public static class WorkContextMenuHelper
                 break;
             case IdWorkDetail:
                 actions.ShowWorkDetail?.Invoke(path);
+                break;
+            case IdExtendedSearchRun:
+                if (mi.Tag is string dsl && !string.IsNullOrWhiteSpace(dsl))
+                {
+                    actions.ExecuteSearchDsl?.Invoke(dsl);
+                }
                 break;
             case IdAddToListToggle:
                 if (mi.Tag is long libraryId)

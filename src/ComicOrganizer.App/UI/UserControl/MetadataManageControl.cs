@@ -16,6 +16,9 @@ public partial class MetadataManageControl : UserControl, IThemedControl
     /// <summary>使用者點 row 上的 sync icon — 對單本跑 Phase E 流程（host 委派到 SyncOneWork）。</summary>
     public event Action<string>? RequestSyncOne;
 
+    /// <summary>使用者在標籤或作者管理頁點「在畫廊檢視」— host 切至畫廊並執行對應 DSL 搜尋。</summary>
+    public event Action<string>? RequestSearchInGallery;
+
     public MetadataManageControl()
     {
         InitializeComponent();
@@ -27,6 +30,8 @@ public partial class MetadataManageControl : UserControl, IThemedControl
         // 把 author panel 的 RequestBatchSync 往上層 bubble — host 由此入口走 Phase F 流程
         authorPanel.RequestBatchSync += (id, paths) => RequestBatchSync?.Invoke(id, paths);
         authorPanel.RequestSyncOne += path => RequestSyncOne?.Invoke(path);
+        tagPanel.RequestViewInGallery += dsl => RequestSearchInGallery?.Invoke(dsl);
+        authorPanel.RequestViewInGallery += dsl => RequestSearchInGallery?.Invoke(dsl);
 
         this.WireThemeAndLocalization();
     }

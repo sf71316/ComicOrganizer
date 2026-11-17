@@ -446,4 +446,6 @@ First work will open merge dialog to decide strategy; remaining {4} works will a
   <data name="AllTranslation" xml:space="preserve"><value>All Translation</value></data>
   <data name="AllTranslationConfirmPrompt" xml:space="preserve"><value>Translating the entire comic in the background may take a long time. Do you want to continue?</value></data>
   <data name="AllTranslationConfirmTitle" xml:space="preserve"><value>All Translation</value></data>
+  <data name="QuickFilterPlaceholder" xml:space="preserve"><value>Filter this tab (filename / title)...</value></data>
+  <data name="FilterClearTooltip" xml:space="preserve"><value>Clear filter</value></data>
 </root>

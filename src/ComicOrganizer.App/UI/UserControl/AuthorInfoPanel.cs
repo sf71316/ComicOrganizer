@@ -33,8 +33,19 @@ public partial class AuthorInfoPanel : UserControl
     /// <summary>使用者按「展開最大寬度」 — host 把 drawer 撐到接近螢幕邊（toggle）。</summary>
     public event Action? RequestToggleMaximize;
 
+    /// <summary>使用者點擊作者標籤要求以 DSL 搜尋（dsl, newTab）。</summary>
+    public event Action<string, bool>? RequestSearchDsl;
+
+    /// <summary>使用者要求將搜尋條件 token 追加到目前搜尋欄（AND）。</summary>
+    public event Action<string>? RequestAppendSearchTerm;
+
+    /// <summary>使用者按「在畫廊開啟全部」— (authorId, authorMainName)。</summary>
+    public event Action<long, string>? RequestOpenAuthorInGallery;
+
     /// <summary>edit 模式 drawer 至少需要的寬度（涵蓋 main_name / alias / tag 編輯區）。</summary>
     private const int EditModeMinWidth = 580;
+
+    private readonly ToolTip _chipTooltip = new();
 
     private bool _showBatchFetchButton;
     /// <summary>由 host 設定 — 控制「同步此作者所有作品」按鈕是否顯示（依 config.EnableExternalMetadata）。
@@ -100,6 +111,13 @@ public partial class AuthorInfoPanel : UserControl
         contentPanel.BackColor = ThemeColors.Surface;
         lblAliases.ForeColor = ThemeColors.Border;     // 次要色
         lblFolderPath.ForeColor = ThemeColors.Border;  // 次要色
+        lnkOpenAuthorGallery.LinkColor = ThemeColors.Primary;
+        lnkOpenAuthorGallery.ActiveLinkColor = ThemeColors.Primary;
+        lnkOpenAuthorGallery.LinkClicked += (s, e) =>
+        {
+            if (_currentAuthorId > 0 && _currentInfo != null)
+                RequestOpenAuthorInGallery?.Invoke(_currentAuthorId, _currentInfo.Author.MainName);
+        };
 
         btnBackToWork.Click += (s, e) => RequestBackToWork?.Invoke();
         btnClose.Click += (s, e) => CloseRequested?.Invoke();
@@ -212,6 +230,7 @@ public partial class AuthorInfoPanel : UserControl
         flowRecent.ResumeLayout(true);
 
         // all works
+        lnkOpenAuthorGallery.Visible = info.AllWorks.Count > 0;
         flowAllWorks.SuspendLayout();
         flowAllWorks.Controls.Clear();
         if (info.AllWorks.Count == 0)
@@ -243,6 +262,7 @@ public partial class AuthorInfoPanel : UserControl
         _currentInfo = null;
         _editAliases.Clear();
         _editTags.Clear();
+        lnkOpenAuthorGallery.Visible = false;
         SetEditMode(false);
         contentPanel.Visible = false;
         lblEmpty.Text = message;
@@ -453,7 +473,7 @@ public partial class AuthorInfoPanel : UserControl
     private void RebuildTagsView()
     {
         flowTags.SuspendLayout();
-        flowTags.Controls.Clear();
+        DisposeChildControls(flowTags);
         if (_isEditing)
         {
             // 編輯時：顯示「作者本身」的 tag（_editTags），可刪
@@ -488,12 +508,29 @@ public partial class AuthorInfoPanel : UserControl
                         Margin = new Padding(0, 0, 4, 4),
                         Font = new Font("Microsoft JhengHei UI", 8.5F),
                         AutoSize = true,
+                        Cursor = Cursors.Hand,
                     };
-                    if (!string.IsNullOrEmpty(display))
+                    if (!string.IsNullOrEmpty(display) && display != tag.Name)
                     {
-                        var tt = new ToolTip();
-                        tt.SetToolTip(chip, tag.Name);
+                        _chipTooltip.SetToolTip(chip, tag.Name);
                     }
+                    var capturedSlug = tag.Name;
+                    var authorMainName = info.Author.MainName;
+                    chip.MouseClick += (s, e) =>
+                    {
+                        var artistToken = SearchQueryParser.BuildFieldToken("artist", authorMainName);
+                        var tagToken = SearchQueryParser.BuildFieldToken("tag", capturedSlug);
+                        var combo = SearchQueryParser.AppendTermToken(artistToken, tagToken);
+                        if (e.Button == MouseButtons.Left)
+                        {
+                            if (!string.IsNullOrEmpty(combo))
+                                RequestSearchDsl?.Invoke(combo, true);
+                        }
+                        else if (e.Button == MouseButtons.Right)
+                        {
+                            OpenTopTagContextMenu(chip, capturedSlug, tagToken, combo);
+                        }
+                    };
                     flowTags.Controls.Add(chip);
                 }
                 if (info.TopTags.Count == 0)
@@ -509,6 +546,74 @@ public partial class AuthorInfoPanel : UserControl
         flowTags.ResumeLayout(true);
     }
 
+    private void OpenTopTagContextMenu(Control anchor, string tagSlug, string tagToken, string comboDsl)
+    {
+        const string idComboNewTab = "combo_new_tab";
+        const string idComboCurrentTab = "combo_current_tab";
+        const string idTagNewTab = "tag_new_tab";
+        const string idAppendTag = "append_tag";
+        const string idCopyTag = "copy_tag";
+
+        var items = new AntdUI.IContextMenuStripItem[]
+        {
+            new AntdUI.ContextMenuStripItem("在新分頁搜尋（此作者＋標籤）")
+            {
+                ID = idComboNewTab,
+                Enabled = !string.IsNullOrEmpty(comboDsl),
+            },
+            new AntdUI.ContextMenuStripItem("在目前分頁搜尋（此作者＋標籤）")
+            {
+                ID = idComboCurrentTab,
+                Enabled = !string.IsNullOrEmpty(comboDsl),
+            },
+            new AntdUI.ContextMenuStripItem("在新分頁僅搜尋此標籤")
+            {
+                ID = idTagNewTab,
+                Enabled = !string.IsNullOrEmpty(tagToken),
+            },
+            new AntdUI.ContextMenuStripItem("加入目前搜尋欄 (AND)")
+            {
+                ID = idAppendTag,
+                Enabled = !string.IsNullOrEmpty(tagToken),
+            },
+            new AntdUI.ContextMenuStripItemDivider(),
+            new AntdUI.ContextMenuStripItem("複製標籤名稱") { ID = idCopyTag },
+        };
+
+        AntdUI.ContextMenuStrip.open(anchor, mi =>
+        {
+            switch (mi.ID)
+            {
+                case idComboNewTab:
+                    if (!string.IsNullOrEmpty(comboDsl)) RequestSearchDsl?.Invoke(comboDsl, true);
+                    break;
+                case idComboCurrentTab:
+                    if (!string.IsNullOrEmpty(comboDsl)) RequestSearchDsl?.Invoke(comboDsl, false);
+                    break;
+                case idTagNewTab:
+                    if (!string.IsNullOrEmpty(tagToken)) RequestSearchDsl?.Invoke(tagToken, true);
+                    break;
+                case idAppendTag:
+                    if (!string.IsNullOrEmpty(tagToken)) RequestAppendSearchTerm?.Invoke(tagToken);
+                    break;
+                case idCopyTag:
+                    WorkContextMenuHelper.TryCopyText(tagSlug);
+                    break;
+            }
+        }, items);
+    }
+
+    private void DisposeChildControls(Control container)
+    {
+        while (container.Controls.Count > 0)
+        {
+            var ctrl = container.Controls[0];
+            container.Controls.RemoveAt(0);
+            _chipTooltip.SetToolTip(ctrl, null);
+            ctrl.Dispose();
+        }
+    }
+
     private AntdUI.Tag BuildAuthorTagChip(string name, bool editable)
     {
         var display = _translator?.TranslateAny(name);
@@ -522,8 +627,7 @@ public partial class AuthorInfoPanel : UserControl
         };
         if (!string.IsNullOrEmpty(display) && display != name)
         {
-            var tt = new ToolTip();
-            tt.SetToolTip(chip, name);
+            _chipTooltip.SetToolTip(chip, name);
         }
         if (editable)
         {

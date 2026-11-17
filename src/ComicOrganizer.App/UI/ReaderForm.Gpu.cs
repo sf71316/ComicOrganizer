@@ -189,13 +189,13 @@ public partial class ReaderForm
             int p = start + i;
             if (p < _source.PageCount && !_skRenderer.Contains(p))
             {
-                using var _ = _skRenderer.AcquireOrProduce(p);  // 同步解碼避免空白
-                if (!_skRenderer.Contains(p)) anyGpuMissing = true;
+                anyGpuMissing = true;
+                break;
             }
         }
         if (anyGpuMissing) BeginPageLoadingIndicator(start);
         else CompletePageLoadingIndicator();
-        _skRenderer.RequestAround(start, GpuPreloadRadius);
+        _skRenderer.RequestSpreadAndAround(start, size, GpuPreloadRadius);
         _skCanvas.Invalidate();
     }
 
@@ -318,7 +318,12 @@ public partial class ReaderForm
     private GpuImageRef AcquireGpuImage(int idx)
     {
         if (_skRenderer == null || idx < 0 || idx >= _source.PageCount) return default;
-        var lease = _skRenderer.AcquirePeek(idx) ?? _skRenderer.AcquireOrProduce(idx);
+        var lease = _skRenderer.AcquirePeek(idx);
+        if (lease == null)
+        {
+            _skRenderer.RequestPriority(idx);
+            return default;
+        }
         return new GpuImageRef(lease);
     }
 
@@ -372,9 +377,14 @@ public partial class ReaderForm
             }
         }
 
-        // 未完成 → 確保譯文已啟動 + 暫顯示 Skia 原始底圖（持有 lease 保護不被背景釋放）
+        // 未完成 → 確保譯文已啟動 + 暫顯示 Skia 原始底圖（不阻塞 UI；未命中則優先排程背景解碼）
         EnsurePageTranslated(idx);
-        var lease = _skRenderer?.AcquirePeek(idx) ?? _skRenderer?.AcquireOrProduce(idx);
+        var lease = _skRenderer?.AcquirePeek(idx);
+        if (lease == null)
+        {
+            _skRenderer?.RequestPriority(idx);
+            return default;
+        }
         return new GpuImageRef(lease);
     }
 

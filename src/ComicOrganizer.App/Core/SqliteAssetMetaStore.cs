@@ -1684,6 +1684,26 @@ ORDER BY a.path COLLATE NOCASE;",
                 transaction: _currentTx).AsList();
     }
 
+    public IReadOnlyList<string> ListWorksBySeries(string keyword)
+        => ListWorksByMetaLikeColumn("am.series", keyword);
+
+    public IReadOnlyList<string> ListWorksByTranslationGroup(string keyword)
+        => ListWorksByMetaLikeColumn("am.translation_group", keyword);
+
+    private IReadOnlyList<string> ListWorksByMetaLikeColumn(string qualifiedColumn, string keyword)
+    {
+        if (string.IsNullOrWhiteSpace(keyword)) return Array.Empty<string>();
+        var pattern = "%" + EscapeLike(keyword.Trim()) + "%";
+        var sql = $@"
+SELECT a.path FROM asset a
+JOIN asset_meta am ON a.id = am.asset_id
+WHERE {qualifiedColumn} LIKE @p ESCAPE '\' COLLATE NOCASE" + ExcludeNonWorkFoldersSql + @"
+ORDER BY a.path COLLATE NOCASE;";
+
+        lock (_lock)
+            return _conn.Query<string>(sql, new { p = pattern }, _currentTx).AsList();
+    }
+
     // ── 自訂虛擬庫（#54 Phase 1）────────────────────────────────
 
     public long CreateVirtualLibrary(string name, string dsl, string? iconSvg)

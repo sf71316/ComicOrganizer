@@ -294,4 +294,99 @@ public class WorkContextMenuHelperTests : IDisposable
         Assert.Single(closeOthers);
         Assert.Same(virtualTab, closeOthers[0]);
     }
+
+    [Fact]
+    public void BuildWorkMenuItems_ExtendedSearch_AllFieldsPresent_BuildsThreeSubItems()
+    {
+        var ctx = new WorkMenuContext
+        {
+            Path = @"C:\Comics\Flugel\fgo.cbz",
+            IsFolderNode = false,
+            IsWorkOverride = true,
+            CanUseBuiltInReaderOverride = true,
+            AuthorName = "Flugel",
+            Series = "Fate/Grand Order",
+            TranslationGroup = "C_97 Team",
+        };
+
+        var flat = FlattenItems(WorkContextMenuHelper.BuildWorkMenuItems(ctx));
+        var extItem = Assert.Single(flat, x => x.ID == WorkContextMenuHelper.IdExtendedSearch);
+        Assert.NotNull(extItem.Sub);
+
+        var sub = FlattenItems(extItem.Sub!);
+        Assert.Equal(3, sub.Count);
+        Assert.All(sub, item => Assert.Equal(WorkContextMenuHelper.IdExtendedSearchRun, item.ID));
+
+        Assert.Equal(SearchQueryParser.BuildFieldToken("artist", "Flugel"), sub[0].Tag);
+        Assert.Equal(SearchQueryParser.BuildFieldToken("series", "Fate/Grand Order"), sub[1].Tag);
+        Assert.Equal(SearchQueryParser.BuildFieldToken("group", "C_97 Team"), sub[2].Tag);
+    }
+
+    [Fact]
+    public void BuildWorkMenuItems_ExtendedSearch_PartialFields_BuildsOnlyMatchingSubItems()
+    {
+        var ctx = new WorkMenuContext
+        {
+            Path = @"C:\Comics\Work.cbz",
+            IsFolderNode = false,
+            IsWorkOverride = true,
+            CanUseBuiltInReaderOverride = true,
+            AuthorName = null,
+            Series = "50% Off",
+            TranslationGroup = "   ",
+        };
+
+        var flat = FlattenItems(WorkContextMenuHelper.BuildWorkMenuItems(ctx));
+        var extItem = Assert.Single(flat, x => x.ID == WorkContextMenuHelper.IdExtendedSearch);
+        var sub = FlattenItems(extItem.Sub!);
+
+        var only = Assert.Single(sub);
+        Assert.Equal(WorkContextMenuHelper.IdExtendedSearchRun, only.ID);
+        Assert.Equal("series:\"50% Off\"", only.Tag);
+    }
+
+    [Fact]
+    public void BuildWorkMenuItems_ExtendedSearch_AllEmpty_OmitsExtendedSearchItem()
+    {
+        var ctx = new WorkMenuContext
+        {
+            Path = @"C:\Comics\Work.cbz",
+            IsFolderNode = false,
+            IsWorkOverride = true,
+            CanUseBuiltInReaderOverride = true,
+            AuthorName = null,
+            Series = "",
+            TranslationGroup = "   ",
+        };
+
+        var flat = FlattenItems(WorkContextMenuHelper.BuildWorkMenuItems(ctx));
+        Assert.DoesNotContain(flat, x => x.ID == WorkContextMenuHelper.IdExtendedSearch);
+    }
+
+    [Fact]
+    public void DispatchWorkMenuItem_ExtendedSearchRun_InvokesExecuteSearchDsl()
+    {
+        string? executedDsl = null;
+        var actions = new WorkMenuActions
+        {
+            ExecuteSearchDsl = dsl => executedDsl = dsl,
+        };
+
+        const string targetPath = @"C:\Comics\Work.cbz";
+        const string expectedDsl = "series:\"Fate/Grand Order\"";
+
+        WorkContextMenuHelper.DispatchWorkMenuItem(
+            new ContextMenuStripItem("run") { ID = WorkContextMenuHelper.IdExtendedSearchRun, Tag = expectedDsl },
+            targetPath,
+            actions);
+
+        Assert.Equal(expectedDsl, executedDsl);
+
+        executedDsl = null;
+        WorkContextMenuHelper.DispatchWorkMenuItem(
+            new ContextMenuStripItem("run_empty") { ID = WorkContextMenuHelper.IdExtendedSearchRun, Tag = null },
+            targetPath,
+            actions);
+        Assert.Null(executedDsl);
+    }
 }

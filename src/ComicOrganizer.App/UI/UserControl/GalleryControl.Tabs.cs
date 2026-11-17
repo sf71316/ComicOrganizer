@@ -39,13 +39,14 @@ public partial class GalleryControl
         bool forceNew = false,
         string iconSvg = "TagOutlined",
         Func<IReadOnlyList<string>>? refreshResolver = null,
-        long? virtualLibraryId = null)
+        long? virtualLibraryId = null,
+        string? searchDsl = null)
     {
         var page = (!forceNew && tabsContent.SelectedTab != null && !WorkContextMenuHelper.IsDashboardTag(tabsContent.SelectedTab.Tag as string)
                     ? tabsContent.SelectedTab
                     : null)
                    ?? CreateNewTabPage(title);
-        var entry = TabNavigationEntry.ForVirtualWorks(title, paths, iconSvg, refreshResolver, virtualLibraryId);
+        var entry = TabNavigationEntry.ForVirtualWorks(title, paths, iconSvg, refreshResolver, virtualLibraryId, searchDsl);
         ApplyNavigationEntryToTab(page, entry, recordHistory: true);
     }
 
@@ -68,6 +69,7 @@ public partial class GalleryControl
             _tabVirtualPaths.Remove(page);
             _tabVirtualRefreshers.Remove(page);
             _tabVirtualLibraryIds.Remove(page);
+            _tabSearchDsls.Remove(page);
             page.Text = title;
             page.Tag = folderPath;
             UpdateBreadcrumbForPage(page, folderPath);
@@ -79,6 +81,8 @@ public partial class GalleryControl
             else _tabVirtualRefreshers.Remove(page);
             if (entry.VirtualLibraryId.HasValue) _tabVirtualLibraryIds[page] = entry.VirtualLibraryId.Value;
             else _tabVirtualLibraryIds.Remove(page);
+            if (!string.IsNullOrWhiteSpace(entry.SearchDsl)) _tabSearchDsls[page] = entry.SearchDsl;
+            else _tabSearchDsls.Remove(page);
 
             page.Text = entry.Title;
             page.Tag = null;
@@ -89,6 +93,12 @@ public partial class GalleryControl
                 bc.Items.Clear();
                 bc.Items.Add(new AntdUI.BreadcrumbItem { Text = " " + entry.Title + " ", IconSvg = entry.IconSvg });
             }
+        }
+
+        var btnSaveVLib = FindInTab<AntdUI.Button>(page, "tabBtnSaveVLib");
+        if (btnSaveVLib != null && !btnSaveVLib.IsDisposed)
+        {
+            btnSaveVLib.Visible = entry.Kind == TabNavigationEntryKind.VirtualWorks && !string.IsNullOrWhiteSpace(entry.SearchDsl);
         }
 
         SyncTabVisibility(page);
@@ -259,6 +269,7 @@ public partial class GalleryControl
         _tabVirtualPaths.Remove(page);
         _tabVirtualRefreshers.Remove(page);
         _tabVirtualLibraryIds.Remove(page);
+        _tabSearchDsls.Remove(page);
         _tabSortFilterStates.Remove(page);
         _tabFullListItems.Remove(page);
         _tabNavHistories.Remove(page);
@@ -508,9 +519,28 @@ public partial class GalleryControl
         btnForward.Click += (s, e) => NavigateTabHistory(newPage, +1);
         _btnTooltip.SetTip(btnForward, "下一頁 (Alt+Right)");
 
+        var btnSaveVLib = new AntdUI.Button
+        {
+            Name = "tabBtnSaveVLib",
+            Dock = DockStyle.Right,
+            Ghost = true,
+            IconSvg = "StarOutlined",
+            IconRatio = 0.85F,
+            Text = "存為清單",
+            Font = new Font("Microsoft JhengHei UI", 9F),
+            ForeColor = Core.ThemeColors.Text,
+            BackHover = Core.ThemeColors.Secondary,
+            Size = LogicalToDeviceUnits(new Size(96, 32)),
+            Cursor = Cursors.Hand,
+            Visible = false,
+        };
+        _btnTooltip.SetTip(btnSaveVLib, "將目前搜尋條件存為自訂閱讀清單");
+        btnSaveVLib.Click += (s, e) => SaveSearchTabAsVirtualLibrary(newPage);
+
         // Dock=Right/Left 多控件時最後加的在最外側：
-        // 左→右視覺：[btnBack] [btnForward] [bc] [selSortField] [btnSortDir] [segViewMode] [btnRefresh]
+        // 左→右視覺：[btnBack] [btnForward] [bc] [btnSaveVLib] [selSortField] [btnSortDir] [segViewMode] [btnRefresh]
         headerPanel.Controls.Add(bc);
+        headerPanel.Controls.Add(btnSaveVLib);
         headerPanel.Controls.Add(selSortField);
         headerPanel.Controls.Add(btnSortDir);
         headerPanel.Controls.Add(segViewMode);
@@ -653,6 +683,22 @@ public partial class GalleryControl
         return newPage;
     }
 
+    private void SaveSearchTabAsVirtualLibrary(AntdUI.TabPage page)
+    {
+        if (_metaStore == null || page.IsDisposed) return;
+        if (!_tabSearchDsls.TryGetValue(page, out var dsl) || string.IsNullOrWhiteSpace(dsl)) return;
+
+        var form = this.FindForm();
+        if (form == null || form.IsDisposed) return;
+
+        using var dlg = new SaveVirtualLibraryDialog(_metaStore, initialDsl: dsl);
+        if (dlg.ShowDialog(form) != DialogResult.OK) return;
+
+        _metaStore.CreateVirtualLibrary(dlg.ResultName, dlg.ResultDsl, dlg.ResultIconSvg);
+        _ = LoadTreeAsync();
+        AntdUI.Message.success(form, $"已儲存閱讀清單「{dlg.ResultName}」");
+    }
+
     /// <summary>List view 表格的 mouse handler 連線（hover preview popup / OpenFolder cell button / 右鍵選單）。
     /// 從 CreateNewTabPage 抽出 — 純設定 event，不持有狀態（currentPreviewPath 用 closure local var）。</summary>
     private void WireTabTableHandlers(AntdUI.TabPage page, AntdUI.Table tableList)
@@ -759,6 +805,7 @@ public partial class GalleryControl
 
             if (e.Button != MouseButtons.Right) return;
 
+            var extInfo = GetExtendedSearchInfo(item.FullPath);
             var ctx = new WorkMenuContext
             {
                 Path = item.FullPath,
@@ -766,6 +813,9 @@ public partial class GalleryControl
                 CurrentStatus = _metaStore?.GetReadStatus(item.FullPath),
                 VirtualLibraries = _metaStore?.ListVirtualLibraries(),
                 WorkLibraryIds = _metaStore?.ListVirtualLibraryIdsForWork(item.FullPath),
+                AuthorName = extInfo.AuthorName,
+                Series = extInfo.Series,
+                TranslationGroup = extInfo.TranslationGroup,
             };
             WorkContextMenuHelper.OpenWorkContextMenu(tableList, ctx, CreateWorkMenuActions());
         };

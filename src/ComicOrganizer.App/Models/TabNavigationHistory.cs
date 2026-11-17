@@ -31,6 +31,9 @@ public sealed class TabNavigationEntry
     /// <summary>若對應自訂虛擬庫，記錄其資料庫 ID（可為 null）。</summary>
     public long? VirtualLibraryId { get; }
 
+    /// <summary>若此虛擬分頁來自搜尋 DSL，記錄原始查詢字串（供歷史切換還原「存為清單」與重整用；可為 null）。</summary>
+    public string? SearchDsl { get; private set; }
+
     private TabNavigationEntry(
         TabNavigationEntryKind kind,
         string title,
@@ -38,7 +41,8 @@ public sealed class TabNavigationEntry
         IReadOnlyList<string> virtualPaths,
         string iconSvg,
         Func<IReadOnlyList<string>>? refreshResolver,
-        long? virtualLibraryId)
+        long? virtualLibraryId,
+        string? searchDsl)
     {
         Kind = kind;
         Title = title;
@@ -47,6 +51,7 @@ public sealed class TabNavigationEntry
         IconSvg = iconSvg;
         RefreshResolver = refreshResolver;
         VirtualLibraryId = virtualLibraryId;
+        SearchDsl = string.IsNullOrWhiteSpace(searchDsl) ? null : searchDsl;
     }
 
     /// <summary>建立資料夾目的地歷史項目。</summary>
@@ -68,7 +73,8 @@ public sealed class TabNavigationEntry
             Array.Empty<string>(),
             "FolderOutlined",
             refreshResolver: null,
-            virtualLibraryId: null);
+            virtualLibraryId: null,
+            searchDsl: null);
     }
 
     /// <summary>建立虛擬作品清單目的地歷史項目。</summary>
@@ -77,7 +83,8 @@ public sealed class TabNavigationEntry
         IReadOnlyList<string> paths,
         string iconSvg = "TagOutlined",
         Func<IReadOnlyList<string>>? refreshResolver = null,
-        long? virtualLibraryId = null)
+        long? virtualLibraryId = null,
+        string? searchDsl = null)
     {
         var snapshot = paths == null ? Array.Empty<string>() : paths.ToArray();
         return new TabNavigationEntry(
@@ -87,7 +94,8 @@ public sealed class TabNavigationEntry
             snapshot,
             string.IsNullOrEmpty(iconSvg) ? "TagOutlined" : iconSvg,
             refreshResolver,
-            virtualLibraryId);
+            virtualLibraryId,
+            searchDsl);
     }
 
     /// <summary>判斷兩個導航項目是否指向同一個目的地。</summary>
@@ -115,6 +123,7 @@ public sealed class TabNavigationEntry
     {
         Title = source.Title;
         RefreshResolver = source.RefreshResolver;
+        SearchDsl = source.SearchDsl;
     }
 
     private static string? NormalizeFolderPath(string? path)
@@ -160,7 +169,7 @@ public sealed class TabNavigationHistory
 
     /// <summary>
     /// 推入新導航目的地。
-    /// 若與目前目的地相同則原地更新 RefreshResolver 與 Title 並回傳 false；
+    /// 若與目前目的地相同則原地更新 RefreshResolver、Title 與 SearchDsl 並回傳 false；
     /// 若目前位於歷史中間（有 forward 紀錄）會先截斷後方歷史再附加，並於超出容量上限時移除最舊項。
     /// </summary>
     public bool Push(TabNavigationEntry entry)

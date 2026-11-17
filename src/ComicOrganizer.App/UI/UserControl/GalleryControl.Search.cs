@@ -10,7 +10,7 @@ public partial class GalleryControl
 {
     /// <summary>DSL 可用 field 列表（顯示 chip 順序就照這個）。</summary>
     private static readonly string[] DslFieldChips =
-        { "artist:", "tag:", "language:", "read:" };
+        { "artist:", "tag:", "series:", "group:", "language:", "read:" };
 
     private bool _isSearching;
     private SearchSuggestBox? _suggestBox;
@@ -254,18 +254,30 @@ public partial class GalleryControl
 
     /// <summary>parse + execute 搜尋 DSL，結果開到當前 tab。
     /// 在背景執行緒執行避免大資料量凍結 UI；空字串不做事（避免誤按 Enter 把 tab 清空）。</summary>
-    private async void ExecuteDslSearch()
+    private void ExecuteDslSearch()
+        => _ = ExecuteDslSearchAsync(txtSearchDsl.Text ?? "", forceNewTab: false, updateSearchBox: false);
+
+    /// <summary>執行 DSL 搜尋並將結果顯示於目前或新畫廊分頁（可選同步更新左側搜尋框）。</summary>
+    public async Task ExecuteDslSearchAsync(string rawDsl, bool forceNewTab = true, bool updateSearchBox = false)
     {
         if (_metaStore == null || _isSearching) return;
-        var raw = txtSearchDsl.Text?.Trim() ?? "";
+        var raw = rawDsl?.Trim() ?? "";
         if (string.IsNullOrEmpty(raw)) return;
 
         var query = SearchQueryParser.Parse(raw);
         if (query.IsEmpty) return;
 
+        if (updateSearchBox && !txtSearchDsl.IsDisposed)
+        {
+            txtSearchDsl.Text = raw;
+            txtSearchDsl.SelectionStart = raw.Length;
+            txtSearchDsl.SelectionLength = 0;
+        }
+
         _isSearching = true;
         _suggestDebounceTimer?.Stop();
         _suggestBox?.HideSuggestions();
+        if (updateSearchBox) searchHintBarHost.Visible = false;
         ReportJobStarted("搜尋中...");
 
         var lang = GetCurrentTagLang();
@@ -294,7 +306,17 @@ public partial class GalleryControl
 
         // tab 標題 = 原 query 字串 + 筆數；breadcrumb 顯示 SearchOutlined icon
         var tabTitle = $"{raw} ({paths.Count})";
-        OpenVirtualWorksTab(tabTitle, paths, iconSvg: "SearchOutlined");
+        OpenVirtualWorksTab(
+            tabTitle,
+            paths,
+            forceNew: forceNewTab,
+            iconSvg: "SearchOutlined",
+            refreshResolver: () =>
+            {
+                if (_metaStore == null) return Array.Empty<string>();
+                return new SearchExecutor(_metaStore, GetCurrentTagLang()).Execute(SearchQueryParser.Parse(raw));
+            },
+            searchDsl: raw);
 
         // 若有結果則收起輔助提示列；若 0 結果則顯示提示與相近詞推薦
         if (paths.Count > 0)
@@ -322,6 +344,20 @@ public partial class GalleryControl
                 }
             }
         }
+    }
+
+    /// <summary>將一個搜尋 token 安全追加到左側搜尋框並聚焦（供詳情抽屜「加入目前搜尋欄 (AND)」使用）。</summary>
+    public void AppendSearchTermAndFocus(string token)
+    {
+        if (IsDisposed || txtSearchDsl.IsDisposed) return;
+        var updated = SearchQueryParser.AppendTermToken(txtSearchDsl.Text, token);
+        txtSearchDsl.Text = updated;
+        txtSearchDsl.Focus();
+        txtSearchDsl.SelectionStart = updated.Length;
+        txtSearchDsl.SelectionLength = 0;
+        _suggestDebounceTimer?.Stop();
+        _suggestBox?.HideSuggestions();
+        searchHintBarHost.Visible = false;
     }
 
     private void DisplayFuzzyRecommendations(IReadOnlyList<SearchRecommendation> recs)

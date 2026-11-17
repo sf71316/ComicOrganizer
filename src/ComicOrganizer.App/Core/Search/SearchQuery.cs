@@ -7,7 +7,7 @@ namespace ComicOrganizer.App.Core;
 ///   query     := term ( WS+ term )*
 ///   term      := [-]? ( field_term | bare_term )
 ///   field_term := field ":" value
-///   field     := "artist"|"author"|"tag"|"language"|"lang"|"read"|"status"
+///   field     := "artist"|"author"|"tag"|"language"|"lang"|"read"|"status"|"series"|"group"|"translator"|"scanlator"
 ///   value     := bare_word | quoted_string
 ///   bare_term := bare_word | quoted_string                        // 純文字
 ///   quoted_string := '"' ... '"'
@@ -31,6 +31,8 @@ public static class SearchQueryParser
             { "tag", SearchField.Tag },
             { "language", SearchField.Language }, { "lang", SearchField.Language },
             { "read", SearchField.ReadStatus }, { "status", SearchField.ReadStatus },
+            { "series", SearchField.Series },
+            { "group", SearchField.TranslationGroup }, { "translator", SearchField.TranslationGroup }, { "scanlator", SearchField.TranslationGroup },
         };
 
     public static SearchQuery Parse(string? input)
@@ -239,6 +241,137 @@ public static class SearchQueryParser
 
         return currentText + " " + fieldPrefix;
     }
+
+    /// <summary>
+    /// 安全組裝單一欄位搜尋 token（例如 <c>series:"My Series"</c> 或 <c>-group:C_97</c>）。
+    /// 會移除控制字元與破壞引號的雙引號（以空白替代再 trim），若欄位或值為空則回傳空字串。
+    /// 若值包含空白、雙引號、Tab、冒號或連字號等分隔/運算字元時，自動以雙引號包住。
+    /// </summary>
+    public static string BuildFieldToken(string fieldName, string value, bool negated = false)
+    {
+        if (string.IsNullOrWhiteSpace(fieldName) || string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        var cleanField = fieldName.Trim().Trim(':').Trim();
+        if (string.IsNullOrEmpty(cleanField))
+            return string.Empty;
+
+        var cleanValue = SanitizeFieldValue(value);
+        if (string.IsNullOrEmpty(cleanValue))
+            return string.Empty;
+
+        bool needsQuotes = false;
+        foreach (char c in cleanValue)
+        {
+            if (char.IsWhiteSpace(c) || c == '"' || c == '\t' || c == ':' || c == '-')
+            {
+                needsQuotes = true;
+                break;
+            }
+        }
+
+        var formattedValue = needsQuotes ? $"\"{cleanValue}\"" : cleanValue;
+        var prefix = negated ? "-" : string.Empty;
+        return $"{prefix}{cleanField}:{formattedValue}";
+    }
+
+    /// <summary>
+    /// 安全將新 token 追加到既有 DSL 尾巴；若已存在相同 token 不重複加，否則以單一空白隔開。
+    /// 若輸入 token 無效（null/空白、含控制字元或未閉合雙引號）則回傳原字串。
+    /// </summary>
+    public static string AppendTermToken(string? currentDsl, string token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+            return currentDsl ?? string.Empty;
+
+        var trimmedToken = token.Trim();
+        int quoteCount = 0;
+        foreach (char c in trimmedToken)
+        {
+            if (char.IsControl(c))
+                return currentDsl ?? string.Empty;
+            if (c == '"')
+                quoteCount++;
+        }
+
+        if (quoteCount % 2 != 0)
+            return currentDsl ?? string.Empty;
+
+        if (string.IsNullOrWhiteSpace(currentDsl))
+            return trimmedToken;
+
+        var existingTokens = SplitTopLevelTokens(currentDsl);
+        foreach (var existing in existingTokens)
+        {
+            if (string.Equals(existing, trimmedToken, StringComparison.OrdinalIgnoreCase))
+                return currentDsl;
+        }
+
+        var newParsed = Parse(trimmedToken);
+        if (newParsed.Terms.Count == 1)
+        {
+            var newTerm = newParsed.Terms[0];
+            var existingParsed = Parse(currentDsl);
+            foreach (var existingTerm in existingParsed.Terms)
+            {
+                if (existingTerm.Field == newTerm.Field &&
+                    existingTerm.Negated == newTerm.Negated &&
+                    string.Equals(existingTerm.Value, newTerm.Value, StringComparison.OrdinalIgnoreCase))
+                {
+                    return currentDsl;
+                }
+            }
+        }
+
+        return currentDsl.TrimEnd() + " " + trimmedToken;
+    }
+
+    private static string SanitizeFieldValue(string value)
+    {
+        var sb = new System.Text.StringBuilder(value.Length);
+        foreach (char c in value)
+        {
+            if (char.IsControl(c) || c == '"')
+                sb.Append(' ');
+            else
+                sb.Append(c);
+        }
+        return sb.ToString().Trim();
+    }
+
+    private static List<string> SplitTopLevelTokens(string dsl)
+    {
+        var tokens = new List<string>();
+        bool inQuotes = false;
+        int start = -1;
+
+        for (int i = 0; i < dsl.Length; i++)
+        {
+            char c = dsl[i];
+            if (c == '"')
+            {
+                if (start < 0) start = i;
+                inQuotes = !inQuotes;
+            }
+            else if (!inQuotes && char.IsWhiteSpace(c))
+            {
+                if (start >= 0)
+                {
+                    tokens.Add(dsl[start..i]);
+                    start = -1;
+                }
+            }
+            else if (start < 0)
+            {
+                start = i;
+            }
+        }
+
+        if (start >= 0)
+            tokens.Add(dsl[start..]);
+
+        return tokens;
+    }
 }
 
 /// <summary>代表當前正在輸入且可觸發 autocomplete 的欄位 token。</summary>
@@ -256,6 +389,10 @@ public enum SearchField
     Language,
     /// <summary>read: / status: — unread/reading/completed/dropped。</summary>
     ReadStatus,
+    /// <summary>series: — 比對 asset_meta.series（子字串模糊比對）。</summary>
+    Series,
+    /// <summary>group: / translator: / scanlator: — 比對 asset_meta.translation_group（子字串模糊比對）。</summary>
+    TranslationGroup,
 }
 
 /// <summary>單一搜尋條件 — 一個 query 由多個 term 組成（positive AND，negative except）。</summary>

@@ -3,6 +3,17 @@ using ComicOrganizer.App.Core;
 
 namespace ComicOrganizer.App.Models;
 
+/// <summary>閱讀器同作品延伸探索維度。</summary>
+public enum ReaderExploreKind
+{
+    Author,
+    Series,
+    TranslationGroup,
+}
+
+/// <summary>閱讀器延伸探索選項（含維度、顯示值與安全搜尋 DSL）。</summary>
+public sealed record ReaderExploreOption(ReaderExploreKind Kind, string Value, string Dsl);
+
 /// <summary>
 /// 內建閱讀器操作輔助類別：頁碼跳轉解析、同目錄／同清單相鄰作品解析、
 /// 檢視／縮放模式正規化與閱讀器視窗尺寸防呆夾擠。
@@ -202,4 +213,36 @@ public static class ReaderNavigationHelper
         int clampedH = Math.Clamp(targetH, effectiveMinH, workingArea.Height);
         return new Size(clampedW, clampedH);
     }
+
+    /// <summary>
+    /// 依作品的作者／系列／翻譯組建立探索搜尋選項（以 <see cref="SearchQueryParser.BuildFieldToken"/> 安全組句）。
+    /// 空白或無法組成有效 DSL 的欄位會自動略過。
+    /// </summary>
+    public static IReadOnlyList<ReaderExploreOption> BuildExploreOptions(
+        string? authorName,
+        string? series,
+        string? translationGroup)
+    {
+        var options = new List<ReaderExploreOption>(3);
+        AddExploreOption(options, ReaderExploreKind.Author, "artist", authorName);
+        AddExploreOption(options, ReaderExploreKind.Series, "series", series);
+        AddExploreOption(options, ReaderExploreKind.TranslationGroup, "group", translationGroup);
+        return options;
+    }
+
+    private static void AddExploreOption(
+        List<ReaderExploreOption> options,
+        ReaderExploreKind kind,
+        string fieldName,
+        string? rawValue)
+    {
+        if (string.IsNullOrWhiteSpace(rawValue)) return;
+        var dsl = SearchQueryParser.BuildFieldToken(fieldName, rawValue);
+        if (string.IsNullOrEmpty(dsl)) return;
+        options.Add(new ReaderExploreOption(kind, rawValue.Trim(), dsl));
+    }
+
+    /// <summary>判斷目前單／雙頁瀏覽位置是否已抵達本篇尾頁（含最後跨頁）。</summary>
+    public static bool IsLastSpreadReached(int currentIndex, int spreadSize, int pageCount)
+        => pageCount > 0 && currentIndex + Math.Max(1, spreadSize) >= pageCount;
 }

@@ -36,7 +36,9 @@ partial class AuthorInfoPanel
     private System.Windows.Forms.Label lblRecentHeader;
     private System.Windows.Forms.FlowLayoutPanel flowRecent;
     private AntdUI.Divider divider4;
+    private System.Windows.Forms.TableLayoutPanel allWorksHeaderPanel;
     private System.Windows.Forms.Label lblAllWorksHeader;
+    private System.Windows.Forms.LinkLabel lnkOpenAuthorGallery;
     private System.Windows.Forms.FlowLayoutPanel flowAllWorks;
     private AntdUI.Divider divider5;
     private System.Windows.Forms.FlowLayoutPanel flowActions;
@@ -50,7 +52,11 @@ partial class AuthorInfoPanel
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing && (components != null)) components.Dispose();
+        if (disposing)
+        {
+            _chipTooltip.Dispose();
+            components?.Dispose();
+        }
         base.Dispose(disposing);
     }
 
@@ -85,7 +91,9 @@ partial class AuthorInfoPanel
         lblRecentHeader = new System.Windows.Forms.Label();
         flowRecent = new System.Windows.Forms.FlowLayoutPanel();
         divider4 = new AntdUI.Divider();
+        allWorksHeaderPanel = new System.Windows.Forms.TableLayoutPanel();
         lblAllWorksHeader = new System.Windows.Forms.Label();
+        lnkOpenAuthorGallery = new System.Windows.Forms.LinkLabel();
         flowAllWorks = new System.Windows.Forms.FlowLayoutPanel();
         divider5 = new AntdUI.Divider();
         flowActions = new System.Windows.Forms.FlowLayoutPanel();
@@ -193,7 +201,7 @@ partial class AuthorInfoPanel
         layout.Controls.Add(lblRecentHeader, 0, 14);
         layout.Controls.Add(flowRecent, 0, 15);
         layout.Controls.Add(divider4, 0, 16);
-        layout.Controls.Add(lblAllWorksHeader, 0, 17);
+        layout.Controls.Add(allWorksHeaderPanel, 0, 17);
         layout.Controls.Add(flowAllWorks, 0, 18);
         layout.Controls.Add(divider5, 0, 19);
         layout.Controls.Add(flowActions, 0, 20);
@@ -414,13 +422,40 @@ partial class AuthorInfoPanel
         flowRecent.WrapContents = false;
 
         //
+        // allWorksHeaderPanel
+        //
+        allWorksHeaderPanel.AutoSize = true;
+        allWorksHeaderPanel.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+        allWorksHeaderPanel.ColumnCount = 2;
+        allWorksHeaderPanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
+        allWorksHeaderPanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.AutoSize));
+        allWorksHeaderPanel.Dock = System.Windows.Forms.DockStyle.Fill;
+        allWorksHeaderPanel.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
+        allWorksHeaderPanel.Name = "allWorksHeaderPanel";
+        allWorksHeaderPanel.RowCount = 1;
+        allWorksHeaderPanel.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
+        allWorksHeaderPanel.Controls.Add(lblAllWorksHeader, 0, 0);
+        allWorksHeaderPanel.Controls.Add(lnkOpenAuthorGallery, 1, 0);
+        //
         // lblAllWorksHeader
         //
+        lblAllWorksHeader.Anchor = System.Windows.Forms.AnchorStyles.Left;
         lblAllWorksHeader.AutoSize = true;
         lblAllWorksHeader.Font = new System.Drawing.Font("Microsoft JhengHei UI", 10F, System.Drawing.FontStyle.Bold);
-        lblAllWorksHeader.Margin = new System.Windows.Forms.Padding(0, 0, 0, 4);
+        lblAllWorksHeader.Margin = new System.Windows.Forms.Padding(0);
         lblAllWorksHeader.Name = "lblAllWorksHeader";
         lblAllWorksHeader.Text = "全部作品";
+        //
+        // lnkOpenAuthorGallery
+        //
+        lnkOpenAuthorGallery.Anchor = System.Windows.Forms.AnchorStyles.Right;
+        lnkOpenAuthorGallery.AutoSize = true;
+        lnkOpenAuthorGallery.Font = new System.Drawing.Font("Microsoft JhengHei UI", 8.5F);
+        lnkOpenAuthorGallery.LinkBehavior = System.Windows.Forms.LinkBehavior.HoverUnderline;
+        lnkOpenAuthorGallery.Margin = new System.Windows.Forms.Padding(8, 1, 0, 0);
+        lnkOpenAuthorGallery.Name = "lnkOpenAuthorGallery";
+        lnkOpenAuthorGallery.Text = "🖼 在畫廊開啟全部 →";
+        lnkOpenAuthorGallery.Visible = false;
         //
         // flowAllWorks
         //

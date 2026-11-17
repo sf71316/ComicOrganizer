@@ -1,3 +1,5 @@
+using SkiaSharp;
+
 namespace ComicOrganizer.App.Core;
 
 /// <summary>單頁輕量 metadata（供跳頁清單延遲讀取，避免預先解壓）。</summary>
@@ -6,6 +8,16 @@ public readonly record struct ReaderPageMetadata(
     string Name,
     long? SizeBytes,
     DateTime? LastModified);
+
+/// <summary>
+/// 支援直接產出 <see cref="SKBitmap"/> 的閱讀器來源（例如 PDF）。
+/// 可省略先編碼成 PNG 串流再重新解碼的往返開銷；caller 負責 Dispose 回傳的 <see cref="SKBitmap"/>。
+/// </summary>
+public interface ISkiaBitmapSource
+{
+    /// <summary>直接產出第 index 頁的 <see cref="SKBitmap"/>（失敗回 null；caller 負責 Dispose）。</summary>
+    SKBitmap? OpenPageBitmap(int index);
+}
 
 /// <summary>
 /// 內建 reader 的圖檔來源抽象。FolderReaderSource / ArchiveReaderSource / (未來) PdfReaderSource

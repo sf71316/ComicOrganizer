@@ -10,11 +10,13 @@ namespace ComicOrganizer.App.Core;
 ///   無 term → 回空
 ///
 /// 各 field 的解析策略：
-///   Artist  : SearchAuthors(prefix LIKE) → ListWorksByAuthor (union 所有 matched author)
-///   Tag     : SearchTagIdsByTranslatedName(LIKE 譯文) ∪ SearchTags(prefix LIKE 原文) → ListWorksByTags(intersect=false)
-///   Language: ListWorksByLanguage(精準 code 或 null=未標記)
-///   ReadStatus: 解析為 enum → ListWorksByReadStatus
-///   FreeText: SearchWorksByTitleOrFilename(LIKE)
+///   Artist          : SearchAuthors(prefix LIKE) → ListWorksByAuthor (union 所有 matched author)
+///   Tag             : SearchTagIdsByTranslatedName(LIKE 譯文) ∪ SearchTags(prefix LIKE 原文) → ListWorksByTags(intersect=false)
+///   Language        : ListWorksByLanguage(精準 code 或 null=未標記)
+///   ReadStatus      : 解析為 enum → ListWorksByReadStatus
+///   Series          : ListWorksBySeries(LIKE 子字串)
+///   TranslationGroup: ListWorksByTranslationGroup(LIKE 子字串)
+///   FreeText        : SearchWorksByTitleOrFilename(LIKE)
 /// </summary>
 public class SearchExecutor
 {
@@ -72,6 +74,8 @@ public class SearchExecutor
                 return TryParseReadStatus(term.Value, out var status)
                     ? _store.ListWorksByReadStatus(status)
                     : Array.Empty<string>();
+            case SearchField.Series: return _store.ListWorksBySeries(term.Value);
+            case SearchField.TranslationGroup: return _store.ListWorksByTranslationGroup(term.Value);
             case SearchField.FreeText: return _store.SearchWorksByTitleOrFilename(term.Value, limit: 0);
             default: return Array.Empty<string>();
         }

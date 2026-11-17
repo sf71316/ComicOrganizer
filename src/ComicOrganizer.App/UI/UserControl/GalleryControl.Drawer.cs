@@ -111,6 +111,34 @@ public partial class GalleryControl
         // 顯示按鈕：依 config.EnableExternalMetadata
         detailDrawerHost.AuthorPanel.ShowBatchFetchButton =
             _prefs != null && _config != null && _config.EnableExternalMetadata;
+
+        // 作品 / 作者詳情抽屜互動延伸搜尋與畫廊開啟（皆經未存檔編輯防護）
+        detailDrawerHost.WorkPanel.RequestSearchDsl += (dsl, newTab) =>
+            GuardUnsavedChanges(() => _ = ExecuteDslSearchAsync(dsl, forceNewTab: newTab, updateSearchBox: true));
+        detailDrawerHost.WorkPanel.RequestAppendSearchTerm += token =>
+            GuardUnsavedChanges(() => AppendSearchTermAndFocus(token));
+
+        detailDrawerHost.AuthorPanel.RequestSearchDsl += (dsl, newTab) =>
+            GuardUnsavedChanges(() => _ = ExecuteDslSearchAsync(dsl, forceNewTab: newTab, updateSearchBox: true));
+        detailDrawerHost.AuthorPanel.RequestAppendSearchTerm += token =>
+            GuardUnsavedChanges(() => AppendSearchTermAndFocus(token));
+        detailDrawerHost.AuthorPanel.RequestOpenAuthorInGallery += (authorId, authorName) =>
+            GuardUnsavedChanges(() => OpenAuthorInGalleryTab(authorId, authorName));
+    }
+
+    private void OpenAuthorInGalleryTab(long authorId, string authorName)
+    {
+        if (_metaStore == null) return;
+        var paths = _metaStore.ListWorksByAuthor(authorId);
+        var title = string.IsNullOrWhiteSpace(authorName) ? $"作者 ({paths.Count})" : $"{authorName} ({paths.Count})";
+        var searchDsl = SearchQueryParser.BuildFieldToken("artist", authorName);
+        OpenVirtualWorksTab(
+            title,
+            paths,
+            forceNew: true,
+            iconSvg: "UserOutlined",
+            refreshResolver: () => _metaStore?.ListWorksByAuthor(authorId) ?? Array.Empty<string>(),
+            searchDsl: string.IsNullOrEmpty(searchDsl) ? null : searchDsl);
     }
 
     /// <summary>AuthorInfoPanel「儲存」事件 handler — RenameAuthor + SetAuthorFolderPath + 別名 diff 寫入 + SetAuthorTags。</summary>
