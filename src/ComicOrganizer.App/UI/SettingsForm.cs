@@ -130,6 +130,7 @@ public partial class SettingsForm : Window, IThemedControl
         selectReadingDirection.Items.Clear();
         selectReadingDirection.Items.Add(FmtRtl());
         selectReadingDirection.Items.Add(FmtLtr());
+        selectReadingDirection.SelectedIndex = string.Equals(Prefs.DefaultReadingDirection, "ltr", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
         cbDualPageSpreadFromCover.Checked = Prefs.DualPageSpreadFromCover;
         cbUseGpuRendering.Checked = Config.UseGpuRendering;
 
