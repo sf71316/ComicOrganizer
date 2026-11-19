@@ -35,6 +35,9 @@ public static class SearchFuzzyRecommender
             .GroupBy(a => a.AuthorId)
             .ToDictionary(g => g.Key, g => g.ToList());
         var tags = store.ListTagsByUsage();
+        var aliasesByTag = store.ListAllTagAliases()
+            .GroupBy(a => a.TargetTagId)
+            .ToDictionary(g => g.Key, g => g.ToList());
         var targetLang = lang ?? "zh-TW";
         var tagTranslations = tags.Count > 0
             ? store.GetTagTranslations(tags.Select(t => t.Id).ToList(), targetLang)
@@ -66,21 +69,15 @@ public static class SearchFuzzyRecommender
                     foreach (var t in tags)
                     {
                         tagTranslations.TryGetValue(t.Id, out var trans);
-                        int scoreOrig = Fuzz.WeightedRatio(term.Value, t.Name);
-                        int scoreTrans = !string.IsNullOrEmpty(trans) ? Fuzz.WeightedRatio(term.Value, trans) : 0;
-                        int score = Math.Max(scoreOrig, scoreTrans);
+                        aliasesByTag.TryGetValue(t.Id, out var tagAliasList);
+                        int score = ScoreTag(term.Value, t, trans, tagAliasList, out bool isExact, out string bestTarget);
 
-                        if (score >= minScore)
+                        if (score >= minScore && !isExact)
                         {
-                            var bestTarget = scoreTrans >= scoreOrig && !string.IsNullOrEmpty(trans) ? trans : t.Name;
-                            if (!string.Equals(term.Value, t.Name, StringComparison.OrdinalIgnoreCase) &&
-                                !string.Equals(term.Value, trans, StringComparison.OrdinalIgnoreCase))
-                            {
-                                var repVal = QuoteIfNeeded(bestTarget);
-                                var newPart = "tag:" + repVal;
-                                var newQuery = ReplaceFieldTerm(rawQuery, TagFieldAliases, term.Value, newPart);
-                                candidates.Add(new SearchRecommendation(newPart, newQuery, score));
-                            }
+                            var repVal = QuoteIfNeeded(bestTarget);
+                            var newPart = "tag:" + repVal;
+                            var newQuery = ReplaceFieldTerm(rawQuery, TagFieldAliases, term.Value, newPart);
+                            candidates.Add(new SearchRecommendation(newPart, newQuery, score));
                         }
                     }
                     break;
@@ -100,17 +97,15 @@ public static class SearchFuzzyRecommender
                         }
                     }
 
-                    // 2. 純文字接近某標籤或譯名 → 推薦改為 tag:xxx
+                    // 2. 純文字接近某標籤、譯名或別名 → 推薦改為 tag:xxx
                     foreach (var t in tags)
                     {
                         tagTranslations.TryGetValue(t.Id, out var trans);
-                        int scoreOrig = Fuzz.WeightedRatio(term.Value, t.Name);
-                        int scoreTrans = !string.IsNullOrEmpty(trans) ? Fuzz.WeightedRatio(term.Value, trans) : 0;
-                        int score = Math.Max(scoreOrig, scoreTrans);
+                        aliasesByTag.TryGetValue(t.Id, out var tagAliasList);
+                        int score = ScoreTag(term.Value, t, trans, tagAliasList, out _, out string bestTarget);
 
                         if (score >= minScore)
                         {
-                            var bestTarget = scoreTrans >= scoreOrig && !string.IsNullOrEmpty(trans) ? trans : t.Name;
                             var repVal = QuoteIfNeeded(bestTarget);
                             var newPart = "tag:" + repVal;
                             var newQuery = ReplaceFreeTextTerm(rawQuery, term.Value, newPart);
@@ -147,6 +142,41 @@ public static class SearchFuzzyRecommender
                 if (s > best) best = s;
             }
         }
+        return best;
+    }
+
+    private static int ScoreTag(
+        string input, TagUsage tag, string? translated, List<TagAlias>? aliases,
+        out bool isExact, out string bestTarget)
+    {
+        isExact = string.Equals(input, tag.Name, StringComparison.OrdinalIgnoreCase)
+            || (!string.IsNullOrEmpty(translated) && string.Equals(input, translated, StringComparison.OrdinalIgnoreCase));
+
+        int scoreOrig = Fuzz.WeightedRatio(input, tag.Name);
+        int scoreTrans = !string.IsNullOrEmpty(translated) ? Fuzz.WeightedRatio(input, translated) : 0;
+        int best = Math.Max(scoreOrig, scoreTrans);
+        bool aliasMatchedBest = false;
+
+        if (aliases != null)
+        {
+            foreach (var al in aliases)
+            {
+                if (string.Equals(input, al.AliasName, StringComparison.OrdinalIgnoreCase))
+                    isExact = true;
+                int s = Fuzz.WeightedRatio(input, al.AliasName);
+                if (s > best)
+                {
+                    best = s;
+                    aliasMatchedBest = true;
+                }
+            }
+        }
+
+        if (aliasMatchedBest || (scoreTrans >= scoreOrig && !string.IsNullOrEmpty(translated)))
+            bestTarget = !string.IsNullOrEmpty(translated) ? translated : tag.Name;
+        else
+            bestTarget = tag.Name;
+
         return best;
     }
 

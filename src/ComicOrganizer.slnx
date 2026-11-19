@@ -1,5 +1,7 @@
 <Solution>
+  <Project Path="ComicOrganizer.Core/ComicOrganizer.Core.csproj" />
   <Project Path="ComicOrganizer.App/ComicOrganizer.App.csproj" />
+  <Project Path="ComicOrganizer.Avalonia/ComicOrganizer.Avalonia.csproj" />
   <Project Path="ComicOrganizer.Plugin.PaddleOcr/ComicOrganizer.Plugin.PaddleOcr.csproj" />
   <Project Path="ComicOrganizer.Tests/ComicOrganizer.Tests.csproj" />
 </Solution>

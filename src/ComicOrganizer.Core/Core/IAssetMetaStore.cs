@@ -236,6 +236,29 @@ public interface IAssetMetaStore : IDisposable
     /// <summary>更新 tag.category（character / artist / parody / genre / language / meta 等自由字串）。</summary>
     void SetTagCategory(long tagId, string? category);
 
+    // ===== Virtual Tag & Alias (schema v9) =====
+
+    /// <summary>依別名反查 canonical tag id（大小寫無關）。找不到回 null。</summary>
+    long? ResolveTagAlias(string aliasName);
+
+    /// <summary>將多個既有標籤合併為一個虛擬主標籤（若 masterName 已存在則沿用），保留所有舊標籤名稱作為 tag_alias。</summary>
+    long MergeTagsIntoVirtual(IReadOnlyList<long> sourceTagIds, string masterName, string? category = "virtual", string? zhTwDisplayName = null);
+
+    /// <summary>為指定主標籤新增別名（不可與既有 tag.name 大小寫無關衝突）。</summary>
+    void AddTagAlias(long targetTagId, string aliasName);
+
+    /// <summary>列出指定主標籤擁有的所有別名。</summary>
+    IReadOnlyList<TagAlias> ListTagAliases(long targetTagId);
+
+    /// <summary>列出全庫所有標籤別名（批次載入用）。</summary>
+    IReadOnlyList<TagAlias> ListAllTagAliases();
+
+    /// <summary>以關鍵字子字串搜尋別名對應的主標籤 ID 清單（LIKE %keyword% COLLATE NOCASE）。</summary>
+    IReadOnlyList<long> SearchTagIdsByAlias(string keyword, int limit = 50);
+
+    /// <summary>移除指定標籤別名（解除綁定；已關聯作品維持不變）。</summary>
+    void DeleteTagAlias(string aliasName);
+
     /// <summary>標記 / 取消「使用者手動編輯過」flag（保護不被 re-parse 覆寫）。</summary>
     void SetMetadataManuallyEdited(long assetId, bool edited);
 
@@ -411,6 +434,9 @@ public interface IAssetMetaStore : IDisposable
 
 /// <summary>tag 譯文紀錄。</summary>
 public record TagTranslation(long TagId, string Lang, string Name, string? Source, long? UpdatedAt);
+
+/// <summary>tag 別名紀錄（schema v9：虛擬主標籤合併後保留舊英文名自動導向）。</summary>
+public record TagAlias(string AliasName, long TargetTagId, long CreatedAt);
 
 // ===== Virtual Library DTOs =====
 

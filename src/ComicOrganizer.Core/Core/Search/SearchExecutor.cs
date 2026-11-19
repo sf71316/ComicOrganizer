@@ -90,12 +90,15 @@ public class SearchExecutor
 
     private IReadOnlyList<string> ResolveTag(string keyword)
     {
-        // 兩種命中方式 union：
+        // 三種命中方式 union：
         //   1. tag_translation.name LIKE %keyword% （中文 / 日文搜尋）
-        //   2. tag.name LIKE %keyword% （英文 slug 搜尋）
+        //   2. tag.name LIKE %keyword% （英文 slug / 虛擬主標籤搜尋）
+        //   3. tag_alias.alias_name LIKE %keyword% （合併前舊英文標籤別名搜尋）
         var tagIds = new HashSet<long>(_store.SearchTagIdsByTranslatedName(keyword, _lang, limit: 0));
         foreach (var t in _store.SearchTags(keyword, limit: 0))
             tagIds.Add(t.Id);
+        foreach (var tid in _store.SearchTagIdsByAlias(keyword, limit: 0))
+            tagIds.Add(tid);
 
         if (tagIds.Count == 0) return Array.Empty<string>();
         return _store.ListWorksByTags(tagIds.ToList(), intersect: false);

@@ -1,0 +1,538 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:suki="https://github.com/kikipoulet/SukiUI"
+             xmlns:vm="using:ComicOrganizer.Avalonia.ViewModels"
+             mc:Ignorable="d"
+             d:DesignWidth="1000"
+             d:DesignHeight="1200"
+             x:Class="ComicOrganizer.Avalonia.Views.SettingsPageView"
+             x:DataType="vm:SettingsPageViewModel">
+
+  <UserControl.Styles>
+    <Style Selector="TextBlock.section-title">
+      <Setter Property="FontSize" Value="17" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="TextBlock.section-subtitle">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="Opacity" Value="0.68" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.field-label">
+      <Setter Property="FontSize" Value="13.5" />
+      <Setter Property="FontWeight" Value="Medium" />
+    </Style>
+    <Style Selector="TextBlock.field-hint">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Opacity" Value="0.65" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="Border.section-divider">
+      <Setter Property="Height" Value="1" />
+      <Setter Property="Background" Value="#22808080" />
+      <Setter Property="Margin" Value="0,4" />
+    </Style>
+  </UserControl.Styles>
+
+  <DockPanel LastChildFill="True">
+
+    <!-- 頂部固定操作列 -->
+    <Border DockPanel.Dock="Top"
+            BorderThickness="0,0,0,1"
+            BorderBrush="#24808080"
+            Padding="28,16,28,14">
+      <Grid MaxWidth="920"
+            HorizontalAlignment="Stretch"
+            ColumnDefinitions="*,Auto">
+        <StackPanel Grid.Column="0"
+                    Spacing="3"
+                    VerticalAlignment="Center"
+                    Margin="0,0,16,0">
+          <TextBlock Text="系統設定"
+                     FontSize="22"
+                     FontWeight="SemiBold" />
+          <TextBlock Text="單頁集中管理外觀主題、共用資料目錄、歸檔快取規則、內建閱讀器與外部 Metadata 同步"
+                     Classes="section-subtitle" />
+        </StackPanel>
+
+        <StackPanel Grid.Column="1"
+                    Orientation="Horizontal"
+                    Spacing="10"
+                    VerticalAlignment="Center">
+          <Button Content="重新載入"
+                  Command="{Binding ReloadCommand}"
+                  Padding="16,8" />
+          <Button Content="儲存設定"
+                  Classes="Flat"
+                  Command="{Binding SaveCommand}"
+                  Padding="20,8"
+                  FontWeight="SemiBold" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- 單頁群組化設定捲動區 -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled">
+      <StackPanel MaxWidth="920"
+                  HorizontalAlignment="Stretch"
+                  Margin="28,20,28,40"
+                  Spacing="18">
+
+        <!-- 組 1：外觀與介面 -->
+        <suki:GlassCard CornerRadius="14" Padding="24,20">
+          <StackPanel Spacing="16">
+            <StackPanel Spacing="3">
+              <TextBlock Text="外觀與介面" Classes="section-title" />
+              <TextBlock Text="切換深淺色模式、選擇主題強調色與顯示語系，外觀切換會即時套用預覽"
+                         Classes="section-subtitle" />
+            </StackPanel>
+
+            <Border Classes="section-divider" />
+
+            <!-- 深色 / 淺色模式 -->
+            <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+              <StackPanel Grid.Column="0" Spacing="2" Margin="0,0,16,0">
+                <TextBlock Text="深色模式" Classes="field-label" />
+                <TextBlock Text="即時切換 SukiUI 深色／淺色基底外觀，按下「儲存設定」後將記住偏好"
+                           Classes="field-hint" />
+              </StackPanel>
+              <ToggleSwitch Grid.Column="1"
+                            IsChecked="{Binding IsDarkTheme}"
+                            OnContent="深色"
+                            OffContent="淺色"
+                            VerticalAlignment="Center" />
+            </Grid>
+
+            <!-- 5 組 SukiUI 主題色 -->
+            <StackPanel Spacing="8">
+              <StackPanel Spacing="2">
+                <TextBlock Text="主題強調色" Classes="field-label" />
+                <TextBlock Text="點擊色票即可即時預覽應用程式主要強調色"
+                           Classes="field-hint" />
+              </StackPanel>
+
+              <ItemsControl ItemsSource="{Binding AccentOptions}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <WrapPanel Orientation="Horizontal" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:AccentColorOption">
+                    <Button Classes="Basic"
+                            Command="{Binding SelectCommand}"
+                            Padding="0"
+                            Margin="0,0,10,8"
+                            Cursor="Hand">
+                      <Border CornerRadius="10"
+                              BorderThickness="1.5"
+                              BorderBrush="{Binding CardBorderBrush}"
+                              Background="{Binding CardBackgroundBrush}"
+                              Padding="12,8">
+                        <StackPanel Orientation="Horizontal"
+                                    Spacing="8"
+                                    VerticalAlignment="Center">
+                          <Ellipse Width="14"
+                                   Height="14"
+                                   Fill="{Binding SwatchBrush}"
+                                   VerticalAlignment="Center" />
+                          <TextBlock Text="{Binding DisplayName}"
+                                     FontSize="13"
+                                     FontWeight="Medium"
+                                     VerticalAlignment="Center" />
+                          <TextBlock Text="✓"
+                                     FontSize="12"
+                                     FontWeight="Bold"
+                                     IsVisible="{Binding IsSelected}"
+                                     VerticalAlignment="Center" />
+                        </StackPanel>
+                      </Border>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+
+            <!-- 介面語系 -->
+            <Grid ColumnDefinitions="*,240" VerticalAlignment="Center">
+              <StackPanel Grid.Column="0" Spacing="2" Margin="0,0,16,0">
+                <TextBlock Text="介面語系" Classes="field-label" />
+                <TextBlock Text="設定應用程式預設語系偏好（儲存於 preferences.json）"
+                           Classes="field-hint" />
+              </StackPanel>
+              <ComboBox Grid.Column="1"
+                        ItemsSource="{Binding LanguageOptions}"
+                        SelectedItem="{Binding SelectedLanguageOption}"
+                        HorizontalAlignment="Stretch" />
+            </Grid>
+          </StackPanel>
+        </suki:GlassCard>
+
+        <!-- 組 2：路徑與共用資料目錄 -->
+        <suki:GlassCard CornerRadius="14" Padding="24,20">
+          <StackPanel Spacing="16">
+            <StackPanel Spacing="3">
+              <TextBlock Text="路徑與共用資料目錄" Classes="section-title" />
+              <TextBlock Text="檢視目前載入的設定與資料庫位置，並設定未整理來源與漫畫庫根目錄"
+                         Classes="section-subtitle" />
+            </StackPanel>
+
+            <Border Classes="section-divider" />
+
+            <!-- 目前載入的共用資料目錄（唯讀） -->
+            <Border Background="#14808080"
+                    BorderBrush="#24808080"
+                    BorderThickness="1"
+                    CornerRadius="10"
+                    Padding="14,12">
+              <StackPanel Spacing="6">
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                  <TextBlock Text="目前載入的資料目錄" Classes="field-label" VerticalAlignment="Center" />
+                  <Border Background="#263B82F6"
+                          CornerRadius="6"
+                          Padding="8,2"
+                          VerticalAlignment="Center">
+                    <TextBlock Text="{Binding DataDirectoryBadgeText}"
+                               FontSize="11.5"
+                               FontWeight="SemiBold" />
+                  </Border>
+                </StackPanel>
+                <SelectableTextBlock Text="{Binding DataDirectory}"
+                                     FontFamily="Consolas, Cascadia Mono, monospace"
+                                     FontSize="13"
+                                     TextWrapping="Wrap" />
+                <TextBlock Text="{Binding DataDirectoryDescription}"
+                           Classes="field-hint" />
+              </StackPanel>
+            </Border>
+
+            <!-- 未整理來源資料夾 -->
+            <StackPanel Spacing="6">
+              <TextBlock Text="未整理來源資料夾" Classes="field-label" />
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBox Grid.Column="0"
+                         Text="{Binding UnorganizedDirectory}"
+                         Watermark="選擇存放待歸檔漫畫或壓縮檔的來源資料夾"
+                         Margin="0,0,10,0" />
+                <Button Grid.Column="1"
+                        Content="瀏覽…"
+                        Command="{Binding BrowseUnorganizedDirectoryCommand}"
+                        Padding="16,8" />
+              </Grid>
+            </StackPanel>
+
+            <!-- 漫畫庫根目錄 -->
+            <StackPanel Spacing="6">
+              <TextBlock Text="漫畫庫根目錄" Classes="field-label" />
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBox Grid.Column="0"
+                         Text="{Binding RootDirectory}"
+                         Watermark="選擇已整理漫畫庫的主根目錄路徑"
+                         Margin="0,0,10,0" />
+                <Button Grid.Column="1"
+                        Content="瀏覽…"
+                        Command="{Binding BrowseRootDirectoryCommand}"
+                        Padding="16,8" />
+              </Grid>
+            </StackPanel>
+          </StackPanel>
+        </suki:GlassCard>
+
+        <!-- 組 3：歸檔比對與快取設定 -->
+        <suki:GlassCard CornerRadius="14" Padding="24,20">
+          <StackPanel Spacing="16">
+            <StackPanel Spacing="3">
+              <TextBlock Text="歸檔比對與快取設定" Classes="section-title" />
+              <TextBlock Text="調整封面掃描遞迴層數、縮圖快取容量上限，以及自動歸檔比對時的雜訊過濾規則"
+                         Classes="section-subtitle" />
+            </StackPanel>
+
+            <Border Classes="section-divider" />
+
+            <!-- 數值參數 -->
+            <Grid ColumnDefinitions="*,18,*">
+              <StackPanel Grid.Column="0" Spacing="6">
+                <TextBlock Text="封面遞迴掃描最大層數" Classes="field-label" />
+                <NumericUpDown Value="{Binding MaxScanDepth}"
+                               Minimum="1"
+                               Maximum="10"
+                               Increment="1"
+                               FormatString="0" />
+                <TextBlock Text="父資料夾無直接圖檔時，往下尋找子資料夾封面的最大深度（預設 3）"
+                           Classes="field-hint" />
+              </StackPanel>
+
+              <StackPanel Grid.Column="2" Spacing="6">
+                <TextBlock Text="縮圖快取空間上限 (MB)" Classes="field-label" />
+                <NumericUpDown Value="{Binding ThumbCacheMaxMB}"
+                               Minimum="0"
+                               Maximum="1048576"
+                               Increment="128"
+                               FormatString="0" />
+                <TextBlock Text="超過此上限時將自動 LRU 淘汰最舊縮圖；設為 0 表示不限制（預設 1024 MB）"
+                           Classes="field-hint" />
+              </StackPanel>
+            </Grid>
+
+            <!-- 歸檔除錯模擬模式 -->
+            <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+              <StackPanel Grid.Column="0" Spacing="2" Margin="0,0,16,0">
+                <TextBlock Text="歸檔除錯模擬模式 (DebugMode)" Classes="field-label" />
+                <TextBlock Text="啟用後自動歸檔流程僅模擬比對結果，不會實際搬移磁碟檔案"
+                           Classes="field-hint" />
+              </StackPanel>
+              <ToggleSwitch Grid.Column="1"
+                            IsChecked="{Binding DebugMode}"
+                            OnContent="啟用"
+                            OffContent="關閉"
+                            VerticalAlignment="Center" />
+            </Grid>
+
+            <!-- 關鍵字黑名單 -->
+            <StackPanel Spacing="6">
+              <TextBlock Text="關鍵字黑名單" Classes="field-label" />
+              <TextBlock Text="每行輸入一個比對時要忽略的雜訊關鍵字（例如 DL版、無修正）；儲存時會自動移除空白行與重複項"
+                         Classes="field-hint" />
+              <TextBox Text="{Binding BlacklistText}"
+                       AcceptsReturn="True"
+                       TextWrapping="Wrap"
+                       MinHeight="104"
+                       MaxHeight="180"
+                       VerticalContentAlignment="Top"
+                       Watermark="每行輸入一個關鍵字…" />
+            </StackPanel>
+
+            <!-- 正則黑名單規則 -->
+            <StackPanel Spacing="6">
+              <TextBlock Text="正則黑名單規則 (Regex)" Classes="field-label" />
+              <TextBlock Text="每行一條正規表示式（忽略大小寫）；儲存前會逐條驗證語法，若有無效規則將阻止寫入並提示錯誤"
+                         Classes="field-hint" />
+              <TextBox Text="{Binding BlacklistPatternsText}"
+                       AcceptsReturn="True"
+                       TextWrapping="Wrap"
+                       MinHeight="104"
+                       MaxHeight="180"
+                       VerticalContentAlignment="Top"
+                       FontFamily="Consolas, Cascadia Mono, monospace"
+                       Watermark="例如：C\d{2,3}" />
+              <Border IsVisible="{Binding HasBlacklistPatternsError}"
+                      Background="#22EF4444"
+                      BorderBrush="#88EF4444"
+                      BorderThickness="1"
+                      CornerRadius="8"
+                      Padding="12,8">
+                <TextBlock Text="{Binding BlacklistPatternsError}"
+                           Foreground="#EF4444"
+                           FontSize="12.5"
+                           TextWrapping="Wrap" />
+              </Border>
+            </StackPanel>
+          </StackPanel>
+        </suki:GlassCard>
+
+        <!-- 組 4：內建閱讀器與翻譯（OCR / LLM） -->
+        <suki:GlassCard CornerRadius="14" Padding="24,20">
+          <StackPanel Spacing="16">
+            <StackPanel Spacing="3">
+              <TextBlock Text="內建閱讀器與翻譯（OCR / LLM）" Classes="section-title" />
+              <TextBlock Text="配置閱讀器的預設檢視行為，以及內建即時漫畫翻譯所使用的 OCR 辨識與 LLM 服務"
+                         Classes="section-subtitle" />
+            </StackPanel>
+
+            <Border Classes="section-divider" />
+
+            <!-- 閱讀器開關 -->
+            <Grid ColumnDefinitions="*,18,*" RowDefinitions="Auto,12,Auto">
+              <Grid Grid.Row="0" Grid.Column="0" ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+                <StackPanel Grid.Column="0" Spacing="2" Margin="0,0,12,0">
+                  <TextBlock Text="使用內建閱讀器" Classes="field-label" />
+                  <TextBlock Text="取代外部圖片檢視器直接開啟漫畫" Classes="field-hint" />
+                </StackPanel>
+                <ToggleSwitch Grid.Column="1" IsChecked="{Binding UseBuiltInReader}" />
+              </Grid>
+
+              <Grid Grid.Row="0" Grid.Column="2" ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+                <StackPanel Grid.Column="0" Spacing="2" Margin="0,0,12,0">
+                  <TextBlock Text="雙頁模式封面獨立顯示" Classes="field-label" />
+                  <TextBlock Text="第 1 頁獨立顯示，自第 2+3 頁起併排" Classes="field-hint" />
+                </StackPanel>
+                <ToggleSwitch Grid.Column="1" IsChecked="{Binding DualPageSpreadFromCover}" />
+              </Grid>
+
+              <Grid Grid.Row="2" Grid.Column="0" ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+                <StackPanel Grid.Column="0" Spacing="2" Margin="0,0,12,0">
+                  <TextBlock Text="啟用閱讀記錄追蹤" Classes="field-label" />
+                  <TextBlock Text="自動更新閱讀狀態、閱讀次數與最後閱讀時間" Classes="field-hint" />
+                </StackPanel>
+                <ToggleSwitch Grid.Column="1" IsChecked="{Binding TrackReadingRecord}" />
+              </Grid>
+
+              <Grid Grid.Row="2" Grid.Column="2" ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+                <StackPanel Grid.Column="0" Spacing="2" Margin="0,0,12,0">
+                  <TextBlock Text="GPU 硬體加速渲染（實驗）" Classes="field-label" />
+                  <TextBlock Text="以 SkiaSharp GPU 繪製底圖，不支援時自動降級" Classes="field-hint" />
+                </StackPanel>
+                <ToggleSwitch Grid.Column="1" IsChecked="{Binding UseGpuRendering}" />
+              </Grid>
+            </Grid>
+
+            <!-- 閱讀器預設下拉 -->
+            <Grid ColumnDefinitions="*,14,*,14,*">
+              <StackPanel Grid.Column="0" Spacing="6">
+                <TextBlock Text="預設閱讀方向" Classes="field-label" />
+                <ComboBox ItemsSource="{Binding ReadingDirectionOptions}"
+                          SelectedItem="{Binding SelectedReadingDirection}"
+                          HorizontalAlignment="Stretch" />
+              </StackPanel>
+
+              <StackPanel Grid.Column="2" Spacing="6">
+                <TextBlock Text="預設顯示模式" Classes="field-label" />
+                <ComboBox ItemsSource="{Binding ReaderViewModeOptions}"
+                          SelectedItem="{Binding SelectedReaderViewMode}"
+                          HorizontalAlignment="Stretch" />
+              </StackPanel>
+
+              <StackPanel Grid.Column="4" Spacing="6">
+                <TextBlock Text="預設縮放模式" Classes="field-label" />
+                <ComboBox ItemsSource="{Binding ReaderZoomModeOptions}"
+                          SelectedItem="{Binding SelectedReaderZoomMode}"
+                          HorizontalAlignment="Stretch" />
+              </StackPanel>
+            </Grid>
+
+            <Border Classes="section-divider" />
+
+            <!-- OCR 與遮罩引擎 -->
+            <Grid ColumnDefinitions="*,18,*">
+              <StackPanel Grid.Column="0" Spacing="6">
+                <TextBlock Text="OCR 文字辨識引擎" Classes="field-label" />
+                <ComboBox ItemsSource="{Binding OcrEngineOptions}"
+                          SelectedItem="{Binding SelectedOcrEngine}"
+                          HorizontalAlignment="Stretch" />
+              </StackPanel>
+
+              <StackPanel Grid.Column="2" Spacing="6">
+                <TextBlock Text="原文抹除遮罩引擎" Classes="field-label" />
+                <ComboBox ItemsSource="{Binding MaskEngineOptions}"
+                          SelectedItem="{Binding SelectedMaskEngine}"
+                          HorizontalAlignment="Stretch" />
+              </StackPanel>
+            </Grid>
+
+            <!-- LLM API 類型與併發數 -->
+            <Grid ColumnDefinitions="*,18,220">
+              <StackPanel Grid.Column="0" Spacing="6">
+                <TextBlock Text="LLM API 類型" Classes="field-label" />
+                <ComboBox ItemsSource="{Binding TranslationApiTypeOptions}"
+                          SelectedItem="{Binding SelectedTranslationApiType}"
+                          HorizontalAlignment="Stretch" />
+              </StackPanel>
+
+              <StackPanel Grid.Column="2" Spacing="6">
+                <TextBlock Text="翻譯併發請求上限" Classes="field-label" />
+                <NumericUpDown Value="{Binding TranslationMaxConcurrency}"
+                               Minimum="1"
+                               Maximum="32"
+                               Increment="1"
+                               FormatString="0" />
+              </StackPanel>
+            </Grid>
+
+            <!-- LLM 端點 -->
+            <StackPanel Spacing="6">
+              <TextBlock Text="LLM API 端點 URL" Classes="field-label" />
+              <TextBox Text="{Binding TranslationEndpoint}"
+                       Watermark="例如：http://127.0.0.1:1234 或 https://api.openai.com" />
+            </StackPanel>
+
+            <!-- LLM 模型名稱與 API Key -->
+            <Grid ColumnDefinitions="*,18,*">
+              <StackPanel Grid.Column="0" Spacing="6">
+                <TextBlock Text="LLM 模型名稱" Classes="field-label" />
+                <TextBox Text="{Binding TranslationModelName}"
+                         Watermark="例如：qwen3.6-35b-a3b-mtp / gpt-4o-mini" />
+              </StackPanel>
+
+              <StackPanel Grid.Column="2" Spacing="6">
+                <TextBlock Text="LLM API Key（選填）" Classes="field-label" />
+                <TextBox Text="{Binding TranslationApiKey}"
+                         PasswordChar="•"
+                         Watermark="本地端免填；雲端輸入金鑰（留空儲存將清空）" />
+              </StackPanel>
+            </Grid>
+          </StackPanel>
+        </suki:GlassCard>
+
+        <!-- 組 5：外部 Metadata 同步（nhentai） -->
+        <suki:GlassCard CornerRadius="14" Padding="24,20">
+          <StackPanel Spacing="16">
+            <StackPanel Spacing="3">
+              <TextBlock Text="外部 Metadata 同步（nhentai）" Classes="section-title" />
+              <TextBlock Text="管理 nhentai 外部作品資訊同步金鑰與 EhTag 標籤翻譯庫自動更新"
+                         Classes="section-subtitle" />
+            </StackPanel>
+
+            <Border Classes="section-divider" />
+
+            <!-- 啟用外部 Metadata -->
+            <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+              <StackPanel Grid.Column="0" Spacing="2" Margin="0,0,16,0">
+                <TextBlock Text="啟用外部 Metadata 同步" Classes="field-label" />
+                <TextBlock Text="允許透過 nhentai API 拉取作品標籤、作者與標題資訊"
+                           Classes="field-hint" />
+              </StackPanel>
+              <ToggleSwitch Grid.Column="1"
+                            IsChecked="{Binding EnableExternalMetadata}"
+                            OnContent="啟用"
+                            OffContent="關閉"
+                            VerticalAlignment="Center" />
+            </Grid>
+
+            <!-- 啟動自動檢查 EhTag 翻譯庫 -->
+            <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+              <StackPanel Grid.Column="0" Spacing="2" Margin="0,0,16,0">
+                <TextBlock Text="啟動時自動檢查 EhTag 標籤翻譯庫更新" Classes="field-label" />
+                <TextBlock Text="每日最多於背景檢查一次 GitHub 最新標籤翻譯庫"
+                           Classes="field-hint" />
+              </StackPanel>
+              <ToggleSwitch Grid.Column="1"
+                            IsChecked="{Binding AutoCheckTranslationDbUpdate}"
+                            OnContent="啟用"
+                            OffContent="關閉"
+                            VerticalAlignment="Center" />
+            </Grid>
+
+            <!-- nhentai API Key + 測試連線 -->
+            <StackPanel Spacing="6">
+              <TextBlock Text="nhentai API Key" Classes="field-label" />
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBox Grid.Column="0"
+                         Text="{Binding NhentaiApiKey}"
+                         PasswordChar="•"
+                         Watermark="輸入 nhentai API Key（nhk_...），留空儲存將清空既有金鑰"
+                         Margin="0,0,10,0" />
+                <Button Grid.Column="1"
+                        Content="{Binding TestNhentaiButtonText}"
+                        Command="{Binding TestNhentaiConnectionCommand}"
+                        Padding="16,8" />
+              </Grid>
+              <TextBlock Text="金鑰以 Windows DPAPI（CurrentUser）加密後存於 appsettings.json，僅限本機目前帳號解密。"
+                         Classes="field-hint" />
+              <TextBlock IsVisible="{Binding HasNhentaiConnectionStatus}"
+                         Text="{Binding NhentaiConnectionStatus}"
+                         Foreground="{Binding NhentaiConnectionStatusBrush}"
+                         FontSize="13"
+                         FontWeight="Medium"
+                         TextWrapping="Wrap"
+                         Margin="0,2,0,0" />
+            </StackPanel>
+          </StackPanel>
+        </suki:GlassCard>
+
+      </StackPanel>
+    </ScrollViewer>
+  </DockPanel>
+</UserControl>

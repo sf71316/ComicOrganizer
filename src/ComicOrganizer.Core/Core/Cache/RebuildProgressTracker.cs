@@ -17,7 +17,7 @@ public class RebuildProgressTracker
     private const string KeyPhase = "rebuild_phase";
 
     public bool IsRunning { get; private set; }
-    public CacheRebuildService.Progress Current { get; private set; } = new();
+    public RebuildProgress Current { get; private set; } = new();
     public string Phase { get; private set; } = "";
     public bool WasInterrupted { get; private set; }
 
@@ -52,7 +52,7 @@ public class RebuildProgressTracker
             IsRunning = true;
             Phase = phase;
             WasInterrupted = false;
-            Current = new CacheRebuildService.Progress();
+            Current = new RebuildProgress();
             _metaStore?.SetState(KeyInProgress, "true");
             _metaStore?.SetState(KeyPhase, phase);
         }
@@ -60,7 +60,7 @@ public class RebuildProgressTracker
         return Cts.Token;
     }
 
-    public void Update(CacheRebuildService.Progress p)
+    public void Update(RebuildProgress p)
     {
         lock (_lock) { Current = p; }
         OnChanged();

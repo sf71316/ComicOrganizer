@@ -156,6 +156,6 @@ public class BookmarkStoreTests : IDisposable
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT version FROM schema_version LIMIT 1;";
         var v = Convert.ToInt32(cmd.ExecuteScalar()!);
-        Assert.Equal(8, v);
+        Assert.Equal(9, v);
     }
 }

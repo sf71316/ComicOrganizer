@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ComicOrganizer.App" />
+    <InternalsVisibleTo Include="ComicOrganizer.Tests" />
+    <InternalsVisibleTo Include="ComicOrganizer.Avalonia" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- EhTagTranslation/Database (CC BY-NC-SA 4.0) — 保留原 LogicalName 以相容 TagTranslationDb 與既有測試 -->
+    <EmbeddedResource Include="Resources\db.text.json.gz">
+      <LogicalName>ComicOrganizer.App.Resources.db.text.json.gz</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Dapper" Version="2.1.72" />
+    <PackageReference Include="FuzzySharp" Version="2.0.2" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.7" />
+    <PackageReference Include="OpenCCNET" Version="1.1.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>

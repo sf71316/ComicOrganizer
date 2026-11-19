@@ -220,7 +220,7 @@ public class ReparseAllService
                     {
                         foreach (var entry in batch)
                         {
-                            _tracker.Update(new CacheRebuildService.Progress
+                            _tracker.Update(new RebuildProgress
                             {
                                 Done = done,
                                 Total = entries.Count,

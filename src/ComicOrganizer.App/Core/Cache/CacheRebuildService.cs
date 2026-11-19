@@ -28,11 +28,8 @@ public class CacheRebuildService
     private static readonly HashSet<string> AllowedExtensions = new(
         SupportedExtensions.Archive.Concat(SupportedExtensions.Pdf), StringComparer.OrdinalIgnoreCase);
 
-    public class Progress
+    public class Progress : RebuildProgress
     {
-        public int Done { get; set; }
-        public int Total { get; set; }
-        public string CurrentPath { get; set; } = "";
     }
 
     /// <summary>UpdateIndexAsync 完成後的計數摘要，用於 UI Modal 顯示。</summary>

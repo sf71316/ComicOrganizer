@@ -1,0 +1,142 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:suki="https://github.com/kikipoulet/SukiUI"
+             xmlns:vm="using:ComicOrganizer.Avalonia.ViewModels"
+             x:Class="ComicOrganizer.Avalonia.Views.PlaceholderPageView"
+             x:DataType="vm:PlaceholderPageViewModel">
+
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                VerticalScrollBarVisibility="Auto">
+    <StackPanel MaxWidth="1040"
+                Margin="28,24,28,36"
+                Spacing="20">
+
+      <!-- Hero 標題卡片 -->
+      <suki:GlassCard Padding="24">
+        <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="18" RowSpacing="10">
+          <Border Grid.Row="0" Grid.RowSpan="2" Grid.Column="0"
+                  Width="56" Height="56"
+                  CornerRadius="14"
+                  Background="{DynamicResource SukiPrimaryColor15}"
+                  VerticalAlignment="Top">
+            <TextBlock Text="{Binding IconGlyph}"
+                       FontSize="28"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center" />
+          </Border>
+
+          <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+            <TextBlock Text="{Binding Title}"
+                       FontSize="24"
+                       FontWeight="SemiBold"
+                       VerticalAlignment="Center" />
+            <Border CornerRadius="999"
+                    Padding="10,4"
+                    Background="{DynamicResource SukiPrimaryColor15}"
+                    VerticalAlignment="Center">
+              <TextBlock Text="{Binding PhaseBadge}"
+                         FontSize="12"
+                         FontWeight="SemiBold"
+                         Foreground="{DynamicResource SukiPrimaryColor}" />
+            </Border>
+          </StackPanel>
+
+          <Button Grid.Row="0" Grid.Column="2"
+                  Classes="Outlined"
+                  Command="{Binding RefreshCommand}"
+                  IsEnabled="{Binding !IsLoading}"
+                  VerticalAlignment="Center"
+                  Padding="14,7">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBlock Text="🔄" FontSize="13" VerticalAlignment="Center" />
+              <TextBlock Text="重新整理" FontSize="13" VerticalAlignment="Center" />
+            </StackPanel>
+          </Button>
+
+          <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2"
+                     Text="{Binding Description}"
+                     FontSize="14"
+                     Opacity="0.82"
+                     TextWrapping="Wrap"
+                     LineHeight="22" />
+        </Grid>
+      </suki:GlassCard>
+
+      <!-- 即時資料庫／設定統計指標 -->
+      <StackPanel Spacing="12">
+        <TextBlock Text="即時資料概覽"
+                   FontSize="15"
+                   FontWeight="SemiBold"
+                   Opacity="0.88"
+                   Margin="4,0,0,0" />
+
+        <ItemsControl ItemsSource="{Binding Metrics}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <WrapPanel Orientation="Horizontal" />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:PlaceholderMetricItem">
+              <suki:GlassCard Width="308"
+                              Margin="0,0,16,16"
+                              Padding="18">
+                <StackPanel Spacing="6">
+                  <TextBlock Text="{Binding Label}"
+                             FontSize="12"
+                             FontWeight="Medium"
+                             Opacity="0.72" />
+                  <TextBlock Text="{Binding Value}"
+                             FontSize="22"
+                             FontWeight="Bold"
+                             TextWrapping="Wrap"
+                             Foreground="{DynamicResource SukiPrimaryColor}" />
+                  <TextBlock Text="{Binding Hint}"
+                             FontSize="12"
+                             Opacity="0.68"
+                             TextWrapping="Wrap" />
+                </StackPanel>
+              </suki:GlassCard>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+
+      <!-- 規劃進度與預計能力 -->
+      <suki:GlassCard Padding="22">
+        <StackPanel Spacing="14">
+          <TextBlock Text="預計遷移與實作項目"
+                     FontSize="15"
+                     FontWeight="SemiBold" />
+
+          <ItemsControl ItemsSource="{Binding PlannedFeatures}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="x:String">
+                <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,8">
+                  <TextBlock Text="✦"
+                             FontSize="13"
+                             Foreground="{DynamicResource SukiPrimaryColor}"
+                             VerticalAlignment="Top"
+                             Margin="0,2,0,0" />
+                  <TextBlock Text="{Binding}"
+                             FontSize="13.5"
+                             Opacity="0.86"
+                             TextWrapping="Wrap" />
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <Border Height="1" Background="{DynamicResource SukiBorderBrush}" Opacity="0.5" Margin="0,4,0,0" />
+
+          <TextBlock Text="{Binding StatusFootnote}"
+                     FontSize="12"
+                     Opacity="0.62"
+                     TextWrapping="Wrap" />
+        </StackPanel>
+      </suki:GlassCard>
+
+    </StackPanel>
+  </ScrollViewer>
+
+</UserControl>

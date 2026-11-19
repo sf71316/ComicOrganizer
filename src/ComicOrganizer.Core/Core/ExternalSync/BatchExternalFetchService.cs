@@ -492,7 +492,7 @@ public class BatchExternalFetchService
                     .ToList();
 
                 summary.Total = entries.Count;
-                tracker.Update(new CacheRebuildService.Progress
+                tracker.Update(new RebuildProgress
                 {
                     Done = 0,
                     Total = summary.Total,
@@ -508,7 +508,7 @@ public class BatchExternalFetchService
                     if (detail == null || detail.ManuallyEdited || !string.IsNullOrEmpty(detail.ExternalId))
                     {
                         summary.Skipped++;
-                        tracker.Update(new CacheRebuildService.Progress
+                        tracker.Update(new RebuildProgress
                         {
                             Done = i + 1,
                             Total = summary.Total,
@@ -522,7 +522,7 @@ public class BatchExternalFetchService
                     if (string.IsNullOrEmpty(ExtractExternalId(entry.Path)) && string.IsNullOrWhiteSpace(query))
                     {
                         summary.Skipped++;
-                        tracker.Update(new CacheRebuildService.Progress
+                        tracker.Update(new RebuildProgress
                         {
                             Done = i + 1,
                             Total = summary.Total,
@@ -562,7 +562,7 @@ public class BatchExternalFetchService
                             break;
                     }
 
-                    tracker.Update(new CacheRebuildService.Progress
+                    tracker.Update(new RebuildProgress
                     {
                         Done = i + 1,
                         Total = summary.Total,

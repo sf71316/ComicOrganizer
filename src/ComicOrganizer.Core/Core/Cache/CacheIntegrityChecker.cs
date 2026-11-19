@@ -53,7 +53,7 @@ public class CacheIntegrityChecker
         rep.TotalDbRecords = allMeta.Count;
 
         // Phase A：DB 對 source / thumb 比對
-        var p = new CacheRebuildService.Progress { Total = allMeta.Count };
+        var p = new RebuildProgress { Total = allMeta.Count };
         _tracker.Update(p);
 
         var expectedThumbKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -109,7 +109,7 @@ public class CacheIntegrityChecker
 
         // Phase B：thumbs/ 檔 vs DB expected
         ct.ThrowIfCancellationRequested();
-        _tracker.Update(new CacheRebuildService.Progress
+        _tracker.Update(new RebuildProgress
         {
             Total = 0,
             Done = 0,
@@ -141,7 +141,7 @@ public class CacheIntegrityChecker
     /// </summary>
     public void Fix(IntegrityReport rep, CancellationToken ct)
     {
-        var p = new CacheRebuildService.Progress
+        var p = new RebuildProgress
         {
             Total = rep.OrphanDbPaths.Count + rep.MissingThumbPaths.Count + rep.OrphanThumbKeys.Count,
         };

@@ -14,7 +14,10 @@ public class SqliteAssetMetaStore : IAssetMetaStore
     private readonly SqliteConnection _conn;
     private readonly object _lock = new();
     private SqliteTransaction? _currentTx;
-    private const int CurrentSchemaVersion = 8;
+    private readonly bool _hasTagAliasTable;
+    private const int CurrentSchemaVersion = 9;
+
+    public bool IsReadOnly { get; }
 
     static SqliteAssetMetaStore()
     {
@@ -22,18 +25,35 @@ public class SqliteAssetMetaStore : IAssetMetaStore
         DefaultTypeMap.MatchNamesWithUnderscores = true;
     }
 
-    public SqliteAssetMetaStore(string dbPath)
+    public SqliteAssetMetaStore(string dbPath, bool readOnly = false)
     {
-        var dir = Path.GetDirectoryName(dbPath);
-        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+        IsReadOnly = readOnly;
 
-        _conn = new SqliteConnection($"Data Source={dbPath};");
+        if (!readOnly)
+        {
+            var dir = Path.GetDirectoryName(dbPath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+        }
+
+        var connString = readOnly
+            ? $"Data Source={dbPath};Mode=ReadOnly;"
+            : $"Data Source={dbPath};";
+        _conn = new SqliteConnection(connString);
         _conn.Open();
 
-        // 開啟外鍵約束（SQLite 預設關閉）
-        _conn.Execute("PRAGMA foreign_keys = ON;");
+        if (!readOnly)
+        {
+            // 開啟外鍵約束（SQLite 預設關閉）
+            _conn.Execute("PRAGMA foreign_keys = ON;");
 
-        EnsureSchema();
+            EnsureSchema();
+            _hasTagAliasTable = true;
+        }
+        else
+        {
+            _hasTagAliasTable = _conn.ExecuteScalar<long>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'tag_alias';") > 0;
+        }
     }
 
     private void EnsureSchema()
@@ -53,6 +73,7 @@ public class SqliteAssetMetaStore : IAssetMetaStore
             ApplyV6Additions();
             ApplyV7Additions();
             ApplyV8Additions();
+            ApplyV9Additions();
             EnsureVirtualLibraryItemTable();
             _conn.Execute("INSERT INTO schema_version (version) VALUES (@v);", new { v = CurrentSchemaVersion });
             return;
@@ -90,6 +111,11 @@ public class SqliteAssetMetaStore : IAssetMetaStore
         if (currentVersion == 7)
         {
             ApplyV8Additions();
+            currentVersion = 8;
+        }
+        if (currentVersion == 8)
+        {
+            ApplyV9Additions();
         }
         EnsureVirtualLibraryItemTable();
         _conn.Execute("DELETE FROM schema_version; INSERT INTO schema_version (version) VALUES (@v);",
@@ -183,6 +209,20 @@ CREATE TABLE IF NOT EXISTS tag_translation (
 );
 CREATE INDEX IF NOT EXISTS idx_tag_translation_name ON tag_translation(name COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS idx_tag_translation_lang ON tag_translation(lang);
+");
+    }
+
+    /// <summary>v8 → v9：虛擬主標籤別名自動導向（tag_alias）。</summary>
+    private void ApplyV9Additions()
+    {
+        _conn.Execute(@"
+CREATE TABLE IF NOT EXISTS tag_alias (
+    alias_name    TEXT NOT NULL COLLATE NOCASE PRIMARY KEY,
+    target_tag_id INTEGER NOT NULL,
+    created_at    INTEGER NOT NULL,
+    FOREIGN KEY (target_tag_id) REFERENCES tag(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_tag_alias_target ON tag_alias(target_tag_id);
 ");
     }
 
@@ -604,6 +644,7 @@ DELETE FROM asset;
 DELETE FROM author_tag;
 DELETE FROM author_alias;
 DELETE FROM author;
+DELETE FROM tag_alias;
 DELETE FROM tag;
 DELETE FROM folder_role;
 ", transaction: _currentTx);
@@ -1113,13 +1154,25 @@ ORDER BY am.title IS NULL, am.title COLLATE NOCASE;",
 
     public long UpsertTag(string name, string? category = null)
     {
+        var trimmed = (name ?? "").Trim();
+        if (trimmed.Length == 0)
+            throw new ArgumentException("Tag name cannot be empty.", nameof(name));
+
         lock (_lock)
+        {
+            var aliasedId = _conn.ExecuteScalar<long?>(
+                "SELECT target_tag_id FROM tag_alias WHERE alias_name = @name COLLATE NOCASE LIMIT 1;",
+                new { name = trimmed }, _currentTx);
+            if (aliasedId.HasValue)
+                return aliasedId.Value;
+
             return _conn.ExecuteScalar<long>(@"
 INSERT INTO tag (name, category) VALUES (@name, @category)
 ON CONFLICT(name) DO UPDATE SET
     category = COALESCE(excluded.category, tag.category)
 RETURNING id;",
-                new { name, category }, _currentTx);
+                new { name = trimmed, category }, _currentTx);
+        }
     }
 
     public void AssociateTag(long assetId, long tagId)
@@ -1183,7 +1236,8 @@ WHERE at.asset_id = @assetId;", new { assetId }, _currentTx).AsList();
             return _conn.Execute(@"
 DELETE FROM tag
 WHERE id NOT IN (SELECT DISTINCT tag_id FROM asset_tag)
-  AND id NOT IN (SELECT DISTINCT tag_id FROM author_tag);", transaction: _currentTx);
+  AND id NOT IN (SELECT DISTINCT tag_id FROM author_tag)
+  AND id NOT IN (SELECT DISTINCT target_tag_id FROM tag_alias);", transaction: _currentTx);
     }
 
     // ===== Author tags =====
@@ -1396,6 +1450,20 @@ ORDER BY WorkCount DESC, a.main_name;", transaction: _currentTx).AsList();
             if (conflictId.HasValue)
                 throw new InvalidOperationException(
                     $"Tag with name '{trimmed}' already exists (id={conflictId}). Caller should use MergeTag instead.");
+
+            var aliasTarget = _conn.ExecuteScalar<long?>(
+                "SELECT target_tag_id FROM tag_alias WHERE alias_name = @name COLLATE NOCASE LIMIT 1;",
+                new { name = trimmed }, _currentTx);
+            if (aliasTarget.HasValue)
+            {
+                if (aliasTarget.Value != tagId)
+                    throw new InvalidOperationException(
+                        $"Tag name '{trimmed}' conflicts with an existing alias pointing to tag id={aliasTarget.Value}.");
+                _conn.Execute(
+                    "DELETE FROM tag_alias WHERE alias_name = @name COLLATE NOCASE AND target_tag_id = @id;",
+                    new { name = trimmed, id = tagId }, _currentTx);
+            }
+
             _conn.Execute("UPDATE tag SET name = @name WHERE id = @id;",
                 new { name = trimmed, id = tagId }, _currentTx);
         }
@@ -1420,6 +1488,8 @@ SELECT author_id, @dest FROM author_tag WHERE tag_id = @src;",
 INSERT OR IGNORE INTO tag_translation (tag_id, lang, name, source, updated_at)
 SELECT @dest, lang, name, source, updated_at FROM tag_translation WHERE tag_id = @src;",
                 new { dest = destId, src = srcId }, _currentTx);
+            _conn.Execute("UPDATE tag_alias SET target_tag_id = @dest WHERE target_tag_id = @src;",
+                new { dest = destId, src = srcId }, _currentTx);
             _conn.Execute("DELETE FROM tag WHERE id = @src;", new { src = srcId }, _currentTx);
         });
     }
@@ -1436,6 +1506,208 @@ SELECT @dest, lang, name, source, updated_at FROM tag_translation WHERE tag_id =
         lock (_lock)
             _conn.Execute("UPDATE tag SET category = @cat WHERE id = @id;",
                 new { cat = category, id = tagId }, _currentTx);
+    }
+
+    // ===== Virtual Tag & Alias (schema v9) =====
+
+    public long? ResolveTagAlias(string aliasName)
+    {
+        if (!_hasTagAliasTable) return null;
+        var trimmed = (aliasName ?? "").Trim();
+        if (trimmed.Length == 0) return null;
+
+        lock (_lock)
+            return _conn.ExecuteScalar<long?>(
+                "SELECT target_tag_id FROM tag_alias WHERE alias_name = @name COLLATE NOCASE LIMIT 1;",
+                new { name = trimmed }, _currentTx);
+    }
+
+    public long MergeTagsIntoVirtual(IReadOnlyList<long> sourceTagIds, string masterName,
+        string? category = "virtual", string? zhTwDisplayName = null)
+    {
+        if (sourceTagIds == null)
+            throw new ArgumentNullException(nameof(sourceTagIds));
+        var trimmedMaster = (masterName ?? "").Trim();
+        if (trimmedMaster.Length == 0)
+            throw new ArgumentException("masterName cannot be empty.", nameof(masterName));
+
+        var distinctIds = sourceTagIds.Distinct().ToList();
+        if (distinctIds.Count == 0)
+            throw new ArgumentException("At least one source tag id is required.", nameof(sourceTagIds));
+
+        long masterTagId = 0;
+        RunInTransaction(() =>
+        {
+            var sourceTags = _conn.Query<(long Id, string Name)>(
+                "SELECT id AS Id, name AS Name FROM tag WHERE id IN @ids;",
+                new { ids = distinctIds }, _currentTx).AsList();
+            if (sourceTags.Count == 0)
+                throw new InvalidOperationException("No matching source tags were found.");
+
+            var existingMaster = _conn.QueryFirstOrDefault<(long Id, string Name)?>(@"
+SELECT id AS Id, name AS Name
+FROM tag
+WHERE name = @name COLLATE NOCASE
+ORDER BY CASE WHEN name = @name THEN 0 ELSE 1 END, id
+LIMIT 1;",
+                new { name = trimmedMaster }, _currentTx);
+
+            string actualMasterName;
+            if (existingMaster.HasValue)
+            {
+                masterTagId = existingMaster.Value.Id;
+                actualMasterName = existingMaster.Value.Name;
+                if (category != null)
+                {
+                    _conn.Execute("UPDATE tag SET category = @cat WHERE id = @id;",
+                        new { cat = category, id = masterTagId }, _currentTx);
+                }
+            }
+            else
+            {
+                // 若 masterName 原本是一筆舊 alias，先刪除該 alias 再升級為實體主標籤
+                _conn.Execute("DELETE FROM tag_alias WHERE alias_name = @name COLLATE NOCASE;",
+                    new { name = trimmedMaster }, _currentTx);
+                masterTagId = _conn.ExecuteScalar<long>(@"
+INSERT INTO tag (name, category) VALUES (@name, @cat)
+RETURNING id;",
+                    new { name = trimmedMaster, cat = category }, _currentTx);
+                actualMasterName = trimmedMaster;
+            }
+
+            long now = NowUnix();
+            foreach (var src in sourceTags)
+            {
+                if (src.Id == masterTagId) continue;
+
+                _conn.Execute(@"
+INSERT OR IGNORE INTO asset_tag (asset_id, tag_id)
+SELECT asset_id, @masterId FROM asset_tag WHERE tag_id = @srcId;",
+                    new { masterId = masterTagId, srcId = src.Id }, _currentTx);
+                _conn.Execute("DELETE FROM asset_tag WHERE tag_id = @srcId;",
+                    new { srcId = src.Id }, _currentTx);
+
+                _conn.Execute(@"
+INSERT OR IGNORE INTO author_tag (author_id, tag_id)
+SELECT author_id, @masterId FROM author_tag WHERE tag_id = @srcId;",
+                    new { masterId = masterTagId, srcId = src.Id }, _currentTx);
+                _conn.Execute("DELETE FROM author_tag WHERE tag_id = @srcId;",
+                    new { srcId = src.Id }, _currentTx);
+
+                // 扁平化既有別名指向新主標籤，避免連鎖跳轉或後續 DELETE tag 觸發 ON DELETE CASCADE 誤刪
+                _conn.Execute("UPDATE tag_alias SET target_tag_id = @masterId WHERE target_tag_id = @srcId;",
+                    new { masterId = masterTagId, srcId = src.Id }, _currentTx);
+
+                // 不複製舊 tag 的 tag_translation，以免 EhTag 舊翻譯蓋掉虛擬主標籤；DELETE tag 會連帶清理
+                _conn.Execute("DELETE FROM tag WHERE id = @srcId;",
+                    new { srcId = src.Id }, _currentTx);
+
+                if (!string.Equals(src.Name, actualMasterName, StringComparison.OrdinalIgnoreCase))
+                {
+                    _conn.Execute(@"
+INSERT INTO tag_alias (alias_name, target_tag_id, created_at)
+VALUES (@alias, @masterId, @now)
+ON CONFLICT(alias_name) DO UPDATE SET
+    target_tag_id = excluded.target_tag_id,
+    created_at = excluded.created_at;",
+                        new { alias = src.Name, masterId = masterTagId, now }, _currentTx);
+                }
+            }
+
+            // 移除可能意外指向自己或殘留的同名別名
+            _conn.Execute("DELETE FROM tag_alias WHERE alias_name = @name COLLATE NOCASE;",
+                new { name = actualMasterName }, _currentTx);
+
+            if (!string.IsNullOrWhiteSpace(zhTwDisplayName))
+            {
+                UpsertTagTranslation(masterTagId, "zh-TW", zhTwDisplayName.Trim(), "manual");
+            }
+        });
+
+        return masterTagId;
+    }
+
+    public void AddTagAlias(long targetTagId, string aliasName)
+    {
+        var trimmed = (aliasName ?? "").Trim();
+        if (trimmed.Length == 0)
+            throw new ArgumentException("aliasName cannot be empty", nameof(aliasName));
+
+        lock (_lock)
+        {
+            var targetExists = _conn.ExecuteScalar<long?>(
+                "SELECT id FROM tag WHERE id = @id LIMIT 1;",
+                new { id = targetTagId }, _currentTx);
+            if (!targetExists.HasValue)
+                throw new InvalidOperationException($"Target tag id={targetTagId} does not exist.");
+
+            var conflictTagId = _conn.ExecuteScalar<long?>(
+                "SELECT id FROM tag WHERE name = @name COLLATE NOCASE LIMIT 1;",
+                new { name = trimmed }, _currentTx);
+            if (conflictTagId.HasValue)
+                throw new InvalidOperationException(
+                    $"Alias '{trimmed}' conflicts with existing tag (id={conflictTagId}).");
+
+            _conn.Execute(@"
+INSERT INTO tag_alias (alias_name, target_tag_id, created_at)
+VALUES (@alias, @targetId, @now)
+ON CONFLICT(alias_name) DO UPDATE SET
+    target_tag_id = excluded.target_tag_id,
+    created_at = excluded.created_at;",
+                new { alias = trimmed, targetId = targetTagId, now = NowUnix() }, _currentTx);
+        }
+    }
+
+    public IReadOnlyList<TagAlias> ListTagAliases(long targetTagId)
+    {
+        if (!_hasTagAliasTable) return Array.Empty<TagAlias>();
+        lock (_lock)
+        {
+            var rows = _conn.Query<(string AliasName, long TargetTagId, long CreatedAt)>(@"
+SELECT alias_name AS AliasName, target_tag_id AS TargetTagId, created_at AS CreatedAt
+FROM tag_alias
+WHERE target_tag_id = @id
+ORDER BY alias_name COLLATE NOCASE;",
+                new { id = targetTagId }, _currentTx);
+            return rows.Select(r => new TagAlias(r.AliasName, r.TargetTagId, r.CreatedAt)).ToList();
+        }
+    }
+
+    public IReadOnlyList<TagAlias> ListAllTagAliases()
+    {
+        if (!_hasTagAliasTable) return Array.Empty<TagAlias>();
+        lock (_lock)
+        {
+            var rows = _conn.Query<(string AliasName, long TargetTagId, long CreatedAt)>(@"
+SELECT alias_name AS AliasName, target_tag_id AS TargetTagId, created_at AS CreatedAt
+FROM tag_alias
+ORDER BY target_tag_id, alias_name COLLATE NOCASE;",
+                transaction: _currentTx);
+            return rows.Select(r => new TagAlias(r.AliasName, r.TargetTagId, r.CreatedAt)).ToList();
+        }
+    }
+
+    public IReadOnlyList<long> SearchTagIdsByAlias(string keyword, int limit = 50)
+    {
+        if (!_hasTagAliasTable) return Array.Empty<long>();
+        if (string.IsNullOrWhiteSpace(keyword)) return Array.Empty<long>();
+        var pattern = "%" + EscapeLike(keyword.Trim()) + "%";
+        var sql = @"
+SELECT DISTINCT target_tag_id FROM tag_alias
+WHERE alias_name LIKE @p ESCAPE '\' COLLATE NOCASE" + (limit > 0 ? " LIMIT @lim;" : ";");
+
+        lock (_lock)
+            return _conn.Query<long>(sql, new { p = pattern, lim = limit }, _currentTx).AsList();
+    }
+
+    public void DeleteTagAlias(string aliasName)
+    {
+        var trimmed = (aliasName ?? "").Trim();
+        if (trimmed.Length == 0) return;
+
+        lock (_lock)
+            _conn.Execute("DELETE FROM tag_alias WHERE alias_name = @name COLLATE NOCASE;",
+                new { name = trimmed }, _currentTx);
     }
 
     public void SetMetadataManuallyEdited(long assetId, bool edited)

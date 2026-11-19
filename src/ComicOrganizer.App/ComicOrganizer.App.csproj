@@ -38,10 +38,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- EhTagTranslation/Database (CC BY-NC-SA 4.0) — bundle 翻譯 DB 給 #53 -->
-    <EmbeddedResource Include="Resources\db.text.json.gz">
-      <LogicalName>ComicOrganizer.App.Resources.db.text.json.gz</LogicalName>
-    </EmbeddedResource>
     <!-- 獅尾黑體 Medium (max32002/swei-sans, SIL OFL 1.1, 思源黑體衍生) — 漫畫譯文中黑體 -->
     <EmbeddedResource Include="Resources\fonts\SweiSansCJKtc-Medium.ttf">
       <LogicalName>ComicOrganizer.App.Resources.fonts.SweiSansCJKtc-Medium.ttf</LogicalName>
@@ -50,6 +46,10 @@
     <EmbeddedResource Include="Resources\dict\zh_tw_words.txt.gz">
       <LogicalName>ComicOrganizer.App.Resources.dict.zh_tw_words.txt.gz</LogicalName>
     </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ComicOrganizer.Core\ComicOrganizer.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

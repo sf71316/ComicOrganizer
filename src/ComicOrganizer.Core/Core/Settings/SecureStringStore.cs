@@ -15,6 +15,8 @@ public static class SecureStringStore
     public static string Protect(string plain)
     {
         if (string.IsNullOrEmpty(plain)) return "";
+        if (!OperatingSystem.IsWindows())
+            throw new PlatformNotSupportedException("DPAPI is only supported on Windows.");
         var bytes = Encoding.UTF8.GetBytes(plain);
         var encrypted = ProtectedData.Protect(bytes, optionalEntropy: null, DataProtectionScope.CurrentUser);
         return Convert.ToBase64String(encrypted);
@@ -23,7 +25,7 @@ public static class SecureStringStore
     /// <summary>base64 字串 → DPAPI 解密 → plain text。失敗（key 來自別人 / 損壞）回 null。</summary>
     public static string? TryUnprotect(string protectedBase64)
     {
-        if (string.IsNullOrEmpty(protectedBase64)) return null;
+        if (string.IsNullOrEmpty(protectedBase64) || !OperatingSystem.IsWindows()) return null;
         try
         {
             var bytes = Convert.FromBase64String(protectedBase64);
