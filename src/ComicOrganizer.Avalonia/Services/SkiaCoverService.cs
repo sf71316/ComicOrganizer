@@ -32,7 +32,7 @@ public sealed class SkiaCoverService : IDisposable
     private readonly LinkedList<CacheEntry> _lruList = new();
     private volatile bool _disposed;
 
-    public SkiaCoverService(IThumbStore thumbStore, int maxMemoryCacheItems = 256)
+    public SkiaCoverService(IThumbStore thumbStore, int maxMemoryCacheItems = 512)
     {
         ArgumentNullException.ThrowIfNull(thumbStore);
         if (maxMemoryCacheItems < 0)
@@ -205,28 +205,14 @@ public sealed class SkiaCoverService : IDisposable
         }).ConfigureAwait(false);
     }
 
-    /// <summary>清空記憶體 LRU 快取並釋放所有已快取的 <see cref="Bitmap"/>。</summary>
+    /// <summary>清空記憶體 LRU 快取強參考（不強制 Dispose，避免畫面上仍在顯示中的 Bitmap 失效拋例外）。</summary>
     public void ClearMemoryCache()
     {
-        List<Bitmap> toDispose;
         lock (_cacheLock)
         {
-            if (_lruList.Count == 0)
-            {
-                return;
-            }
-
-            toDispose = new List<Bitmap>(_lruList.Count);
-            for (var node = _lruList.First; node != null; node = node.Next)
-            {
-                toDispose.Add(node.Value.Bitmap);
-            }
-
             _cacheMap.Clear();
             _lruList.Clear();
         }
-
-        DisposeBitmapsSafely(toDispose);
     }
 
     public void Dispose()
@@ -788,7 +774,6 @@ public sealed class SkiaCoverService : IDisposable
     private Bitmap? AddOrGetFromMemoryCache(string cacheKey, Bitmap newBitmap)
     {
         Bitmap? duplicateToDispose = null;
-        List<Bitmap>? evictedToDispose = null;
         Bitmap? result;
 
         lock (_cacheLock)
@@ -820,13 +805,12 @@ public sealed class SkiaCoverService : IDisposable
                 _cacheMap[cacheKey] = node;
                 result = newBitmap;
 
+                // 只從強參考 LRU 索引移除，絕不在此 Dispose 可能仍掛在 UI Image.Source 上的 Bitmap
                 while (_cacheMap.Count > _maxMemoryCacheItems && _lruList.Last != null)
                 {
                     var tail = _lruList.Last;
                     _lruList.RemoveLast();
                     _cacheMap.Remove(tail.Value.Key);
-                    evictedToDispose ??= new List<Bitmap>();
-                    evictedToDispose.Add(tail.Value.Bitmap);
                 }
             }
         }
@@ -834,11 +818,6 @@ public sealed class SkiaCoverService : IDisposable
         if (duplicateToDispose != null)
         {
             DisposeBitmapSafely(duplicateToDispose);
-        }
-
-        if (evictedToDispose != null)
-        {
-            DisposeBitmapsSafely(evictedToDispose);
         }
 
         return result;

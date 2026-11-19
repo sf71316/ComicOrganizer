@@ -1,0 +1,1379 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:suki="https://github.com/kikipoulet/SukiUI"
+             xmlns:core="using:ComicOrganizer.App.Core"
+             xmlns:vm="using:ComicOrganizer.Avalonia.ViewModels"
+             xmlns:views="using:ComicOrganizer.Avalonia.Views"
+             xmlns:controls="using:ComicOrganizer.Avalonia.Views.Controls"
+             x:Class="ComicOrganizer.Avalonia.Views.ExplorePageView"
+             x:DataType="vm:ExplorePageViewModel">
+
+  <UserControl.Resources>
+    <x:Boolean x:Key="IsDeckCoverMode">True</x:Boolean>
+    <views:HexToBrushConverter x:Key="HexToBrushConverter" />
+  </UserControl.Resources>
+
+  <UserControl.Styles>
+    <!-- 分段切換膠囊 -->
+    <Style Selector="Border.segment-track">
+      <Setter Property="Background" Value="#16808080" />
+      <Setter Property="BorderBrush" Value="{DynamicResource SukiBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="3" />
+    </Style>
+
+    <Style Selector="Border.segment-item">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="CornerRadius" Value="7" />
+      <Setter Property="Padding" Value="11,5" />
+    </Style>
+    <Style Selector="Button:pointerover Border.segment-item">
+      <Setter Property="Background" Value="#18808080" />
+    </Style>
+    <Style Selector="Border.segment-item.active">
+      <Setter Property="Background" Value="{DynamicResource SukiPrimaryColor15}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource SukiPrimaryColor}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Border.segment-item.active TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource SukiPrimaryColor}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <!-- 標籤篩選 Pill -->
+    <Style Selector="Border.tag-chip-pill">
+      <Setter Property="Background" Value="#16808080" />
+      <Setter Property="BorderBrush" Value="{DynamicResource SukiBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Button:pointerover Border.tag-chip-pill">
+      <Setter Property="Background" Value="#26808080" />
+    </Style>
+    <Style Selector="Border.tag-chip-pill.selected">
+      <Setter Property="Background" Value="{DynamicResource SukiPrimaryColor15}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource SukiPrimaryColor}" />
+    </Style>
+    <Style Selector="Border.tag-chip-pill.selected TextBlock.chip-title">
+      <Setter Property="Foreground" Value="{DynamicResource SukiPrimaryColor}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <!-- 分類頁籤 Pill -->
+    <Style Selector="Border.picker-cat-pill">
+      <Setter Property="Background" Value="#14808080" />
+      <Setter Property="BorderBrush" Value="{DynamicResource SukiBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="10,5" />
+    </Style>
+    <Style Selector="Border.picker-cat-pill.selected">
+      <Setter Property="Background" Value="{DynamicResource SukiPrimaryColor15}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource SukiPrimaryColor}" />
+    </Style>
+    <Style Selector="Border.picker-cat-pill.selected TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource SukiPrimaryColor}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <!-- 卡片小標籤 Pill -->
+    <Style Selector="Border.card-mini-tag">
+      <Setter Property="Background" Value="#18808080" />
+      <Setter Property="BorderBrush" Value="{DynamicResource SukiBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="7,2" />
+    </Style>
+
+    <!-- 鑽取作品封面載入平滑淡入 -->
+    <Style Selector="Image.work-cover-fade">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="IsHitTestVisible" Value="False" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.18" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Image.work-cover-fade.loaded">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+  </UserControl.Styles>
+
+  <Grid RowDefinitions="Auto,Auto,*" Margin="20,14,20,0">
+
+    <!-- 1. 頂部導覽工具條 -->
+    <suki:GlassCard Grid.Row="0"
+                    CornerRadius="14"
+                    Padding="16,12"
+                    Margin="0,0,0,10">
+      <StackPanel Spacing="10">
+
+        <!-- 第一列：主視圖切換 ＋ 統計狀態 ＋ 隨機碰撞／重整 -->
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <WrapPanel Grid.Column="0"
+                     Orientation="Horizontal"
+                     VerticalAlignment="Center">
+            <!-- 主視圖切換：👤 作者探索 / 🏷️ 主題・原作牆 -->
+            <Border Classes="segment-track" Margin="0,0,12,0">
+              <StackPanel Orientation="Horizontal" Spacing="2">
+                <Button Classes="Basic"
+                        Padding="0"
+                        Command="{Binding SelectAuthorModeCommand}"
+                        Cursor="Hand">
+                  <Border Classes="segment-item" Classes.active="{Binding IsAuthorMode}">
+                    <TextBlock Text="👤 作者探索" FontSize="13" VerticalAlignment="Center" />
+                  </Border>
+                </Button>
+                <Button Classes="Basic"
+                        Padding="0"
+                        Command="{Binding SelectThemeWallModeCommand}"
+                        Cursor="Hand">
+                  <Border Classes="segment-item" Classes.active="{Binding IsThemeWallMode}">
+                    <TextBlock Text="🏷️ 主題・原作牆" FontSize="13" VerticalAlignment="Center" />
+                  </Border>
+                </Button>
+              </StackPanel>
+            </Border>
+
+            <!-- 即時數量摘要 -->
+            <TextBlock Text="{Binding StatusSummaryText}"
+                       FontSize="12.5"
+                       Opacity="0.72"
+                       VerticalAlignment="Center"
+                       Margin="0,4,10,4" />
+
+            <!-- 目前搜尋關鍵字指示與清除鈕 -->
+            <Button Classes="Basic"
+                    Padding="0"
+                    IsVisible="{Binding HasSearchKeyword}"
+                    Command="{Binding ClearSearchCommand}"
+                    Cursor="Hand"
+                    VerticalAlignment="Center"
+                    ToolTip.Tip="清除頂部搜尋條件">
+              <Border Background="{DynamicResource SukiPrimaryColor15}"
+                      BorderBrush="{DynamicResource SukiPrimaryColor}"
+                      BorderThickness="1"
+                      CornerRadius="999"
+                      Padding="9,3">
+                <StackPanel Orientation="Horizontal" Spacing="5">
+                  <TextBlock Text="🔍" FontSize="11" VerticalAlignment="Center" />
+                  <TextBlock Text="{Binding SearchKeyword}"
+                             FontSize="11.5"
+                             FontWeight="Medium"
+                             Foreground="{DynamicResource SukiPrimaryColor}"
+                             MaxWidth="140"
+                             TextTrimming="CharacterEllipsis"
+                             VerticalAlignment="Center" />
+                  <TextBlock Text="✕"
+                             FontSize="11"
+                             FontWeight="Bold"
+                             Foreground="{DynamicResource SukiPrimaryColor}"
+                             VerticalAlignment="Center" />
+                </StackPanel>
+              </Border>
+            </Button>
+          </WrapPanel>
+
+          <!-- 右側核心操作：重整 ＋ 隨機雙題材碰撞 -->
+          <StackPanel Grid.Column="1"
+                      Orientation="Horizontal"
+                      Spacing="8"
+                      VerticalAlignment="Center">
+            <Button Classes="Outlined"
+                    Padding="10,6"
+                    Command="{Binding RefreshCommand}"
+                    IsEnabled="{Binding !IsLoading}"
+                    ToolTip.Tip="重新掃描與重整探索牆">
+              <StackPanel Orientation="Horizontal" Spacing="5">
+                <TextBlock Text="🔄" FontSize="12.5" VerticalAlignment="Center" />
+                <TextBlock Text="重整" FontSize="12.5" VerticalAlignment="Center" />
+              </StackPanel>
+            </Button>
+
+            <Button Classes="Flat"
+                    Padding="13,6"
+                    Command="{Binding PickRandomComboCommand}"
+                    ToolTip.Tip="隨機抽選一組高關聯雙題材組合並預覽交集">
+              <TextBlock Text="⚡ 隨機雙題材碰撞" FontSize="12.5" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </Button>
+          </StackPanel>
+        </Grid>
+
+        <!-- 第二列：主題牆子頁籤（左側） ＋ 封面模式 / 排序 / 僅看未讀（右側） -->
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <!-- 主題・原作牆子頁籤（僅主題牆模式顯示） -->
+          <Border Grid.Column="0"
+                  Classes="segment-track"
+                  HorizontalAlignment="Left"
+                  VerticalAlignment="Center"
+                  IsVisible="{Binding IsThemeWallMode}">
+            <StackPanel Orientation="Horizontal" Spacing="2">
+              <Button Classes="Basic"
+                      Padding="0"
+                      Command="{Binding SelectContentThemesSubTabCommand}"
+                      Cursor="Hand">
+                <Border Classes="segment-item" Classes.active="{Binding IsContentThemeSubTabActive}">
+                  <TextBlock Text="內容主題" FontSize="12.5" VerticalAlignment="Center" />
+                </Border>
+              </Button>
+              <Button Classes="Basic"
+                      Padding="0"
+                      Command="{Binding SelectParodiesSubTabCommand}"
+                      Cursor="Hand">
+                <Border Classes="segment-item" Classes.active="{Binding IsParodySubTabActive}">
+                  <TextBlock Text="原作・角色" FontSize="12.5" VerticalAlignment="Center" />
+                </Border>
+              </Button>
+              <Button Classes="Basic"
+                      Padding="0"
+                      Command="{Binding SelectHotCombosSubTabCommand}"
+                      Cursor="Hand">
+                <Border Classes="segment-item" Classes.active="{Binding IsHotComboSubTabActive}">
+                  <TextBlock Text="熱門雙組合" FontSize="12.5" VerticalAlignment="Center" />
+                </Border>
+              </Button>
+            </StackPanel>
+          </Border>
+
+          <!-- 右側呈現控制：🃏 疊牌 / 🖼️ 單張 ＋ 排序 ＋ 洗牌 ＋ 僅看未讀 -->
+          <WrapPanel Grid.Column="1"
+                     Orientation="Horizontal"
+                     HorizontalAlignment="Right"
+                     VerticalAlignment="Center">
+            <!-- 雙封面模式切換（僅疊牌 / 單張） -->
+            <Border Classes="segment-track" Margin="0,2,8,2">
+              <StackPanel Orientation="Horizontal" Spacing="2">
+                <Button Classes="Basic"
+                        Padding="0"
+                        Command="{Binding SelectDeckCoverStyleCommand}"
+                        Cursor="Hand"
+                        ToolTip.Tip="疊牌扇形預覽（最多 3 張代表作）">
+                  <Border Classes="segment-item" Classes.active="{Binding IsDeckCoverStyle}">
+                    <TextBlock Text="🃏 疊牌" FontSize="12" VerticalAlignment="Center" />
+                  </Border>
+                </Button>
+                <Button Classes="Basic"
+                        Padding="0"
+                        Command="{Binding SelectSingleCoverStyleCommand}"
+                        Cursor="Hand"
+                        ToolTip.Tip="單張精選封面">
+                  <Border Classes="segment-item" Classes.active="{Binding IsSingleCoverStyle}">
+                    <TextBlock Text="🖼️ 單張" FontSize="12" VerticalAlignment="Center" />
+                  </Border>
+                </Button>
+              </StackPanel>
+            </Border>
+
+            <!-- 排序下拉選單 -->
+            <ComboBox ItemsSource="{Binding SortOptions}"
+                      SelectedItem="{Binding SelectedSortOption, Mode=TwoWay}"
+                      MinWidth="122"
+                      MinHeight="36"
+                      FontSize="12.5"
+                      Margin="0,2,8,2"
+                      VerticalAlignment="Center">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:ExploreSortOption">
+                  <TextBlock Text="{Binding Label}" FontSize="12.5" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+
+            <!-- 隨機洗牌再抽一次（隨機模式時顯示） -->
+            <Button Classes="Outlined"
+                    Padding="10,6"
+                    MinHeight="36"
+                    Margin="0,2,8,2"
+                    IsVisible="{Binding IsRandomSortActive}"
+                    Command="{Binding ShuffleAgainCommand}"
+                    VerticalAlignment="Center"
+                    ToolTip.Tip="換一個隨機種子重新洗牌">
+              <TextBlock Text="🎲 洗牌" FontSize="12" VerticalAlignment="Center" />
+            </Button>
+
+            <!-- 僅看未讀 Toggle -->
+            <Border CornerRadius="10"
+                    BorderThickness="1"
+                    BorderBrush="{DynamicResource SukiBorderBrush}"
+                    Background="#10808080"
+                    Padding="12,5"
+                    MinHeight="38"
+                    Margin="0,2,0,2"
+                    VerticalAlignment="Center">
+              <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <TextBlock Text="僅看未讀"
+                           FontSize="12.5"
+                           Opacity="0.86"
+                           VerticalAlignment="Center" />
+                <ToggleSwitch IsChecked="{Binding UnreadOnly, Mode=TwoWay}"
+                              OnContent=""
+                              OffContent=""
+                              Padding="0"
+                              Margin="0"
+                              MinWidth="0"
+                              VerticalAlignment="Center" />
+              </StackPanel>
+            </Border>
+          </WrapPanel>
+        </Grid>
+
+      </StackPanel>
+    </suki:GlassCard>
+
+    <!-- 2. 單列熱門標籤篩選條 ＋ 右側 🔍 全部標籤 ▾ -->
+    <Grid Grid.Row="1"
+          ColumnDefinitions="*,Auto"
+          ColumnSpacing="10"
+          Margin="2,0,2,10">
+      <ScrollViewer Grid.Column="0"
+                    HorizontalScrollBarVisibility="Auto"
+                    VerticalScrollBarVisibility="Disabled">
+        <StackPanel Orientation="Horizontal"
+                    Spacing="8"
+                    VerticalAlignment="Center"
+                    Margin="0,2">
+          <!-- 快速清除已選標籤 -->
+          <Button Classes="Basic"
+                  Padding="0"
+                  IsVisible="{Binding HasSelectedTags}"
+                  Command="{Binding ClearTagFiltersCommand}"
+                  Cursor="Hand"
+                  ToolTip.Tip="清除所有已選標籤">
+            <Border Background="#22EF4444"
+                    BorderBrush="#77EF4444"
+                    BorderThickness="1"
+                    CornerRadius="999"
+                    Padding="10,5">
+              <TextBlock Text="✕ 清除篩選"
+                         FontSize="12"
+                         FontWeight="SemiBold"
+                         Foreground="#EF4444"
+                         VerticalAlignment="Center" />
+            </Border>
+          </Button>
+
+          <!-- 單列 Spotlight 熱門標籤 Chips -->
+          <ItemsControl ItemsSource="{Binding SpotlightTags}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <StackPanel Orientation="Horizontal" Spacing="7" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ExploreTagChipVm">
+                <Button Classes="Basic"
+                        Padding="0"
+                        Command="{Binding ToggleCommand}"
+                        Cursor="Hand"
+                        ToolTip.Tip="{Binding Name}">
+                  <Border Classes="tag-chip-pill"
+                          Classes.selected="{Binding IsSelected}"
+                          CornerRadius="999"
+                          Padding="11,5">
+                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                      <TextBlock Classes="chip-title"
+                                 Text="{Binding DisplayName}"
+                                 FontSize="12.5"
+                                 VerticalAlignment="Center" />
+                      <TextBlock Text="{Binding WorkCountText}"
+                                 FontSize="11"
+                                 Opacity="0.65"
+                                 VerticalAlignment="Center" />
+                    </StackPanel>
+                  </Border>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </ScrollViewer>
+
+      <!-- 右側：🔍 全部標籤 ▾ 玻璃彈窗開關鈕 -->
+      <Button x:Name="AllTagsButton"
+              Grid.Column="1"
+              Classes="Basic"
+              Padding="0"
+              Command="{Binding ToggleTagPickerCommand}"
+              Cursor="Hand"
+              VerticalAlignment="Center">
+        <Border Classes="tag-chip-pill"
+                Classes.selected="{Binding HasSelectedTags}"
+                CornerRadius="10"
+                Padding="12,6">
+          <TextBlock Classes="chip-title"
+                     Text="{Binding TagPickerButtonText}"
+                     FontSize="12.5"
+                     FontWeight="Medium"
+                     VerticalAlignment="Center" />
+        </Border>
+      </Button>
+    </Grid>
+
+    <!-- 3. 主內容區（卡片牆 ＋ 狀態提示 ＋ 全部標籤玻璃覆層彈窗） -->
+    <Grid Grid.Row="2">
+
+      <!-- 載入條 / 錯誤橫幅 / 空狀態 / 卡片格網 -->
+      <DockPanel LastChildFill="True">
+
+        <!-- 細長非同步載入進度條 -->
+        <ProgressBar DockPanel.Dock="Top"
+                     IsIndeterminate="True"
+                     IsVisible="{Binding IsLoading}"
+                     Height="3"
+                     Margin="0,0,0,6" />
+
+        <!-- 錯誤訊息橫幅 -->
+        <Border DockPanel.Dock="Top"
+                IsVisible="{Binding HasError}"
+                Background="#22EF4444"
+                BorderBrush="#77EF4444"
+                BorderThickness="1"
+                CornerRadius="10"
+                Padding="14,10"
+                Margin="0,0,0,10">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <TextBlock Grid.Column="0"
+                       Text="{Binding ErrorMessage}"
+                       Foreground="#EF4444"
+                       FontSize="13"
+                       TextWrapping="Wrap"
+                       VerticalAlignment="Center" />
+            <Button Grid.Column="1"
+                    Content="重試"
+                    Classes="Outlined"
+                    Command="{Binding RefreshCommand}"
+                    Padding="12,5" />
+          </Grid>
+        </Border>
+
+        <!-- 主捲動卡片格網 -->
+        <ScrollViewer x:Name="WallScrollViewer"
+                      HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto"
+                      ScrollChanged="OnWallScrollChanged"
+                      SizeChanged="OnWallViewportSizeChanged">
+          <StackPanel Spacing="12" Margin="0,2,0,84">
+
+            <!-- ⚡ 隨機雙題材碰撞橫幅 -->
+            <suki:GlassCard IsVisible="{Binding HasActiveRandomCombo}"
+                            CornerRadius="14"
+                            Padding="16,12"
+                            BorderBrush="{DynamicResource SukiPrimaryColor}"
+                            BorderThickness="1">
+              <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="16">
+                <!-- 左側：組合名稱與交集統計 -->
+                <StackPanel Grid.Column="0" Spacing="6" VerticalAlignment="Center">
+                  <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Border Background="{DynamicResource SukiPrimaryColor15}"
+                            CornerRadius="6"
+                            Padding="8,2"
+                            VerticalAlignment="Center">
+                      <TextBlock Text="⚡ 隨機雙題材碰撞"
+                                 FontSize="11.5"
+                                 FontWeight="SemiBold"
+                                 Foreground="{DynamicResource SukiPrimaryColor}" />
+                    </Border>
+                    <TextBlock Text="{Binding ActiveRandomCombo.TotalSummaryText}"
+                               FontSize="12.5"
+                               FontWeight="Medium"
+                               Opacity="0.8"
+                               VerticalAlignment="Center" />
+                  </StackPanel>
+
+                  <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Border Background="#1A808080"
+                            BorderBrush="{DynamicResource SukiBorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="10,4">
+                      <TextBlock Text="{Binding ActiveRandomCombo.FirstTagDisplayName}"
+                                 FontSize="14.5"
+                                 FontWeight="SemiBold" />
+                    </Border>
+                    <TextBlock Text="×"
+                               FontSize="16"
+                               FontWeight="Bold"
+                               Foreground="{DynamicResource SukiPrimaryColor}"
+                               VerticalAlignment="Center" />
+                    <Border Background="#1A808080"
+                            BorderBrush="{DynamicResource SukiBorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="10,4">
+                      <TextBlock Text="{Binding ActiveRandomCombo.SecondTagDisplayName}"
+                                 FontSize="14.5"
+                                 FontWeight="SemiBold" />
+                    </Border>
+                  </StackPanel>
+                </StackPanel>
+
+                <!-- 中間：最多 3 張代表作迷你預覽封面 -->
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            Spacing="8"
+                            VerticalAlignment="Center">
+                  <Border Width="62"
+                          Height="88"
+                          CornerRadius="8"
+                          ClipToBounds="True"
+                          Background="#18808080"
+                          IsVisible="{Binding ActiveRandomCombo.HasCover1}">
+                    <Image Source="{Binding ActiveRandomCombo.Cover1}" Stretch="UniformToFill" />
+                  </Border>
+                  <Border Width="62"
+                          Height="88"
+                          CornerRadius="8"
+                          ClipToBounds="True"
+                          Background="#18808080"
+                          IsVisible="{Binding ActiveRandomCombo.HasCover2}">
+                    <Image Source="{Binding ActiveRandomCombo.Cover2}" Stretch="UniformToFill" />
+                  </Border>
+                  <Border Width="62"
+                          Height="88"
+                          CornerRadius="8"
+                          ClipToBounds="True"
+                          Background="#18808080"
+                          IsVisible="{Binding ActiveRandomCombo.HasCover3}">
+                    <Image Source="{Binding ActiveRandomCombo.Cover3}" Stretch="UniformToFill" />
+                  </Border>
+                </StackPanel>
+
+                <!-- 右側：行動按鈕群 -->
+                <WrapPanel Grid.Column="2"
+                           Orientation="Horizontal"
+                           VerticalAlignment="Center"
+                           MaxWidth="360">
+                  <Button Classes="Flat"
+                          Padding="12,6"
+                          Margin="0,2,8,2"
+                          Command="{Binding BrowseActiveRandomComboCommand}">
+                    <TextBlock Text="瀏覽交集作品" FontSize="12.5" FontWeight="SemiBold" />
+                  </Button>
+                  <Button Classes="Outlined"
+                          Padding="10,6"
+                          Margin="0,2,8,2"
+                          Command="{Binding ApplyActiveRandomComboFiltersCommand}">
+                    <TextBlock Text="套用到篩選" FontSize="12" />
+                  </Button>
+                  <Button Classes="Outlined"
+                          Padding="10,6"
+                          Margin="0,2,6,2"
+                          Command="{Binding PickRandomComboCommand}">
+                    <TextBlock Text="🎲 再骰一次" FontSize="12" />
+                  </Button>
+                  <Button Classes="Basic"
+                          Padding="8,6"
+                          Margin="0,2,0,2"
+                          Command="{Binding DismissRandomComboCommand}"
+                          ToolTip.Tip="關閉碰撞橫幅">
+                    <TextBlock Text="✕" FontSize="13" FontWeight="Bold" />
+                  </Button>
+                </WrapPanel>
+              </Grid>
+            </suki:GlassCard>
+
+            <!-- 探索牆主體（非鑽取模式顯示） -->
+            <StackPanel IsVisible="{Binding IsWallContentVisible}" Spacing="12">
+
+            <!-- 空狀態提示卡片（探索牆） -->
+            <suki:GlassCard IsVisible="{Binding IsEmptyState}"
+                            CornerRadius="16"
+                            Padding="36,32"
+                            MaxWidth="520"
+                            HorizontalAlignment="Center"
+                            Margin="0,42,0,0">
+              <StackPanel Spacing="12" HorizontalAlignment="Center">
+                <TextBlock Text="✨"
+                           FontSize="36"
+                           HorizontalAlignment="Center" />
+                <TextBlock Text="{Binding EmptyStateTitle}"
+                           FontSize="18"
+                           FontWeight="SemiBold"
+                           HorizontalAlignment="Center"
+                           TextAlignment="Center" />
+                <TextBlock Text="{Binding EmptyStateHint}"
+                           FontSize="13"
+                           Opacity="0.72"
+                           TextWrapping="Wrap"
+                           TextAlignment="Center"
+                           LineHeight="20" />
+                <StackPanel Orientation="Horizontal"
+                            Spacing="10"
+                            HorizontalAlignment="Center"
+                            Margin="0,6,0,0">
+                  <Button Classes="Outlined"
+                          Content="清除標籤篩選"
+                          IsVisible="{Binding HasSelectedTags}"
+                          Command="{Binding ClearTagFiltersCommand}"
+                          Padding="14,7" />
+                  <Button Classes="Flat"
+                          Content="重新整理"
+                          Command="{Binding RefreshCommand}"
+                          Padding="16,7" />
+                </StackPanel>
+              </StackPanel>
+            </suki:GlassCard>
+
+            <!-- A. 作者探索卡片牆 -->
+            <ItemsControl x:Name="AuthorItemsControl"
+                          ItemsSource="{Binding AuthorCards}"
+                          IsVisible="{Binding IsAuthorMode}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <WrapPanel Orientation="Horizontal" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ExploreAuthorCardVm">
+                  <suki:GlassCard Width="236"
+                                  CornerRadius="14"
+                                  Padding="12"
+                                  Margin="0,0,14,14"
+                                  IsInteractive="True"
+                                  Command="{Binding SelectCardCommand}"
+                                  EffectiveViewportChanged="OnCardEffectiveViewportChanged"
+                                  PointerEntered="OnExploreCardPointerEntered"
+                                  PointerExited="OnExploreCardPointerExited"
+                                  Cursor="Hand">
+                    <StackPanel Spacing="8">
+
+                      <controls:DeckCoverControl IsDeckMode="{DynamicResource IsDeckCoverMode}"
+                                                 Cover1="{Binding Cover1}"
+                                                 Cover2="{Binding Cover2}"
+                                                 Cover3="{Binding Cover3}"
+                                                 HasCover1="{Binding HasCover1}"
+                                                 HasCover2="{Binding HasCover2}"
+                                                 HasCover3="{Binding HasCover3}"
+                                                 FallbackGlyph="{Binding FallbackGlyph}"
+                                                 AccentColorHex="{Binding AccentColorHex}"
+                                                 CountBadgeText="{Binding CountBadgeText}" />
+
+                      <!-- 作者主名與別名 -->
+                      <StackPanel Spacing="2">
+                        <TextBlock Text="{Binding MainName}"
+                                   FontSize="15"
+                                   FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis"
+                                   ToolTip.Tip="{Binding MainName}" />
+                        <TextBlock Text="{Binding AliasesDisplay}"
+                                   IsVisible="{Binding HasAliases}"
+                                   FontSize="11.5"
+                                   Opacity="0.62"
+                                   TextTrimming="CharacterEllipsis"
+                                   ToolTip.Tip="{Binding AliasesDisplay}" />
+                      </StackPanel>
+
+                      <!-- 作品與未讀統計 -->
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="{Binding TotalSummaryText}"
+                                   FontSize="12"
+                                   FontWeight="Medium"
+                                   Foreground="{DynamicResource SukiPrimaryColor}"
+                                   IsVisible="{Binding HasUnread}" />
+                        <TextBlock Text="{Binding TotalSummaryText}"
+                                   FontSize="12"
+                                   Opacity="0.68"
+                                   IsVisible="{Binding !HasUnread}" />
+                      </StackPanel>
+
+                      <!-- 底部最多 3 顆標籤 pill + +N 溢出徽章 -->
+                      <WrapPanel Orientation="Horizontal">
+                        <ItemsControl ItemsSource="{Binding TopDisplayTags}">
+                          <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                              <WrapPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                          </ItemsControl.ItemsPanel>
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="core:ExploreTagBadge">
+                              <Border Classes="card-mini-tag" Margin="0,0,5,4">
+                                <TextBlock Text="{Binding DisplayName}"
+                                           FontSize="11"
+                                           Opacity="0.88"
+                                           MaxWidth="112"
+                                           TextTrimming="CharacterEllipsis" />
+                              </Border>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <Border IsVisible="{Binding HasOverflowTags}"
+                                Background="{DynamicResource SukiPrimaryColor15}"
+                                CornerRadius="6"
+                                Padding="6,2"
+                                Margin="0,0,0,4">
+                          <TextBlock Text="{Binding OverflowTagText}"
+                                     FontSize="11"
+                                     FontWeight="SemiBold"
+                                     Foreground="{DynamicResource SukiPrimaryColor}" />
+                        </Border>
+                      </WrapPanel>
+
+                    </StackPanel>
+                  </suki:GlassCard>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- B. 主題・原作牆（內容主題 / 原作・角色） -->
+            <Panel IsVisible="{Binding IsThemeWallMode}">
+              <ItemsControl x:Name="ThemeItemsControl"
+                            ItemsSource="{Binding ThemeCards}"
+                            IsVisible="{Binding !IsHotComboSubTabActive}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <WrapPanel Orientation="Horizontal" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ExploreThemeCardVm">
+                    <suki:GlassCard Width="236"
+                                    CornerRadius="14"
+                                    Padding="12"
+                                    Margin="0,0,14,14"
+                                    IsInteractive="True"
+                                    Command="{Binding SelectCardCommand}"
+                                    EffectiveViewportChanged="OnCardEffectiveViewportChanged"
+                                    PointerEntered="OnExploreCardPointerEntered"
+                                    PointerExited="OnExploreCardPointerExited"
+                                    Cursor="Hand">
+                      <StackPanel Spacing="8">
+
+                        <!-- 題材色帶 -->
+                        <Border Height="3.5"
+                                CornerRadius="2"
+                                Background="{Binding AccentColorHex, Converter={StaticResource HexToBrushConverter}}" />
+
+                        <controls:DeckCoverControl IsDeckMode="{DynamicResource IsDeckCoverMode}"
+                                                   Cover1="{Binding Cover1}"
+                                                   Cover2="{Binding Cover2}"
+                                                   Cover3="{Binding Cover3}"
+                                                   HasCover1="{Binding HasCover1}"
+                                                   HasCover2="{Binding HasCover2}"
+                                                   HasCover3="{Binding HasCover3}"
+                                                   FallbackGlyph="{Binding FallbackGlyph}"
+                                                   AccentColorHex="{Binding AccentColorHex}"
+                                                   CountBadgeText="{Binding CountBadgeText}" />
+
+                        <!-- 分類徽章 ＋ 譯名 ／ 原文 -->
+                        <StackPanel Spacing="3">
+                          <Border HorizontalAlignment="Left"
+                                  Background="#18808080"
+                                  CornerRadius="5"
+                                  Padding="6,2">
+                            <TextBlock Text="{Binding CategoryLabel}"
+                                       FontSize="10.5"
+                                       FontWeight="Medium"
+                                       Opacity="0.78" />
+                          </Border>
+                          <TextBlock Text="{Binding DisplayName}"
+                                     FontSize="15"
+                                     FontWeight="SemiBold"
+                                     TextTrimming="CharacterEllipsis"
+                                     ToolTip.Tip="{Binding DisplayName}" />
+                          <TextBlock Text="{Binding OriginalName}"
+                                     IsVisible="{Binding HasDifferentOriginalName}"
+                                     FontSize="11.5"
+                                     Opacity="0.62"
+                                     TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+
+                        <!-- 統計 -->
+                        <TextBlock Text="{Binding TotalSummaryText}"
+                                   FontSize="12"
+                                   FontWeight="Medium"
+                                   Foreground="{DynamicResource SukiPrimaryColor}"
+                                   IsVisible="{Binding HasUnread}" />
+                        <TextBlock Text="{Binding TotalSummaryText}"
+                                   FontSize="12"
+                                   Opacity="0.68"
+                                   IsVisible="{Binding !HasUnread}" />
+
+                      </StackPanel>
+                    </suki:GlassCard>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+
+              <!-- C. 熱門雙組合卡片牆 -->
+              <ItemsControl x:Name="ComboItemsControl"
+                            ItemsSource="{Binding ComboCards}"
+                            IsVisible="{Binding IsHotComboSubTabActive}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <WrapPanel Orientation="Horizontal" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ExploreComboCardVm">
+                    <suki:GlassCard Width="248"
+                                    CornerRadius="14"
+                                    Padding="12"
+                                    Margin="0,0,14,14"
+                                    IsInteractive="True"
+                                    Command="{Binding SelectCardCommand}"
+                                    EffectiveViewportChanged="OnCardEffectiveViewportChanged"
+                                    PointerEntered="OnExploreCardPointerEntered"
+                                    PointerExited="OnExploreCardPointerExited"
+                                    Cursor="Hand">
+                      <StackPanel Spacing="8">
+
+                        <!-- 雙組合題材色帶 -->
+                        <Border Height="3.5"
+                                CornerRadius="2"
+                                Background="{Binding AccentColorHex, Converter={StaticResource HexToBrushConverter}}" />
+
+                        <controls:DeckCoverControl IsDeckMode="{DynamicResource IsDeckCoverMode}"
+                                                   Cover1="{Binding Cover1}"
+                                                   Cover2="{Binding Cover2}"
+                                                   Cover3="{Binding Cover3}"
+                                                   HasCover1="{Binding HasCover1}"
+                                                   HasCover2="{Binding HasCover2}"
+                                                   HasCover3="{Binding HasCover3}"
+                                                   FallbackGlyph="{Binding FallbackGlyph}"
+                                                   AccentColorHex="{Binding AccentColorHex}"
+                                                   CountBadgeText="{Binding CountBadgeText}" />
+
+                        <!-- TagA × TagB -->
+                        <StackPanel Spacing="4">
+                          <TextBlock Text="{Binding PairTitle}"
+                                     FontSize="14.5"
+                                     FontWeight="SemiBold"
+                                     TextWrapping="Wrap"
+                                     MaxLines="2"
+                                     TextTrimming="CharacterEllipsis"
+                                     ToolTip.Tip="{Binding PairTitle}" />
+                          <WrapPanel Orientation="Horizontal">
+                            <Border Classes="card-mini-tag" Margin="0,0,5,2">
+                              <TextBlock Text="{Binding FirstTagDisplayName}" FontSize="11" />
+                            </Border>
+                            <Border Classes="card-mini-tag" Margin="0,0,0,2">
+                              <TextBlock Text="{Binding SecondTagDisplayName}" FontSize="11" />
+                            </Border>
+                          </WrapPanel>
+                        </StackPanel>
+
+                        <TextBlock Text="{Binding TotalSummaryText}"
+                                   FontSize="12"
+                                   FontWeight="Medium"
+                                   Foreground="{DynamicResource SukiPrimaryColor}"
+                                   IsVisible="{Binding HasUnread}" />
+                        <TextBlock Text="{Binding TotalSummaryText}"
+                                   FontSize="12"
+                                   Opacity="0.68"
+                                   IsVisible="{Binding !HasUnread}" />
+
+                      </StackPanel>
+                    </suki:GlassCard>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </Panel>
+            </StackPanel>
+
+            <!-- 卡片鑽取作品檢視（點擊作者 / 主題 / 雙組合卡片進入） -->
+            <StackPanel IsVisible="{Binding IsDrillDownMode}" Spacing="14">
+
+              <!-- 麵包屑標題列 -->
+              <suki:GlassCard CornerRadius="14" Padding="14,12">
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+                  <Button Grid.Column="0"
+                          Classes="Outlined"
+                          Padding="12,6"
+                          Command="{Binding ExitDrillDownCommand}"
+                          ToolTip.Tip="返回探索牆 (Esc)"
+                          VerticalAlignment="Center">
+                    <TextBlock Text="← 返回探索牆" FontSize="12.5" FontWeight="Medium" />
+                  </Button>
+
+                  <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding DrillDownTitle}"
+                               FontSize="16.5"
+                               FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding DrillDownSubtitle}"
+                               FontSize="12"
+                               Opacity="0.7"
+                               TextTrimming="CharacterEllipsis" />
+                  </StackPanel>
+
+                  <Button Grid.Column="2"
+                          Classes="Flat"
+                          Padding="12,6"
+                          IsVisible="{Binding HasDrillDownAppliedTags}"
+                          Command="{Binding ShowAllForDrillDownAuthorCommand}"
+                          VerticalAlignment="Center"
+                          ToolTip.Tip="忽略目前探索牆標籤條件，顯示這位作者的全部作品">
+                    <TextBlock Text="顯示此作者全部作品" FontSize="12" FontWeight="Medium" />
+                  </Button>
+                </Grid>
+              </suki:GlassCard>
+
+              <!-- 鑽取空狀態 -->
+              <suki:GlassCard IsVisible="{Binding IsEmptyState}"
+                              CornerRadius="16"
+                              Padding="36,30"
+                              MaxWidth="520"
+                              HorizontalAlignment="Center"
+                              Margin="0,28,0,0">
+                <StackPanel Spacing="12" HorizontalAlignment="Center">
+                  <TextBlock Text="📚" FontSize="34" HorizontalAlignment="Center" />
+                  <TextBlock Text="{Binding EmptyStateTitle}"
+                             FontSize="17"
+                             FontWeight="SemiBold"
+                             HorizontalAlignment="Center" />
+                  <TextBlock Text="{Binding EmptyStateHint}"
+                             FontSize="13"
+                             Opacity="0.72"
+                             TextWrapping="Wrap"
+                             TextAlignment="Center" />
+                  <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
+                    <Button Classes="Flat"
+                            Content="← 返回探索牆"
+                            Command="{Binding ExitDrillDownCommand}"
+                            Padding="14,7" />
+                    <Button Classes="Outlined"
+                            Content="顯示此作者全部作品"
+                            IsVisible="{Binding HasDrillDownAppliedTags}"
+                            Command="{Binding ShowAllForDrillDownAuthorCommand}"
+                            Padding="14,7" />
+                  </StackPanel>
+                </StackPanel>
+              </suki:GlassCard>
+
+              <!-- 作品卡片格網 -->
+              <ItemsControl x:Name="DrillDownItemsControl"
+                            ItemsSource="{Binding DrillDownWorks}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <WrapPanel Orientation="Horizontal" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ExploreWorkCardVm">
+                    <suki:GlassCard Width="222"
+                                    CornerRadius="14"
+                                    Padding="10"
+                                    Margin="0,0,14,14"
+                                    EffectiveViewportChanged="OnCardEffectiveViewportChanged">
+                      <StackPanel Spacing="8">
+
+                        <!-- 可點擊主體（封面 ＋ 標題資訊 → 開啟預設閱讀器） -->
+                        <Button Classes="Basic"
+                                Padding="0"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch"
+                                Command="{Binding SelectCardCommand}"
+                                Cursor="Hand"
+                                ToolTip.Tip="點擊以系統預設程式開啟閱讀">
+                          <StackPanel Spacing="8">
+                            <Border Height="260"
+                                    CornerRadius="10"
+                                    ClipToBounds="True"
+                                    Background="#18808080">
+                              <Grid>
+                                <Border IsVisible="{Binding !HasCover1}"
+                                        Background="{Binding AccentColorHex, Converter={StaticResource HexToBrushConverter}}"
+                                        Opacity="0.22" />
+                                <TextBlock IsVisible="{Binding !HasCover1}"
+                                           Text="{Binding FallbackGlyph}"
+                                           FontSize="42"
+                                           FontWeight="Bold"
+                                           Opacity="0.65"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" />
+                                <Image Classes="work-cover-fade"
+                                       Classes.loaded="{Binding HasCover1}"
+                                       Source="{Binding Cover1}"
+                                       Stretch="UniformToFill" />
+
+                                <!-- 左上：閱讀狀態徽章 -->
+                                <Border HorizontalAlignment="Left"
+                                        VerticalAlignment="Top"
+                                        Margin="7"
+                                        Background="#B8000000"
+                                        CornerRadius="6"
+                                        Padding="7,2">
+                                  <TextBlock Text="{Binding ReadStatusLabel}"
+                                             FontSize="10.5"
+                                             FontWeight="SemiBold"
+                                             Foreground="White" />
+                                </Border>
+
+                                <!-- 右上：頁數角標 -->
+                                <Border HorizontalAlignment="Right"
+                                        VerticalAlignment="Top"
+                                        Margin="7"
+                                        IsVisible="{Binding HasPageCount}"
+                                        Background="#B8000000"
+                                        CornerRadius="6"
+                                        Padding="7,2">
+                                  <TextBlock Text="{Binding PageCountText}"
+                                             FontSize="10.5"
+                                             FontWeight="SemiBold"
+                                             Foreground="White" />
+                                </Border>
+                              </Grid>
+                            </Border>
+
+                            <StackPanel Spacing="2">
+                              <TextBlock Text="{Binding Title}"
+                                         FontSize="13.5"
+                                         FontWeight="SemiBold"
+                                         TextWrapping="Wrap"
+                                         MaxLines="2"
+                                         MinHeight="36"
+                                         TextTrimming="CharacterEllipsis"
+                                         ToolTip.Tip="{Binding Title}" />
+                              <TextBlock Text="{Binding MetadataSummaryText}"
+                                         FontSize="11.5"
+                                         Opacity="0.68"
+                                         TextTrimming="CharacterEllipsis"
+                                         ToolTip.Tip="{Binding MetadataSummaryText}" />
+                            </StackPanel>
+                          </StackPanel>
+                        </Button>
+
+                        <!-- 標籤與底部動作列（獨立於開啟按鈕之外，避免雙重觸發） -->
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                          <WrapPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                            <ItemsControl ItemsSource="{Binding TopDisplayTags}">
+                              <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                  <WrapPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                              </ItemsControl.ItemsPanel>
+                              <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="core:ExploreTagBadge">
+                                  <Border Classes="card-mini-tag" Margin="0,0,4,3">
+                                    <TextBlock Text="{Binding DisplayName}"
+                                               FontSize="10.5"
+                                               Opacity="0.88"
+                                               MaxWidth="88"
+                                               TextTrimming="CharacterEllipsis" />
+                                  </Border>
+                                </DataTemplate>
+                              </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <Border IsVisible="{Binding HasOverflowTags}"
+                                    Background="{DynamicResource SukiPrimaryColor15}"
+                                    CornerRadius="6"
+                                    Padding="5,2"
+                                    Margin="0,0,0,3">
+                              <TextBlock Text="{Binding OverflowTagText}"
+                                         FontSize="10.5"
+                                         FontWeight="SemiBold"
+                                         Foreground="{DynamicResource SukiPrimaryColor}" />
+                            </Border>
+                          </WrapPanel>
+
+                          <Button Grid.Column="1"
+                                  Classes="Outlined"
+                                  Padding="7,4"
+                                  VerticalAlignment="Bottom"
+                                  Command="{Binding RevealInExplorerCommand}"
+                                  ToolTip.Tip="在檔案總管中顯示">
+                            <TextBlock Text="📂" FontSize="12" />
+                          </Button>
+                        </Grid>
+
+                      </StackPanel>
+                    </suki:GlassCard>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+
+            </StackPanel>
+
+            <!-- 底部：平滑預載過渡緩衝列 ＋ 手動補載按鈕（探索牆與鑽取作品通用） -->
+            <suki:GlassCard IsVisible="{Binding HasMoreWallCards}"
+                            CornerRadius="14"
+                            Padding="18,12"
+                            Margin="0,8,0,10"
+                            HorizontalAlignment="Center">
+              <StackPanel Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                <StackPanel Spacing="2" VerticalAlignment="Center">
+                  <TextBlock Text="⏳ 捲動接近底部時將自動銜接下一批資料"
+                             FontSize="12.5"
+                             FontWeight="Medium"
+                             Opacity="0.86" />
+                  <TextBlock Text="{Binding PositionBadgeDetail}"
+                             FontSize="11"
+                             Opacity="0.64" />
+                </StackPanel>
+
+                <Button Classes="Outlined"
+                        Command="{Binding LoadMoreWallCardsCommand}"
+                        VerticalAlignment="Center"
+                        Padding="16,7">
+                  <TextBlock Text="{Binding LoadMoreWallCardsButtonText}"
+                             FontSize="12"
+                             FontWeight="SemiBold" />
+                </Button>
+              </StackPanel>
+            </suki:GlassCard>
+
+          </StackPanel>
+        </ScrollViewer>
+      </DockPanel>
+
+      <!-- 右下角懸浮定位膠囊（總筆數 ＋ 目前可視區間 ＋ 進度條 ＋ 回頂部） -->
+      <Border HorizontalAlignment="Right"
+              VerticalAlignment="Bottom"
+              Margin="0,0,22,18"
+              IsVisible="{Binding HasPositionBadge}"
+              CornerRadius="14"
+              BoxShadow="0 8 24 0 #44000000">
+        <suki:GlassCard IsOpaque="True"
+                        CornerRadius="14"
+                        Padding="14,9">
+          <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+            <StackPanel Spacing="4" MinWidth="176" VerticalAlignment="Center">
+              <TextBlock Text="{Binding PositionBadgeTitle}"
+                         FontSize="12.5"
+                         FontWeight="SemiBold" />
+              <TextBlock Text="{Binding PositionBadgeDetail}"
+                         FontSize="11"
+                         Opacity="0.72" />
+              <ProgressBar Minimum="0"
+                           Maximum="100"
+                           Value="{Binding ScrollProgressPercent}"
+                           Height="3" />
+            </StackPanel>
+
+            <Button Classes="Outlined"
+                    Padding="9,5"
+                    IsVisible="{Binding HasMoreWallCards}"
+                    Command="{Binding LoadMoreWallCardsCommand}"
+                    VerticalAlignment="Center"
+                    ToolTip.Tip="{Binding LoadMoreWallCardsShortTooltip}">
+              <TextBlock Text="{Binding LoadMoreWallCardsShortText}" FontSize="11.5" FontWeight="SemiBold" />
+            </Button>
+
+            <Button Classes="Flat"
+                    Padding="10,5"
+                    IsVisible="{Binding ShowBackToTopButton}"
+                    Click="OnBackToTopClick"
+                    VerticalAlignment="Center"
+                    ToolTip.Tip="回到探索牆最上方">
+              <TextBlock Text="↑ 回頂部" FontSize="11.5" FontWeight="SemiBold" />
+            </Button>
+          </StackPanel>
+        </suki:GlassCard>
+      </Border>
+
+      <!-- 4. 🔍 全部標籤 SukiUI 玻璃彈窗覆層（點擊外部背景或關閉鈕收合） -->
+      <Grid IsVisible="{Binding IsTagPickerOpen}">
+        <!-- 點擊外部收合遮罩 -->
+        <Border Background="#28000000"
+                CornerRadius="12"
+                PointerPressed="OnTagPickerBackdropPointerPressed" />
+
+        <!-- 玻璃彈窗卡片 -->
+        <Border HorizontalAlignment="Right"
+                VerticalAlignment="Top"
+                Width="560"
+                MaxWidth="720"
+                MaxHeight="520"
+                Margin="12,4,4,12"
+                CornerRadius="14"
+                BoxShadow="0 18 42 0 #66000000">
+          <suki:GlassCard IsOpaque="True"
+                          CornerRadius="14"
+                          Padding="16">
+          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" RowSpacing="10">
+
+            <!-- 彈窗標題列 -->
+            <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+              <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <TextBlock Text="全部標籤篩選（多選 AND）"
+                           FontSize="14.5"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center" />
+                <Border IsVisible="{Binding HasSelectedTags}"
+                        Background="{DynamicResource SukiPrimaryColor15}"
+                        CornerRadius="999"
+                        Padding="8,2"
+                        VerticalAlignment="Center">
+                  <TextBlock Text="{Binding SelectedFilterCount, StringFormat='已選 {0}'}"
+                             FontSize="11.5"
+                             FontWeight="SemiBold"
+                             Foreground="{DynamicResource SukiPrimaryColor}" />
+                </Border>
+              </StackPanel>
+
+              <Button Grid.Column="1"
+                      Classes="Outlined"
+                      Padding="10,4"
+                      IsEnabled="{Binding HasSelectedTags}"
+                      Command="{Binding ClearTagFiltersCommand}">
+                <TextBlock Text="清除全部篩選" FontSize="12" />
+              </Button>
+
+              <Button Grid.Column="2"
+                      Classes="Basic"
+                      Padding="8,4"
+                      Command="{Binding CloseTagPickerCommand}"
+                      ToolTip.Tip="關閉標籤挑選器 (Esc)">
+                <TextBlock Text="✕" FontSize="14" FontWeight="Bold" />
+              </Button>
+            </Grid>
+
+            <!-- 搜尋輸入框 -->
+            <TextBox Grid.Row="1"
+                     Text="{Binding TagPickerSearchText, Mode=TwoWay}"
+                     Watermark="搜尋標籤譯名或原文（支援即時過濾）…"
+                     Height="34"
+                     FontSize="13"
+                     VerticalContentAlignment="Center" />
+
+            <!-- 分類頁籤：全部 / 內容主題 / 原作・角色 / 作者・社團 -->
+            <ItemsControl Grid.Row="2" ItemsSource="{Binding PickerCategoryOptions}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <WrapPanel Orientation="Horizontal" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ExplorePickerCategoryItemVm">
+                  <Button Classes="Basic"
+                          Padding="0"
+                          Margin="0,0,8,4"
+                          Command="{Binding SelectCommand}"
+                          Cursor="Hand">
+                    <Border Classes="picker-cat-pill" Classes.selected="{Binding IsSelected}">
+                      <TextBlock Text="{Binding Label}" FontSize="12.5" />
+                    </Border>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- 已選標籤快捷移除列 -->
+            <StackPanel Grid.Row="3"
+                        Spacing="4"
+                        IsVisible="{Binding HasSelectedTags}">
+              <TextBlock Text="目前套用條件（點擊即可移除）："
+                         FontSize="11.5"
+                         Opacity="0.68" />
+              <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                            VerticalScrollBarVisibility="Disabled">
+                <ItemsControl ItemsSource="{Binding SelectedFilterTags}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <StackPanel Orientation="Horizontal" Spacing="6" />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ExploreTagChipVm">
+                      <Button Classes="Basic"
+                              Padding="0"
+                              Command="{Binding ToggleCommand}"
+                              Cursor="Hand">
+                        <Border Background="{DynamicResource SukiPrimaryColor15}"
+                                BorderBrush="{DynamicResource SukiPrimaryColor}"
+                                BorderThickness="1"
+                                CornerRadius="999"
+                                Padding="9,3">
+                          <StackPanel Orientation="Horizontal" Spacing="5">
+                            <TextBlock Text="{Binding DisplayName}"
+                                       FontSize="11.5"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource SukiPrimaryColor}" />
+                            <TextBlock Text="✕"
+                                       FontSize="10.5"
+                                       Foreground="{DynamicResource SukiPrimaryColor}" />
+                          </StackPanel>
+                        </Border>
+                      </Button>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+            </StackPanel>
+
+            <!-- 可捲動多標籤核取 Chips 清單 -->
+            <ScrollViewer x:Name="PickerScrollViewer"
+                          Grid.Row="4"
+                          HorizontalScrollBarVisibility="Disabled"
+                          VerticalScrollBarVisibility="Auto"
+                          MaxHeight="260">
+              <ItemsControl ItemsSource="{Binding PickerTags}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <WrapPanel Orientation="Horizontal" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ExploreTagChipVm">
+                    <Button Classes="Basic"
+                            Padding="0"
+                            Margin="0,0,7,7"
+                            Command="{Binding ToggleCommand}"
+                            Cursor="Hand"
+                            ToolTip.Tip="{Binding CategoryLabel}">
+                      <Border Classes="tag-chip-pill"
+                              Classes.selected="{Binding IsSelected}"
+                              CornerRadius="10"
+                              Padding="10,6">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                          <TextBlock Text="✓"
+                                     FontSize="11.5"
+                                     FontWeight="Bold"
+                                     Foreground="{DynamicResource SukiPrimaryColor}"
+                                     IsVisible="{Binding IsSelected}"
+                                     VerticalAlignment="Center" />
+                          <TextBlock Classes="chip-title"
+                                     Text="{Binding DisplayName}"
+                                     FontSize="12.5"
+                                     VerticalAlignment="Center" />
+                          <TextBlock Text="{Binding Name}"
+                                     FontSize="11"
+                                     Opacity="0.58"
+                                     IsVisible="{Binding HasDifferentOriginalName}"
+                                     VerticalAlignment="Center" />
+                          <Border Background="#20808080"
+                                  CornerRadius="999"
+                                  Padding="6,1"
+                                  VerticalAlignment="Center">
+                            <TextBlock Text="{Binding WorkCountText}"
+                                       FontSize="10.5"
+                                       Opacity="0.78" />
+                          </Border>
+                        </StackPanel>
+                      </Border>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+
+            <!-- 彈窗底部：數量摘要 ＋ 載入更多標籤按鈕 -->
+            <Grid Grid.Row="5" ColumnDefinitions="*,Auto" ColumnSpacing="10">
+              <TextBlock Grid.Column="0"
+                         Text="{Binding PickerSummaryText}"
+                         FontSize="11.5"
+                         Opacity="0.68"
+                         VerticalAlignment="Center"
+                         TextTrimming="CharacterEllipsis" />
+              <Button Grid.Column="1"
+                      Classes="Outlined"
+                      IsVisible="{Binding HasMorePickerTags}"
+                      Command="{Binding LoadMorePickerTagsCommand}"
+                      Padding="10,4">
+                <TextBlock Text="{Binding LoadMorePickerTagsButtonText}"
+                           FontSize="11.5" />
+              </Button>
+            </Grid>
+
+          </Grid>
+          </suki:GlassCard>
+        </Border>
+      </Grid>
+
+    </Grid>
+
+  </Grid>
+</UserControl>

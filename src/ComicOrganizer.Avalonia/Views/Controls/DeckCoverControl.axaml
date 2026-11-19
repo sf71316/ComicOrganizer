@@ -1,0 +1,300 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="ComicOrganizer.Avalonia.Views.Controls.DeckCoverControl"
+             MinHeight="176"
+             Height="186"
+             ClipToBounds="False">
+
+  <UserControl.Styles>
+    <!-- 疊牌三張卡共用平滑硬體補間過渡 -->
+    <Style Selector="Grid#DeckContainer Border.deck-slot">
+      <Setter Property="Width" Value="120" />
+      <Setter Property="Height" Value="168" />
+      <Setter Property="CornerRadius" Value="11" />
+      <Setter Property="BorderThickness" Value="1.1" />
+      <Setter Property="BorderBrush" Value="#42FFFFFF" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.34" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+
+    <Style Selector="Grid#DeckContainer Border.deck-dim">
+      <Setter Property="Background" Value="#FF000000" />
+      <Setter Property="IsHitTestVisible" Value="False" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.28" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+
+    <!-- 角色狀態：左後卡 -->
+    <Style Selector="Grid#DeckContainer Border.deck-slot.role-left">
+      <Setter Property="ZIndex" Value="1" />
+      <Setter Property="RenderTransform" Value="rotate(-7deg) translate(-22px, 6px) scale(0.90)" />
+      <Setter Property="BoxShadow" Value="0 4 12 0 #30000000" />
+    </Style>
+    <Style Selector="Grid#DeckContainer.hovered Border.deck-slot.role-left">
+      <Setter Property="RenderTransform" Value="rotate(-11deg) translate(-29px, 2px) scale(0.92)" />
+    </Style>
+    <Style Selector="Grid#DeckContainer Border.deck-slot.role-left Border.deck-dim">
+      <Setter Property="Opacity" Value="0.22" />
+    </Style>
+
+    <!-- 角色狀態：右後卡 -->
+    <Style Selector="Grid#DeckContainer Border.deck-slot.role-right">
+      <Setter Property="ZIndex" Value="2" />
+      <Setter Property="RenderTransform" Value="rotate(7deg) translate(22px, 6px) scale(0.90)" />
+      <Setter Property="BoxShadow" Value="0 4 12 0 #30000000" />
+    </Style>
+    <Style Selector="Grid#DeckContainer.hovered Border.deck-slot.role-right">
+      <Setter Property="RenderTransform" Value="rotate(11deg) translate(29px, 2px) scale(0.92)" />
+    </Style>
+    <Style Selector="Grid#DeckContainer Border.deck-slot.role-right Border.deck-dim">
+      <Setter Property="Opacity" Value="0.22" />
+    </Style>
+
+    <!-- 角色狀態：正中主卡 -->
+    <Style Selector="Grid#DeckContainer Border.deck-slot.role-front">
+      <Setter Property="ZIndex" Value="3" />
+      <Setter Property="RenderTransform" Value="translate(0px, 0px) scale(1)" />
+      <Setter Property="BoxShadow" Value="0 10 22 0 #48000000" />
+    </Style>
+    <Style Selector="Grid#DeckContainer.hovered Border.deck-slot.role-front">
+      <Setter Property="RenderTransform" Value="translate(0px, -4px) scale(1.04)" />
+    </Style>
+    <Style Selector="Grid#DeckContainer Border.deck-slot.role-front Border.deck-dim">
+      <Setter Property="Opacity" Value="0" />
+    </Style>
+
+    <!-- 輪播小圓點指示器 -->
+    <Style Selector="Border.deck-dot">
+      <Setter Property="Width" Value="5" />
+      <Setter Property="Height" Value="5" />
+      <Setter Property="CornerRadius" Value="999" />
+      <Setter Property="Background" Value="#66FFFFFF" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.2" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border.deck-dot.active">
+      <Setter Property="Width" Value="12" />
+      <Setter Property="Background" Value="#FFFFFFFF" />
+    </Style>
+
+    <!-- 單張精選懸停微放大 -->
+    <Style Selector="Border#SingleContainer Border.single-zoom-layer">
+      <Setter Property="RenderTransform" Value="scale(1)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.25" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Grid#RootHost:pointerover Border#SingleContainer Border.single-zoom-layer">
+      <Setter Property="RenderTransform" Value="scale(1.035)" />
+    </Style>
+
+    <!-- 封面載入完成時平滑淡入過渡（避免切換 IsVisible 觸發重複 Measure） -->
+    <Style Selector="Image.cover-fade">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="IsHitTestVisible" Value="False" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.18" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+
+    <Style Selector="Border.placeholder-fade">
+      <Setter Property="IsHitTestVisible" Value="False" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.18" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+  </UserControl.Styles>
+
+  <Grid x:Name="RootHost" ClipToBounds="False">
+
+    <!-- 模式一：🃏 疊牌扇形（預設，支援懸停洗牌輪轉） -->
+    <Grid x:Name="DeckContainer"
+          ClipToBounds="False"
+          HorizontalAlignment="Stretch"
+          VerticalAlignment="Stretch">
+
+      <!-- 實體卡槽 B（Cover2，預設 role-left） -->
+      <Border x:Name="CardBFrame"
+              Classes="deck-slot role-left">
+        <Border CornerRadius="10" ClipToBounds="True">
+          <Grid>
+            <Border x:Name="BackLeftPlaceholder" Classes="placeholder-fade" Opacity="0.72">
+              <TextBlock x:Name="BackLeftGlyphText"
+                         FontSize="22"
+                         Opacity="0.45"
+                         HorizontalAlignment="Center"
+                         VerticalAlignment="Center" />
+            </Border>
+            <Image x:Name="BackLeftImage"
+                   Classes="cover-fade"
+                   Stretch="UniformToFill" />
+            <Border Classes="deck-dim" />
+          </Grid>
+        </Border>
+      </Border>
+
+      <!-- 實體卡槽 C（Cover3，預設 role-right） -->
+      <Border x:Name="CardCFrame"
+              Classes="deck-slot role-right">
+        <Border CornerRadius="10" ClipToBounds="True">
+          <Grid>
+            <Border x:Name="BackRightPlaceholder" Classes="placeholder-fade" Opacity="0.72">
+              <TextBlock x:Name="BackRightGlyphText"
+                         FontSize="22"
+                         Opacity="0.45"
+                         HorizontalAlignment="Center"
+                         VerticalAlignment="Center" />
+            </Border>
+            <Image x:Name="BackRightImage"
+                   Classes="cover-fade"
+                   Stretch="UniformToFill" />
+            <Border Classes="deck-dim" />
+          </Grid>
+        </Border>
+      </Border>
+
+      <!-- 實體卡槽 A（Cover1，預設 role-front） -->
+      <Border x:Name="CardAFrame"
+              Classes="deck-slot role-front">
+        <Border CornerRadius="10" ClipToBounds="True">
+          <Grid>
+            <Border x:Name="FrontPlaceholder" Classes="placeholder-fade">
+              <Grid>
+                <Border x:Name="FrontAccentOrb"
+                        Width="64"
+                        Height="64"
+                        CornerRadius="999"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center" />
+                <TextBlock x:Name="FrontGlyphText"
+                           FontSize="28"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center" />
+              </Grid>
+            </Border>
+            <Image x:Name="FrontImage"
+                   Classes="cover-fade"
+                   Stretch="UniformToFill" />
+            <Border Classes="deck-dim" />
+          </Grid>
+        </Border>
+      </Border>
+
+      <!-- 底部輪播頁碼指示點（僅懸停且有 >=2 張實圖時顯示） -->
+      <Border x:Name="DeckDotsPill"
+              ZIndex="5"
+              HorizontalAlignment="Center"
+              VerticalAlignment="Bottom"
+              Margin="0,0,0,4"
+              Padding="7,3"
+              CornerRadius="999"
+              Background="#990F172A"
+              IsVisible="False"
+              IsHitTestVisible="False">
+        <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+          <Border x:Name="Dot0" Classes="deck-dot active" />
+          <Border x:Name="Dot1" Classes="deck-dot" />
+          <Border x:Name="Dot2" Classes="deck-dot" />
+        </StackPanel>
+      </Border>
+
+      <!-- 右上角統計 / 未讀徽章 -->
+      <Border x:Name="DeckBadgeBorder"
+              ZIndex="6"
+              HorizontalAlignment="Right"
+              VerticalAlignment="Top"
+              Margin="0,4,4,0"
+              Padding="8,3"
+              CornerRadius="999"
+              Background="#CC0F172A"
+              BorderBrush="#42FFFFFF"
+              BorderThickness="1"
+              IsVisible="False"
+              IsHitTestVisible="False">
+        <TextBlock x:Name="DeckBadgeText"
+                   FontSize="11"
+                   FontWeight="SemiBold"
+                   Foreground="#F8FAFC" />
+      </Border>
+    </Grid>
+
+    <!-- 模式二：🖼️ 單張精選 -->
+    <Border x:Name="SingleContainer"
+            CornerRadius="11"
+            ClipToBounds="True"
+            BorderThickness="1"
+            BorderBrush="#33808080"
+            IsVisible="False">
+      <Grid>
+        <Border Classes="single-zoom-layer">
+          <Grid>
+            <Border x:Name="SinglePlaceholder" Classes="placeholder-fade">
+              <Grid>
+                <Border x:Name="SingleAccentOrb"
+                        Width="72"
+                        Height="72"
+                        CornerRadius="999"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center" />
+                <TextBlock x:Name="SingleGlyphText"
+                           FontSize="32"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center" />
+              </Grid>
+            </Border>
+            <Image x:Name="SingleImage"
+                   Classes="cover-fade"
+                   Stretch="UniformToFill" />
+          </Grid>
+        </Border>
+
+        <!-- 底部漸層遮罩 + 讀數角標 -->
+        <Border VerticalAlignment="Bottom"
+                Height="60"
+                IsHitTestVisible="False">
+          <Border.Background>
+            <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+              <GradientStop Color="#00000000" Offset="0" />
+              <GradientStop Color="#CC000000" Offset="1" />
+            </LinearGradientBrush>
+          </Border.Background>
+        </Border>
+
+        <Border x:Name="SingleBadgeBorder"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Bottom"
+                Margin="0,0,8,8"
+                Padding="8,3"
+                CornerRadius="999"
+                Background="#BF0F172A"
+                BorderBrush="#42FFFFFF"
+                BorderThickness="1"
+                IsVisible="False"
+                IsHitTestVisible="False">
+          <TextBlock x:Name="SingleBadgeText"
+                     FontSize="11"
+                     FontWeight="SemiBold"
+                     Foreground="#F8FAFC" />
+        </Border>
+      </Grid>
+    </Border>
+
+  </Grid>
+</UserControl>

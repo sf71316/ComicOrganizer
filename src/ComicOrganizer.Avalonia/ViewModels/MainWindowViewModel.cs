@@ -1,4 +1,4 @@
-using Avalonia.Controls.Notifications;
+using System.ComponentModel;
 using Avalonia.Media;
 using ComicOrganizer.App.Core;
 using ComicOrganizer.Avalonia.Services;
@@ -49,12 +49,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
     };
 
     private readonly AppDataContext _dataContext;
+    private readonly SkiaCoverService _coverService;
     private readonly IReadOnlyList<PlaceholderPageViewModel> _placeholderPages;
+    private bool _isSyncingSearch;
     private bool _disposed;
 
     public MainWindowViewModel(AppDataContext dataContext)
     {
         _dataContext = dataContext;
+        _coverService = new SkiaCoverService(dataContext.ThumbStore);
 
         _isDarkTheme = dataContext.IsDarkTheme;
         _currentAccentName = dataContext.CurrentAccentName;
@@ -69,7 +72,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
                 SelectAccent))
             .ToList();
 
-        ExplorePage = CreateExplorePage();
+        ExplorePage = new ExplorePageViewModel(dataContext, _coverService);
+        ExplorePage.PropertyChanged += OnExplorePagePropertyChanged;
+
         GalleryPage = CreateGalleryPage();
         ReadingTrackPage = CreateReadingTrackPage();
         AutoArchivePage = CreateAutoArchivePage();
@@ -78,7 +83,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
 
         _placeholderPages =
         [
-            ExplorePage,
             GalleryPage,
             ReadingTrackPage,
             AutoArchivePage,
@@ -93,7 +97,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
 
     public IReadOnlyList<AccentThemeChoice> AccentOptions { get; }
 
-    public PlaceholderPageViewModel ExplorePage { get; }
+    public ExplorePageViewModel ExplorePage { get; }
 
     public PlaceholderPageViewModel GalleryPage { get; }
 
@@ -157,21 +161,58 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         _dataContext.ApplyTheme(_dataContext.IsDarkTheme, accentName);
     }
 
-    [RelayCommand]
-    private void ExecuteGlobalSearch()
+    partial void OnGlobalSearchTextChanged(string value)
     {
-        var query = GlobalSearchText.Trim();
-        var content = string.IsNullOrEmpty(query)
-            ? "全域搜尋框將於 Phase 2 漫畫庫畫廊實作時啟用，支援 tag: / artist: / series: 搜尋 DSL。"
-            : $"已接收關鍵字「{query}」，全域搜尋 DSL 將於 Phase 2 漫畫庫畫廊實作時開放。";
+        if (_isSyncingSearch || _disposed)
+        {
+            return;
+        }
 
-        _dataContext.ToastManager.CreateToast()
-            .WithTitle("全域搜尋預留（Phase 2）")
-            .WithContent(content)
-            .OfType(NotificationType.Information)
-            .Dismiss().After(TimeSpan.FromSeconds(3))
-            .Dismiss().ByClicking()
-            .Queue();
+        _isSyncingSearch = true;
+        try
+        {
+            ExplorePage.SearchKeyword = value ?? string.Empty;
+        }
+        finally
+        {
+            _isSyncingSearch = false;
+        }
+    }
+
+    private void OnExplorePagePropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_isSyncingSearch || _disposed || e.PropertyName != nameof(ExplorePageViewModel.SearchKeyword))
+        {
+            return;
+        }
+
+        var next = ExplorePage.SearchKeyword ?? string.Empty;
+        if (string.Equals(GlobalSearchText, next, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _isSyncingSearch = true;
+        try
+        {
+            GlobalSearchText = next;
+        }
+        finally
+        {
+            _isSyncingSearch = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task ExecuteGlobalSearchAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        ExplorePage.SearchKeyword = GlobalSearchText ?? string.Empty;
+        await ExplorePage.ApplySearchImmediateAsync();
     }
 
     private void OnDataContextThemeChanged()
@@ -188,42 +229,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
 
     private void OnDataContextSettingsChanged()
     {
+        _ = ExplorePage.RefreshCommand.ExecuteAsync(null);
         foreach (var page in _placeholderPages)
         {
             _ = page.RefreshAsync();
         }
-    }
-
-    private PlaceholderPageViewModel CreateExplorePage()
-    {
-        return new PlaceholderPageViewModel(
-            "✨",
-            "靈感探索牆",
-            "Phase 1 實作",
-            "以視覺封面牆與即時推薦卡片呈現你的漫畫收藏，幫助你快速發現久未翻閱的佳作、熱門標籤與常讀作者。",
-            [
-                "封面瀑布流與「靈感推薦 / 隨機精選 / 近期新增」探索區塊",
-                "依高頻標籤、常讀作者與閱讀狀態快速切入篩選視圖",
-                "搭配 SkiaSharp 非同步封面服務提供流暢縮圖載入體驗",
-            ],
-            () =>
-            {
-                var store = _dataContext.MetaStore;
-                var totalAssets = store.TotalAssetCount();
-                var parseStats = store.GetParseStats();
-                var authorCount = store.ListAuthorsByUsage().Count;
-                var tagCount = store.ListTagsByUsage().Count;
-                var cachedThumbs = store.TotalCachedCount();
-
-                return new PlaceholderSnapshot(
-                    [
-                        new PlaceholderMetricItem("作品索引數", $"{totalAssets:N0}", $"已解析 Metadata：{parseStats.ParsedCount:N0}（手動編輯 {parseStats.ManuallyEditedCount:N0}）"),
-                        new PlaceholderMetricItem("作者總數", $"{authorCount:N0}", "涵蓋所有已建檔漫畫作者與作品歸屬關聯"),
-                        new PlaceholderMetricItem("標籤總數", $"{tagCount:N0}", "支援多對多標籤分類、別名與繁體中文翻譯"),
-                        new PlaceholderMetricItem("已快取縮圖", $"{cachedThumbs:N0}", $"目前快取總量：{FormatBytes(store.TotalThumbBytes())}"),
-                    ],
-                    BuildDbFootnote());
-            });
     }
 
     private PlaceholderPageViewModel CreateGalleryPage()
@@ -394,5 +404,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         _disposed = true;
         _dataContext.ThemeChanged -= OnDataContextThemeChanged;
         _dataContext.SettingsChanged -= OnDataContextSettingsChanged;
+        ExplorePage.PropertyChanged -= OnExplorePagePropertyChanged;
+        ExplorePage.Dispose();
+        _coverService.Dispose();
     }
 }

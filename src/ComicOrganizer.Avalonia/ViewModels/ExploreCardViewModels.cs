@@ -1,0 +1,795 @@
+using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
+using Avalonia;
+using Avalonia.Media.Imaging;
+using Avalonia.Threading;
+using ComicOrganizer.App.Core;
+using ComicOrganizer.Avalonia.Services;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+
+namespace ComicOrganizer.Avalonia.ViewModels;
+
+/// <summary>
+/// 支援整批替換與批次追加的 ObservableCollection：僅發出單一次 Reset 通知，避免 UI 逐筆重複排版。
+/// </summary>
+public sealed class BatchObservableCollection<T> : ObservableCollection<T>
+{
+    public void ReplaceAll(IEnumerable<T> items)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        CheckReentrancy();
+        Items.Clear();
+        foreach (var item in items)
+        {
+            Items.Add(item);
+        }
+
+        RaiseResetNotifications();
+    }
+
+    public void AddRange(IEnumerable<T> items)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        CheckReentrancy();
+
+        var added = items as List<T> ?? items.ToList();
+        if (added.Count == 0)
+        {
+            return;
+        }
+
+        int startIndex = Items.Count;
+        foreach (var item in added)
+        {
+            Items.Add(item);
+        }
+
+        // 以標準範圍 Add 通知取代 Reset，避免 ItemsControl 銷毀並重建既有所有卡片容器
+        OnPropertyChanged(new PropertyChangedEventArgs("Count"));
+        OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+        OnCollectionChanged(new NotifyCollectionChangedEventArgs(
+            NotifyCollectionChangedAction.Add,
+            (System.Collections.IList)added,
+            startIndex));
+    }
+
+    private void RaiseResetNotifications()
+    {
+        OnPropertyChanged(new PropertyChangedEventArgs("Count"));
+        OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+        OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+    }
+}
+
+public enum ExploreMainTab
+{
+    AuthorExplore = 0,
+    ThemeParodyWall = 1,
+}
+
+public enum ExploreCoverStyle
+{
+    Deck = 0,
+    Single = 1,
+}
+
+public enum ExploreCardSelectionKind
+{
+    Author = 0,
+    Theme = 1,
+    Combo = 2,
+    RandomCombo = 3,
+}
+
+public sealed record ExploreSortOption(ExploreSortMode Mode, string Label)
+{
+    public override string ToString() => Label;
+}
+
+public sealed record ExploreCardSelection(
+    ExploreCardSelectionKind Kind,
+    string Title,
+    long? AuthorId = null,
+    IReadOnlyList<long>? TagIds = null,
+    ExploreAuthorCard? AuthorCard = null,
+    ExploreThemeCard? ThemeCard = null,
+    ExploreComboCard? ComboCard = null);
+
+public sealed partial class ExplorePickerCategoryItemVm : ObservableObject
+{
+    private readonly Action<string> _onSelect;
+
+    public ExplorePickerCategoryItemVm(string key, string label, bool isSelected, Action<string> onSelect)
+    {
+        Key = key;
+        Label = label;
+        _isSelected = isSelected;
+        _onSelect = onSelect ?? throw new ArgumentNullException(nameof(onSelect));
+    }
+
+    public string Key { get; }
+
+    public string Label { get; }
+
+    [ObservableProperty]
+    private bool _isSelected;
+
+    [RelayCommand]
+    private void Select() => _onSelect(Key);
+}
+
+public sealed partial class ExploreTagChipVm : ObservableObject
+{
+    private readonly Action<ExploreTagChipVm> _onToggle;
+
+    public ExploreTagChipVm(ExploreTagBadge badge, bool isSelected, Action<ExploreTagChipVm> onToggle)
+    {
+        ArgumentNullException.ThrowIfNull(badge);
+        TagId = badge.TagId;
+        Name = badge.Name;
+        DisplayName = badge.DisplayName;
+        Category = badge.Category;
+        CategoryLabel = ExploreVisualFormatting.FormatCategoryLabel(badge.Category);
+        WorkCount = badge.WorkCount;
+        IsStructural = badge.IsStructural;
+        _isSelected = isSelected;
+        _onToggle = onToggle ?? throw new ArgumentNullException(nameof(onToggle));
+    }
+
+    public long TagId { get; }
+
+    public string Name { get; }
+
+    public string DisplayName { get; }
+
+    public string Category { get; }
+
+    public string CategoryLabel { get; }
+
+    public int WorkCount { get; }
+
+    public bool IsStructural { get; }
+
+    public string WorkCountText => $"{WorkCount:N0}";
+
+    public bool HasDifferentOriginalName => !string.Equals(Name, DisplayName, StringComparison.OrdinalIgnoreCase);
+
+    [ObservableProperty]
+    private bool _isSelected;
+
+    [RelayCommand]
+    private void Toggle() => _onToggle(this);
+}
+
+/// <summary>
+/// 單張代表作封面槽位 ViewModel。
+/// 注意：<see cref="Image"/> 實例由 <see cref="SkiaCoverService"/> 記憶體 LRU 快取共享管理，此處不主動 Dispose。
+/// </summary>
+public sealed partial class CoverSlotVm : ObservableObject
+{
+    private readonly object _loadLock = new();
+    private Task? _inflightTask;
+    private bool _completed;
+
+    public CoverSlotVm(ExploreWorkItem work, string accentHex)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        AssetId = work.AssetId;
+        SourcePath = work.Path;
+        ThumbKey = work.CoverThumbKey;
+        WorkTitle = work.Title;
+        FallbackGlyph = ExploreVisualFormatting.ExtractFallbackGlyph(work.Title);
+        AccentHex = accentHex;
+    }
+
+    public long AssetId { get; }
+
+    public string SourcePath { get; }
+
+    public string? ThumbKey { get; }
+
+    public string WorkTitle { get; }
+
+    public string FallbackGlyph { get; }
+
+    public string AccentHex { get; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasImage))]
+    private Bitmap? _image;
+
+    public bool HasImage => Image != null;
+
+    public Task EnsureLoadedAsync(
+        SkiaCoverService coverService,
+        SemaphoreSlim concurrencyLimiter,
+        Func<Action, Task> runOnUiAsync,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(coverService);
+        ArgumentNullException.ThrowIfNull(concurrencyLimiter);
+        ArgumentNullException.ThrowIfNull(runOnUiAsync);
+
+        if (_completed || ct.IsCancellationRequested)
+        {
+            return Task.CompletedTask;
+        }
+
+        lock (_loadLock)
+        {
+            if (_completed || ct.IsCancellationRequested)
+            {
+                return Task.CompletedTask;
+            }
+
+            if (_inflightTask != null && !_inflightTask.IsCompleted)
+            {
+                return _inflightTask;
+            }
+
+            _inflightTask = LoadCoreAsync(coverService, concurrencyLimiter, runOnUiAsync, ct);
+            return _inflightTask;
+        }
+    }
+
+    private async Task LoadCoreAsync(
+        SkiaCoverService coverService,
+        SemaphoreSlim concurrencyLimiter,
+        Func<Action, Task> runOnUiAsync,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(SourcePath) && string.IsNullOrWhiteSpace(ThumbKey))
+        {
+            _completed = true;
+            return;
+        }
+
+        var acquired = false;
+        try
+        {
+            await concurrencyLimiter.WaitAsync(ct).ConfigureAwait(false);
+            acquired = true;
+
+            if (ct.IsCancellationRequested)
+            {
+                return;
+            }
+
+            var bitmap = await coverService
+                .LoadOrExtractCoverAsync(SourcePath, ThumbKey, ct)
+                .ConfigureAwait(false);
+
+            if (ct.IsCancellationRequested)
+            {
+                return;
+            }
+
+            if (bitmap != null)
+            {
+                await runOnUiAsync(() => Image = bitmap).ConfigureAwait(false);
+            }
+
+            _completed = true;
+        }
+        catch (OperationCanceledException)
+        {
+            // 被取消時保留 _completed = false，讓後續重新進入可視範圍時可再嘗試載入
+        }
+        catch (ObjectDisposedException)
+        {
+            _completed = true;
+        }
+        catch
+        {
+            _completed = true;
+        }
+        finally
+        {
+            if (acquired)
+            {
+                try
+                {
+                    concurrencyLimiter.Release();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // ViewModel 已釋放時安全忽略
+                }
+            }
+        }
+    }
+}
+
+public abstract partial class ExploreCardVmBase : ViewModelBase
+{
+    private readonly Action<ExploreCardVmBase> _onSelectCard;
+    private readonly Func<Action, Task> _runOnUiAsync;
+
+    protected ExploreCardVmBase(
+        IReadOnlyList<ExploreWorkItem> representativeWorks,
+        string fallbackText,
+        string accentColorHex,
+        Action<ExploreCardVmBase> onSelectCard,
+        Func<Action, Task>? runOnUiAsync = null)
+    {
+        _onSelectCard = onSelectCard ?? throw new ArgumentNullException(nameof(onSelectCard));
+        _runOnUiAsync = runOnUiAsync ?? DefaultRunOnUiAsync;
+        FallbackGlyph = ExploreVisualFormatting.ExtractFallbackGlyph(fallbackText);
+        AccentColorHex = accentColorHex;
+
+        var slots = new List<CoverSlotVm>(Math.Min(3, representativeWorks.Count));
+        for (int i = 0; i < representativeWorks.Count && i < 3; i++)
+        {
+            var slot = new CoverSlotVm(representativeWorks[i], accentColorHex);
+            int slotIndex = i;
+            slot.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(CoverSlotVm.Image))
+                {
+                    NotifyCoverSlotChanged(slotIndex);
+                }
+            };
+            slots.Add(slot);
+        }
+
+        CoverSlots = slots;
+    }
+
+    public IReadOnlyList<CoverSlotVm> CoverSlots { get; }
+
+    public CoverSlotVm? CoverSlot1 => CoverSlots.Count > 0 ? CoverSlots[0] : null;
+
+    public CoverSlotVm? CoverSlot2 => CoverSlots.Count > 1 ? CoverSlots[1] : null;
+
+    public CoverSlotVm? CoverSlot3 => CoverSlots.Count > 2 ? CoverSlots[2] : null;
+
+    public Bitmap? Cover1 => CoverSlot1?.Image;
+
+    public Bitmap? Cover2 => CoverSlot2?.Image;
+
+    public Bitmap? Cover3 => CoverSlot3?.Image;
+
+    public bool HasCover1 => Cover1 != null;
+
+    public bool HasCover2 => Cover2 != null;
+
+    public bool HasCover3 => Cover3 != null;
+
+    public int RepresentativeCount => CoverSlots.Count;
+
+    public string FallbackGlyph { get; }
+
+    public string AccentColorHex { get; }
+
+    public abstract string CountBadgeText { get; }
+
+    [RelayCommand]
+    private void SelectCard() => _onSelectCard(this);
+
+    public async Task EnsureCoversLoadedAsync(SkiaCoverService coverService, CancellationToken ct = default)
+    {
+        using var localLimiter = new SemaphoreSlim(4, 4);
+        await EnsureCoversLoadedCoreAsync(coverService, localLimiter, ct).ConfigureAwait(false);
+    }
+
+    public Task EnsureCoversLoadedAsync(
+        SkiaCoverService coverService,
+        SemaphoreSlim concurrencyLimiter,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(concurrencyLimiter);
+        return EnsureCoverSlotRangeLoadedAsync(coverService, concurrencyLimiter, 0, CoverSlots.Count, ct);
+    }
+
+    public Task EnsurePrimaryCoverLoadedAsync(
+        SkiaCoverService coverService,
+        SemaphoreSlim concurrencyLimiter,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(concurrencyLimiter);
+        return EnsureCoverSlotRangeLoadedAsync(coverService, concurrencyLimiter, 0, 1, ct);
+    }
+
+    public Task EnsureSecondaryCoversLoadedAsync(
+        SkiaCoverService coverService,
+        SemaphoreSlim concurrencyLimiter,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(concurrencyLimiter);
+        return CoverSlots.Count <= 1
+            ? Task.CompletedTask
+            : EnsureCoverSlotRangeLoadedAsync(coverService, concurrencyLimiter, 1, CoverSlots.Count - 1, ct);
+    }
+
+    private Task EnsureCoversLoadedCoreAsync(
+        SkiaCoverService coverService,
+        SemaphoreSlim concurrencyLimiter,
+        CancellationToken ct)
+        => EnsureCoverSlotRangeLoadedAsync(coverService, concurrencyLimiter, 0, CoverSlots.Count, ct);
+
+    private async Task EnsureCoverSlotRangeLoadedAsync(
+        SkiaCoverService coverService,
+        SemaphoreSlim concurrencyLimiter,
+        int startSlotIndex,
+        int maxCount,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(coverService);
+        if (CoverSlots.Count == 0 || startSlotIndex >= CoverSlots.Count || maxCount <= 0 || ct.IsCancellationRequested)
+        {
+            return;
+        }
+
+        int endExclusive = Math.Min(CoverSlots.Count, startSlotIndex + maxCount);
+        int count = endExclusive - startSlotIndex;
+        if (count == 1)
+        {
+            await CoverSlots[startSlotIndex]
+                .EnsureLoadedAsync(coverService, concurrencyLimiter, _runOnUiAsync, ct)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        var tasks = new Task[count];
+        for (int i = 0; i < count; i++)
+        {
+            tasks[i] = CoverSlots[startSlotIndex + i].EnsureLoadedAsync(coverService, concurrencyLimiter, _runOnUiAsync, ct);
+        }
+
+        await Task.WhenAll(tasks).ConfigureAwait(false);
+    }
+
+    private void NotifyCoverSlotChanged(int slotIndex)
+    {
+        switch (slotIndex)
+        {
+            case 0:
+                OnPropertyChanged(nameof(Cover1));
+                OnPropertyChanged(nameof(HasCover1));
+                break;
+            case 1:
+                OnPropertyChanged(nameof(Cover2));
+                OnPropertyChanged(nameof(HasCover2));
+                break;
+            case 2:
+                OnPropertyChanged(nameof(Cover3));
+                OnPropertyChanged(nameof(HasCover3));
+                break;
+        }
+    }
+
+    internal static Task DefaultRunOnUiAsync(Action action)
+    {
+        if (Application.Current == null || Dispatcher.UIThread.CheckAccess())
+        {
+            action();
+            return Task.CompletedTask;
+        }
+
+        return Dispatcher.UIThread.InvokeAsync(action).GetTask();
+    }
+}
+
+public sealed class ExploreAuthorCardVm : ExploreCardVmBase
+{
+    public ExploreAuthorCardVm(
+        ExploreAuthorCard card,
+        Action<ExploreCardVmBase> onSelectCard,
+        Func<Action, Task>? runOnUiAsync = null)
+        : base(
+            card.RepresentativeWorks,
+            card.MainName,
+            ExploreVisualFormatting.PickAccentHex(card.MainName),
+            onSelectCard,
+            runOnUiAsync)
+    {
+        SourceCard = card;
+        AuthorId = card.AuthorId;
+        MainName = card.MainName;
+        Aliases = card.Aliases;
+        AliasesDisplay = card.Aliases.Count > 0
+            ? string.Join(" / ", card.Aliases.Take(3))
+            : string.Empty;
+        FolderPath = card.FolderPath;
+        TotalWorks = card.TotalWorks;
+        AllLibraryWorks = card.AllLibraryWorks;
+        UnreadWorks = card.UnreadWorks;
+        ReadingWorks = card.ReadingWorks;
+        CompletedWorks = card.CompletedWorks;
+        DistinctTagCount = card.DistinctTagCount;
+        TopDisplayTags = card.TopTags.Take(3).ToList();
+        OverflowTagCount = Math.Max(0, card.DistinctTagCount - TopDisplayTags.Count);
+    }
+
+    public ExploreAuthorCard SourceCard { get; }
+
+    public long AuthorId { get; }
+
+    public string MainName { get; }
+
+    public IReadOnlyList<string> Aliases { get; }
+
+    public string AliasesDisplay { get; }
+
+    public bool HasAliases => !string.IsNullOrWhiteSpace(AliasesDisplay);
+
+    public string? FolderPath { get; }
+
+    public int TotalWorks { get; }
+
+    public int AllLibraryWorks { get; }
+
+    public int UnreadWorks { get; }
+
+    public int ReadingWorks { get; }
+
+    public int CompletedWorks { get; }
+
+    public int DistinctTagCount { get; }
+
+    /// <summary>作者卡底部展示之主要題材標籤（嚴格上限 3 顆）。</summary>
+    public IReadOnlyList<ExploreTagBadge> TopDisplayTags { get; }
+
+    public int OverflowTagCount { get; }
+
+    public bool HasOverflowTags => OverflowTagCount > 0;
+
+    public string OverflowTagText => $"+{OverflowTagCount}";
+
+    public bool HasUnread => UnreadWorks > 0;
+
+    public string TotalSummaryText => UnreadWorks > 0
+        ? $"{TotalWorks} 本 · {UnreadWorks} 未讀"
+        : $"{TotalWorks} 本";
+
+    public override string CountBadgeText => TotalSummaryText;
+}
+
+public sealed class ExploreThemeCardVm : ExploreCardVmBase
+{
+    public ExploreThemeCardVm(
+        ExploreThemeCard card,
+        Action<ExploreCardVmBase> onSelectCard,
+        Func<Action, Task>? runOnUiAsync = null)
+        : base(
+            card.RepresentativeWorks,
+            card.DisplayName,
+            ExploreVisualFormatting.PickAccentHex(card.Name),
+            onSelectCard,
+            runOnUiAsync)
+    {
+        SourceCard = card;
+        TagId = card.TagId;
+        OriginalName = card.Name;
+        DisplayName = card.DisplayName;
+        Category = card.Category;
+        CategoryLabel = ExploreVisualFormatting.FormatCategoryLabel(card.Category);
+        WorkCount = card.WorkCount;
+        UnreadWorks = card.UnreadWorks;
+    }
+
+    public ExploreThemeCard SourceCard { get; }
+
+    public long TagId { get; }
+
+    public string OriginalName { get; }
+
+    public string DisplayName { get; }
+
+    public bool HasDifferentOriginalName => !string.Equals(OriginalName, DisplayName, StringComparison.OrdinalIgnoreCase);
+
+    public string Category { get; }
+
+    public string CategoryLabel { get; }
+
+    public int WorkCount { get; }
+
+    public int UnreadWorks { get; }
+
+    public bool HasUnread => UnreadWorks > 0;
+
+    public string TotalSummaryText => UnreadWorks > 0
+        ? $"{WorkCount} 本 · {UnreadWorks} 未讀"
+        : $"{WorkCount} 本";
+
+    public override string CountBadgeText => TotalSummaryText;
+}
+
+public sealed class ExploreComboCardVm : ExploreCardVmBase
+{
+    public ExploreComboCardVm(
+        ExploreComboCard card,
+        Action<ExploreCardVmBase> onSelectCard,
+        Func<Action, Task>? runOnUiAsync = null)
+        : base(
+            card.RepresentativeWorks,
+            card.FirstTag.DisplayName,
+            ExploreVisualFormatting.PickAccentHex($"{card.FirstTag.Name}:{card.SecondTag.Name}"),
+            onSelectCard,
+            runOnUiAsync)
+    {
+        SourceCard = card;
+        FirstTag = card.FirstTag;
+        SecondTag = card.SecondTag;
+        PairTitle = $"{card.FirstTag.DisplayName} × {card.SecondTag.DisplayName}";
+        WorkCount = card.WorkCount;
+        UnreadWorks = card.UnreadWorks;
+    }
+
+    public ExploreComboCard SourceCard { get; }
+
+    public ExploreTagBadge FirstTag { get; }
+
+    public ExploreTagBadge SecondTag { get; }
+
+    public string FirstTagDisplayName => FirstTag.DisplayName;
+
+    public string SecondTagDisplayName => SecondTag.DisplayName;
+
+    public string PairTitle { get; }
+
+    public int WorkCount { get; }
+
+    public int UnreadWorks { get; }
+
+    public bool HasUnread => UnreadWorks > 0;
+
+    public string TotalSummaryText => UnreadWorks > 0
+        ? $"{WorkCount} 本 · {UnreadWorks} 未讀"
+        : $"{WorkCount} 本";
+
+    public override string CountBadgeText => TotalSummaryText;
+}
+
+public sealed partial class ExploreWorkCardVm : ExploreCardVmBase
+{
+    private readonly Action<ExploreWorkItem> _onRevealInExplorer;
+
+    public ExploreWorkCardVm(
+        ExploreWorkItem work,
+        Action<ExploreWorkItem> onOpenWork,
+        Action<ExploreWorkItem> onRevealInExplorer,
+        Func<Action, Task>? runOnUiAsync = null)
+        : base(
+            new[] { work ?? throw new ArgumentNullException(nameof(work)) },
+            work.Title,
+            ExploreVisualFormatting.PickAccentHex(work.Title),
+            _ => (onOpenWork ?? throw new ArgumentNullException(nameof(onOpenWork)))(work),
+            runOnUiAsync)
+    {
+        SourceWork = work;
+        _onRevealInExplorer = onRevealInExplorer ?? throw new ArgumentNullException(nameof(onRevealInExplorer));
+
+        var filteredTags = work.Tags
+            .Where(t => !string.Equals(t.Category, "artist", StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(t.Category, "group", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var displayPool = filteredTags.Count > 0 ? filteredTags : work.Tags;
+        TopDisplayTags = displayPool.Take(3).ToList();
+        OverflowTagCount = Math.Max(0, displayPool.Count - TopDisplayTags.Count);
+    }
+
+    public ExploreWorkItem SourceWork { get; }
+
+    public long AssetId => SourceWork.AssetId;
+
+    public string Path => SourceWork.Path;
+
+    public string Title => SourceWork.Title;
+
+    public string AuthorName => SourceWork.AuthorName;
+
+    public string? Language => SourceWork.Language;
+
+    public string? TranslationGroup => SourceWork.TranslationGroup;
+
+    public int? PageCount => SourceWork.PageCount;
+
+    public ReadStatus ReadStatus => SourceWork.ReadStatus;
+
+    public int ReadCount => SourceWork.ReadCount;
+
+    public bool IsUnread => ReadStatus == ReadStatus.Unread;
+
+    public bool IsReading => ReadStatus == ReadStatus.Reading;
+
+    public bool IsCompleted => ReadStatus == ReadStatus.Completed;
+
+    public string ReadStatusLabel => ReadStatus switch
+    {
+        ReadStatus.Reading => "閱讀中",
+        ReadStatus.Completed => "已完成",
+        ReadStatus.Dropped => "已放棄",
+        _ => "未讀",
+    };
+
+    public string PageCountText => PageCount.HasValue && PageCount.Value > 0 ? $"{PageCount.Value}P" : string.Empty;
+
+    public bool HasPageCount => !string.IsNullOrEmpty(PageCountText);
+
+    public string MetadataSummaryText
+    {
+        get
+        {
+            var parts = new List<string>(4) { AuthorName };
+            if (HasPageCount) parts.Add(PageCountText);
+            if (!string.IsNullOrWhiteSpace(Language)) parts.Add(Language!);
+            if (!string.IsNullOrWhiteSpace(TranslationGroup)) parts.Add(TranslationGroup!);
+            return string.Join(" · ", parts);
+        }
+    }
+
+    public IReadOnlyList<ExploreTagBadge> TopDisplayTags { get; }
+
+    public int OverflowTagCount { get; }
+
+    public bool HasOverflowTags => OverflowTagCount > 0;
+
+    public string OverflowTagText => $"+{OverflowTagCount}";
+
+    public override string CountBadgeText => HasPageCount ? $"{PageCountText} · {ReadStatusLabel}" : ReadStatusLabel;
+
+    [RelayCommand]
+    private void RevealInExplorer() => _onRevealInExplorer(SourceWork);
+}
+
+internal static class ExploreVisualFormatting
+{
+    private static readonly string[] AccentPalette =
+    [
+        "#3B82F6", // Blue
+        "#8B5CF6", // Violet
+        "#EC4899", // Pink
+        "#10B981", // Emerald
+        "#F59E0B", // Amber
+        "#06B6D4", // Cyan
+        "#F43F5E", // Rose
+        "#6366F1", // Indigo
+    ];
+
+    public static string PickAccentHex(string? seed)
+    {
+        if (string.IsNullOrWhiteSpace(seed))
+        {
+            return AccentPalette[0];
+        }
+
+        unchecked
+        {
+            uint hash = 2166136261u;
+            foreach (char ch in seed)
+            {
+                hash ^= ch;
+                hash *= 16777619u;
+            }
+            return AccentPalette[(int)(hash % (uint)AccentPalette.Length)];
+        }
+    }
+
+    public static string ExtractFallbackGlyph(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return "📖";
+        }
+
+        var trimmed = text.Trim();
+        return trimmed.Length > 0 ? trimmed[..1].ToUpperInvariant() : "📖";
+    }
+
+    public static string FormatCategoryLabel(string? category)
+    {
+        return (category ?? string.Empty).Trim().ToLowerInvariant() switch
+        {
+            "virtual" => "虛擬主題",
+            "parody" => "原作",
+            "character" => "角色",
+            "artist" => "作者",
+            "group" => "社團",
+            "language" => "語系",
+            _ => "內容主題",
+        };
+    }
+}

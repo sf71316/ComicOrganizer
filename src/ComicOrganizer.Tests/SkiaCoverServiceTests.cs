@@ -261,11 +261,14 @@ public class SkiaCoverServiceTests : IDisposable
         Assert.NotNull(bmp3);
         Assert.Equal(330, bmp3!.PixelSize.Width);
         Assert.Null(_thumbStore.OpenRead(missKey));
-        // LRU 上限為 2，加入第 3 項後快取數維持在 2
+        // LRU 上限為 2，加入第 3 項後快取數維持在 2，且已交付給 UI 的舊 Bitmap 不可被 Dispose（避免 Image.MeasureOverride NullReferenceException）
         Assert.Equal(2, service.MemoryCacheCount);
+        Assert.Equal(330, bmp1First!.PixelSize.Width);
+        Assert.Equal(330, bmp2!.PixelSize.Width);
 
         service.ClearMemoryCache();
         Assert.Equal(0, service.MemoryCacheCount);
+        Assert.Equal(330, bmp1First.PixelSize.Width);
     }
 
     [Fact]

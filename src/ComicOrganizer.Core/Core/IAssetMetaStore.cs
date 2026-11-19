@@ -430,6 +430,11 @@ public interface IAssetMetaStore : IDisposable
 
     /// <summary>判斷 asset 某頁是否已有書籤（reader UI 顯示填色 icon 用）。</summary>
     bool HasBookmarkOnPage(long assetId, int pageIndex);
+
+    // ===== Explore Wall 批次快照（W1.1）=====
+
+    /// <summary>單趟批次撈取探索牆所需全部作品、作者、標籤與關聯資料（相容 v8/v9，避免 N+1 查詢）。</summary>
+    ExploreCorpusSnapshot GetExploreCorpusSnapshot(string? translationLang = "zh-TW");
 }
 
 /// <summary>tag 譯文紀錄。</summary>

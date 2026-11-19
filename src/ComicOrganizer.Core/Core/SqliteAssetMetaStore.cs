@@ -2376,6 +2376,138 @@ WHERE asset_id = @assetId AND page_index = @pageIndex;",
                 new { assetId, pageIndex }, _currentTx) > 0;
     }
 
+    // ── Explore Wall 批次快照（W1.1）─────────────────────────────
+
+    public ExploreCorpusSnapshot GetExploreCorpusSnapshot(string? translationLang = "zh-TW")
+    {
+        var lang = string.IsNullOrWhiteSpace(translationLang) ? "zh-TW" : translationLang.Trim();
+
+        lock (_lock)
+        {
+            var workRows = _conn.Query<ExploreWorkDbRow>(@"
+SELECT a.id AS AssetId,
+       a.path AS Path,
+       a.name AS FileName,
+       a.added_at AS AddedAt,
+       m.author_id AS AuthorId,
+       au.main_name AS AuthorName,
+       m.title AS Title,
+       m.language AS Language,
+       m.translation_group AS TranslationGroup,
+       m.page_count AS PageCount,
+       m.read_status AS ReadStatus,
+       m.read_count AS ReadCount,
+       m.last_read AS LastRead,
+       m.external_id AS ExternalId,
+       th.cover_thumb_key AS CoverThumbKey
+FROM asset_meta m
+JOIN asset a ON a.id = m.asset_id
+LEFT JOIN author au ON au.id = m.author_id
+LEFT JOIN asset_thumb th ON th.asset_id = a.id;",
+                transaction: _currentTx)
+                .Select(r => new ExploreWorkRow(
+                    r.AssetId, r.Path, r.FileName, r.AddedAt,
+                    r.AuthorId, r.AuthorName, r.Title, r.Language, r.TranslationGroup,
+                    r.PageCount, r.ReadStatus, r.ReadCount, r.LastRead, r.ExternalId, r.CoverThumbKey))
+                .ToList();
+
+            var authors = _conn.Query<ExploreAuthorDbRow>(@"
+SELECT id AS Id, main_name AS MainName, folder_path AS FolderPath
+FROM author;",
+                transaction: _currentTx)
+                .Select(r => new ExploreAuthorRow(r.Id, r.MainName, r.FolderPath))
+                .ToList();
+
+            var authorAliases = _conn.Query<ExploreAuthorAliasDbRow>(@"
+SELECT author_id AS AuthorId, name AS Name
+FROM author_alias;",
+                transaction: _currentTx)
+                .Select(r => new ExploreAuthorAliasRow(r.AuthorId, r.Name))
+                .ToList();
+
+            var tags = _conn.Query<ExploreTagDbRow>(@"
+SELECT t.id AS Id,
+       t.name AS Name,
+       t.category AS Category,
+       tt.name AS TranslatedName
+FROM tag t
+LEFT JOIN tag_translation tt ON tt.tag_id = t.id AND tt.lang = @lang;",
+                new { lang }, _currentTx)
+                .Select(r => new ExploreTagRow(r.Id, r.Name, r.Category, r.TranslatedName))
+                .ToList();
+
+            var assetTags = _conn.Query<ExploreAssetTagDbRow>(@"
+SELECT asset_id AS AssetId, tag_id AS TagId
+FROM asset_tag;",
+                transaction: _currentTx)
+                .Select(r => new ExploreAssetTagLink(r.AssetId, r.TagId))
+                .ToList();
+
+            var tagAliases = _hasTagAliasTable
+                ? _conn.Query<ExploreTagAliasDbRow>(@"
+SELECT alias_name AS AliasName, target_tag_id AS TargetTagId
+FROM tag_alias;",
+                    transaction: _currentTx)
+                    .Select(r => new ExploreTagAliasRow(r.AliasName, r.TargetTagId))
+                    .ToList()
+                : new List<ExploreTagAliasRow>();
+
+            return new ExploreCorpusSnapshot(workRows, authors, authorAliases, tags, assetTags, tagAliases);
+        }
+    }
+
+    private sealed class ExploreWorkDbRow
+    {
+        public long AssetId { get; set; }
+        public string Path { get; set; } = "";
+        public string FileName { get; set; } = "";
+        public long AddedAt { get; set; }
+        public long? AuthorId { get; set; }
+        public string? AuthorName { get; set; }
+        public string? Title { get; set; }
+        public string? Language { get; set; }
+        public string? TranslationGroup { get; set; }
+        public int? PageCount { get; set; }
+        public int ReadStatus { get; set; }
+        public int ReadCount { get; set; }
+        public long? LastRead { get; set; }
+        public string? ExternalId { get; set; }
+        public string? CoverThumbKey { get; set; }
+    }
+
+    private sealed class ExploreAuthorDbRow
+    {
+        public long Id { get; set; }
+        public string MainName { get; set; } = "";
+        public string? FolderPath { get; set; }
+    }
+
+    private sealed class ExploreAuthorAliasDbRow
+    {
+        public long AuthorId { get; set; }
+        public string Name { get; set; } = "";
+    }
+
+    private sealed class ExploreTagDbRow
+    {
+        public long Id { get; set; }
+        public string Name { get; set; } = "";
+        public string? Category { get; set; }
+        public string? TranslatedName { get; set; }
+    }
+
+    private sealed class ExploreAssetTagDbRow
+    {
+        public long AssetId { get; set; }
+        public long TagId { get; set; }
+    }
+
+    private sealed class ExploreTagAliasDbRow
+    {
+        public string AliasName { get; set; } = "";
+        public long TargetTagId { get; set; }
+    }
+
     public void Dispose()
     {
         lock (_lock) _conn.Dispose();
