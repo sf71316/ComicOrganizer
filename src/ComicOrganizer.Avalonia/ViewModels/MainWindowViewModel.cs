@@ -74,17 +74,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
 
         ExplorePage = new ExplorePageViewModel(dataContext, _coverService);
         ExplorePage.PropertyChanged += OnExplorePagePropertyChanged;
+        ExplorePage.OpenInGalleryRequested += OnOpenInGalleryRequested;
 
-        GalleryPage = CreateGalleryPage();
-        ReadingTrackPage = CreateReadingTrackPage();
+        GalleryPage = new GalleryPageViewModel(dataContext, _coverService);
+        ReadingTrackPage = new ReadingTrackPageViewModel(dataContext, _coverService);
+        ReadingTrackPage.OpenInGalleryRequested += OnOpenInGalleryRequested;
         AutoArchivePage = CreateAutoArchivePage();
         DataManagementPage = CreateDataManagementPage();
         SettingsPage = new SettingsPageViewModel(dataContext);
 
         _placeholderPages =
         [
-            GalleryPage,
-            ReadingTrackPage,
             AutoArchivePage,
             DataManagementPage,
         ];
@@ -95,13 +95,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
 
     public ISukiToastManager ToastManager => _dataContext.ToastManager;
 
+    public event Action<ViewModelBase>? NavigateToPageRequested;
+
     public IReadOnlyList<AccentThemeChoice> AccentOptions { get; }
 
     public ExplorePageViewModel ExplorePage { get; }
 
-    public PlaceholderPageViewModel GalleryPage { get; }
+    public GalleryPageViewModel GalleryPage { get; }
 
-    public PlaceholderPageViewModel ReadingTrackPage { get; }
+    public ReadingTrackPageViewModel ReadingTrackPage { get; }
 
     public PlaceholderPageViewModel AutoArchivePage { get; }
 
@@ -179,6 +181,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         }
     }
 
+    private void OnOpenInGalleryRequested(string dsl)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _ = GalleryPage.ApplyExternalDslQueryAsync(dsl);
+        NavigateToPageRequested?.Invoke(GalleryPage);
+    }
+
     private void OnExplorePagePropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_isSyncingSearch || _disposed || e.PropertyName != nameof(ExplorePageViewModel.SearchKeyword))
@@ -211,8 +224,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
             return;
         }
 
-        ExplorePage.SearchKeyword = GlobalSearchText ?? string.Empty;
-        await ExplorePage.ApplySearchImmediateAsync();
+        var query = GlobalSearchText ?? string.Empty;
+        ExplorePage.SearchKeyword = query;
+        await Task.WhenAll(
+            ExplorePage.ApplySearchImmediateAsync(),
+            GalleryPage.ApplyExternalDslQueryAsync(query));
     }
 
     private void OnDataContextThemeChanged()
@@ -230,73 +246,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
     private void OnDataContextSettingsChanged()
     {
         _ = ExplorePage.RefreshCommand.ExecuteAsync(null);
+        _ = GalleryPage.RefreshAsync();
+        _ = ReadingTrackPage.RefreshAsync();
         foreach (var page in _placeholderPages)
         {
             _ = page.RefreshAsync();
         }
-    }
-
-    private PlaceholderPageViewModel CreateGalleryPage()
-    {
-        return new PlaceholderPageViewModel(
-            "📚",
-            "漫畫庫畫廊",
-            "Phase 2 實作",
-            "主力瀏覽與管理介面，提供多尺寸卡片與列表檢視、目錄樹、搜尋 DSL、自訂虛擬庫與作品詳情抽屜。",
-            [
-                "大／中／小卡片與詳細列表模式，搭配自然排序與多維過濾",
-                "整合搜尋 DSL（tag: / artist: / series: / group: / -排除）與虛擬庫側欄",
-                "卡片右鍵選單、詳情編輯抽屜與一鍵開啟內建閱讀器",
-            ],
-            () =>
-            {
-                var store = _dataContext.MetaStore;
-                var config = _dataContext.Config;
-                var totalAssets = store.TotalAssetCount();
-                var cachedThumbs = store.TotalCachedCount();
-                var thumbBytes = store.TotalThumbBytes();
-
-                return new PlaceholderSnapshot(
-                    [
-                        new PlaceholderMetricItem("漫畫庫路徑", FormatPathOrUnset(config.RootDirectory), "可於「⚙️ 系統設定」調整漫畫庫根目錄"),
-                        new PlaceholderMetricItem("已索引作品數", $"{totalAssets:N0}", "與既有 WinForms SQLite 資料庫完全相容"),
-                        new PlaceholderMetricItem("縮圖快取狀態", FormatBytes(thumbBytes), $"共 {cachedThumbs:N0} 張快取縮圖｜上限 {FormatBytes(config.ThumbCacheMaxBytes)}"),
-                    ],
-                    BuildDbFootnote());
-            });
-    }
-
-    private PlaceholderPageViewModel CreateReadingTrackPage()
-    {
-        return new PlaceholderPageViewModel(
-            "🕒",
-            "閱讀軌跡",
-            "Phase 2 實作",
-            "追蹤你的近期閱讀歷程、進行中進度與最常閱讀的作者與標籤排行，隨時從上次停下的頁碼繼續閱讀。",
-            [
-                "「繼續閱讀」快捷清單與精準上次閱讀頁碼（last_page）還原",
-                "最近閱讀、最近新增、最常閱讀作者與熱門標籤視覺化排行",
-                "閱讀狀態標記（未讀／閱讀中／已完成）與批次重置工具",
-            ],
-            () =>
-            {
-                var store = _dataContext.MetaStore;
-                var recentRead = store.ListRecentlyRead(50).Count;
-                var inProgress = store.ListReadingInProgress().Count;
-                var completed = store.ListWorksByReadStatus(ReadStatus.Completed).Count;
-                var topAuthors = store.ListMostReadAuthors(3);
-                var topAuthorHint = topAuthors.Count == 0
-                    ? "尚無閱讀次數排行資料"
-                    : "熱門作者：" + string.Join("、", topAuthors.Select(a => $"{a.Author.MainName}({a.TotalReads})"));
-
-                return new PlaceholderSnapshot(
-                    [
-                        new PlaceholderMetricItem("近期閱讀紀錄", $"{recentRead:N0}", "統計最近閱讀的前 50 部作品紀錄"),
-                        new PlaceholderMetricItem("閱讀進行中", $"{inProgress:N0}", "狀態為 Reading 且可接續上次進度的作品"),
-                        new PlaceholderMetricItem("已完成作品", $"{completed:N0}", topAuthorHint),
-                    ],
-                    BuildDbFootnote());
-            });
     }
 
     private PlaceholderPageViewModel CreateAutoArchivePage()
@@ -405,7 +360,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         _dataContext.ThemeChanged -= OnDataContextThemeChanged;
         _dataContext.SettingsChanged -= OnDataContextSettingsChanged;
         ExplorePage.PropertyChanged -= OnExplorePagePropertyChanged;
+        ExplorePage.OpenInGalleryRequested -= OnOpenInGalleryRequested;
         ExplorePage.Dispose();
+        GalleryPage.Dispose();
+        ReadingTrackPage.OpenInGalleryRequested -= OnOpenInGalleryRequested;
+        ReadingTrackPage.Dispose();
         _coverService.Dispose();
     }
 }

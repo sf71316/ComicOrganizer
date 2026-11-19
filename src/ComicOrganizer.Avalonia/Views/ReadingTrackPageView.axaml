@@ -1,0 +1,541 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:suki="https://github.com/kikipoulet/SukiUI"
+             xmlns:vm="using:ComicOrganizer.Avalonia.ViewModels"
+             xmlns:views="using:ComicOrganizer.Avalonia.Views"
+             x:Class="ComicOrganizer.Avalonia.Views.ReadingTrackPageView"
+             x:DataType="vm:ReadingTrackPageViewModel">
+
+  <UserControl.Resources>
+    <views:HexToBrushConverter x:Key="HexToBrushConverter" />
+  </UserControl.Resources>
+
+  <UserControl.Styles>
+    <Style Selector="Border.segment-track">
+      <Setter Property="Background" Value="#16808080" />
+      <Setter Property="BorderBrush" Value="{DynamicResource SukiBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="Padding" Value="3" />
+    </Style>
+    <Style Selector="Border.segment-item">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="12,5" />
+    </Style>
+    <Style Selector="Button:pointerover Border.segment-item">
+      <Setter Property="Background" Value="#18808080" />
+    </Style>
+    <Style Selector="Border.segment-item.active">
+      <Setter Property="Background" Value="{DynamicResource SukiPrimaryColor15}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource SukiPrimaryColor}" />
+    </Style>
+    <Style Selector="Border.segment-item.active TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource SukiPrimaryColor}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <Style Selector="Image.track-cover-fade">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="IsHitTestVisible" Value="False" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.18" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Image.track-cover-fade.loaded">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+
+    <Style Selector="Border.rank-row">
+      <Setter Property="Background" Value="#10808080" />
+      <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="Padding" Value="10,7" />
+    </Style>
+    <Style Selector="Button:pointerover Border.rank-row">
+      <Setter Property="Background" Value="{DynamicResource SukiPrimaryColor15}" />
+    </Style>
+  </UserControl.Styles>
+
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                VerticalScrollBarVisibility="Auto">
+    <StackPanel Spacing="14" Margin="20,14,20,24">
+
+      <!-- 1. 頂部標題與統計摘要卡 -->
+      <suki:GlassCard CornerRadius="14" Padding="16,12">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="14">
+          <StackPanel Grid.Column="0" Spacing="4">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+              <TextBlock Text="🕒 閱讀軌跡"
+                         FontSize="18"
+                         FontWeight="Bold"
+                         VerticalAlignment="Center" />
+              <Border CornerRadius="999"
+                      Background="{DynamicResource SukiPrimaryColor15}"
+                      Padding="10,3"
+                      VerticalAlignment="Center">
+                <TextBlock Text="{Binding InProgressBadgeText}"
+                           FontSize="11.5"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource SukiPrimaryColor}" />
+              </Border>
+              <Border IsVisible="{Binding IsReadOnlyDatabase}"
+                      CornerRadius="999"
+                      Background="#22F59E0B"
+                      BorderBrush="#F59E0B"
+                      BorderThickness="1"
+                      Padding="10,3"
+                      VerticalAlignment="Center">
+                <TextBlock Text="🔒 共用庫唯讀保護"
+                           FontSize="11"
+                           FontWeight="Medium"
+                           Foreground="#D97706" />
+              </Border>
+            </StackPanel>
+
+            <TextBlock Text="追蹤進行中的閱讀頁碼進度、近期閱讀與新進作品，並可點擊作者／標籤排行一鍵切回畫廊瀏覽。"
+                       FontSize="12"
+                       Opacity="0.68" />
+          </StackPanel>
+
+          <Button Grid.Column="1"
+                  Classes="Outlined"
+                  Padding="12,6"
+                  Command="{Binding RefreshCommand}"
+                  VerticalAlignment="Center">
+            <TextBlock Text="↻ 重新整理" FontSize="12" FontWeight="Medium" />
+          </Button>
+        </Grid>
+      </suki:GlassCard>
+
+      <!-- 2. 繼續閱讀（進行中） -->
+      <suki:GlassCard CornerRadius="14" Padding="16,14">
+        <StackPanel Spacing="10">
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Grid.Column="0"
+                       Text="📖 繼續閱讀（閱讀進行中）"
+                       FontSize="15"
+                       FontWeight="SemiBold"
+                       VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1"
+                       Text="點擊卡片以預設程式開啟"
+                       FontSize="11.5"
+                       Opacity="0.6"
+                       VerticalAlignment="Center" />
+          </Grid>
+
+          <Border IsVisible="{Binding !HasInProgressWorks}"
+                  CornerRadius="10"
+                  Background="#10808080"
+                  Padding="16,14">
+            <TextBlock Text="目前沒有標記為「📖 閱讀中」的作品。您可在漫畫庫畫廊右側的「ℹ️ 詳情」抽屜將作品設為閱讀中，或先從下方最近新增作品開始探索。"
+                       FontSize="12.5"
+                       Opacity="0.72"
+                       TextWrapping="Wrap" />
+          </Border>
+
+          <ItemsControl IsVisible="{Binding HasInProgressWorks}"
+                        ItemsSource="{Binding InProgressWorks}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <WrapPanel Orientation="Horizontal" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ReadingWorkItemVm">
+                <suki:GlassCard Width="320"
+                                CornerRadius="12"
+                                Padding="10"
+                                Margin="0,0,12,12"
+                                EffectiveViewportChanged="OnWorkItemEffectiveViewportChanged">
+                  <Grid ColumnDefinitions="Auto,*" ColumnSpacing="11">
+
+                    <!-- 左側直式封面 -->
+                    <Button Grid.Column="0"
+                            Classes="Basic"
+                            Padding="0"
+                            Command="{Binding OpenCommand}"
+                            Cursor="Hand"
+                            ToolTip.Tip="以系統預設程式開啟繼續閱讀">
+                      <Border Width="80"
+                              Height="112"
+                              CornerRadius="8"
+                              ClipToBounds="True"
+                              Background="#18808080">
+                        <Grid>
+                          <Border Background="{Binding AccentColorHex, Converter={StaticResource HexToBrushConverter}}"
+                                  Opacity="0.22" />
+                          <TextBlock Text="{Binding FallbackGlyph}"
+                                     FontSize="24"
+                                     FontWeight="Bold"
+                                     Opacity="0.68"
+                                     HorizontalAlignment="Center"
+                                     VerticalAlignment="Center" />
+                          <Image Classes="track-cover-fade"
+                                 Classes.loaded="{Binding HasCover1}"
+                                 Source="{Binding Cover1}"
+                                 Stretch="UniformToFill" />
+                        </Grid>
+                      </Border>
+                    </Button>
+
+                    <!-- 右側標題、進度與操作鈕 -->
+                    <Grid Grid.Column="1" RowDefinitions="*,Auto">
+                      <Button Grid.Row="0"
+                              Classes="Basic"
+                              Padding="0"
+                              HorizontalAlignment="Stretch"
+                              HorizontalContentAlignment="Left"
+                              Command="{Binding OpenCommand}"
+                              Cursor="Hand">
+                        <StackPanel Spacing="4">
+                          <TextBlock Text="{Binding Title}"
+                                     FontSize="13.5"
+                                     FontWeight="SemiBold"
+                                     MaxLines="2"
+                                     TextWrapping="Wrap"
+                                     TextTrimming="CharacterEllipsis"
+                                     ToolTip.Tip="{Binding Title}" />
+                          <TextBlock Text="{Binding MetadataText}"
+                                     FontSize="11.5"
+                                     Opacity="0.68"
+                                     TextTrimming="CharacterEllipsis" />
+                          <TextBlock Text="{Binding ProgressText}"
+                                     FontSize="11"
+                                     Foreground="{DynamicResource SukiPrimaryColor}"
+                                     FontWeight="Medium" />
+                          <ProgressBar Minimum="0"
+                                       Maximum="100"
+                                       Value="{Binding ProgressPercent}"
+                                       IsVisible="{Binding HasProgress}"
+                                       Height="4" />
+                        </StackPanel>
+                      </Button>
+
+                      <StackPanel Grid.Row="1"
+                                  Orientation="Horizontal"
+                                  Spacing="5"
+                                  Margin="0,6,0,0">
+                        <Button Classes="Flat"
+                                Padding="8,3"
+                                Command="{Binding OpenCommand}">
+                          <TextBlock Text="繼續" FontSize="11" FontWeight="SemiBold" />
+                        </Button>
+                        <Button Classes="Outlined"
+                                Padding="7,3"
+                                IsVisible="{Binding CanMarkCompleted}"
+                                Command="{Binding MarkCompletedCommand}"
+                                ToolTip.Tip="標記為已完成">
+                          <TextBlock Text="✓ 完成" FontSize="11" />
+                        </Button>
+                        <Button Classes="Outlined"
+                                Padding="7,3"
+                                IsVisible="{Binding CanResetUnread}"
+                                Command="{Binding ResetUnreadCommand}"
+                                ToolTip.Tip="重置此作品的閱讀紀錄">
+                          <TextBlock Text="↻" FontSize="11" />
+                        </Button>
+                        <Button Classes="Outlined"
+                                Padding="7,3"
+                                Command="{Binding RevealInExplorerCommand}"
+                                ToolTip.Tip="用檔案總管開啟">
+                          <TextBlock Text="📂" FontSize="11" />
+                        </Button>
+                      </StackPanel>
+                    </Grid>
+
+                  </Grid>
+                </suki:GlassCard>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </suki:GlassCard>
+
+      <!-- 3. 🏆 最常閱讀作者與標籤排行（雙欄） -->
+      <Grid ColumnDefinitions="*,*" ColumnSpacing="14">
+
+        <!-- 最常閱讀作者 Top 12 -->
+        <suki:GlassCard Grid.Column="0" CornerRadius="14" Padding="16,14">
+          <StackPanel Spacing="10">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Grid.Column="0"
+                         Text="👤 最常閱讀作者 Top 12"
+                         FontSize="14.5"
+                         FontWeight="SemiBold" />
+              <TextBlock Grid.Column="1"
+                         Text="點擊跳轉畫廊篩選"
+                         FontSize="11"
+                         Opacity="0.6"
+                         VerticalAlignment="Center" />
+            </Grid>
+
+            <TextBlock IsVisible="{Binding !HasTopAuthors}"
+                       Text="尚無累計閱讀次數資料。"
+                       FontSize="12"
+                       Opacity="0.65" />
+
+            <ItemsControl IsVisible="{Binding HasTopAuthors}"
+                          ItemsSource="{Binding TopAuthors}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ReadingRankEntryVm">
+                  <Button Classes="Basic"
+                          HorizontalAlignment="Stretch"
+                          HorizontalContentAlignment="Stretch"
+                          Padding="0"
+                          Margin="0,2"
+                          Command="{Binding OpenInGalleryCommand}"
+                          Cursor="Hand">
+                    <Border Classes="rank-row">
+                      <StackPanel Spacing="4">
+                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                          <TextBlock Grid.Column="0"
+                                     Text="{Binding RankText}"
+                                     FontSize="12"
+                                     FontWeight="Bold"
+                                     Foreground="{DynamicResource SukiPrimaryColor}"
+                                     Width="28"
+                                     VerticalAlignment="Center" />
+                          <TextBlock Grid.Column="1"
+                                     Text="{Binding Title}"
+                                     FontSize="12.5"
+                                     FontWeight="Medium"
+                                     TextTrimming="CharacterEllipsis"
+                                     VerticalAlignment="Center" />
+                          <TextBlock Grid.Column="2"
+                                     Text="{Binding ReadsText}"
+                                     FontSize="11.5"
+                                     Opacity="0.72"
+                                     VerticalAlignment="Center" />
+                        </Grid>
+                        <ProgressBar Minimum="0"
+                                     Maximum="100"
+                                     Value="{Binding RatioPercent}"
+                                     Height="3" />
+                      </StackPanel>
+                    </Border>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </suki:GlassCard>
+
+        <!-- 最常閱讀標籤 Top 12 -->
+        <suki:GlassCard Grid.Column="1" CornerRadius="14" Padding="16,14">
+          <StackPanel Spacing="10">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Grid.Column="0"
+                         Text="🏷️ 最常閱讀標籤 Top 12"
+                         FontSize="14.5"
+                         FontWeight="SemiBold" />
+              <TextBlock Grid.Column="1"
+                         Text="點擊跳轉畫廊篩選"
+                         FontSize="11"
+                         Opacity="0.6"
+                         VerticalAlignment="Center" />
+            </Grid>
+
+            <TextBlock IsVisible="{Binding !HasTopTags}"
+                       Text="尚無累計標籤閱讀紀錄。"
+                       FontSize="12"
+                       Opacity="0.65" />
+
+            <ItemsControl IsVisible="{Binding HasTopTags}"
+                          ItemsSource="{Binding TopTags}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ReadingRankEntryVm">
+                  <Button Classes="Basic"
+                          HorizontalAlignment="Stretch"
+                          HorizontalContentAlignment="Stretch"
+                          Padding="0"
+                          Margin="0,2"
+                          Command="{Binding OpenInGalleryCommand}"
+                          Cursor="Hand">
+                    <Border Classes="rank-row">
+                      <StackPanel Spacing="4">
+                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                          <TextBlock Grid.Column="0"
+                                     Text="{Binding RankText}"
+                                     FontSize="12"
+                                     FontWeight="Bold"
+                                     Foreground="{DynamicResource SukiPrimaryColor}"
+                                     Width="28"
+                                     VerticalAlignment="Center" />
+                          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding Title}"
+                                       FontSize="12.5"
+                                       FontWeight="Medium"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding SubText}"
+                                       IsVisible="{Binding HasSubText}"
+                                       FontSize="11"
+                                       Opacity="0.6"
+                                       TextTrimming="CharacterEllipsis"
+                                       VerticalAlignment="Center" />
+                          </StackPanel>
+                          <TextBlock Grid.Column="2"
+                                     Text="{Binding ReadsText}"
+                                     FontSize="11.5"
+                                     Opacity="0.72"
+                                     VerticalAlignment="Center" />
+                        </Grid>
+                        <ProgressBar Minimum="0"
+                                     Maximum="100"
+                                     Value="{Binding RatioPercent}"
+                                     Height="3" />
+                      </StackPanel>
+                    </Border>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </suki:GlassCard>
+
+      </Grid>
+
+      <!-- 4. 近期紀錄切換牆（最近閱讀 / 最近新增 / 已完成） -->
+      <suki:GlassCard CornerRadius="14" Padding="16,14">
+        <StackPanel Spacing="12">
+
+          <Grid ColumnDefinitions="*,Auto">
+            <Border Grid.Column="0" Classes="segment-track" HorizontalAlignment="Left">
+              <StackPanel Orientation="Horizontal" Spacing="2">
+                <Button Classes="Basic" Padding="0" Command="{Binding SelectRecentlyReadTabCommand}">
+                  <Border Classes="segment-item" Classes.active="{Binding IsRecentlyReadTabActive}">
+                    <TextBlock Text="{Binding RecentlyReadBadgeText}" FontSize="12" />
+                  </Border>
+                </Button>
+                <Button Classes="Basic" Padding="0" Command="{Binding SelectRecentlyAddedTabCommand}">
+                  <Border Classes="segment-item" Classes.active="{Binding IsRecentlyAddedTabActive}">
+                    <TextBlock Text="{Binding RecentlyAddedBadgeText}" FontSize="12" />
+                  </Border>
+                </Button>
+                <Button Classes="Basic" Padding="0" Command="{Binding SelectCompletedTabCommand}">
+                  <Border Classes="segment-item" Classes.active="{Binding IsCompletedTabActive}">
+                    <TextBlock Text="{Binding CompletedBadgeText}" FontSize="12" />
+                  </Border>
+                </Button>
+              </StackPanel>
+            </Border>
+          </Grid>
+
+          <TextBlock IsVisible="{Binding !HasActiveRecordWorks}"
+                     Text="此分類目前沒有紀錄。"
+                     FontSize="12.5"
+                     Opacity="0.68"
+                     Margin="4,6" />
+
+          <ItemsControl IsVisible="{Binding HasActiveRecordWorks}"
+                        ItemsSource="{Binding ActiveRecordWorks}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <WrapPanel Orientation="Horizontal" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ReadingWorkItemVm">
+                <suki:GlassCard Width="222"
+                                CornerRadius="13"
+                                Padding="10"
+                                Margin="0,0,12,12"
+                                EffectiveViewportChanged="OnWorkItemEffectiveViewportChanged">
+                  <StackPanel Spacing="7">
+                    <Button Classes="Basic"
+                            Padding="0"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Stretch"
+                            Command="{Binding OpenCommand}"
+                            Cursor="Hand"
+                            ToolTip.Tip="點擊以系統預設程式開啟閱讀">
+                      <StackPanel Spacing="7">
+                        <Border Height="250"
+                                CornerRadius="9"
+                                ClipToBounds="True"
+                                Background="#18808080">
+                          <Grid>
+                            <Border Background="{Binding AccentColorHex, Converter={StaticResource HexToBrushConverter}}"
+                                    Opacity="0.22" />
+                            <TextBlock Text="{Binding FallbackGlyph}"
+                                       FontSize="36"
+                                       FontWeight="Bold"
+                                       Opacity="0.65"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" />
+                            <Image Classes="track-cover-fade"
+                                   Classes.loaded="{Binding HasCover1}"
+                                   Source="{Binding Cover1}"
+                                   Stretch="UniformToFill" />
+                          </Grid>
+                        </Border>
+
+                        <StackPanel Spacing="2">
+                          <TextBlock Text="{Binding Title}"
+                                     FontSize="13"
+                                     FontWeight="SemiBold"
+                                     MaxLines="2"
+                                     MinHeight="34"
+                                     TextWrapping="Wrap"
+                                     TextTrimming="CharacterEllipsis"
+                                     ToolTip.Tip="{Binding Title}" />
+                          <TextBlock Text="{Binding MetadataText}"
+                                     FontSize="11"
+                                     Opacity="0.68"
+                                     TextTrimming="CharacterEllipsis" />
+                          <TextBlock Text="{Binding TimestampText}"
+                                     IsVisible="{Binding HasTimestamp}"
+                                     FontSize="10.5"
+                                     Opacity="0.56" />
+                        </StackPanel>
+                      </StackPanel>
+                    </Button>
+
+                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4">
+                      <Button Grid.Column="0"
+                              Classes="Outlined"
+                              Padding="7,3"
+                              IsVisible="{Binding CanMarkCompleted}"
+                              Command="{Binding MarkCompletedCommand}"
+                              ToolTip.Tip="標記已完成">
+                        <TextBlock Text="✓ 已完成" FontSize="11" />
+                      </Button>
+                      <Button Grid.Column="1"
+                              Classes="Outlined"
+                              Padding="7,3"
+                              IsVisible="{Binding CanResetUnread}"
+                              Command="{Binding ResetUnreadCommand}"
+                              ToolTip.Tip="重置閱讀紀錄">
+                        <TextBlock Text="↻ 重置" FontSize="11" />
+                      </Button>
+                      <Button Grid.Column="2"
+                              Classes="Outlined"
+                              Padding="7,3"
+                              Command="{Binding RevealInExplorerCommand}"
+                              ToolTip.Tip="用檔案總管開啟">
+                        <TextBlock Text="📂" FontSize="11" />
+                      </Button>
+                    </Grid>
+                  </StackPanel>
+                </suki:GlassCard>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <Button Classes="Outlined"
+                  IsVisible="{Binding HasMoreActiveRecords}"
+                  Command="{Binding LoadMoreRecordsCommand}"
+                  HorizontalAlignment="Center"
+                  Padding="18,7">
+            <TextBlock Text="{Binding LoadMoreRecordsText}" FontSize="12" FontWeight="Medium" />
+          </Button>
+
+        </StackPanel>
+      </suki:GlassCard>
+
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

@@ -31,11 +31,11 @@
                 VerticalAlignment="Center"
                 Margin="0,0,6,0">
 
-      <!-- 全域搜尋框預留（Phase 2 接通 DSL） -->
-      <TextBox Width="230"
+      <!-- 全域搜尋框（支援 DSL / @artist: / @tag:） -->
+      <TextBox Width="250"
                Height="30"
                FontSize="12.5"
-               Watermark="🔍 全域搜尋（Phase 2 開放）"
+               Watermark="🔍 全域搜尋（支援 @artist: / @tag:）"
                Text="{Binding GlobalSearchText, Mode=TwoWay}"
                VerticalContentAlignment="Center">
         <TextBox.KeyBindings>
@@ -69,41 +69,66 @@
         </StackPanel>
         <Button.Flyout>
           <Flyout Placement="BottomEdgeAlignedRight">
-            <StackPanel Spacing="6" Width="170" Margin="4">
-              <TextBlock Text="主題強調色"
-                         FontSize="12"
-                         FontWeight="SemiBold"
-                         Opacity="0.72"
-                         Margin="4,0,0,2" />
-              <ItemsControl ItemsSource="{Binding AccentOptions}">
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate x:DataType="vm:AccentThemeChoice">
-                    <Button Classes="Basic"
-                            HorizontalAlignment="Stretch"
-                            HorizontalContentAlignment="Stretch"
-                            Padding="8,6"
-                            Command="{Binding SelectCommand}">
-                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-                        <Ellipse Grid.Column="0"
-                                 Width="12" Height="12"
-                                 Fill="{Binding SwatchBrush}"
-                                 VerticalAlignment="Center" />
-                        <TextBlock Grid.Column="1"
-                                   Text="{Binding DisplayName}"
-                                   FontSize="12.5"
-                                   VerticalAlignment="Center" />
-                        <TextBlock Grid.Column="2"
-                                   Text="✓"
-                                   FontSize="12"
-                                   FontWeight="Bold"
-                                   IsVisible="{Binding IsSelected}"
-                                   VerticalAlignment="Center" />
-                      </Grid>
-                    </Button>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-            </StackPanel>
+            <Flyout.FlyoutPresenterTheme>
+              <ControlTheme TargetType="FlyoutPresenter">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Template">
+                  <ControlTemplate>
+                    <ContentPresenter Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}" />
+                  </ControlTemplate>
+                </Setter>
+              </ControlTheme>
+            </Flyout.FlyoutPresenterTheme>
+            <Border Margin="8"
+                    CornerRadius="12"
+                    BoxShadow="0 10 26 0 #44000000">
+              <suki:GlassCard IsOpaque="True"
+                              CornerRadius="12"
+                              Padding="10,8"
+                              BorderThickness="1"
+                              BorderBrush="{DynamicResource SukiBorderBrush}">
+                <StackPanel Spacing="6" Width="174">
+                  <TextBlock Text="主題強調色"
+                             FontSize="12"
+                             FontWeight="SemiBold"
+                             Opacity="0.72"
+                             Margin="6,2,0,2" />
+                  <ItemsControl ItemsSource="{Binding AccentOptions}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:AccentThemeChoice">
+                        <Button Classes="Basic"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch"
+                                Padding="8,6"
+                                CornerRadius="8"
+                                Command="{Binding SelectCommand}">
+                          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                            <Ellipse Grid.Column="0"
+                                     Width="12" Height="12"
+                                     Fill="{Binding SwatchBrush}"
+                                     VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="1"
+                                       Text="{Binding DisplayName}"
+                                       FontSize="12.5"
+                                       VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="2"
+                                       Text="✓"
+                                       FontSize="12"
+                                       FontWeight="Bold"
+                                       Foreground="{DynamicResource SukiPrimaryColor}"
+                                       IsVisible="{Binding IsSelected}"
+                                       VerticalAlignment="Center" />
+                          </Grid>
+                        </Button>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </suki:GlassCard>
+            </Border>
           </Flyout>
         </Button.Flyout>
       </Button>
@@ -127,7 +152,8 @@
     <suki:SukiToastHost Manager="{Binding ToastManager}" />
   </suki:SukiWindow.Hosts>
 
-  <suki:SukiSideMenu IsMenuExpanded="{Binding IsSideMenuExpanded, Mode=TwoWay}"
+  <suki:SukiSideMenu x:Name="MainSideMenu"
+                     IsMenuExpanded="{Binding IsSideMenuExpanded, Mode=TwoWay}"
                      OpenPaneLength="236"
                      SidebarToggleEnabled="True"
                      IsToggleButtonVisible="True"

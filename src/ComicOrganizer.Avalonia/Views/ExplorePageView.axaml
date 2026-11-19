@@ -898,15 +898,22 @@
                                TextTrimming="CharacterEllipsis" />
                   </StackPanel>
 
-                  <Button Grid.Column="2"
-                          Classes="Flat"
-                          Padding="12,6"
-                          IsVisible="{Binding HasDrillDownAppliedTags}"
-                          Command="{Binding ShowAllForDrillDownAuthorCommand}"
-                          VerticalAlignment="Center"
-                          ToolTip.Tip="忽略目前探索牆標籤條件，顯示這位作者的全部作品">
-                    <TextBlock Text="顯示此作者全部作品" FontSize="12" FontWeight="Medium" />
-                  </Button>
+                  <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button Classes="Flat"
+                            Padding="12,6"
+                            IsVisible="{Binding HasDrillDownAppliedTags}"
+                            Command="{Binding ShowAllForDrillDownAuthorCommand}"
+                            ToolTip.Tip="忽略目前探索牆標籤條件，顯示這位作者的全部作品">
+                      <TextBlock Text="顯示此作者全部作品" FontSize="12" FontWeight="Medium" />
+                    </Button>
+
+                    <Button Classes="Outlined"
+                            Padding="12,6"
+                            Command="{Binding OpenDrillDownInGalleryCommand}"
+                            ToolTip.Tip="跳轉到「📚 漫畫庫畫廊」並自動套用對應 DSL 區塊條件">
+                      <TextBlock Text="📚 在畫廊中開啟" FontSize="12" FontWeight="Medium" />
+                    </Button>
+                  </StackPanel>
                 </Grid>
               </suki:GlassCard>
 

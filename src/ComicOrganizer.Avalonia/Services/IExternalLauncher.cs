@@ -53,7 +53,8 @@ public sealed class SystemExternalLauncher : IExternalLauncher
         }
 
         var normalized = NormalizePath(path);
-        if (!File.Exists(normalized) && !Directory.Exists(normalized))
+        bool isDirectory = Directory.Exists(normalized);
+        if (!isDirectory && !File.Exists(normalized))
         {
             errorMessage = $"找不到目標檔案或資料夾：{normalized}";
             return false;
@@ -61,7 +62,8 @@ public sealed class SystemExternalLauncher : IExternalLauncher
 
         try
         {
-            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{normalized}\"")
+            var args = BuildExplorerArguments(normalized, isDirectory);
+            Process.Start(new ProcessStartInfo("explorer.exe", args)
             {
                 UseShellExecute = true,
             });
@@ -73,6 +75,15 @@ public sealed class SystemExternalLauncher : IExternalLauncher
             errorMessage = $"無法開啟檔案總管：{ex.Message}";
             return false;
         }
+    }
+
+    /// <summary>
+    /// 組合 explorer.exe 啟動參數：資料夾直接開啟該目錄內容；檔案則於父目錄選取該檔案。
+    /// </summary>
+    public static string BuildExplorerArguments(string path, bool isDirectory)
+    {
+        var normalized = NormalizePath(path);
+        return isDirectory ? $"\"{normalized}\"" : $"/select,\"{normalized}\"";
     }
 
     private static string NormalizePath(string path)

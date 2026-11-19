@@ -707,6 +707,27 @@ public class ExplorePageViewModelTests : IDisposable
         Assert.True(stagedVm.HasCover2);
     }
 
+    [Fact]
+    public async Task OpenDrillDownInGallery_BuildsDslQueryAndRaisesOpenInGalleryRequested()
+    {
+        var authorId = _store.UpsertAuthor("Flugel");
+        var tMaid = _store.UpsertTag("maid", "tag");
+        _store.UpsertTagTranslation(tMaid, "zh-TW", "女僕", "manual");
+        SeedWork("f1.zip", "Flugel Work", authorId, null, ReadStatus.Unread, tMaid);
+
+        using var vm = CreateVm(autoLoad: true);
+        await vm.InitializationTask;
+
+        string? capturedDsl = null;
+        vm.OpenInGalleryRequested += dsl => capturedDsl = dsl;
+
+        vm.AuthorCards[0].SelectCardCommand.Execute(null);
+        await WaitUntilAsync(() => vm.IsDrillDownMode && !vm.IsLoading);
+
+        vm.OpenDrillDownInGalleryCommand.Execute(null);
+        Assert.Equal("artist:Flugel", capturedDsl);
+    }
+
     private sealed class FakeExternalLauncher : IExternalLauncher
     {
         public List<string> OpenedPaths { get; } = [];

@@ -120,6 +120,9 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
     /// <summary>W1.3 卡片點擊鑽取事件。</summary>
     public event Action<ExploreCardSelection>? CardActivated;
 
+    /// <summary>W2.2 將目前下鑽篩選條件傳送至「漫畫庫畫廊」開啟。</summary>
+    public event Action<string>? OpenInGalleryRequested;
+
     /// <summary>W1.3 隨機雙題材碰撞橫幅預留 hook。</summary>
     public Action<ExploreComboCard>? ShowComboPlaceholder { get; set; }
 
@@ -987,6 +990,84 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
 
         var clearSelection = _currentDrillDownSelection with { TagIds = Array.Empty<long>() };
         return EnterDrillDownAsync(clearSelection);
+    }
+
+    [RelayCommand]
+    private void OpenDrillDownInGallery()
+    {
+        var dsl = BuildDrillDownDslQuery();
+        if (!string.IsNullOrWhiteSpace(dsl))
+        {
+            OpenInGalleryRequested?.Invoke(dsl);
+        }
+    }
+
+    public string BuildDrillDownDslQuery()
+    {
+        var sel = _currentDrillDownSelection;
+        if (sel == null)
+        {
+            return string.Empty;
+        }
+
+        var tokens = new List<string>();
+        var coveredTagIds = new HashSet<long>();
+
+        if (sel.Kind == ExploreCardSelectionKind.Author)
+        {
+            var artistName = sel.AuthorCard?.MainName ?? sel.Title;
+            var artistToken = SearchQueryParser.BuildFieldToken("artist", artistName);
+            if (!string.IsNullOrEmpty(artistToken))
+            {
+                tokens.Add(artistToken);
+            }
+        }
+        else if (sel.ThemeCard != null)
+        {
+            var tagToken = SearchQueryParser.BuildFieldToken("tag", sel.ThemeCard.DisplayName);
+            if (!string.IsNullOrEmpty(tagToken))
+            {
+                tokens.Add(tagToken);
+                coveredTagIds.Add(sel.ThemeCard.TagId);
+            }
+        }
+        else if (sel.ComboCard != null)
+        {
+            var t1 = SearchQueryParser.BuildFieldToken("tag", sel.ComboCard.FirstTag.DisplayName);
+            var t2 = SearchQueryParser.BuildFieldToken("tag", sel.ComboCard.SecondTag.DisplayName);
+            if (!string.IsNullOrEmpty(t1))
+            {
+                tokens.Add(t1);
+                coveredTagIds.Add(sel.ComboCard.FirstTag.TagId);
+            }
+            if (!string.IsNullOrEmpty(t2))
+            {
+                tokens.Add(t2);
+                coveredTagIds.Add(sel.ComboCard.SecondTag.TagId);
+            }
+        }
+
+        if (sel.TagIds != null)
+        {
+            foreach (var tid in sel.TagIds)
+            {
+                if (!coveredTagIds.Add(tid))
+                {
+                    continue;
+                }
+
+                if (_selectedTagMetadata.TryGetValue(tid, out var badge))
+                {
+                    var extraToken = SearchQueryParser.BuildFieldToken("tag", badge.DisplayName);
+                    if (!string.IsNullOrEmpty(extraToken))
+                    {
+                        tokens.Add(extraToken);
+                    }
+                }
+            }
+        }
+
+        return string.Join(" ", tokens);
     }
 
     // ── 公開輔助方法（供接線與單元測試使用）────────────────────────────

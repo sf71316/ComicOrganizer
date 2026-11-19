@@ -95,7 +95,11 @@ public static class SearchQueryParser
                     value = input[vs..i];
                 }
 
-                if (FieldAliases.TryGetValue(head, out var field))
+                var lookupHead = (head.Length > 1 && (head[0] == '@' || head[0] == '/'))
+                    ? head[1..]
+                    : head;
+
+                if (FieldAliases.TryGetValue(lookupHead, out var field))
                 {
                     if (!string.IsNullOrEmpty(value))
                         query.Terms.Add(new SearchTerm(field, value, negated));
@@ -148,6 +152,11 @@ public static class SearchQueryParser
         if (token.StartsWith('-'))
         {
             offset = 1;
+        }
+
+        if (offset < token.Length && (token[offset] == '@' || token[offset] == '/'))
+        {
+            offset++;
         }
 
         var colonIdx = token.IndexOf(':', offset);
@@ -324,6 +333,61 @@ public static class SearchQueryParser
         }
 
         return currentDsl.TrimEnd() + " " + trimmedToken;
+    }
+
+    public static string GetCanonicalFieldName(SearchField field) => field switch
+    {
+        SearchField.Artist => "artist",
+        SearchField.Tag => "tag",
+        SearchField.Series => "series",
+        SearchField.TranslationGroup => "group",
+        SearchField.Language => "lang",
+        SearchField.ReadStatus => "status",
+        _ => string.Empty,
+    };
+
+    public static string GetFieldDisplayLabel(SearchField field) => field switch
+    {
+        SearchField.Artist => "作者",
+        SearchField.Tag => "標籤",
+        SearchField.Series => "系列",
+        SearchField.TranslationGroup => "漢化組",
+        SearchField.Language => "語言",
+        SearchField.ReadStatus => "狀態",
+        _ => "關鍵字",
+    };
+
+    public static string GetFieldIcon(SearchField field) => field switch
+    {
+        SearchField.Artist => "👤",
+        SearchField.Tag => "🏷️",
+        SearchField.Series => "📚",
+        SearchField.TranslationGroup => "🌐",
+        SearchField.Language => "🗣️",
+        SearchField.ReadStatus => "📖",
+        _ => "🔍",
+    };
+
+    public static string FormatTermToken(SearchTerm term, bool includeAtPrefix = false)
+    {
+        if (term.Field == SearchField.FreeText)
+        {
+            var clean = SanitizeFieldValue(term.Value);
+            if (string.IsNullOrEmpty(clean))
+                return string.Empty;
+
+            bool needsQuotes = clean.Any(c => char.IsWhiteSpace(c) || c == '"' || c == ':');
+            var body = needsQuotes ? $"\"{clean}\"" : clean;
+            return term.Negated ? $"-{body}" : body;
+        }
+
+        var fieldName = GetCanonicalFieldName(term.Field);
+        if (includeAtPrefix)
+        {
+            fieldName = "@" + fieldName;
+        }
+
+        return BuildFieldToken(fieldName, term.Value, term.Negated);
     }
 
     private static string SanitizeFieldValue(string value)

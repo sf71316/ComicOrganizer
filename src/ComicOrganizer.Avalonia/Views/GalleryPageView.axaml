@@ -1,0 +1,1196 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:suki="https://github.com/kikipoulet/SukiUI"
+             xmlns:vm="using:ComicOrganizer.Avalonia.ViewModels"
+             xmlns:views="using:ComicOrganizer.Avalonia.Views"
+             xmlns:controls="using:ComicOrganizer.Avalonia.Views.Controls"
+             x:Class="ComicOrganizer.Avalonia.Views.GalleryPageView"
+             x:Name="GalleryRoot"
+             x:DataType="vm:GalleryPageViewModel">
+
+  <UserControl.Resources>
+    <x:Double x:Key="GalleryCardWidth">226</x:Double>
+    <x:Double x:Key="GalleryCardCoverHeight">264</x:Double>
+    <views:HexToBrushConverter x:Key="HexToBrushConverter" />
+  </UserControl.Resources>
+
+  <UserControl.Styles>
+    <!-- 分段切換膠囊 -->
+    <Style Selector="Border.segment-track">
+      <Setter Property="Background" Value="#16808080" />
+      <Setter Property="BorderBrush" Value="{DynamicResource SukiBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="Padding" Value="3" />
+    </Style>
+    <Style Selector="Border.segment-item">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="9,4" />
+    </Style>
+    <Style Selector="Border.segment-item.sidebar-tab">
+      <Setter Property="Padding" Value="4,5" />
+    </Style>
+    <Style Selector="Button:pointerover Border.segment-item">
+      <Setter Property="Background" Value="#18808080" />
+    </Style>
+    <Style Selector="Border.segment-item.active">
+      <Setter Property="Background" Value="{DynamicResource SukiPrimaryColor15}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource SukiPrimaryColor}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Border.segment-item.active TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource SukiPrimaryColor}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <!-- 左側導覽節點列 -->
+    <Style Selector="Border.nav-node-item">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="9,6" />
+    </Style>
+    <Style Selector="Button:pointerover Border.nav-node-item">
+      <Setter Property="Background" Value="#1A808080" />
+    </Style>
+    <Style Selector="Border.nav-node-item.selected">
+      <Setter Property="Background" Value="{DynamicResource SukiPrimaryColor15}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource SukiPrimaryColor}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+
+    <!-- 畫廊項目選取外框 -->
+    <Style Selector="suki|GlassCard.gallery-item-card.selected">
+      <Setter Property="BorderBrush" Value="{DynamicResource SukiPrimaryColor}" />
+      <Setter Property="BorderThickness" Value="1.5" />
+    </Style>
+
+    <!-- 閱讀狀態小按鈕 -->
+    <Style Selector="Border.status-pill">
+      <Setter Property="Background" Value="#14808080" />
+      <Setter Property="BorderBrush" Value="{DynamicResource SukiBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="7" />
+      <Setter Property="Padding" Value="8,4" />
+    </Style>
+    <Style Selector="Border.status-pill.active">
+      <Setter Property="Background" Value="{DynamicResource SukiPrimaryColor15}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource SukiPrimaryColor}" />
+    </Style>
+    <Style Selector="Border.status-pill.active TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource SukiPrimaryColor}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <!-- 封面載入平滑淡入 -->
+    <Style Selector="Image.gallery-cover-fade">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="IsHitTestVisible" Value="False" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.18" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Image.gallery-cover-fade.loaded">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+  </UserControl.Styles>
+
+  <Grid RowDefinitions="Auto,*" Margin="18,12,18,0">
+
+    <!-- 1. 頂部 DSL 區塊化搜尋列 ＋ 存為閱讀清單 ＋ 模糊相近推薦列 -->
+    <suki:GlassCard Grid.Row="0"
+                    CornerRadius="14"
+                    Padding="14,10"
+                    Margin="0,0,0,10">
+      <StackPanel Spacing="8">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+          <controls:DslSearchBox Grid.Column="0"
+                                 DataContext="{Binding SearchBox}"
+                                 ShowQuickFieldBar="True" />
+
+          <Button Grid.Column="1"
+                  Classes="Outlined"
+                  Padding="11,6"
+                  VerticalAlignment="Top"
+                  Margin="0,2,0,0"
+                  IsVisible="{Binding IsDslSearchActive}"
+                  Command="{Binding ToggleSaveLibraryPromptCommand}"
+                  ToolTip.Tip="將目前的 DSL 條件存成「⭐ 我的閱讀清單」">
+            <TextBlock Text="⭐ 存為清單" FontSize="12" FontWeight="Medium" />
+          </Button>
+        </Grid>
+
+        <!-- 存為自訂閱讀清單輸入條 -->
+        <Border IsVisible="{Binding IsSaveLibraryPromptOpen}"
+                CornerRadius="10"
+                Background="#14808080"
+                BorderBrush="{DynamicResource SukiBorderBrush}"
+                BorderThickness="1"
+                Padding="10,7">
+          <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+            <TextBlock Grid.Column="0"
+                       Text="⭐ 清單名稱："
+                       FontSize="12"
+                       FontWeight="Medium"
+                       VerticalAlignment="Center" />
+            <TextBox Grid.Column="1"
+                     Watermark="輸入自訂閱讀清單名稱（例如：必看女僕精選）"
+                     Text="{Binding NewVirtualLibraryName, Mode=TwoWay}"
+                     FontSize="12" />
+            <Button Grid.Column="2"
+                    Classes="Flat"
+                    Padding="12,5"
+                    Command="{Binding SaveCurrentSearchAsVirtualLibraryCommand}">
+              <TextBlock Text="確認儲存" FontSize="12" FontWeight="SemiBold" />
+            </Button>
+            <Button Grid.Column="3"
+                    Classes="Basic"
+                    Padding="8,5"
+                    Command="{Binding ToggleSaveLibraryPromptCommand}">
+              <TextBlock Text="取消" FontSize="12" />
+            </Button>
+          </Grid>
+        </Border>
+
+        <!-- 搜尋 0 筆時的 FuzzySharp 相近建議列 -->
+        <WrapPanel IsVisible="{Binding HasFuzzyRecommendations}"
+                   Orientation="Horizontal"
+                   VerticalAlignment="Center">
+          <TextBlock Text="💡 您是不是要找："
+                     FontSize="12"
+                     Opacity="0.76"
+                     VerticalAlignment="Center"
+                     Margin="2,0,8,0" />
+          <ItemsControl ItemsSource="{Binding FuzzyRecommendations}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <WrapPanel Orientation="Horizontal" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:GalleryFuzzyRecommendationVm">
+                <Button Classes="Outlined"
+                        Padding="10,3"
+                        Margin="0,0,6,2"
+                        Command="{Binding ApplyCommand}">
+                  <TextBlock Text="{Binding DisplayText}"
+                             FontSize="12"
+                             FontWeight="SemiBold" />
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </WrapPanel>
+      </StackPanel>
+    </suki:GlassCard>
+
+    <!-- 2. 下方主體：左側導覽欄 ＋ 中間畫廊牆 ＋ 右側詳情抽屜 -->
+    <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto">
+
+      <!-- 左側：4 維度導覽側欄（目錄樹 / 依作者 / 依標籤 / 我的閱讀清單） -->
+      <suki:GlassCard Grid.Column="0"
+                      Width="280"
+                      IsVisible="{Binding IsSidebarExpanded}"
+                      CornerRadius="14"
+                      Padding="10"
+                      Margin="0,0,10,14">
+        <Grid RowDefinitions="Auto,Auto,Auto,*">
+
+          <!-- 4 維度切換 -->
+          <Border Grid.Row="0" Classes="segment-track" Margin="0,0,0,8">
+            <UniformGrid Columns="4">
+              <Button Classes="Basic"
+                      Padding="0"
+                      HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Stretch"
+                      Command="{Binding SelectFoldersSidebarCommand}"
+                      ToolTip.Tip="實體資料夾目錄">
+                <Border Classes="segment-item sidebar-tab" Classes.active="{Binding IsFoldersSidebarMode}">
+                  <TextBlock Text="📁 目錄" FontSize="11.5" HorizontalAlignment="Center" />
+                </Border>
+              </Button>
+              <Button Classes="Basic"
+                      Padding="0"
+                      HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Stretch"
+                      Command="{Binding SelectAuthorsSidebarCommand}"
+                      ToolTip.Tip="依作者虛擬庫">
+                <Border Classes="segment-item sidebar-tab" Classes.active="{Binding IsAuthorsSidebarMode}">
+                  <TextBlock Text="👤 作者" FontSize="11.5" HorizontalAlignment="Center" />
+                </Border>
+              </Button>
+              <Button Classes="Basic"
+                      Padding="0"
+                      HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Stretch"
+                      Command="{Binding SelectTagsSidebarCommand}"
+                      ToolTip.Tip="依標籤虛擬庫">
+                <Border Classes="segment-item sidebar-tab" Classes.active="{Binding IsTagsSidebarMode}">
+                  <TextBlock Text="🏷️ 標籤" FontSize="11.5" HorizontalAlignment="Center" />
+                </Border>
+              </Button>
+              <Button Classes="Basic"
+                      Padding="0"
+                      HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Stretch"
+                      Command="{Binding SelectMyLibrariesSidebarCommand}"
+                      ToolTip.Tip="自訂閱讀清單">
+                <Border Classes="segment-item sidebar-tab" Classes.active="{Binding IsMyLibrariesSidebarMode}">
+                  <TextBlock Text="⭐ 清單" FontSize="11.5" HorizontalAlignment="Center" />
+                </Border>
+              </Button>
+            </UniformGrid>
+          </Border>
+
+          <!-- 側欄標題與返回上層／刪除清單按鈕 -->
+          <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4" Margin="2,0,2,6">
+            <TextBlock Grid.Column="0"
+                       Text="{Binding SidebarHeaderTitle}"
+                       FontSize="12.5"
+                       FontWeight="SemiBold"
+                       VerticalAlignment="Center" />
+            <Button Grid.Column="1"
+                    Classes="Outlined"
+                    Padding="8,3"
+                    IsVisible="{Binding CanNavigateUpFolder}"
+                    Command="{Binding NavigateUpFolderCommand}"
+                    ToolTip.Tip="返回上一層資料夾">
+              <TextBlock Text="↑ 上層" FontSize="11" />
+            </Button>
+            <Button Grid.Column="2"
+                    Classes="Outlined"
+                    Padding="8,3"
+                    IsVisible="{Binding CanDeleteSelectedVirtualLibrary}"
+                    Command="{Binding DeleteSelectedVirtualLibraryCommand}"
+                    ToolTip.Tip="刪除選取的自訂閱讀清單">
+              <TextBlock Text="🗑️ 刪除" FontSize="11" />
+            </Button>
+          </Grid>
+
+          <!-- 側欄快速過濾框 -->
+          <TextBox Grid.Row="2"
+                   Watermark="篩選左側節點…"
+                   Text="{Binding SidebarFilterText, Mode=TwoWay}"
+                   FontSize="12"
+                   Margin="0,0,0,8" />
+
+          <!-- 節點清單 -->
+          <ScrollViewer Grid.Row="3"
+                        HorizontalScrollBarVisibility="Disabled"
+                        VerticalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{Binding SidebarNodes}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:GalleryNavNodeVm">
+                  <Button Classes="Basic"
+                          HorizontalAlignment="Stretch"
+                          HorizontalContentAlignment="Stretch"
+                          Padding="0"
+                          Margin="0,1"
+                          Command="{Binding SelectCommand}"
+                          Cursor="Hand">
+                    <Border Classes="nav-node-item"
+                            Classes.selected="{Binding IsSelected}">
+                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="7">
+                        <TextBlock Grid.Column="0"
+                                   Text="{Binding Icon}"
+                                   FontSize="13"
+                                   VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding DisplayName}"
+                                   FontSize="12.5"
+                                   TextTrimming="CharacterEllipsis"
+                                   ToolTip.Tip="{Binding DisplayName}"
+                                   VerticalAlignment="Center" />
+                        <Border Grid.Column="2"
+                                IsVisible="{Binding HasSubText}"
+                                CornerRadius="6"
+                                Background="#1C808080"
+                                Padding="6,1"
+                                VerticalAlignment="Center">
+                          <TextBlock Text="{Binding SubText}"
+                                     FontSize="10.5"
+                                     Opacity="0.76"
+                                     MaxWidth="72"
+                                     TextTrimming="CharacterEllipsis" />
+                        </Border>
+                      </Grid>
+                    </Border>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+
+        </Grid>
+      </suki:GlassCard>
+
+      <!-- 右側：畫廊工具列 ＋ 卡片格網／詳細列表 ＋ 右下角定位膠囊 -->
+      <Grid Grid.Column="1" RowDefinitions="Auto,*">
+
+        <!-- 畫廊工具列（麵包屑 ＋ 狀態過濾 ＋ 排序 ＋ 大/中/小/列表切換） -->
+        <suki:GlassCard Grid.Row="0"
+                        CornerRadius="14"
+                        Padding="14,10"
+                        Margin="0,0,0,10">
+          <StackPanel Spacing="8">
+
+            <!-- 第一列：側欄收合鈕 ＋ 當前範圍標題 ＋ 重整 ＋ 詳情抽屜切換 -->
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+              <Button Grid.Column="0"
+                      Classes="Outlined"
+                      Padding="9,5"
+                      Command="{Binding ToggleSidebarCommand}"
+                      VerticalAlignment="Center"
+                      ToolTip.Tip="展開／收合左側導覽側欄">
+                <TextBlock Text="☰ 側欄" FontSize="12" />
+              </Button>
+
+              <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                <TextBlock Text="{Binding ScopeTitle}"
+                           FontSize="15"
+                           FontWeight="SemiBold"
+                           TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="{Binding ScopeSubtitle}"
+                           FontSize="11.5"
+                           Opacity="0.66"
+                           TextTrimming="CharacterEllipsis" />
+              </StackPanel>
+
+              <Button Grid.Column="2"
+                      Classes="Basic"
+                      Padding="10,5"
+                      Command="{Binding RefreshCommand}"
+                      VerticalAlignment="Center"
+                      ToolTip.Tip="重新整理目前視圖">
+                <TextBlock Text="↻ 重整" FontSize="12" />
+              </Button>
+
+              <Button Grid.Column="3"
+                      Classes="Outlined"
+                      Padding="10,5"
+                      Command="{Binding ToggleDetailDrawerCommand}"
+                      VerticalAlignment="Center"
+                      ToolTip.Tip="展開／收合右側作品與作者詳情抽屜">
+                <TextBlock Text="ℹ️ 詳情" FontSize="12" />
+              </Button>
+            </Grid>
+
+            <!-- 資料夾路徑麵包屑 -->
+            <ItemsControl IsVisible="{Binding HasBreadcrumbs}"
+                          ItemsSource="{Binding Breadcrumbs}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <WrapPanel Orientation="Horizontal" VerticalAlignment="Center" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:GalleryBreadcrumbItemVm">
+                  <StackPanel Orientation="Horizontal" Spacing="3" VerticalAlignment="Center">
+                    <Button Classes="Basic"
+                            Padding="6,2"
+                            Command="{Binding NavigateCommand}"
+                            Cursor="Hand">
+                      <TextBlock Text="{Binding Label}"
+                                 FontSize="11.5"
+                                 FontWeight="Medium"
+                                 Opacity="0.86" />
+                    </Button>
+                    <TextBlock Text="›"
+                               FontSize="12"
+                               Opacity="0.45"
+                               IsVisible="{Binding !IsCurrent}"
+                               VerticalAlignment="Center" />
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- 第二列：頁內篩選 ＋ 閱讀狀態 ＋ 排序欄位 ＋ 升/降冪 ＋ 4 種檢視模式 -->
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+              <WrapPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+
+                <!-- 頁內快速篩選 -->
+                <Grid Width="185" Margin="0,0,8,0" VerticalAlignment="Center">
+                  <TextBox Watermark="頁內篩選名稱…"
+                           Text="{Binding LocalFilterKeyword, Mode=TwoWay}"
+                           FontSize="12"
+                           Padding="8,5,24,5" />
+                  <Button Classes="Basic"
+                          HorizontalAlignment="Right"
+                          VerticalAlignment="Center"
+                          Padding="4,2"
+                          Margin="0,0,3,0"
+                          IsVisible="{Binding HasLocalFilterKeyword}"
+                          Command="{Binding ClearLocalFilterCommand}">
+                    <TextBlock Text="✕" FontSize="10.5" Opacity="0.7" />
+                  </Button>
+                </Grid>
+
+                <!-- 閱讀狀態過濾 -->
+                <ComboBox ItemsSource="{Binding ReadFilterOptions}"
+                          SelectedItem="{Binding SelectedReadFilterOption, Mode=TwoWay}"
+                          Width="122"
+                          FontSize="12"
+                          Margin="0,0,8,0"
+                          VerticalAlignment="Center" />
+
+                <!-- 排序欄位 -->
+                <ComboBox ItemsSource="{Binding SortOptions}"
+                          SelectedItem="{Binding SelectedSortOption, Mode=TwoWay}"
+                          Width="148"
+                          FontSize="12"
+                          Margin="0,0,6,0"
+                          VerticalAlignment="Center" />
+
+                <!-- 升／降冪切換 -->
+                <Button Classes="Outlined"
+                        Padding="9,5"
+                        Command="{Binding ToggleSortDirectionCommand}"
+                        ToolTip.Tip="{Binding SortDirectionTooltip}"
+                        VerticalAlignment="Center">
+                  <TextBlock Text="{Binding SortDirectionButtonText}" FontSize="12" />
+                </Button>
+              </WrapPanel>
+
+              <!-- 4 種檢視模式（大卡 / 中卡 / 小卡 / 列表） -->
+              <Border Grid.Column="1" Classes="segment-track" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="2">
+                  <Button Classes="Basic" Padding="0" Command="{Binding SelectLargeCardViewCommand}">
+                    <Border Classes="segment-item" Classes.active="{Binding IsLargeCardMode}">
+                      <TextBlock Text="大卡" FontSize="11.5" />
+                    </Border>
+                  </Button>
+                  <Button Classes="Basic" Padding="0" Command="{Binding SelectMediumCardViewCommand}">
+                    <Border Classes="segment-item" Classes.active="{Binding IsMediumCardMode}">
+                      <TextBlock Text="中卡" FontSize="11.5" />
+                    </Border>
+                  </Button>
+                  <Button Classes="Basic" Padding="0" Command="{Binding SelectSmallCardViewCommand}">
+                    <Border Classes="segment-item" Classes.active="{Binding IsSmallCardMode}">
+                      <TextBlock Text="小卡" FontSize="11.5" />
+                    </Border>
+                  </Button>
+                  <Button Classes="Basic" Padding="0" Command="{Binding SelectDetailListViewCommand}">
+                    <Border Classes="segment-item" Classes.active="{Binding IsDetailListMode}">
+                      <TextBlock Text="列表" FontSize="11.5" />
+                    </Border>
+                  </Button>
+                </StackPanel>
+              </Border>
+            </Grid>
+
+          </StackPanel>
+        </suki:GlassCard>
+
+        <!-- 畫廊主視口 -->
+        <Grid Grid.Row="1">
+          <ScrollViewer x:Name="GalleryScrollViewer"
+                        HorizontalScrollBarVisibility="Disabled"
+                        VerticalScrollBarVisibility="Auto"
+                        ScrollChanged="OnGalleryScrollChanged"
+                        SizeChanged="OnGalleryViewportSizeChanged">
+            <StackPanel Spacing="12" Margin="0,2,0,84">
+
+              <!-- 空狀態 -->
+              <suki:GlassCard IsVisible="{Binding IsEmptyState}"
+                              CornerRadius="16"
+                              Padding="36,30"
+                              MaxWidth="520"
+                              HorizontalAlignment="Center"
+                              Margin="0,28,0,0">
+                <StackPanel Spacing="10" HorizontalAlignment="Center">
+                  <TextBlock Text="📚" FontSize="34" HorizontalAlignment="Center" />
+                  <TextBlock Text="{Binding EmptyStateTitle}"
+                             FontSize="16.5"
+                             FontWeight="SemiBold"
+                             HorizontalAlignment="Center" />
+                  <TextBlock Text="{Binding EmptyStateHint}"
+                             FontSize="12.5"
+                             Opacity="0.72"
+                             TextWrapping="Wrap"
+                             TextAlignment="Center" />
+                </StackPanel>
+              </suki:GlassCard>
+
+              <!-- 模式 A：卡片格網（大卡 / 中卡 / 小卡） -->
+              <ItemsControl x:Name="CardGridItemsControl"
+                            IsVisible="{Binding IsCardGridMode}"
+                            ItemsSource="{Binding Items}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <WrapPanel Orientation="Horizontal" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:GalleryItemVm">
+                    <suki:GlassCard Classes="gallery-item-card"
+                                    Classes.selected="{Binding IsSelected}"
+                                    Width="{DynamicResource GalleryCardWidth}"
+                                    CornerRadius="13"
+                                    Padding="10"
+                                    Margin="0,0,12,12"
+                                    EffectiveViewportChanged="OnItemEffectiveViewportChanged">
+                      <StackPanel Spacing="7">
+
+                        <!-- 點擊封面或標題：資料夾為進入子目錄，作品為系統預設程式開啟 -->
+                        <Button Classes="Basic"
+                                Padding="0"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch"
+                                Command="{Binding ActivateCommand}"
+                                Cursor="Hand"
+                                ToolTip.Tip="{Binding PrimaryActionTooltip}">
+                          <StackPanel Spacing="7">
+                            <Border Height="{DynamicResource GalleryCardCoverHeight}"
+                                    CornerRadius="9"
+                                    ClipToBounds="True"
+                                    Background="#18808080">
+                              <Grid>
+                                <Border Background="{Binding AccentColorHex, Converter={StaticResource HexToBrushConverter}}"
+                                        Opacity="0.22" />
+                                <TextBlock Text="{Binding FallbackGlyph}"
+                                           FontSize="36"
+                                           FontWeight="Bold"
+                                           Opacity="0.68"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" />
+                                <Image Classes="gallery-cover-fade"
+                                       Classes.loaded="{Binding HasCover1}"
+                                       Source="{Binding Cover1}"
+                                       Stretch="UniformToFill" />
+
+                                <!-- 左上：狀態 / 資料夾角標 -->
+                                <Border HorizontalAlignment="Left"
+                                        VerticalAlignment="Top"
+                                        Margin="6"
+                                        Background="#B8000000"
+                                        CornerRadius="6"
+                                        Padding="6,2">
+                                  <TextBlock Text="{Binding TypeBadgeText}"
+                                             FontSize="10.5"
+                                             FontWeight="SemiBold"
+                                             Foreground="White" />
+                                </Border>
+
+                                <!-- 右上：頁數角標 -->
+                                <Border HorizontalAlignment="Right"
+                                        VerticalAlignment="Top"
+                                        Margin="6"
+                                        IsVisible="{Binding HasPageCount}"
+                                        Background="#B8000000"
+                                        CornerRadius="6"
+                                        Padding="6,2">
+                                  <TextBlock Text="{Binding PageCountText}"
+                                             FontSize="10.5"
+                                             FontWeight="SemiBold"
+                                             Foreground="White" />
+                                </Border>
+                              </Grid>
+                            </Border>
+
+                            <StackPanel Spacing="2">
+                              <TextBlock Text="{Binding DisplayTitle}"
+                                         FontSize="13"
+                                         FontWeight="SemiBold"
+                                         MaxLines="2"
+                                         MinHeight="34"
+                                         TextWrapping="Wrap"
+                                         TextTrimming="CharacterEllipsis"
+                                         ToolTip.Tip="{Binding DisplayTitle}" />
+                              <TextBlock Text="{Binding SubtitleText}"
+                                         FontSize="11"
+                                         Opacity="0.65"
+                                         TextTrimming="CharacterEllipsis"
+                                         ToolTip.Tip="{Binding SubtitleText}" />
+                            </StackPanel>
+                          </StackPanel>
+                        </Button>
+
+                        <!-- 底部動作列 -->
+                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4">
+                          <TextBlock Grid.Column="0"
+                                     Text="{Binding ModifiedDisplay}"
+                                     FontSize="10.5"
+                                     Opacity="0.55"
+                                     VerticalAlignment="Center" />
+                          <Button Grid.Column="1"
+                                  Classes="Outlined"
+                                  Padding="7,3"
+                                  Command="{Binding InspectDetailCommand}"
+                                  ToolTip.Tip="在右側抽屜查看或編輯詳細資訊">
+                            <TextBlock Text="ℹ" FontSize="11.5" FontWeight="SemiBold" />
+                          </Button>
+                          <Button Grid.Column="2"
+                                  Classes="Outlined"
+                                  Padding="7,3"
+                                  Command="{Binding RevealInExplorerCommand}"
+                                  ToolTip.Tip="在檔案總管中顯示">
+                            <TextBlock Text="📂" FontSize="11.5" />
+                          </Button>
+                        </Grid>
+
+                      </StackPanel>
+                    </suki:GlassCard>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+
+              <!-- 模式 B：詳細列表模式 -->
+              <ItemsControl x:Name="DetailListItemsControl"
+                            IsVisible="{Binding IsDetailListMode}"
+                            ItemsSource="{Binding Items}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:GalleryItemVm">
+                    <suki:GlassCard Classes="gallery-item-card"
+                                    Classes.selected="{Binding IsSelected}"
+                                    CornerRadius="11"
+                                    Padding="10,7"
+                                    Margin="0,0,0,6"
+                                    EffectiveViewportChanged="OnItemEffectiveViewportChanged">
+                      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10">
+
+                        <!-- 迷你縮圖 -->
+                        <Border Grid.Column="0"
+                                Width="44"
+                                Height="58"
+                                CornerRadius="6"
+                                ClipToBounds="True"
+                                Background="#18808080">
+                          <Grid>
+                            <Border Background="{Binding AccentColorHex, Converter={StaticResource HexToBrushConverter}}"
+                                    Opacity="0.22" />
+                            <TextBlock Text="{Binding FallbackGlyph}"
+                                       FontSize="18"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" />
+                            <Image Classes="gallery-cover-fade"
+                                   Classes.loaded="{Binding HasCover1}"
+                                   Source="{Binding Cover1}"
+                                   Stretch="UniformToFill" />
+                          </Grid>
+                        </Border>
+
+                        <!-- 標題與作者副標 -->
+                        <Button Grid.Column="1"
+                                Classes="Basic"
+                                Padding="0"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Left"
+                                Command="{Binding ActivateCommand}"
+                                Cursor="Hand"
+                                ToolTip.Tip="{Binding PrimaryActionTooltip}">
+                          <StackPanel Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding DisplayTitle}"
+                                       FontSize="13.5"
+                                       FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding SubtitleText}"
+                                       FontSize="11.5"
+                                       Opacity="0.65"
+                                       TextTrimming="CharacterEllipsis" />
+                          </StackPanel>
+                        </Button>
+
+                        <!-- 狀態徽章 -->
+                        <Border Grid.Column="2"
+                                CornerRadius="6"
+                                Background="#1A808080"
+                                Padding="8,3"
+                                VerticalAlignment="Center">
+                          <TextBlock Text="{Binding TypeBadgeText}"
+                                     FontSize="11"
+                                     FontWeight="Medium" />
+                        </Border>
+
+                        <!-- 大小 -->
+                        <TextBlock Grid.Column="3"
+                                   Text="{Binding SizeDisplay}"
+                                   Width="72"
+                                   FontSize="11.5"
+                                   Opacity="0.7"
+                                   TextAlignment="Right"
+                                   VerticalAlignment="Center" />
+
+                        <!-- 修改日期 -->
+                        <TextBlock Grid.Column="4"
+                                   Text="{Binding ModifiedDisplay}"
+                                   Width="82"
+                                   FontSize="11.5"
+                                   Opacity="0.62"
+                                   TextAlignment="Right"
+                                   VerticalAlignment="Center" />
+
+                        <!-- 詳情抽屜按鈕 -->
+                        <Button Grid.Column="5"
+                                Classes="Outlined"
+                                Padding="8,4"
+                                Command="{Binding InspectDetailCommand}"
+                                VerticalAlignment="Center"
+                                ToolTip.Tip="在右側抽屜查看或編輯詳細資訊">
+                          <TextBlock Text="ℹ" FontSize="12" FontWeight="SemiBold" />
+                        </Button>
+
+                        <!-- 檔案總管定位 -->
+                        <Button Grid.Column="6"
+                                Classes="Outlined"
+                                Padding="8,4"
+                                Command="{Binding RevealInExplorerCommand}"
+                                VerticalAlignment="Center"
+                                ToolTip.Tip="在檔案總管中顯示">
+                          <TextBlock Text="📂" FontSize="12" />
+                        </Button>
+
+                      </Grid>
+                    </suki:GlassCard>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+
+              <!-- 底部：平滑預載過渡緩衝列 -->
+              <suki:GlassCard IsVisible="{Binding HasMoreItems}"
+                              CornerRadius="14"
+                              Padding="18,12"
+                              Margin="0,8,0,10"
+                              HorizontalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                  <StackPanel Spacing="2" VerticalAlignment="Center">
+                    <TextBlock Text="⏳ 捲動接近底部時將自動銜接下一批資料"
+                               FontSize="12.5"
+                               FontWeight="Medium"
+                               Opacity="0.86" />
+                    <TextBlock Text="{Binding PositionBadgeDetail}"
+                               FontSize="11"
+                               Opacity="0.64" />
+                  </StackPanel>
+
+                  <Button Classes="Outlined"
+                          Command="{Binding LoadMoreItemsCommand}"
+                          VerticalAlignment="Center"
+                          Padding="16,7">
+                    <TextBlock Text="{Binding LoadMoreButtonText}"
+                               FontSize="12"
+                               FontWeight="SemiBold" />
+                  </Button>
+                </StackPanel>
+              </suki:GlassCard>
+
+            </StackPanel>
+          </ScrollViewer>
+
+          <!-- 右下角懸浮定位膠囊（第 X–Y 筆 / 共 N 筆 ＋ 進度條 ＋ 回頂部） -->
+          <Border HorizontalAlignment="Right"
+                  VerticalAlignment="Bottom"
+                  Margin="0,0,22,18"
+                  IsVisible="{Binding HasPositionBadge}"
+                  CornerRadius="14"
+                  BoxShadow="0 8 24 0 #44000000">
+            <suki:GlassCard IsOpaque="True"
+                            CornerRadius="14"
+                            Padding="14,9">
+              <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                <StackPanel Spacing="4" MinWidth="176" VerticalAlignment="Center">
+                  <TextBlock Text="{Binding PositionBadgeTitle}"
+                             FontSize="12.5"
+                             FontWeight="SemiBold" />
+                  <TextBlock Text="{Binding PositionBadgeDetail}"
+                             FontSize="11"
+                             Opacity="0.72" />
+                  <ProgressBar Minimum="0"
+                               Maximum="100"
+                               Value="{Binding ScrollProgressPercent}"
+                               Height="3" />
+                </StackPanel>
+
+                <Button Classes="Outlined"
+                        Padding="9,5"
+                        IsVisible="{Binding HasMoreItems}"
+                        Command="{Binding LoadMoreItemsCommand}"
+                        VerticalAlignment="Center"
+                        ToolTip.Tip="{Binding LoadMoreShortTooltip}">
+                  <TextBlock Text="{Binding LoadMoreShortText}" FontSize="11.5" FontWeight="SemiBold" />
+                </Button>
+
+                <Button Classes="Flat"
+                        Padding="10,5"
+                        IsVisible="{Binding ShowBackToTopButton}"
+                        Click="OnBackToTopClick"
+                        VerticalAlignment="Center"
+                        ToolTip.Tip="回到畫廊最上方">
+                  <TextBlock Text="↑ 回頂部" FontSize="11.5" FontWeight="SemiBold" />
+                </Button>
+              </StackPanel>
+            </suki:GlassCard>
+          </Border>
+
+        </Grid>
+      </Grid>
+
+      <!-- 右側：可收合作品／作者／資料夾詳情與編輯抽屜 -->
+      <suki:GlassCard Grid.Column="2"
+                      Width="368"
+                      IsVisible="{Binding DetailDrawer.IsOpen}"
+                      CornerRadius="14"
+                      Padding="14"
+                      Margin="10,0,0,14">
+        <Grid RowDefinitions="Auto,*">
+
+          <!-- 抽屜標題列 -->
+          <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="0,0,0,10">
+            <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+              <TextBlock Text="{Binding DetailDrawer.HeaderTitle}"
+                         FontSize="14.5"
+                         FontWeight="SemiBold"
+                         TextTrimming="CharacterEllipsis"
+                         ToolTip.Tip="{Binding DetailDrawer.HeaderTitle}" />
+              <TextBlock Text="{Binding DetailDrawer.HeaderSubtitle}"
+                         FontSize="11"
+                         Opacity="0.65"
+                         TextTrimming="CharacterEllipsis"
+                         ToolTip.Tip="{Binding DetailDrawer.HeaderSubtitle}" />
+            </StackPanel>
+
+            <Button Grid.Column="1"
+                    Classes="Basic"
+                    Padding="7,4"
+                    Command="{Binding DetailDrawer.CloseCommand}"
+                    VerticalAlignment="Top"
+                    ToolTip.Tip="關閉詳情抽屜">
+              <TextBlock Text="✕" FontSize="13" />
+            </Button>
+          </Grid>
+
+          <!-- 抽屜可捲動主體 -->
+          <ScrollViewer Grid.Row="1"
+                        HorizontalScrollBarVisibility="Disabled"
+                        VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="12" Margin="0,0,4,6">
+
+              <!-- 共用資料庫唯讀保護提示橫幅 -->
+              <Border IsVisible="{Binding DetailDrawer.IsReadOnlyDatabase}"
+                      CornerRadius="9"
+                      Background="#22F59E0B"
+                      BorderBrush="#F59E0B"
+                      BorderThickness="1"
+                      Padding="10,7">
+                <TextBlock Text="{Binding DetailDrawer.ReadOnlyBannerText}"
+                           FontSize="11.5"
+                           TextWrapping="Wrap"
+                           Foreground="#D97706"
+                           FontWeight="Medium" />
+              </Border>
+
+              <!-- 操作結果回饋橫幅 -->
+              <Border IsVisible="{Binding DetailDrawer.HasStatusFeedback}"
+                      CornerRadius="8"
+                      Background="{DynamicResource SukiPrimaryColor15}"
+                      Padding="9,6">
+                <TextBlock Text="{Binding DetailDrawer.StatusFeedbackText}"
+                           FontSize="11.5"
+                           TextWrapping="Wrap" />
+              </Border>
+
+              <!-- 尚未選取任何項目的空提示 -->
+              <StackPanel IsVisible="{Binding !DetailDrawer.HasTarget}"
+                          Spacing="8"
+                          Margin="0,30,0,0"
+                          HorizontalAlignment="Center">
+                <TextBlock Text="ℹ️" FontSize="28" HorizontalAlignment="Center" />
+                <TextBlock Text="點擊任一張卡片上的 ℹ 按鈕"
+                           FontSize="13"
+                           FontWeight="Medium"
+                           HorizontalAlignment="Center" />
+                <TextBlock Text="即可檢視作品 Metadata、標籤與閱讀狀態"
+                           FontSize="11.5"
+                           Opacity="0.65"
+                           TextAlignment="Center" />
+              </StackPanel>
+
+              <!-- 已選取目標 -->
+              <StackPanel IsVisible="{Binding DetailDrawer.HasTarget}" Spacing="12">
+
+                <!-- 大封面預覽 ＋ 快捷操作列 -->
+                <Border Height="210"
+                        CornerRadius="10"
+                        ClipToBounds="True"
+                        Background="#18808080">
+                  <Grid>
+                    <Border Background="{Binding DetailDrawer.AccentColorHex, Converter={StaticResource HexToBrushConverter}}"
+                            Opacity="0.22" />
+                    <TextBlock Text="{Binding DetailDrawer.FallbackGlyph}"
+                               FontSize="44"
+                               FontWeight="Bold"
+                               Opacity="0.65"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center" />
+                    <Image IsVisible="{Binding DetailDrawer.HasPreviewCover}"
+                           Source="{Binding DetailDrawer.PreviewCover}"
+                           Stretch="Uniform" />
+                  </Grid>
+                </Border>
+
+                <Grid ColumnDefinitions="*,Auto"
+                      ColumnSpacing="8"
+                      IsVisible="{Binding DetailDrawer.HasTargetPath}">
+                  <Button Grid.Column="0"
+                          Classes="Flat"
+                          HorizontalAlignment="Stretch"
+                          Padding="10,7"
+                          Command="{Binding DetailDrawer.OpenTargetCommand}"
+                          ToolTip.Tip="{Binding DetailDrawer.OpenTargetTooltip}">
+                    <TextBlock Text="{Binding DetailDrawer.OpenTargetButtonText}"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               HorizontalAlignment="Center" />
+                  </Button>
+                  <Button Grid.Column="1"
+                          Classes="Outlined"
+                          Padding="10,7"
+                          Command="{Binding DetailDrawer.RevealInExplorerCommand}"
+                          ToolTip.Tip="以 Windows 檔案總管直接開啟此目錄（或定位檔案位置）">
+                    <TextBlock Text="📂 用檔案總管開啟" FontSize="12" />
+                  </Button>
+                </Grid>
+
+                <!-- A. 作品詳情與編輯區塊 -->
+                <StackPanel IsVisible="{Binding DetailDrawer.IsWorkKind}" Spacing="10">
+
+                  <TextBlock Text="{Binding DetailDrawer.WorkStatsText}"
+                             FontSize="11.5"
+                             Opacity="0.72"
+                             TextWrapping="Wrap" />
+
+                  <WrapPanel Orientation="Horizontal" IsVisible="{Binding DetailDrawer.HasExternalId}">
+                    <Border CornerRadius="6"
+                            Background="#1C808080"
+                            Padding="8,3"
+                            Margin="0,0,6,0">
+                      <TextBlock Text="{Binding DetailDrawer.ExternalIdText, StringFormat='外部 ID: {0}'}"
+                                 FontSize="11"
+                                 FontWeight="Medium" />
+                    </Border>
+                    <Border IsVisible="{Binding DetailDrawer.IsManuallyEdited}"
+                            CornerRadius="6"
+                            Background="{DynamicResource SukiPrimaryColor15}"
+                            Padding="8,3">
+                      <TextBlock Text="✎ 已手動編輯保護"
+                                 FontSize="11"
+                                 Foreground="{DynamicResource SukiPrimaryColor}" />
+                    </Border>
+                  </WrapPanel>
+
+                  <!-- 閱讀狀態快速切換 -->
+                  <StackPanel Spacing="5">
+                    <TextBlock Text="閱讀狀態" FontSize="12" FontWeight="SemiBold" Opacity="0.82" />
+                    <WrapPanel Orientation="Horizontal">
+                      <Button Classes="Basic" Padding="0" Margin="0,0,6,4" Command="{Binding DetailDrawer.SetUnreadStatusCommand}">
+                        <Border Classes="status-pill" Classes.active="{Binding DetailDrawer.IsUnreadStatusSelected}">
+                          <TextBlock Text="● 未讀" FontSize="11" />
+                        </Border>
+                      </Button>
+                      <Button Classes="Basic" Padding="0" Margin="0,0,6,4" Command="{Binding DetailDrawer.SetReadingStatusCommand}">
+                        <Border Classes="status-pill" Classes.active="{Binding DetailDrawer.IsReadingStatusSelected}">
+                          <TextBlock Text="📖 閱讀中" FontSize="11" />
+                        </Border>
+                      </Button>
+                      <Button Classes="Basic" Padding="0" Margin="0,0,6,4" Command="{Binding DetailDrawer.SetCompletedStatusCommand}">
+                        <Border Classes="status-pill" Classes.active="{Binding DetailDrawer.IsCompletedStatusSelected}">
+                          <TextBlock Text="✓ 已完成" FontSize="11" />
+                        </Border>
+                      </Button>
+                      <Button Classes="Basic" Padding="0" Margin="0,0,0,4" Command="{Binding DetailDrawer.SetDroppedStatusCommand}">
+                        <Border Classes="status-pill" Classes.active="{Binding DetailDrawer.IsDroppedStatusSelected}">
+                          <TextBlock Text="✕ 放棄" FontSize="11" />
+                        </Border>
+                      </Button>
+                    </WrapPanel>
+                  </StackPanel>
+
+                  <!-- Metadata 檢視／編輯欄 -->
+                  <StackPanel Spacing="6">
+                    <TextBlock Text="作品 Metadata" FontSize="12" FontWeight="SemiBold" Opacity="0.82" />
+                    <TextBox Watermark="作品標題"
+                             Text="{Binding DetailDrawer.EditTitle, Mode=TwoWay}"
+                             IsReadOnly="{Binding DetailDrawer.IsReadOnlyDatabase}"
+                             FontSize="12" />
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                      <TextBox Grid.Column="0"
+                               Watermark="作者名稱"
+                               Text="{Binding DetailDrawer.EditAuthorName, Mode=TwoWay}"
+                               IsReadOnly="{Binding DetailDrawer.IsReadOnlyDatabase}"
+                               FontSize="12" />
+                      <Button Grid.Column="1"
+                              Classes="Outlined"
+                              Padding="8,5"
+                              Command="{Binding DetailDrawer.SearchByCurrentAuthorCommand}"
+                              ToolTip.Tip="在畫廊搜尋此作者全部作品">
+                        <TextBlock Text="🔍" FontSize="11.5" />
+                      </Button>
+                    </Grid>
+                    <Grid ColumnDefinitions="*,84" ColumnSpacing="6">
+                      <TextBox Grid.Column="0"
+                               Watermark="系列名稱 (Series)"
+                               Text="{Binding DetailDrawer.EditSeries, Mode=TwoWay}"
+                               IsReadOnly="{Binding DetailDrawer.IsReadOnlyDatabase}"
+                               FontSize="12" />
+                      <TextBox Grid.Column="1"
+                               Watermark="話數"
+                               Text="{Binding DetailDrawer.EditChapterNo, Mode=TwoWay}"
+                               IsReadOnly="{Binding DetailDrawer.IsReadOnlyDatabase}"
+                               FontSize="12" />
+                    </Grid>
+                    <Grid ColumnDefinitions="88,*" ColumnSpacing="6">
+                      <TextBox Grid.Column="0"
+                               Watermark="語言"
+                               Text="{Binding DetailDrawer.EditLanguage, Mode=TwoWay}"
+                               IsReadOnly="{Binding DetailDrawer.IsReadOnlyDatabase}"
+                               FontSize="12" />
+                      <TextBox Grid.Column="1"
+                               Watermark="漢化組 / 社團"
+                               Text="{Binding DetailDrawer.EditTranslationGroup, Mode=TwoWay}"
+                               IsReadOnly="{Binding DetailDrawer.IsReadOnlyDatabase}"
+                               FontSize="12" />
+                    </Grid>
+
+                    <Button Classes="Flat"
+                            HorizontalAlignment="Stretch"
+                            Padding="10,7"
+                            IsVisible="{Binding DetailDrawer.IsWritable}"
+                            Command="{Binding DetailDrawer.SaveWorkMetadataCommand}">
+                      <TextBlock Text="💾 儲存 Metadata 變更" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                    </Button>
+                  </StackPanel>
+
+                  <!-- 作品標籤 -->
+                  <StackPanel Spacing="6">
+                    <TextBlock Text="標籤（點擊標籤可於畫廊篩選）" FontSize="12" FontWeight="SemiBold" Opacity="0.82" />
+                    <ItemsControl ItemsSource="{Binding DetailDrawer.WorkTags}"
+                                  IsVisible="{Binding DetailDrawer.HasWorkTags}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                          <WrapPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:GalleryDetailTagVm">
+                          <Border CornerRadius="6"
+                                  Background="#18808080"
+                                  BorderBrush="{DynamicResource SukiBorderBrush}"
+                                  BorderThickness="1"
+                                  Padding="6,2"
+                                  Margin="0,0,5,5">
+                            <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                              <Button Classes="Basic" Padding="0" Command="{Binding FilterCommand}" Cursor="Hand">
+                                <TextBlock Text="{Binding LabelText}" FontSize="11" />
+                              </Button>
+                              <Button Classes="Basic" Padding="2,0" Command="{Binding RemoveCommand}" Cursor="Hand" ToolTip.Tip="移除標籤">
+                                <TextBlock Text="✕" FontSize="10" Opacity="0.65" />
+                              </Button>
+                            </StackPanel>
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <Grid ColumnDefinitions="*,Auto"
+                          ColumnSpacing="6"
+                          IsVisible="{Binding DetailDrawer.IsWritable}">
+                      <TextBox Grid.Column="0"
+                               Watermark="輸入標籤名稱後新增…"
+                               Text="{Binding DetailDrawer.NewTagInput, Mode=TwoWay}"
+                               FontSize="12" />
+                      <Button Grid.Column="1"
+                              Classes="Outlined"
+                              Padding="10,5"
+                              Command="{Binding DetailDrawer.AddWorkTagCommand}">
+                        <TextBlock Text="+ 新增" FontSize="11.5" />
+                      </Button>
+                    </Grid>
+                  </StackPanel>
+
+                  <!-- 自訂閱讀清單歸屬 -->
+                  <StackPanel Spacing="5" IsVisible="{Binding DetailDrawer.HasVirtualLibraries}">
+                    <TextBlock Text="自訂閱讀清單" FontSize="12" FontWeight="SemiBold" Opacity="0.82" />
+                    <ItemsControl ItemsSource="{Binding DetailDrawer.VirtualLibraryMemberships}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:GalleryWorkLibraryToggleVm">
+                          <CheckBox Content="{Binding Name}"
+                                    IsChecked="{Binding IsMember, Mode=OneWay}"
+                                    Command="{Binding ToggleCommand}"
+                                    FontSize="12"
+                                    Margin="0,1" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </StackPanel>
+
+                <!-- B. 作者詳情區塊 -->
+                <StackPanel IsVisible="{Binding DetailDrawer.IsAuthorKind}" Spacing="10">
+                  <TextBlock Text="{Binding DetailDrawer.AuthorAliasesText, StringFormat='別名：{0}'}"
+                             IsVisible="{Binding DetailDrawer.HasAuthorAliases}"
+                             FontSize="12"
+                             Opacity="0.75"
+                             TextWrapping="Wrap" />
+                  <TextBlock Text="{Binding DetailDrawer.AuthorStatsText}"
+                             FontSize="12"
+                             Opacity="0.82"
+                             TextWrapping="Wrap" />
+                  <Button Classes="Flat"
+                          HorizontalAlignment="Stretch"
+                          Padding="10,7"
+                          Command="{Binding DetailDrawer.SearchByCurrentAuthorCommand}"
+                          ToolTip.Tip="跨資料夾搜尋資料庫中所有歸屬此作者的作品（包含散落於其他分類或系列的檔案）">
+                    <TextBlock Text="🔍 跨全庫搜尋此作者所有作品" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                  </Button>
+
+                  <StackPanel Spacing="5" IsVisible="{Binding DetailDrawer.HasAuthorTopTags}">
+                    <TextBlock Text="作品高頻標籤" FontSize="12" FontWeight="SemiBold" Opacity="0.82" />
+                    <ItemsControl ItemsSource="{Binding DetailDrawer.AuthorTopTags}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                          <WrapPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <Border CornerRadius="6"
+                                  Background="#16808080"
+                                  Padding="7,2"
+                                  Margin="0,0,5,5">
+                            <TextBlock Text="{Binding}" FontSize="11" />
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </StackPanel>
+
+                <!-- C. 一般資料夾偵測區塊 -->
+                <StackPanel IsVisible="{Binding DetailDrawer.IsFolderKind}" Spacing="8">
+                  <Border CornerRadius="8"
+                          Background="#18808080"
+                          Padding="9,6">
+                    <TextBlock Text="{Binding DetailDrawer.FolderRoleLabel}"
+                               FontSize="12"
+                               FontWeight="SemiBold" />
+                  </Border>
+                  <TextBlock Text="{Binding DetailDrawer.FolderSummaryText}"
+                             FontSize="12"
+                             Opacity="0.78"
+                             TextWrapping="Wrap" />
+                </StackPanel>
+
+              </StackPanel>
+            </StackPanel>
+          </ScrollViewer>
+
+        </Grid>
+      </suki:GlassCard>
+    </Grid>
+
+  </Grid>
+</UserControl>
