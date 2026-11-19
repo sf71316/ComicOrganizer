@@ -26,6 +26,9 @@ public class MergeResult
     /// <summary>使用者選定的最終 tag 名清單（直接套用 SetAssetTags）。null = 不動 tag。</summary>
     public List<string>? Tags { get; set; }
 
+    /// <summary>保留分類 (tag / parody / character / artist / group) 的完整標籤清單；非 null 時優先於 Tags 寫入。</summary>
+    public List<TagEntry>? TagEntries { get; set; }
+
     /// <summary>外部來源 metadata 紀錄（外部 source 永遠覆蓋當前 source 的紀錄）。</summary>
     public AssetExternalSource? ExternalSourceRecord { get; set; }
 

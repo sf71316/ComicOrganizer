@@ -63,7 +63,7 @@ public partial class MainForm : Window, IThemedControl
         _integrityChecker = new CacheIntegrityChecker(_metaStore, _thumbStore, _rebuildTracker);
         _rebuildService = new CacheRebuildService(_config, _coverManager, _metaStore, _thumbStore, _integrityChecker, _rebuildTracker, _cacheWriter);
         _reconcileService = new CatalogReconcileService(_config, _metaStore);
-        _reparseService = new ReparseAllService(_metaStore, _rebuildTracker);
+        _reparseService = new ReparseAllService(_metaStore, _rebuildTracker, () => _config.RootDirectory);
         // 翻譯庫：disk cache 優先（BaseDirectory/translations/db.text.json.gz）→ fallback embedded
         _translationDbPath = Path.Combine(baseDir, "translations", "db.text.json.gz");
         _tagTranslator = new TagTranslator(_translationDbPath);
@@ -88,6 +88,7 @@ public partial class MainForm : Window, IThemedControl
             archiveControl.Initialize(_config, _intelligence, _organizer, _metaStore, _tagTranslator, _prefs, _readRecordQueue);
             metadataManageControl.Initialize(_metaStore, _reparseService, _rebuildTracker, _tagTranslator);
             metadataManageControl.InitializeTranslationDb(_tagTranslator, _translationUpdater, _translationDbPath);
+            metadataManageControl.InitializeExternalSync(() => _config);
             metadataManageControl.ExternalMetadataEnabled = _config.EnableExternalMetadata;
 
             // 啟動後背景檢查翻譯庫更新（24h 防 spam GitHub）— fire-and-forget，網路錯靜默吞

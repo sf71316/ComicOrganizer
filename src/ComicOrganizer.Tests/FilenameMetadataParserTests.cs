@@ -65,9 +65,9 @@ public class FilenameMetadataParserTests
         Assert.Null(p.AuthorAlias);
         Assert.Equal("くぎづけはーと", p.Title);
         Assert.Equal("zh-CN", p.Language);
-        Assert.Contains(p.Tags, t => t.Name == "C99" && t.Category == "event");
-        Assert.Contains(p.Tags, t => t.Name == "DL版");
-        // 中国翻訳 應該變 Language 不在 Tags
+        // 展場場次與 DL版 / 中国翻訳 僅剝除以淨化標題，均不寫入 Tags
+        Assert.DoesNotContain(p.Tags, t => t.Name == "C99");
+        Assert.DoesNotContain(p.Tags, t => t.Name == "DL版");
         Assert.DoesNotContain(p.Tags, t => t.Name == "中国翻訳");
     }
 
@@ -144,7 +144,7 @@ public class FilenameMetadataParserTests
         Assert.Equal("Flugel", p.AuthorMainName);
         Assert.Equal("くぎづけはーと", p.Title);
         Assert.Equal("zh", p.Language);
-        Assert.Contains(p.Tags, t => t.Name == "DL版");
+        Assert.DoesNotContain(p.Tags, t => t.Name == "DL版");
     }
 
     [Fact]
@@ -157,7 +157,7 @@ public class FilenameMetadataParserTests
         Assert.Equal("Artist", p.AuthorAlias);
         Assert.Equal("Some Title", p.Title);
         Assert.Equal("en", p.Language);
-        Assert.Contains(p.Tags, t => t.Name == "C103" && t.Category == "event");
+        Assert.DoesNotContain(p.Tags, t => t.Name == "C103");
         Assert.Contains(p.Tags, t => t.Name == "Original Work" && t.Category == "parody");
     }
 
@@ -200,16 +200,15 @@ public class FilenameMetadataParserTests
     [Fact]
     public void Work_AuthorFromParent_AuthorBracketDeduped()
     {
-        // 父 author = "Flugel", filename `[Flugel] Title.zip`
-        // [Flugel] 應被識別為 author dedupe，跳過、不變 tag
+        // 父 author = "Flugel", filename `[Flugel] Title [DL版].zip`
+        // [Flugel] 與 [DL版] 皆剝除且不變 tag
         var p = FilenameMetadataParser.ParseWorkName(
             "[Flugel] Title [DL版].zip",
             authorFromParent: "Flugel");
 
         Assert.Equal("Flugel", p.AuthorMainName);
         Assert.Equal("Title", p.Title);
-        Assert.DoesNotContain(p.Tags, t => t.Name == "Flugel");
-        Assert.Contains(p.Tags, t => t.Name == "DL版");
+        Assert.DoesNotContain(p.Tags, t => t.Name == "Flugel" || t.Name == "DL版");
     }
 
     [Fact]
@@ -236,30 +235,31 @@ public class FilenameMetadataParserTests
         Assert.Equal("Title", p.Title);
         Assert.Equal("zh-TW", p.Language);
         Assert.Null(p.TranslationGroup);
-        Assert.Contains(p.Tags, t => t.Name == "例大祭15" && t.Category == "event");
+        Assert.DoesNotContain(p.Tags, t => t.Name == "例大祭15");
         Assert.DoesNotContain(p.Tags, t => t.Name == "中國翻譯");
     }
 
     [Fact]
-    public void Work_VariousConventionEvents_RecognizedAsEventTag()
+    public void Work_VariousConventionEvents_StrippedFromTitleAndOmittedFromTags()
     {
         var conventions = new[]
         {
-            ("(東方紅楼夢15) [Circle (Artist)] Title 1.zip", "東方紅楼夢15"),
-            ("(紅樓夢16) [Circle (Artist)] Title 2.zip", "紅樓夢16"),
-            ("(サンクリ2022) [Circle (Artist)] Title 3.zip", "サンクリ2022"),
-            ("(SC2020) [Circle (Artist)] Title 4.zip", "SC2020"),
-            ("(FF40) [Circle (Artist)] Title 5.zip", "FF40"),
-            ("(PF35) [Circle (Artist)] Title 6.zip", "PF35"),
-            ("(こみトレ30) [Circle (Artist)] Title 7.zip", "こみトレ30"),
+            ("(東方紅楼夢15) [Circle (Artist)] Title 1.zip", "東方紅楼夢15", "Title 1"),
+            ("(紅樓夢16) [Circle (Artist)] Title 2.zip", "紅樓夢16", "Title 2"),
+            ("(サンクリ2022) [Circle (Artist)] Title 3.zip", "サンクリ2022", "Title 3"),
+            ("(SC2020) [Circle (Artist)] Title 4.zip", "SC2020", "Title 4"),
+            ("(FF40) [Circle (Artist)] Title 5.zip", "FF40", "Title 5"),
+            ("(PF35) [Circle (Artist)] Title 6.zip", "PF35", "Title 6"),
+            ("(こみトレ30) [Circle (Artist)] Title 7.zip", "こみトレ30", "Title 7"),
         };
 
-        foreach (var (filename, expectedEvent) in conventions)
+        foreach (var (filename, omittedEvent, expectedTitle) in conventions)
         {
             var p = FilenameMetadataParser.ParseWorkName(filename);
             Assert.Equal("Circle", p.AuthorMainName);
             Assert.Equal("Artist", p.AuthorAlias);
-            Assert.Contains(p.Tags, t => t.Name == expectedEvent && t.Category == "event");
+            Assert.Equal(expectedTitle, p.Title);
+            Assert.DoesNotContain(p.Tags, t => t.Name == omittedEvent);
         }
     }
 
@@ -287,5 +287,95 @@ public class FilenameMetadataParserTests
             Assert.Equal(expectedLang, p.Language);
             Assert.Null(p.TranslationGroup);
         }
+    }
+
+    [Fact]
+    public void Work_FormatEventLanguageAfterOtherPrefixes_AndParodyNormalization()
+    {
+        // (同人誌) + (C90) + 漢化組前置 + 艦これ無空白副標 + (Chinese) 不得污染 parody
+        var p1 = FilenameMetadataParser.ParseWorkName(
+            "(同人誌) (C90) [Rosapersica (一ノ宮)] ヨルヤハギ5 (艦隊これくしょん-艦これ-) [中国翻訳] [嗶咔嗶咔漢化組].zip");
+        Assert.Equal("Rosapersica", p1.AuthorMainName);
+        Assert.Equal("一ノ宮", p1.AuthorAlias);
+        Assert.Equal("ヨルヤハギ5", p1.Title);
+        Assert.Equal("zh-CN", p1.Language);
+        Assert.Equal("嗶咔嗶咔漢化組", p1.TranslationGroup);
+        Assert.DoesNotContain(p1.Tags, t => t.Name == "C90" || t.Name == "同人誌");
+        Assert.Contains(p1.Tags, t => t.Name == "艦隊これくしょん -艦これ-" && t.Category == "parody");
+
+        var p2 = FilenameMetadataParser.ParseWorkName(
+            "[Angiris Council漢化组] (C97) [Rosapersica (一ノ宮)] ヨルヤハギ13 (艦隊これくしょん -艦これ-) (Chinese) [無修正][Digital].zip");
+        Assert.Equal("Rosapersica", p2.AuthorMainName);
+        Assert.Equal("一ノ宮", p2.AuthorAlias);
+        Assert.Equal("ヨルヤハギ13", p2.Title);
+        Assert.Equal("Angiris Council漢化组", p2.TranslationGroup);
+        Assert.Equal("zh", p2.Language);
+        Assert.DoesNotContain(p2.Tags, t => t.Name == "C97"
+            || t.Name == "無修正"
+            || t.Name == "Digital"
+            || t.Name.Equals("Chinese", StringComparison.OrdinalIgnoreCase));
+
+        var p3 = FilenameMetadataParser.ParseWorkName(
+            "[Author] Title (成年コミック) (C87) (FateGrand Order) [CH][CE家族社].zip");
+        Assert.Equal("zh", p3.Language);
+        Assert.Equal("CE家族社", p3.TranslationGroup);
+        Assert.Contains(p3.Tags, t => t.Name == "Fate Grand Order" && t.Category == "parody");
+        Assert.DoesNotContain(p3.Tags, t => t.Name is "C87" or "成年コミック" or "CH" or "CE家族社");
+    }
+
+    [Fact]
+    public void Work_AuthorFromParent_CircleOrJapanesePenName_NotLeakedAsTag()
+    {
+        var p1 = FilenameMetadataParser.ParseWorkName(
+            "(C90) [Cat FooD (なぱた)] 作品標題 (オリジナル) [中文].zip",
+            authorFromParent: "Napata");
+        Assert.Equal("Napata", p1.AuthorMainName);
+        Assert.False(string.IsNullOrWhiteSpace(p1.AuthorAlias));
+        Assert.Equal("作品標題", p1.Title);
+        Assert.DoesNotContain(p1.Tags, t => t.Name.Contains("なぱた") || t.Name.Contains("Cat FooD"));
+        Assert.Contains(p1.Tags, t => t.Name == "オリジナル" && t.Category == "parody");
+
+        var p2 = FilenameMetadataParser.ParseWorkName(
+            "[Rosapersica (一ノ宮)] ヨルヤハギ2 (艦隊これくしょん -艦これ-)",
+            authorFromParent: "一ノ宮");
+        Assert.Equal("一ノ宮", p2.AuthorMainName);
+        Assert.Equal("Rosapersica", p2.AuthorAlias);
+        Assert.DoesNotContain(p2.Tags, t => t.Name.Contains("Rosapersica"));
+
+        // 開頭是規格詞 [DL版] 時不可當成作者括號吃掉，且不產生 DL版 或 Flugel 標籤
+        var p3 = FilenameMetadataParser.ParseWorkName(
+            "[DL版] 標題 [Flugel].zip",
+            authorFromParent: "Flugel");
+        Assert.Equal("Flugel", p3.AuthorMainName);
+        Assert.Equal("標題", p3.Title);
+        Assert.DoesNotContain(p3.Tags, t => t.Name == "DL版" || t.Name == "Flugel");
+    }
+
+    [Fact]
+    public void Work_ExpandedNoiseLanguageMagazineAndLeadingSpecFilters()
+    {
+        var p1 = FilenameMetadataParser.ParseWorkName(
+            "[無修正] [大鸟可不敢乱转汉化] [ae] 月と向日葵 (COMlC 快楽天 2017年9月号) [中国翻译] [薄碼] [V2] [01].zip");
+        Assert.Equal("ae", p1.AuthorMainName);
+        Assert.Equal("大鸟可不敢乱转汉化", p1.TranslationGroup);
+        Assert.Equal("zh-CN", p1.Language);
+        Assert.Equal("月と向日葵", p1.Title);
+        Assert.Empty(p1.Tags);
+
+        var p2 = FilenameMetadataParser.ParseWorkName(
+            "[宵野コタロー] テイクアウトハニー (コミックホットミルク 2017年9月号) (同人CG集) [日翻中] [風與黑暗掃圖] [完結] [2009-04-30].zip");
+        Assert.Equal("宵野コタロー", p2.AuthorMainName);
+        Assert.Equal("zh", p2.Language);
+        Assert.Equal("風與黑暗掃圖", p2.TranslationGroup);
+        Assert.Equal("テイクアウトハニー", p2.Title);
+        Assert.Empty(p2.Tags);
+
+        // macOS NFD 分解假名 `きくらけ\u3099屋` 與父目錄 NFC `きくらげ屋` 應視為同一作者並消除重複 tag
+        var p3 = FilenameMetadataParser.ParseWorkName(
+            "[きくらけ\u3099屋(きくらけ\u3099)] 作品.zip",
+            authorFromParent: "きくらげ屋");
+        Assert.Equal("きくらげ屋", p3.AuthorMainName);
+        Assert.Equal("作品", p3.Title);
+        Assert.Empty(p3.Tags);
     }
 }

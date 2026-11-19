@@ -209,6 +209,14 @@ FS scanned {0} / DB indexed {1}</value></data>
   <data name="ToolsReparseDoneFmt" xml:space="preserve"><value>Re-parse complete.
 Processed: {0} / Skipped: {1} / Failed: {2}</value></data>
   <data name="ToolsReparseCancelled" xml:space="preserve"><value>Re-parse cancelled</value></data>
+  <data name="ToolsAutoFetchTagsButton" xml:space="preserve"><value>🌐 Auto-fill nhentai tags</value></data>
+  <data name="ToolsAutoFetchTagsConfirmTitle" xml:space="preserve"><value>Auto-fill nhentai tags</value></data>
+  <data name="ToolsAutoFetchTagsConfirmMsg" xml:space="preserve"><value>Automatically search the nhentai API in the background to fill tags, page count, and missing language for works without an external source or manual edits.&#xA;&#xA;Local title, author, and scanlator will be kept; uncertain or unmatched works are silently skipped. Continue?</value></data>
+  <data name="ToolsAutoFetchTagsConfirmOk" xml:space="preserve"><value>Start auto-fill</value></data>
+  <data name="ToolsAutoFetchTagsDoneTitle" xml:space="preserve"><value>Auto-fill nhentai tags complete</value></data>
+  <data name="ToolsAutoFetchTagsDoneFmt" xml:space="preserve"><value>Auto-fill nhentai tags complete.&#xA;Total: {0} / Applied: {1} / Skipped: {2} / Unmatched: {3} / Errors: {4}</value></data>
+  <data name="ToolsAutoFetchTagsCancelled" xml:space="preserve"><value>Auto-fill cancelled</value></data>
+  <data name="ToolsStatsRefreshedToast" xml:space="preserve"><value>Statistics updated (click "Re-parse all" below to scan disk and re-parse)</value></data>
   <data name="SettingsMenuExternal" xml:space="preserve"><value>External Source</value></data>
   <data name="ExtTitle" xml:space="preserve"><value>nhentai API</value></data>
   <data name="ExtDesc" xml:space="preserve"><value>Once enabled, fetches work metadata from the nhentai API. The API key is encrypted with Windows DPAPI (per-user; the config file is unreadable when copied to another machine).</value></data>

@@ -88,11 +88,11 @@ public class ScanMetadataIntegrationTest : IDisposable
         Assert.Equal("くぎづけはーと", workMeta!.Title);
         Assert.Equal("zh", workMeta.Language);
         Assert.Equal(author.Id, workMeta.AuthorId);
-        // tags
+        // tags（DL版 / C99 等無用規格/場次已忽略，不應存入 asset_tag）
         var tags = metaStore.ListTagsForAsset(workId.Value);
-        Assert.Contains(tags, t => t.Name == "DL版");
+        Assert.DoesNotContain(tags, t => t.Name == "DL版");
 
-        // 4. C99 work 應有 event tag + parody + zh-CN
+        // 4. C99 work 應有 parody + zh-CN（C99 場次不應寫入 tag）
         var workC99Path = Path.Combine(_libraryRoot, "タイガー[Tiger Roman]", "(C99) [タイガー] Title (Original) [中国翻訳].zip");
         var workC99Id = metaStore.GetAssetId(workC99Path);
         Assert.NotNull(workC99Id);
@@ -102,7 +102,7 @@ public class ScanMetadataIntegrationTest : IDisposable
         Assert.Equal("zh-CN", workC99Meta.Language);
         Assert.Equal(tigerJp.Id, workC99Meta.AuthorId);
         var c99Tags = metaStore.ListTagsForAsset(workC99Id.Value);
-        Assert.Contains(c99Tags, t => t.Name == "C99" && t.Category == "event");
+        Assert.DoesNotContain(c99Tags, t => t.Name == "C99");
         Assert.Contains(c99Tags, t => t.Name == "Original" && t.Category == "parody");
     }
 

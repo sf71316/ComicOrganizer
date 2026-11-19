@@ -319,27 +319,9 @@ public partial class GalleryControl
         counter[key] = v + 1;
     }
 
-    /// <summary>從檔名建構初始搜尋字串：parser 抽出 title + 加 artist:slug 前綴。</summary>
-    private static string BuildSearchQueryFromFilename(string filename)
-    {
-        var parsed = FilenameMetadataParser.ParseWorkName(filename);
-        var parts = new List<string>();
-
-        // artist:slug — 用 lower-case 去除空格
-        if (!string.IsNullOrWhiteSpace(parsed.AuthorMainName))
-        {
-            var slug = parsed.AuthorMainName.Trim().ToLowerInvariant().Replace(' ', '-');
-            parts.Add($"artist:{slug}");
-        }
-        // title 主體
-        if (!string.IsNullOrWhiteSpace(parsed.Title))
-            parts.Add(parsed.Title.Trim());
-        // 都沒抽到 → 用整個 filename（去副檔名）當 fallback
-        if (parts.Count == 0)
-            parts.Add(Path.GetFileNameWithoutExtension(filename));
-
-        return string.Join(" ", parts);
-    }
+    /// <summary>從檔名建構初始搜尋字串：委派給 BatchExternalFetchService.BuildSearchQuery（避免誤對日文作者加 artist:）。</summary>
+    private string BuildSearchQueryFromFilename(string filename)
+        => BatchExternalFetchService.BuildSearchQuery(filename, _tagTranslator);
 
     /// <summary>把 MergeDialog 的結果寫進 DB（asset_meta + asset_tag + asset_external_source）。</summary>
     private void ApplyMergeResult(WorkDetail detail, MergeResult result)

@@ -1,5 +1,6 @@
 using AntdUI;
 using ComicOrganizer.App.Core;
+using ComicOrganizer.App.Models;
 using System.Windows.Forms;
 
 namespace ComicOrganizer.App.UI;
@@ -45,6 +46,11 @@ public partial class MetadataManageControl : UserControl, IThemedControl
         authorPanel.Initialize(metaStore, translator);
         toolsPanel.Initialize(metaStore, reparseService, tracker);
         _initialized = true;
+    }
+
+    public void InitializeExternalSync(Func<AppConfig> configProvider)
+    {
+        toolsPanel.InitializeExternalSync(configProvider);
     }
 
     /// <summary>由 host 注入翻譯庫線上更新所需的 service + path（可獨立呼叫，不強制走 Initialize）。</summary>

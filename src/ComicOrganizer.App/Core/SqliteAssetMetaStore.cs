@@ -992,6 +992,15 @@ LIMIT 1;", new { path }, _currentTx);
         }
     }
 
+    public bool IsAuthorFolderPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        lock (_lock)
+            return _conn.ExecuteScalar<long?>(
+                "SELECT id FROM author WHERE folder_path = @path LIMIT 1;",
+                new { path }, _currentTx).HasValue;
+    }
+
     public AuthorInfo? GetAuthorInfo(long authorId)
     {
         lock (_lock)
@@ -1139,17 +1148,42 @@ WHERE at.asset_id = @assetId;", new { assetId }, _currentTx).AsList();
 
     public void SetAssetTags(long assetId, IEnumerable<string> tagNames)
     {
-        var names = tagNames.Select(n => n?.Trim() ?? "").Where(n => n.Length > 0).Distinct().ToList();
+        var entries = tagNames
+            .Select(n => n?.Trim() ?? "")
+            .Where(n => n.Length > 0)
+            .Distinct()
+            .Select(n => new TagEntry(n, null));
+        SetAssetTagEntries(assetId, entries);
+    }
+
+    public void SetAssetTagEntries(long assetId, IEnumerable<TagEntry> tags)
+    {
+        var uniqueTags = tags
+            .Select(t => new TagEntry(t.Name?.Trim() ?? "", t.Category))
+            .Where(t => t.Name.Length > 0)
+            .GroupBy(t => t.Name, StringComparer.Ordinal)
+            .Select(g => g.FirstOrDefault(x => !string.IsNullOrEmpty(x.Category)) ?? g.First())
+            .ToList();
+
         RunInTransaction(() =>
         {
             _conn.Execute("DELETE FROM asset_tag WHERE asset_id = @assetId;", new { assetId }, _currentTx);
-            foreach (var name in names)
+            foreach (var tag in uniqueTags)
             {
-                long tagId = UpsertTag(name);
+                long tagId = UpsertTag(tag.Name, tag.Category);
                 _conn.Execute("INSERT OR IGNORE INTO asset_tag (asset_id, tag_id) VALUES (@assetId, @tagId);",
                     new { assetId, tagId }, _currentTx);
             }
         });
+    }
+
+    public int DeleteOrphanTags()
+    {
+        lock (_lock)
+            return _conn.Execute(@"
+DELETE FROM tag
+WHERE id NOT IN (SELECT DISTINCT tag_id FROM asset_tag)
+  AND id NOT IN (SELECT DISTINCT tag_id FROM author_tag);", transaction: _currentTx);
     }
 
     // ===== Author tags =====

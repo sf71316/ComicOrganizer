@@ -28,6 +28,7 @@ partial class MetadataToolsPanel
     private System.Windows.Forms.Label lblProgressStatus;
     private System.Windows.Forms.Label lblProgressCurrent;
     private AntdUI.Button btnCancel;
+    private AntdUI.Button btnAutoFetchTags;
 
     // 翻譯庫區塊（#53 Phase 5-C）
     private AntdUI.Panel translationPanel;
@@ -59,6 +60,7 @@ partial class MetadataToolsPanel
         lblStatsTitle = new System.Windows.Forms.Label();
         reparsePanel = new AntdUI.Panel();
         btnCancel = new AntdUI.Button();
+        btnAutoFetchTags = new AntdUI.Button();
         lblProgressCurrent = new System.Windows.Forms.Label();
         lblProgressStatus = new System.Windows.Forms.Label();
         progressBar = new Progress();
@@ -184,6 +186,7 @@ partial class MetadataToolsPanel
         reparsePanel.Controls.Add(lblProgressStatus);
         reparsePanel.Controls.Add(progressBar);
         reparsePanel.Controls.Add(btnReparse);
+        reparsePanel.Controls.Add(btnAutoFetchTags);
         reparsePanel.Controls.Add(lblReparseDesc);
         reparsePanel.Controls.Add(lblReparseTitle);
         reparsePanel.Location = new Point(20, 290);
@@ -195,7 +198,7 @@ partial class MetadataToolsPanel
         // 
         // btnCancel
         // 
-        btnCancel.Location = new Point(220, 115);
+        btnCancel.Location = new Point(460, 115);
         btnCancel.Name = "btnCancel";
         btnCancel.Size = new Size(100, 40);
         btnCancel.TabIndex = 6;
@@ -239,6 +242,15 @@ partial class MetadataToolsPanel
         btnReparse.TabIndex = 2;
         btnReparse.Text = "整庫重新解析";
         btnReparse.Type = TTypeMini.Primary;
+        // 
+        // btnAutoFetchTags
+        // 
+        btnAutoFetchTags.Location = new Point(212, 115);
+        btnAutoFetchTags.Name = "btnAutoFetchTags";
+        btnAutoFetchTags.Size = new Size(235, 40);
+        btnAutoFetchTags.TabIndex = 3;
+        btnAutoFetchTags.Text = "🌐 全庫自動補齊 nhentai 標籤";
+        btnAutoFetchTags.Type = TTypeMini.Default;
         // 
         // lblReparseDesc
         // 
@@ -331,6 +343,7 @@ partial class MetadataToolsPanel
         //
         AutoScaleDimensions = new SizeF(7F, 15F);
         AutoScaleMode = AutoScaleMode.Font;
+        AutoScroll = true;
         Controls.Add(translationPanel);
         Controls.Add(reparsePanel);
         Controls.Add(statsPanel);

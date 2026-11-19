@@ -22,8 +22,9 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
 
     // 單選 row：本地 / 外部 兩個 RadioButton + 顯示值
     private readonly List<FieldRow> _rows = new();
-    // tag checkboxes
+    // tag checkboxes 與對應 category
     private readonly Dictionary<string, AntdUI.Checkbox> _tagChecks = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string?> _tagCategories = new(StringComparer.OrdinalIgnoreCase);
     // cbApplyToRemaining 已在 #52 Phase I refactor 移除（mode 改在 BatchSyncModeDialog 選）
 
     // 手動 layout cursor
@@ -280,10 +281,13 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
         }
         else
         {
-            // 建一個 slug → category 對映（從 external tags 撈，本地 tags 也會有 category）
-            var categoryBySlug = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var t in _external.Tags) categoryBySlug.TryAdd(t.Name, t.Type);
-            foreach (var t in _local.Tags) categoryBySlug.TryAdd(t.Name, t.Category ?? "");
+            // 建一個 slug → category 對映（本地 tags 先填入，外部 tags 有明確 type 優先覆蓋）
+            foreach (var t in _local.Tags) _tagCategories.TryAdd(t.Name, t.Category);
+            foreach (var t in _external.Tags.Where(x => x.Type != "language" && x.Type != "category"))
+            {
+                if (!string.IsNullOrWhiteSpace(t.Name) && !string.IsNullOrWhiteSpace(t.Type))
+                    _tagCategories[t.Name] = t.Type;
+            }
 
             int y = 30;
             foreach (var tagName in allTags)
@@ -301,7 +305,7 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
                 string display = tagName;
                 if (_translator != null)
                 {
-                    string? zh = categoryBySlug.TryGetValue(tagName, out var cat)
+                    string? zh = _tagCategories.TryGetValue(tagName, out var cat) && !string.IsNullOrEmpty(cat)
                         ? _translator.Translate(cat, tagName)
                         : _translator.TranslateAny(tagName);
                     if (!string.IsNullOrEmpty(zh) && zh != tagName)
@@ -363,10 +367,14 @@ public class ExternalMetadataMergeDialog : AntdUI.Window, IThemedControl
             }
         }
 
-        // Tags：勾選清單即最終 tag 名集合
-        result.Tags = _tagChecks
+        // Tags：勾選清單即最終 tag 名集合（同時保留 category 分類）
+        var selectedNames = _tagChecks
             .Where(kv => kv.Value.Checked)
             .Select(kv => kv.Key)
+            .ToList();
+        result.Tags = selectedNames;
+        result.TagEntries = selectedNames
+            .Select(n => new TagEntry(n, _tagCategories.TryGetValue(n, out var cat) ? cat : null))
             .ToList();
 
         // ApplyToRemaining: 從本次選擇生成策略，給後續 N-1 本批次自動套用

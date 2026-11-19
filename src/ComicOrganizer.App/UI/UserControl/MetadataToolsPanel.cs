@@ -1,5 +1,6 @@
 using AntdUI;
 using ComicOrganizer.App.Core;
+using ComicOrganizer.App.Models;
 using System.Windows.Forms;
 
 namespace ComicOrganizer.App.UI;
@@ -12,12 +13,59 @@ public partial class MetadataToolsPanel : UserControl, IThemedControl
     private TagTranslator? _tagTranslator;
     private TagTranslationUpdater? _updater;
     private string? _translationDbPath;
+    private Func<AppConfig>? _configProvider;
 
     public MetadataToolsPanel()
     {
         InitializeComponent();
         WireEvents();
         this.WireThemeAndLocalization();
+        AdjustPanelLayout();
+    }
+
+    private static string L(string key, string fallback)
+    {
+        var s = LocalizationManager.GetString(key);
+        return (string.IsNullOrEmpty(s) || s == key) ? fallback : s;
+    }
+
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        AdjustPanelLayout();
+    }
+
+    protected override void OnSizeChanged(EventArgs e)
+    {
+        base.OnSizeChanged(e);
+        AdjustPanelLayout();
+    }
+
+    protected override void OnVisibleChanged(EventArgs e)
+    {
+        base.OnVisibleChanged(e);
+        if (Visible) AdjustPanelLayout();
+    }
+
+    private void AdjustPanelLayout()
+    {
+        if (statsPanel == null || reparsePanel == null || translationPanel == null) return;
+        int w = Math.Max(480, ClientSize.Width - 40);
+        statsPanel.Width = w;
+        if (btnRefreshStats != null)
+            btnRefreshStats.Left = Math.Max(200, w - btnRefreshStats.Width - 20);
+
+        reparsePanel.Width = w;
+        if (lblReparseDesc != null)
+            lblReparseDesc.Width = Math.Max(200, w - 40);
+        if (progressBar != null)
+            progressBar.Width = Math.Max(200, w - 40);
+        if (lblProgressCurrent != null)
+            lblProgressCurrent.Width = Math.Max(200, w - 40);
+
+        translationPanel.Width = w;
+        if (btnCheckUpdate != null)
+            btnCheckUpdate.Left = Math.Max(200, w - btnCheckUpdate.Width - 20);
     }
 
     public void Initialize(IAssetMetaStore metaStore, ReparseAllService reparseService,
@@ -27,6 +75,11 @@ public partial class MetadataToolsPanel : UserControl, IThemedControl
         _reparseService = reparseService;
         _tracker = tracker;
         _tracker.StateChanged += OnTrackerStateChanged;
+    }
+
+    public void InitializeExternalSync(Func<AppConfig> configProvider)
+    {
+        _configProvider = configProvider;
     }
 
     /// <summary>翻譯庫區塊用 — 由 host 注入 translator + 更新服務 + disk 寫入路徑。
@@ -75,8 +128,15 @@ public partial class MetadataToolsPanel : UserControl, IThemedControl
 
     private void WireEvents()
     {
-        btnRefreshStats.Click += (s, e) => Refresh();
+        btnRefreshStats.Click += (s, e) =>
+        {
+            Refresh();
+            var form = FindForm();
+            if (form != null)
+                AntdUI.Message.info(form, L("ToolsStatsRefreshedToast", "解析統計已更新（若要掃描磁碟並重解析，請點下方「整庫重新解析」）"));
+        };
         btnReparse.Click += async (s, e) => await ExecuteReparseAsync();
+        btnAutoFetchTags.Click += async (s, e) => await ExecuteAutoFetchTagsAsync();
         btnCancel.Click += (s, e) => _tracker?.Cancel();
         btnCheckUpdate.Click += async (s, e) => await CheckUpdateClicked();
     }
@@ -168,18 +228,92 @@ public partial class MetadataToolsPanel : UserControl, IThemedControl
             Refresh();   // 跑完更新統計
 
             var msg = string.Format(
-                LocalizationManager.GetString("ToolsReparseDoneFmt") ??
-                    "重新解析完成。\n處理: {0} / 跳過: {1} / 失敗: {2}",
+                L("ToolsReparseDoneFmt",
+                    "重新解析完成。\n處理: {0} / 跳過: {1} / 失敗: {2}"),
                 summary.Reparsed, summary.Skipped, summary.Failed);
+            if (summary.Cataloged > 0)
+                msg += $"\n補登磁碟遺漏檔案: {summary.Cataloged}";
             if (summary.Cancelled)
-                msg = (LocalizationManager.GetString("ToolsReparseCancelled") ?? "重新解析已取消") + "\n\n" + msg;
+                msg = L("ToolsReparseCancelled", "重新解析已取消") + "\n\n" + msg;
 
             UI.ModalEx.Open(new AntdUI.Modal.Config(form,
-                LocalizationManager.GetString("ToolsReparseDoneTitle") ?? "整庫重新解析完成",
+                L("ToolsReparseDoneTitle", "整庫重新解析完成"),
                 msg,
                 summary.Cancelled ? AntdUI.TType.Warn : AntdUI.TType.Success)
             { CancelText = null });
         }));
+    }
+
+    private Task ExecuteAutoFetchTagsAsync()
+    {
+        if (_metaStore == null || _tracker == null) return Task.CompletedTask;
+        if (_tracker.IsRunning) return Task.CompletedTask;
+
+        var form = this.FindForm();
+        if (form == null) return Task.CompletedTask;
+
+        var apiKey = _configProvider?.Invoke().GetNhentaiApiKey();
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            AntdUI.Message.warn(form, L("FetchExtErrNoKey", "請先在「設定 / 外部資料來源」設定 API key"));
+            return Task.CompletedTask;
+        }
+
+        UI.ModalEx.Open(new AntdUI.Modal.Config(form,
+            L("ToolsAutoFetchTagsConfirmTitle", "全庫自動補齊 nhentai 標籤"),
+            L("ToolsAutoFetchTagsConfirmMsg",
+                "將以背景自動搜尋 nhentai API，為尚未綁定外部來源且未手動編輯的作品補齊標籤、頁數（與缺少的語言）。\n\n本地標題、作者與漢化組將完整保留；不確定或未命中的作品將靜默略過。確定要開始嗎？"),
+            AntdUI.TType.Info)
+        {
+            OkText = L("ToolsAutoFetchTagsConfirmOk", "開始補齊"),
+            CancelText = L("DialogCancel", "取消"),
+            OnOk = _ =>
+            {
+                var ignored = RunAutoFetchTagsAsync(form, apiKey);
+                return true;
+            }
+        });
+
+        return Task.CompletedTask;
+    }
+
+    private async Task RunAutoFetchTagsAsync(Form form, string apiKey)
+    {
+        try
+        {
+            using var client = new NhentaiApiClient(apiKey);
+            var service = new BatchExternalFetchService(_metaStore!, client, _tagTranslator);
+            var summary = await service.RunLibraryAutoTagFetchAsync(_tracker!);
+            if (IsDisposed) return;
+
+            BeginInvoke(new Action(() =>
+            {
+                if (IsDisposed) return;
+                Refresh();
+
+                var msg = string.Format(
+                    L("ToolsAutoFetchTagsDoneFmt",
+                        "全庫自動補齊 nhentai 標籤完成。\n總計: {0} / 已補齊: {1} / 已跳過: {2} / 未命中: {3} / 失敗: {4}"),
+                    summary.Total, summary.Applied, summary.Skipped, summary.Unmatched, summary.Errors);
+                if (summary.Cancelled)
+                    msg = L("ToolsAutoFetchTagsCancelled", "全庫自動補齊已取消") + "\n\n" + msg;
+
+                UI.ModalEx.Open(new AntdUI.Modal.Config(form,
+                    L("ToolsAutoFetchTagsDoneTitle", "自動補齊 nhentai 標籤完成"),
+                    msg,
+                    summary.Cancelled ? AntdUI.TType.Warn : AntdUI.TType.Success)
+                { CancelText = null });
+            }));
+        }
+        catch (Exception ex)
+        {
+            if (IsDisposed) return;
+            BeginInvoke(new Action(() =>
+            {
+                if (!IsDisposed)
+                    AntdUI.Message.error(form, ex.Message);
+            }));
+        }
     }
 
     private void OnTrackerStateChanged(object? sender, EventArgs e)
@@ -211,6 +345,7 @@ public partial class MetadataToolsPanel : UserControl, IThemedControl
         }
 
         btnReparse.Enabled = !running;
+        btnAutoFetchTags.Enabled = !running;
         btnRefreshStats.Enabled = !running;
         btnCancel.Visible = running;
     }
@@ -241,16 +376,17 @@ public partial class MetadataToolsPanel : UserControl, IThemedControl
 
     public void ApplyLocalization()
     {
-        lblTitle.Text = LocalizationManager.GetString("ToolsTitle") ?? "詮釋資料工具";
-        lblStatsTitle.Text = LocalizationManager.GetString("ToolsStatsTitle") ?? "解析統計";
-        lblReparseTitle.Text = LocalizationManager.GetString("ToolsReparseTitle") ?? "整庫重新解析 metadata";
-        lblReparseDesc.Text = LocalizationManager.GetString("ToolsReparseDesc") ??
-            "從檔名重新解析所有未手動編輯的作品。閱讀記錄（讀取次數 / 上次閱讀 / 上次頁碼）會保留。已標記為「手動編輯」的作品會被跳過。";
-        btnRefreshStats.Text = LocalizationManager.GetString("TagManageRefresh") ?? "重新整理";
-        btnReparse.Text = LocalizationManager.GetString("ToolsReparseButton") ?? "整庫重新解析";
-        btnCancel.Text = LocalizationManager.GetString("DialogCancel") ?? "取消";
-        lblTranslationTitle.Text = LocalizationManager.GetString("TranslationDbTitle") ?? "翻譯庫";
-        btnCheckUpdate.Text = LocalizationManager.GetString("TranslationDbCheckUpdate") ?? "立即檢查更新";
+        lblTitle.Text = L("ToolsTitle", "詮釋資料工具");
+        lblStatsTitle.Text = L("ToolsStatsTitle", "解析統計");
+        lblReparseTitle.Text = L("ToolsReparseTitle", "整庫重新解析 metadata");
+        lblReparseDesc.Text = L("ToolsReparseDesc",
+            "從檔名重新解析所有未手動編輯的作品。閱讀記錄（讀取次數 / 上次閱讀 / 上次頁碼）會保留。已標記為「手動編輯」的作品會被跳過。");
+        btnRefreshStats.Text = L("TagManageRefresh", "重新整理");
+        btnReparse.Text = L("ToolsReparseButton", "整庫重新解析");
+        btnAutoFetchTags.Text = L("ToolsAutoFetchTagsButton", "🌐 全庫自動補齊 nhentai 標籤");
+        btnCancel.Text = L("DialogCancel", "取消");
+        lblTranslationTitle.Text = L("TranslationDbTitle", "翻譯庫");
+        btnCheckUpdate.Text = L("TranslationDbCheckUpdate", "立即檢查更新");
         // 版本 / 條目 / 來源 三行依當前 _tagTranslator 狀態重新格式化
         if (_tagTranslator != null) RefreshTranslationDbInfo();
     }

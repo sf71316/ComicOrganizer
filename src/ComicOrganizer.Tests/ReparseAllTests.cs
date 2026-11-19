@@ -157,16 +157,15 @@ public class ReparseAllTests : IDisposable
     [Fact]
     public async Task Run_Updates_Tags_From_Filename()
     {
-        Seed(@"C:\lib\(C99) [Cuvie] work [中国翻訳][DL版].zip");
+        Seed(@"C:\lib\(C99) [Cuvie] work (オリジナル) [中国翻訳][DL版].zip");
 
         await _service.RunAsync();
 
-        var id = _store.GetAssetId(@"C:\lib\(C99) [Cuvie] work [中国翻訳][DL版].zip")!.Value;
+        var id = _store.GetAssetId(@"C:\lib\(C99) [Cuvie] work (オリジナル) [中国翻訳][DL版].zip")!.Value;
         var tags = _store.ListTagsForAsset(id);
-        Assert.Contains(tags, t => t.Name == "C99");        // event tag
-        Assert.Contains(tags, t => t.Name == "DL版");
-        // language tag (中国翻訳) 不該入 asset_tag — 是 asset_meta.language
-        Assert.DoesNotContain(tags, t => t.Name == "中国翻訳");
+        Assert.Contains(tags, t => t.Name == "オリジナル" && t.Category == "parody");
+        // C99 / DL版 / language tag 不應入 asset_tag
+        Assert.DoesNotContain(tags, t => t.Name is "C99" or "DL版" or "中国翻訳");
     }
 
     [Fact]
@@ -192,5 +191,133 @@ public class ReparseAllTests : IDisposable
         Assert.Equal(3, summary.Total);
         Assert.Equal(2, summary.Reparsed);
         Assert.Equal(1, summary.Skipped);
+    }
+
+    [Fact]
+    public async Task Run_PreservesTagCategories_CleansOrphanTags_AndSkipsAuthorFolder()
+    {
+        var authorFolder = @"C:\lib\Napata";
+        var authorId = _store.UpsertAuthor("Napata", authorFolder);
+
+        // 先模擬過去誤建的作者資料夾 catalog + 舊污染 tag（Chinese / Cat FooD (なぱた)）
+        _store.Upsert(new AssetMeta
+        {
+            Path = authorFolder,
+            Name = "Napata",
+            IsFolder = true,
+            FileSize = 0,
+            Mtime = 1,
+        });
+        var dirId = _store.GetAssetId(authorFolder)!.Value;
+        _store.UpsertMetadata(new AssetMetadata { AssetId = dirId, Title = "Napata", ParsedAt = 1 });
+
+        var workPath = @"C:\lib\Napata\(同人誌) (C90) [Cat FooD (なぱた)] Title (艦隊これくしょん-艦これ-) (Chinese) [DL版][無修正].zip";
+        var workId = Seed(workPath);
+        _store.SetAssetTagEntries(workId, new[]
+        {
+            new TagEntry("C90", "parody"),
+            new TagEntry("Chinese", "parody"),
+            new TagEntry("DL版", null),
+            new TagEntry("Cat FooD (なぱた)", null),
+        });
+
+        // cover.jpg 也不應建立 asset_meta
+        var coverId = Seed(@"C:\lib\Napata\cover.jpg", title: "cover");
+
+        await _service.RunAsync();
+
+        // 作者資料夾與 cover.jpg 不該留有 asset_meta
+        Assert.Null(_store.GetMetadata(dirId));
+        Assert.Null(_store.GetMetadata(coverId));
+
+        // Work 保留父作者並清掉假 tag，正確寫入 parody 分類
+        var workMeta = _store.GetMetadata(workId);
+        Assert.Equal(authorId, workMeta!.AuthorId);
+        Assert.Equal("zh", workMeta.Language);
+
+        var workTags = _store.ListTagsForAsset(workId);
+        Assert.Contains(workTags, t => t.Name == "艦隊これくしょん -艦これ-" && t.Category == "parody");
+        Assert.DoesNotContain(workTags, t => t.Name is "C90" or "DL版" or "無修正" or "Chinese" || t.Name.Contains("なぱた"));
+
+        // 孤兒污染 tag 與無用規格 tag 應從 tag 主表清除
+        var allTags = _store.ListTagsByUsage();
+        Assert.DoesNotContain(allTags, t => t.Name is "C90" or "DL版" or "無修正" or "Chinese" || t.Name.Contains("なぱた"));
+    }
+
+    [Fact]
+    public async Task Run_WithLibraryRoot_RegistersMissingAuthorDirectoriesAndCleansContainerMeta()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"comic_root_{Guid.NewGuid():N}");
+        try
+        {
+            var authorDir = Path.Combine(tempRoot, "一ノ宮(Rosapersica)");
+            Directory.CreateDirectory(authorDir);
+            var zipPath = Path.Combine(authorDir, "[Rosapersica (一ノ宮)] ヨルヤハギ5 (艦隊これくしょん -艦これ-).zip");
+            File.WriteAllBytes(zipPath, new byte[] { 0x50, 0x4B, 0x05, 0x06, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 });
+
+            var svc = new ReparseAllService(_store, _tracker, () => tempRoot);
+            _store.Upsert(new AssetMeta { Path = authorDir, Name = Path.GetFileName(authorDir), IsFolder = true, FileSize = 0, Mtime = 1 });
+            var dirId = _store.GetAssetId(authorDir)!.Value;
+            _store.UpsertMetadata(new AssetMetadata { AssetId = dirId, Title = Path.GetFileName(authorDir), ParsedAt = 1 });
+            _store.Upsert(new AssetMeta { Path = zipPath, Name = Path.GetFileName(zipPath), IsFolder = false, FileSize = 22, Mtime = 1 });
+            var zipId = _store.GetAssetId(zipPath)!.Value;
+
+            await svc.RunAsync();
+
+            // 未曾建立的作者目錄會自動寫入 author 表並清理目錄自身的假 asset_meta
+            var author = _store.FindAuthorByMainName("一ノ宮");
+            Assert.NotNull(author);
+            Assert.Equal(authorDir, author!.FolderPath);
+            Assert.Null(_store.GetMetadata(dirId));
+
+            var workMeta = _store.GetMetadata(zipId);
+            Assert.Equal(author.Id, workMeta!.AuthorId);
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task Run_WithLibraryRoot_AutoCatalogsMissingDiskArchivesAndFolders()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "ComicOrganizer_ReparseCatalog_" + Guid.NewGuid().ToString("N"));
+        var authorDir = Path.Combine(tempRoot, "[AuthorX]");
+        var zipWork = Path.Combine(authorDir, "[AuthorX] Alpha Comic [中国翻訳].zip");
+        var pdfWork = Path.Combine(authorDir, "[AuthorX] Beta Comic.pdf");
+        var looseImg = Path.Combine(authorDir, "cover.jpg");
+        Directory.CreateDirectory(authorDir);
+        File.WriteAllBytes(zipWork, new byte[] { 1, 2, 3 });
+        File.WriteAllBytes(pdfWork, new byte[] { 1, 2, 3 });
+        File.WriteAllBytes(looseImg, new byte[] { 1, 2, 3 });
+
+        try
+        {
+            // DB 初始為空，模擬重建中斷後磁碟檔案尚未寫入 asset 表
+            var svc = new ReparseAllService(_store, _tracker, () => tempRoot);
+            var summary = await svc.RunAsync();
+
+            Assert.False(summary.Cancelled);
+            Assert.True(summary.Cataloged >= 3);
+            Assert.NotNull(_store.GetAssetId(authorDir));
+            Assert.True(_store.IsAuthorFolderPath(authorDir));
+            Assert.Null(_store.GetAssetId(looseImg));
+
+            var zipDetail = _store.GetWorkDetail(zipWork);
+            Assert.NotNull(zipDetail);
+            Assert.Equal("Alpha Comic", zipDetail!.Title);
+            Assert.Equal("AuthorX", zipDetail.AuthorMainName);
+            Assert.Equal("zh-CN", zipDetail.Language);
+
+            var pdfDetail = _store.GetWorkDetail(pdfWork);
+            Assert.NotNull(pdfDetail);
+            Assert.Equal("Beta Comic", pdfDetail!.Title);
+            Assert.Equal("AuthorX", pdfDetail.AuthorMainName);
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, recursive: true); } catch { }
+        }
     }
 }

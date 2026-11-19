@@ -590,6 +590,30 @@ FS 掃描 {0} 件 / DB 索引 {1} 件</value>
   <data name="ToolsReparseCancelled" xml:space="preserve">
     <value>重新解析已取消</value>
   </data>
+  <data name="ToolsAutoFetchTagsButton" xml:space="preserve">
+    <value>🌐 全庫自動補齊 nhentai 標籤</value>
+  </data>
+  <data name="ToolsAutoFetchTagsConfirmTitle" xml:space="preserve">
+    <value>全庫自動補齊 nhentai 標籤</value>
+  </data>
+  <data name="ToolsAutoFetchTagsConfirmMsg" xml:space="preserve">
+    <value>將以背景自動搜尋 nhentai API，為尚未綁定外部來源且未手動編輯的作品補齊標籤、頁數（與缺少的語言）。&#xA;&#xA;本地標題、作者與漢化組將完整保留；不確定或未命中的作品將靜默略過。確定要開始嗎？</value>
+  </data>
+  <data name="ToolsAutoFetchTagsConfirmOk" xml:space="preserve">
+    <value>開始補齊</value>
+  </data>
+  <data name="ToolsAutoFetchTagsDoneTitle" xml:space="preserve">
+    <value>自動補齊 nhentai 標籤完成</value>
+  </data>
+  <data name="ToolsAutoFetchTagsDoneFmt" xml:space="preserve">
+    <value>全庫自動補齊 nhentai 標籤完成。&#xA;總計: {0} / 已補齊: {1} / 已跳過: {2} / 未命中: {3} / 失敗: {4}</value>
+  </data>
+  <data name="ToolsAutoFetchTagsCancelled" xml:space="preserve">
+    <value>全庫自動補齊已取消</value>
+  </data>
+  <data name="ToolsStatsRefreshedToast" xml:space="preserve">
+    <value>解析統計已更新（若要掃描磁碟並重解析，請點下方「整庫重新解析」）</value>
+  </data>
   <data name="SettingsMenuExternal" xml:space="preserve">
     <value>外部資料來源</value>
   </data>

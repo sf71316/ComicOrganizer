@@ -112,6 +112,9 @@ public interface IAssetMetaStore : IDisposable
     /// <summary>從 path 解析 author_id：先查 Work 的 asset_meta.author_id；fallback Author folder 的 author.folder_path。</summary>
     long? ResolveAuthorIdByPath(string path);
 
+    /// <summary>判斷 path 是否為已登錄的作者目錄（比對 author.folder_path）。</summary>
+    bool IsAuthorFolderPath(string path);
+
     /// <summary>聚合查詢：作者 + 別名 + 閱讀統計 + top tags + recent / all works。沒紀錄回 null。</summary>
     AuthorInfo? GetAuthorInfo(long authorId);
 
@@ -168,6 +171,12 @@ public interface IAssetMetaStore : IDisposable
 
     /// <summary>用 tagNames 整批 reset 一個 asset 的 tag 集合（會自動 UpsertTag 沒看過的 name）。</summary>
     void SetAssetTags(long assetId, IEnumerable<string> tagNames);
+
+    /// <summary>用含分類的 TagEntry 整批 reset 一個 asset 的 tag 集合（保留 parody / event 等分類）。</summary>
+    void SetAssetTagEntries(long assetId, IEnumerable<TagEntry> tags);
+
+    /// <summary>刪除已無任何 asset_tag 或 author_tag 關聯的孤兒 tag，回傳刪除筆數。</summary>
+    int DeleteOrphanTags();
 
     /// <summary>列出 asset 的所有 tag。</summary>
     IReadOnlyList<Tag> ListTagsForAsset(long assetId);
