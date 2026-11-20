@@ -4,146 +4,150 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 專案性質
 
-ComicOrganizer 是一套**漫畫/圖集管理工具**，已從 `script/圖片整理.ps1`（命令列 PowerShell legacy）轉型為 `src/` 下的 **C# WinForms 視覺化應用程式**，並從單純「自動歸檔工具」長成完整的本地漫畫庫管理器。目前能力涵蓋：智慧封面提取、模糊匹配自動歸檔、自我學習關鍵字 → 目錄映射、SQLite metadata catalog 與縮圖快取、檔名 metadata 解析、nhentai 外部 metadata 同步、EhTag 標籤翻譯、內建閱讀器（含 OCR + LLM 翻譯）、搜尋 DSL 與虛擬庫。
+ComicOrganizer 是一套**本地漫畫/圖集管理工具**：智慧封面提取、模糊匹配自動歸檔、自我學習關鍵字 → 目錄映射、SQLite metadata catalog 與縮圖快取、檔名 metadata 解析、nhentai 外部 metadata 同步、EhTag 標籤翻譯、內建閱讀器（OCR + LLM 翻譯）、搜尋 DSL 與虛擬庫，以及「圖搜漫」截圖反查。
 
-開發時應**以 `src/` 下的 C# 專案為主**；`script/` 下的 PowerShell 腳本只是規格參考，不應再擴充。
+**目前主力 UI 是 `ComicOrganizer.Avalonia`（Avalonia + SukiUI）**（Phase 0~4 + 圖搜漫，commit `4766115`..`b90ac04`）。業務邏輯已抽到不依賴 Windows 的 `ComicOrganizer.Core`。舊的 WinForms 版 `ComicOrganizer.App`（AntdUI）仍在 solution 內、可編譯、也被 Tests / Plugin 參考，但這波沒有新功能，視為 legacy —— **新功能優先做在 Avalonia + Core**。`script/` 下的 PowerShell 只是最早的規格參考，不再擴充。
+
+> README.md 的架構 / 執行指令仍停在 WinForms 版，尚未更新。
 
 ## 常用指令
 
 所有指令對著 solution `src/ComicOrganizer.slnx`（也可直接指定專案 csproj）。
 
 ```bash
-# 建置整個 solution
+# 建置整個 solution（首次 restore 約 2 分鐘）
 dotnet build src/ComicOrganizer.slnx
 
-# 執行 WinForms 應用
+# 執行新版 Avalonia 應用（主力）
+dotnet run --project src/ComicOrganizer.Avalonia/ComicOrganizer.Avalonia.csproj
+#   可加參數：--data-dir <路徑>  --read-only
+#   環境變數：COMIC_ORGANIZER_DATA_DIR / COMIC_ORGANIZER_READONLY=1
+
+# 執行舊版 WinForms 應用（legacy）
 dotnet run --project src/ComicOrganizer.App/ComicOrganizer.App.csproj
 
 # 執行所有 xUnit 測試
 dotnet test src/ComicOrganizer.Tests/ComicOrganizer.Tests.csproj
 
-# 執行單一測試（依方法名）
-dotnet test src/ComicOrganizer.Tests/ComicOrganizer.Tests.csproj --filter "FullyQualifiedName~Test_JapaneseAuthorLearning_ShouldWork"
-
-# 依測試類別過濾
+# 依方法名 / 類別過濾
 dotnet test src/ComicOrganizer.Tests/ComicOrganizer.Tests.csproj --filter "FullyQualifiedName~SelfLearningTests"
 
-# Release 發行（單一 exe，framework-dependent，需目標機有 .NET 8 runtime）
+# WinForms Release 發行（單一 exe，framework-dependent，需 .NET 8 runtime）
 dotnet publish src/ComicOrganizer.App/ComicOrganizer.App.csproj -c Release
 ```
 
 注意事項：
-- 目標框架是 `net8.0-windows10.0.19041.0`（WinForms + Windows 10 SDK API，如原生 OCR），**只能在 Windows 上 build/run**。
-- `App.csproj` 的 Release PropertyGroup 才會啟用 `win-x64` / `PublishSingleFile` / `ReadyToRun`；日常 `build`/`run` 不受影響。
+- Core / VisualSearch 是 `net8.0`；App / Avalonia / Plugin / Tests 是 `net8.0-windows10.0.19041.0`，**整個 solution 只能在 Windows 上 build/run**。Avalonia 與 VisualSearch 固定 x64。
+- Release / publish 設定（win-x64、SingleFile、ReadyToRun）**只有 App.csproj 有**；Avalonia 目前沒有 publish 設定。
 - 沒有 lint 設定，但 `Nullable` 與 `ImplicitUsings` 都啟用，請維持 nullable 標註。
-- 部分測試需要外部資源才有意義：`FullRealDataBatchTest` **寫死了 `E:\Project\...\Tests\H` 路徑**做人工觀察（不 assert，無資料時掃到空目錄但不 fail）；`OcrTest` / `RealTranslationFlowTest` 需要 PaddleOCR 模型檔與可連線的 LLM 端點，否則跳過或失敗。
+- 部分測試需要外部資源：`FullRealDataBatchTest` 寫死 `E:\Project\...\Tests\H`（不 assert）；`OcrTest` / `RealTranslationFlowTest` 需要 PaddleOCR 模型與可連線的 LLM 端點；VisualSearch 相關測試需 ONNX 模型。
 
-## 架構地圖
+## Solution 結構
 
-UI 與業務邏輯解耦：`MainForm`（`MainForm.cs`）在建構時組一條 service chain，把所有檔案系統、比對、快取、解析、翻譯邏輯都收斂到 `Core/`，UI 只負責呈現與事件轉發。建構順序見 `MainForm.cs:34-100`：
+| 專案 | TFM | 角色 | 參考 |
+|------|-----|------|------|
+| `ComicOrganizer.Core` | net8.0 | 業務邏輯 / DB / 解析 / 閱讀器資料層（不依賴 System.Drawing / WinForms） | — |
+| `ComicOrganizer.VisualSearch` | net8.0 x64 | 「圖搜漫」：ONNX (DirectML) + USearch 向量索引 | Core |
+| `ComicOrganizer.Avalonia` | net8.0-windows | **主力 UI**：Avalonia 11.3 + SukiUI 6 + CommunityToolkit.Mvvm | Core, VisualSearch |
+| `ComicOrganizer.App` | net8.0-windows | legacy WinForms UI（AntdUI 2.3.12） | Core |
+| `ComicOrganizer.Plugin.PaddleOcr` | net8.0-windows | PaddleOCR 外掛（拆出以縮小主程式） | Core, App（`Private=false`） |
+| `ComicOrganizer.Tests` | net8.0-windows | xUnit | 上面全部 |
 
-```
-ConfigManager → AppConfig                     （appsettings.json）
-UserPreferencesManager → UserPreferences      （preferences.json；舊版 Theme/Language 會從 appsettings 一次性遷移）
-LocalizationManager / ThemeManager 初始化（必須在 InitializeComponent 前，Designer 才取得正確主題色）
-MappingIntelligence → ArchiveOrganizer + CoverManager
-SqliteAssetMetaStore + FileSystemThumbStore + CacheWriter   （cache.db / thumbs/，CoverManager.AttachCache 掛上）
-RebuildProgressTracker → CacheIntegrityChecker → CacheRebuildService / CatalogReconcileService / ReparseAllService
-TagTranslator + TagTranslationUpdater         （translations/db.text.json.gz，disk 優先 → fallback embedded）
-ReadRecordQueue                               （閱讀紀錄延遲提交）
-```
+**命名空間沒有跟著專案改名**：Core 內的類別仍是 `ComicOrganizer.App.Core.*` / `ComicOrganizer.App.Models.*`，嵌入資源 LogicalName 也沿用 `ComicOrganizer.App.Resources.*`（刻意保持相容，別順手改）。Core 對 App / Tests / Avalonia 開了 `InternalsVisibleTo`。
 
-三個主 UserControl（`galleryControl` / `archiveControl` / `metadataManageControl`）都疊在 `contentHost` 內，靠 `Visible` 切換（`ShowGallery/ShowArchive/ShowMetadataManage`），由 `menuStrip1` 的「功能」選單驅動。`Form.Load` 時才呼叫各 control 的 `Initialize(...)` 注入上面的服務（此時 handle 已建立、`Invoke` 才能用）。
+## Core 層（`src/ComicOrganizer.Core/`）
 
-### Core 層（`ComicOrganizer.App/Core/`）
+套件：Dapper、Microsoft.Data.Sqlite、FuzzySharp、SharpCompress、PDFtoImage、SkiaSharp、OpenCCNET、ProtectedData（DPAPI）。嵌入資源：EhTag `db.text.json.gz`、獅尾黑體、`zh_tw_words.txt.gz`（jieba-tw 詞表）。
 
-**歸檔比對（根目錄）**
-- **`ArchiveOrganizer.FindBestMatch()`** — 兩階段比對：
-  1. 先查 `MappingIntelligence` 學過的關鍵字（命中即 `Confidence=100`、`IsLearned=true`）。
-  2. 否則對每個目標資料夾算 `CalculateSmartScore`：完全包含 → 95、`ExtractAllKeywords` 命中 → 90，否則退回 `FuzzySharp.Fuzz.WeightedRatio`。
-  - `ExtractAllKeywords` 用 regex `[\[\(\{](.*?)[\]\)\}]` 抽出括號內容，再用 `- × x , 空格 : | / \` 切詞，並過濾掉 `AppConfig.Blacklist`（如 "DL版"、"AI Generated"）與 `BlacklistPatterns`（如 `C\d{2,3}` Comic Market 編號）視為雜訊。**新增雜訊規則應加到 `AppConfig` 而非寫死在 `ArchiveOrganizer`**。
-- **`MappingIntelligence`** — 自我學習的關鍵字 → 目錄映射表，獨立持久化在 `mappings.json`。`Learn()` 把 key 正規化（`ToLower().Trim()`）後寫入並立刻 `Save()`；`TryGetMappedFolder()` **依 key 長度由長到短**比對避免短關鍵字誤觸。唯一寫入入口是 `PreviewForm.ExecuteArchiveAsync()` 成功搬檔後 —— 即「使用者確認過的成功移動」才進知識庫。
-- **`CoverManager.GetCoverAsync()`** — 多型來源統一回傳 `Image?`。資料夾走遞迴（深度上限 `AppConfig.MaxScanDepth`）：當前目錄 `cover.*` → 符合大小範圍（`Min/MaxCoverFileSizeBytes`）的字典序第一張圖 → 第一個壓縮檔 → 字典序首個子目錄；壓縮檔（zip/cbz/rar/7z）統一走 **SharpCompress** 取第一張圖；單檔圖片直接讀。先查 `cache.db`（依 path 算 SHA1 `CoverThumbKey` + 比對 mtime）命中就直接讀 `thumbs/`，否則解碼縮圖後經 `AttachCache` 掛上的 `CacheWriter` 背景寫入。**PDF 封面不在此處理，PDF 只在 Reader 的 `PdfReaderSource` 支援。**
+**歸檔比對（`Core/`）**
+- **`ArchiveOrganizer.FindBestMatch()`** — 兩階段：先查 `MappingIntelligence` 學過的關鍵字（命中 `Confidence=100`、`IsLearned=true`）；否則對每個目標資料夾算 `CalculateSmartScore`：完全包含 → 95、`ExtractAllKeywords` 命中 → 90，否則退回 `FuzzySharp.Fuzz.WeightedRatio`。
+  - `ExtractAllKeywords` 用 regex `[\[\(\{](.*?)[\]\)\}]` 抽括號內容，再用 `- × x , 空格 : | / \` 切詞，過濾 `AppConfig.Blacklist` / `BlacklistPatterns`。**新增雜訊規則加到 `AppConfig`，不要寫死在 `ArchiveOrganizer`**。
+- `ArchiveMoveHelper` — 搬檔（含跨磁碟卷）共用邏輯。
+- **`MappingIntelligence`**（在 `Core/Settings/`）— 自我學習關鍵字 → 目錄映射，持久化在 `mappings.json`。key 一律 `ToLower().Trim()`；`TryGetMappedFolder()` 依 key 長度由長到短比對。只有「使用者確認過的成功搬檔」才 `Learn()`。
 
-**Settings 子層（`Core/Settings/`）**
-- `ConfigManager` ↔ `appsettings.json`、`UserPreferencesManager` ↔ `preferences.json`，皆存在 `AppDomain.CurrentDomain.BaseDirectory`（= `bin/.../`）。
-- `SecureStringStore` — 用 Windows **DPAPI（CurrentUser scope）**加解密敏感值（nhentai API key 等），密文 base64 存進 appsettings；跨機器拷貝無法解密（刻意的安全設計）。`AppConfigExtensions` 提供 get/set 包裝。
+**Settings（`Core/Settings/`）**：`ConfigManager` ↔ `appsettings.json`、`UserPreferencesManager` ↔ `preferences.json`、`SecureStringStore`（Windows DPAPI CurrentUser scope 加密 nhentai key 等，跨機器無法解密；走 `AppConfigExtensions` get/set）。
 
-**Cache / Catalog 子層（`Core/Cache/` + 根目錄 `SqliteAssetMetaStore` / `IAssetMetaStore`）**
-- `IAssetMetaStore` → `SqliteAssetMetaStore`（`cache.db`，**Dapper + Microsoft.Data.Sqlite**，snake_case ↔ PascalCase 對映，目前 schema v8 逐版 migration）。存 asset catalog、asset_meta、author、tag、author_tag、bookmark、virtual_library、external source 等。`SqliteConnection` 非 thread-safe，所有方法用內部 `_lock` 序列化，別繞過。
-- `IThumbStore` → `FileSystemThumbStore`（縮圖存 `thumbs/<前2字元>/<key>.jpg`，tmp + rename 原子寫入分散到 256 子目錄；提供 `TotalSizeBytes()` / `Clear()` / `EnumerateAllKeys()`，本身**不做**自動容量淘汰）。
-- `CacheWriter` — 背景 queue worker，把 metadata + 縮圖寫入序列化，避免阻塞 UI 與部分寫入。**Dispose 順序：先 `CacheWriter`（drain queue + join worker）再 `_metaStore`**（見 `MainForm.OnFormClosed`）。
-- `CacheRebuildService`（完整重建索引）/ `CatalogReconcileService`（偵測新增/刪除/移動同步 catalog，產 `ReconcileReport`）/ `ReparseAllService`（規則變更後重解析已編目項目）/ `CacheIntegrityChecker`（孤兒偵測）。進度都透過 `RebuildProgressTracker`，其 `StateChanged` 事件直接驅動 `MainForm` 底部 statusBar。
+**Cache / Catalog**
+- `IAssetMetaStore` → `SqliteAssetMetaStore`（`cache.db`，Dapper + Microsoft.Data.Sqlite，snake_case ↔ PascalCase）。**schema v9**（v9 新增 `tag_alias`：多個標籤合併成虛擬主標籤，舊名當別名自動導向；nhentai 匯入與 `SearchExecutor` 都會走 alias）。另有 `EnsureVirtualLibraryItemTable()` 每次啟動檢查。建構子有 `readOnly` 參數（`Mode=ReadOnly`、不跑 migration）。`SqliteConnection` 非 thread-safe，所有方法走內部 `_lock`，別繞過。
+- `Core/Cache/`：`CacheWriter`（背景 queue 寫 metadata + 縮圖）、`FileSystemThumbStore`（`thumbs/<前2字元>/<key>.jpg`，tmp+rename 原子寫）、`CatalogReconcileService`、`ReparseAllService`、`CacheIntegrityChecker`、`RebuildProgressTracker`。**Dispose 順序：先 `CacheWriter`（drain + join）再 meta store**。
+- `CacheRebuildService` 與 `CoverManager` 目前**仍在 App**（WinForms 用）；Avalonia 用自己的 `SkiaCoverService`。
 
-**Metadata 解析（根目錄）**
-- `FilenameMetadataParser` — 從檔名/資料夾名抽出 event / author / title / parody / language / 翻譯組等（作者格式、語言對映表）。
-- `FolderRoleDetector` — bottom-up 推測資料夾層級角色（Root / Author / Series / Work / Chapter / Image），詳見記憶 `project_folder_role_detector`。
-- `ParsedMetadata` / `AssetMetadata` / `AssetCatalogEntry` / `Author` / `Tag` / `ReadStatus` / `Bookmark` 是對應 DB 表的 model。
+**Metadata 解析**：`FilenameMetadataParser`（event / author / title / parody / language / 翻譯組）、`FolderRoleDetector`（bottom-up 推測 Root/Author/Series/Work/Chapter/Image，見記憶 `project_folder_role_detector`）。
 
-**ExternalSync 子層（`Core/ExternalSync/`）** — nhentai metadata 整合（#52）
-- `IMetadataAPIClient` → `NhentaiApiClient`（呼叫 nhentai API，DPAPI 加密的 key，自帶限速）。
-- `NhentaiIdExtractor` 從檔名抽 gallery id；`AssetExternalSource` 把原始回應存進 DB 避免重複呼叫；`MergeResult` 處理與本地手動編輯欄位的衝突；`BatchExternalFetchService` + `BatchSyncStrategy` 做作者批量同步。
+**其他子層**
+- `Core/ExternalSync/` — nhentai（`NhentaiApiClient` 自帶限速、`NhentaiIdExtractor`、`AssetExternalSource` 存原始回應、`MergeResult`、`BatchExternalFetchService` + `BatchSyncStrategy`）。
+- `Core/Translation/` — EhTag 標籤翻譯：`TagTranslationDb`（lazy 解壓 embedded，CC BY-NC-SA 4.0）、`TagTranslator`、`TagTranslationUpdater`（GitHub release，24h 防 spam）、`ZhConverter`（OpenCCNET，見記憶 `reference_chinese_conversion`）。
+- `Core/Search/` — `SearchQueryParser`/`SearchQuery`（`artist:`/`author:`、`tag:`、`language:`/`lang:`、`read:`/`status:`、`-` 否定）→ `SearchExecutor` 轉 SQL；新增 `DslSuggestionService`（自動完成）、`SearchFuzzyRecommender`（0 結果模糊推薦）。
+- `Core/VirtualLibrary/` — 存起來的 DSL query = 動態虛擬庫，即時跑不快取。
+- `Core/Explore/` — `ExploreWallService`（靈感探索牆：雙主軸探索、隨機雙題材碰撞）。
+- `Core/Reader/` — `IReaderSource` → `Folder/Archive(SharpCompress)/PdfReaderSource(PDFtoImage)`、`SkiaPageRenderer`（SKImage LRU + 背景預載）、`ContinuousLayout`、`SkiaTranslationRenderer`、`BubbleEnvelope`、`WordBreakAdvisor`/`ChineseWordDict`、`LlmTranslationService`（OpenAI-compatible / Ollama / 雲端端點；**擬聲詞/雜訊刻意譯成空字串 `""`**，重繪時空譯文不塗白）、`ReaderImageEnhancer`（超解析，內建 `BuiltInAnimeLineSuperResPlugin`，可從 `plugins\ImageEnhancer\*.dll` 載外掛）、`ISkiaOcr.cs`（`ISkiaOcrService` / `ISkiaOcrPlugin` / `SkiaOcrPluginManager`）。
+- `Models/` — `AppConfig`(+Extensions)、`UserPreferences`、`AppTheme`、`MoveTask`、`GallerySortModels`、`PagePickerHelper`、`DrawerWidthHelper`、`DelayedLoadingTracker`。
 
-**Translation 子層（`Core/Translation/`）** — EhTag 標籤翻譯（#53）
-- `TagTranslationDb` lazy 解壓 embedded `Resources/db.text.json.gz`（EhTagTranslation Database，CC BY-NC-SA 4.0）；`TagTranslator` 是門面（nhentai type/slug → 中文，簡體經 `ZhConverter` 轉繁）；`TagTranslationUpdater` 背景檢查 GitHub release 新版（24h 防 spam，`MainForm.CheckTranslationDbUpdateInBackground`）。簡繁轉換用 **OpenCCNET**（見記憶 `reference_chinese_conversion`）。
+## Avalonia UI（`src/ComicOrganizer.Avalonia/`）— 主力
 
-**Reader 子層（`Core/Reader/`）** — 內建閱讀器（#49 / #51）
-- `IReaderSource` → `FolderReaderSource` / `ArchiveReaderSource`（SharpCompress，支援 rar/7z）/ `PdfReaderSource`（PDFtoImage）。
-- `ReaderImageLoader`（LRU + 鄰頁預載）、`ContinuousLayout`（RTL/LTR 連續捲軸版面）、`FontSizeOptimizer`。
-- OCR：`IOcrService` → `PaddleOcrService`（**PaddleOCRSharp + Paddle.Runtime.win_x64**，模型 `inference/PP-OCRv6_small_{det,rec}_infer` + `PP-OCRv5_mobile_cls_infer`，全離線）/ `WindowsOcrService`（Windows 10+ 原生），可在「系統設定 → 閱讀器」動態切換。翻譯：`ITranslationService` → `LlmTranslationService`（OpenAI-compatible / Ollama 端點，端點與並發在 `AppConfig`）。
-- **OCR→翻譯→重繪管線（`ReaderForm.cs`）**：OCR 原始 block 先經 `IOcrService.MergeBlocks()` 合併跨行/斷氣泡的文字（`ReaderForm.cs:1909`）→ `LlmTranslationService` 用 system prompt + few-shot 把日文譯成繁中，並**刻意把擬聲詞/狀聲詞/辨識雜訊翻成空字串 `""`**（`LlmTranslationService.cs:55-71`）→ 重繪時**只對各子氣泡區域分別塗白遮罩**再排版繪製譯文（`ReaderForm.cs:2119-2136`），空譯文區塊直接略過（不塗白、保留手繪狀聲詞）。
-- **最近一次重構（commit `954c280`）動的就是這套 OCR/翻譯架構與字體計算（`FontSizeOptimizer`）**。
+- **啟動**：`Program.Main` 先把 `BaseDirectory\lib` 加進原生 DLL 搜尋路徑 → 若帶 `--visual-index-worker` 則以圖搜漫建庫子行程執行後結束 → 否則 `App.OnFrameworkInitializationCompleted`：`new AppDataContext(args)` → `ApplyInitialTheme()` → `new MainWindowViewModel(ctx)` → `MainWindow`；結束時依序 Dispose。
+- **`Services/AppDataContext` = 組合根**：解析 DataDirectory → Config / Preferences 載入 → `Lazy` SqliteAssetMetaStore（可唯讀）→ `Lazy` FileSystemThumbStore → `VisualIndexHostService` → `Lazy` TagTranslator → `SkiaOcrPluginManager.RegisterNativeFallback(WindowsSkiaOcrService)` → SukiToastManager；也管 SukiUI 主題（深/淺 + 5 種強調色）。
+- **MVVM**：CommunityToolkit.Mvvm（`[ObservableProperty]` / `[RelayCommand]`）+ `ViewLocator`；`ViewModels/` ↔ `Views/*.axaml`。
+- **導覽**：`SukiSideMenu` 7 頁 —— 靈感探索牆（`ExplorePageViewModel`，啟動即載）、漫畫庫畫廊（`Gallery`）、閱讀軌跡（`ReadingTrack`）、圖搜漫（`VisualSearch`）、自動歸檔（`AutoArchive`）、資料管理/維護中心（`DataManagement`）、系統設定（`Settings`）。其餘頁面由 `StartDeferredInitialization()` 在視窗顯示後背景載入。
+- **自訂控制項**：`DslSearchBox`（區塊化 DSL 搜尋框）、`DeckCoverControl`（疊牌懸停輪播）、`SkiaComicViewport`。
+- **閱讀器**：`ReaderWindow` + `ReaderViewModel`，經 `IReaderWindowLauncher`（`AvaloniaReaderWindowLauncher`，fallback 外部 viewer）開啟。`SkiaComicViewport` 用 `ICustomDrawOperation` 直接畫 SKCanvas（單頁 / 雙頁跨頁 / 連續捲動）；`Services/ReaderPagePipeline` 負責頁快取、預載、超解析、OCR→翻譯。
+- **唯讀保護**：以 `--read-only` / `COMIC_ORGANIZER_READONLY=1` 啟用，各 VM 寫入動作會被攔截並 toast 提示（共用開發庫 `D:\ComicOrganizer` 常用此模式）。
+- UI thread：非同步結果更新 UI 要經 `Dispatcher.UIThread`。
 
-**Search / VirtualLibrary 子層**
-- `Core/Search/`：`SearchQueryParser.Parse()` 把字串解析成 `SearchQuery`（term 清單，支援 `artist:`/`author:`、`tag:`、`language:`/`lang:`、`read:`/`status:` 欄位與 `-` 否定，未知 field 退化成純文字；positive AND、negative except）→ `SearchExecutor` 轉 SQL 查 catalog。
-- `Core/VirtualLibrary/`：`VirtualLibrary` / `VirtualLibraryProvider` / `IVirtualLibraryNode` — 使用者存的 DSL query 變成動態虛擬庫，結果即時跑不快取。
+## 圖搜漫（`src/ComicOrganizer.VisualSearch/`）
 
-**其他**：`Core/Theming/`（`ThemeManager` / `ThemeColors` / `LocalizationManager` / `IThemedControl`，見記憶 `project_theme_colors`）、`NaturalStringComparer`、`ReadRecordQueue`（閱讀計數延遲提交）。
+截圖反查作品 + 頁碼 + 分鏡位置；需求規格見 `docs/code_artifact.md`（零外部服務、目標 1 萬本 / ~1000 萬向量、待機 0 VRAM）。
+- 管線：YOLO 分鏡偵測（`panel_detector.onnx`）→ Meta SSCD 特徵（`sscd_disc_mixup.onnx`）→ USearch 分片（`shards\panels_NNN.usearch`）+ 獨立 SQLite `visual_index.db`；XxHash3 指紋做增量更新。ONNX 走 DirectML。
+- 主要類別：`VisualSearchEngine`、`VisualIndexingPipeline`、`ShardedVectorStore`、`VisualIndexDatabase`、`VisualComicReader`、`VisualSearchPaths`。
+- 檔案在 `<DataDirectory>\visual_search\{models,shards,visual_index.db}`，與 `cache.db` 分開。**模型不進 repo**，由設定頁下載（`AppConfig.VisualSearchPanelModelUrl` / `VisualSearchEmbedModelUrl`）或本機匯入。
+- 建庫由 Avalonia 的 `VisualIndexHostService` 開**子行程** `--visual-index-worker --data-dir ...` 執行，結束後 VRAM 交還系統。開關：`EnableVisualSearch`（預設 false）、`VisualSearchAutoIndexAfterArchive`、`VisualSearchEnableMultiCropRerank`。
 
-### Models（`ComicOrganizer.App/Models/`）
+## OCR 外掛
 
-`AppConfig`（路徑、外部 viewer、Blacklist/BlacklistPatterns、外部 metadata 與翻譯/OCR 相關設定、DPAPI 密文等）、`UserPreferences`（主題 / 語言 / reader 偏好）、`AppTheme`、`ArchiveItem` / `ArchiveGroup`（歸檔 Table 綁定）、`GalleryListItem` / `MoveTask` / `AppConfigExtensions`。
+兩套並存：
+- **Core 新版**：`SkiaOcrPluginManager` + `ISkiaOcrPlugin`（不依賴 System.Drawing），掃 `BaseDirectory\plugins` 與**上一層的 `plugins`**；遇 `ReflectionTypeLoadException` 只取能載入的型別。原生 Windows OCR 由宿主 `RegisterNativeFallback` 註冊。Avalonia 用這套。
+- **App 舊版**：`App/Core/Reader/OcrPluginManager` + `IOcrPlugin`，掃 `plugins\**\*.dll`（略過 `paddle_`/`mkl`/`opencv_`/`DirectML`/`System.`/`Microsoft.` 開頭），collectible `AssemblyLoadContext` 載入。
+- `ComicOrganizer.Plugin.PaddleOcr` 兩套介面都實作（`PaddleOcrPlugin` / `PaddleSkiaOcrPlugin`），**OutputPath 直接輸出到 `ComicOrganizer.App\bin\<Config>\net8.0-windows10.0.19041.0\plugins\PaddleOCR\`**。模型 `inference\PP-OCRv6_small_{det,rec}_infer` 等放 BaseDirectory。
 
-### UI 層（`ComicOrganizer.App/UI/`）
+## Legacy WinForms（`src/ComicOrganizer.App/`）
 
-使用 **AntdUI 2.3.12**（WinForms 上的 Ant Design 風格元件庫），不是原生 Forms 或 WPF；`MainForm` 繼承 `AntdUI.Window`。**AntdUI 有大量踩坑，動 UI 前先看記憶 `feedback_antdui_quirks`**。整體 UI 層級見記憶 `project_ui_architecture`。
+`MainForm`（`AntdUI.Window`）組 service chain；三個主 UserControl（`GalleryControl` / `ArchiveControl` / `MetadataManageControl`）疊在 `contentHost` 用 `Visible` 切換；`ReaderForm` 有完整 GDI+/Skia-GPU 閱讀器與 OCR→翻譯→重繪管線。App 端仍保留：`CoverManager`、`CacheRebuildService`、`AutocompleteHelpers`、`Core/Theming/`、`Core/Reader/` 的 `WindowsOcrService`、`ComicTextDetector`（ONNX 文字遮罩）、`TextEraser`、`FontSizeOptimizer`、`ReaderFonts`、`ReaderImageLoader`、`BubbleEnvelopeGdi`、`ModelDownloader`；`Models/` 的 `ArchiveItem/Group`、`GalleryListItem`、`ReaderNavigationHelper`、`TabNavigationHistory`、`WindowLayoutHelper`。
 
-- **`GalleryControl`（漫畫庫管理）** — 拆成多個 partial：`.cs`（主邏輯 + view mode）、`.Tree`（左側導覽，Folder / ByAuthor / ByTag / MyLib / ReadingTrack 多模式）、`.Gallery`（卡片網格 `ComicCardControl`）、`.Tabs`（per-tab view mode）、`.Search`（搜尋條 + DSL）、`.Dashboard`（首頁最近閱讀）、`.Drawer`（右側詳情抽屜 `DetailDrawerHost` / `WorkDetailPanel` / `AuthorInfoPanel`）、`.ExternalSync`（單本/批量 nhentai 同步）。
-- **`ArchiveControl`（自動歸檔）** — 掃描 `UnorganizedDirectory` 產生 `ArchiveItem`（勾選框、多選、右鍵菜單、跨磁碟卷移動），按信心排序；「預覽歸檔計畫」開 `PreviewForm`（`AntdUI.Collapse` 依目標目錄分群，每群有 Switch 執行/略過 + 刪除，`ExecuteArchiveAsync()` 真正搬檔 `Directory.Move`/`File.Move`，成功後 `_intelligence.Learn(kw, 目標資料夾)`）。
-- **`MetadataManageControl`（詮釋資料管理）** — 三 section：`TagManagePanel` / `AuthorManagePanel`+`AuthorInfoPanel`+`AuthorWorksListPanel` / `MetadataToolsPanel`（重新解析、重建索引、更新翻譯庫）。作者面板的「同步選取作品」透過 `RequestBatchSync` / `RequestSyncOne` 事件委派回 `GalleryControl`。
-- 其他 Form/Dialog：`ReaderForm`（內建閱讀器，翻頁/雙頁/連續捲軸/書籤/OCR+翻譯 toolbar）、`SettingsForm`、`RebuildCacheForm`（非 modal `Show()`，背景跑可關閉）、`NhentaiSearchPickerDialog` / `ExternalMetadataMergeDialog` / `BatchSyncModeDialog`、`TagPickerDialog` / `AuthorPickerDialog`、`UpdateTranslationDbDialog`。
+動 WinForms 前看記憶 `feedback_antdui_quirks` / `project_ui_architecture` / `project_theme_colors`；修改 `*.Designer.cs` 要確保 event 綁定一致（commit `e5e08d7` 曾因此建置失敗），VS Designer regenerate 會還原寫死的 ARGB 主題色。
 
-### 資料持久化一覽（皆在 exe 同層 `BaseDirectory`）
+## 資料持久化
 
-| 路徑 | 內容 |
+**Avalonia 的 DataDirectory** 解析順序：① 建構參數 / `--data-dir` / `COMIC_ORGANIZER_DATA_DIR` → ② `BaseDirectory` 已有 `cache.db` 或 `appsettings.json` → ③ `D:\ComicOrganizer` 存在（共享開發庫）→ ④ 退回 `BaseDirectory`。WinForms 版與 Core managers 預設都用 `BaseDirectory`。不使用 AppData。
+
+| 路徑（DataDirectory 下） | 內容 |
 |------|------|
 | `appsettings.json` | `AppConfig`（含 DPAPI 加密的 nhentai key） |
-| `preferences.json` | `UserPreferences`（主題 / 語言 / reader 偏好） |
-| `mappings.json` | `MappingIntelligence` 學過的關鍵字 → 目錄映射 |
-| `cache.db` | SQLite metadata catalog（asset / metadata / author / tag / bookmark / virtual_library / external source…） |
-| `thumbs/` | 縮圖檔（雜湊命名） |
+| `preferences.json` | `UserPreferences` |
+| `mappings.json` | `MappingIntelligence` 關鍵字 → 目錄映射 |
+| `cache.db` | SQLite catalog（schema v9） |
+| `thumbs/` | 縮圖 |
 | `translations/db.text.json.gz` | EhTag 翻譯庫 disk cache（無則用 embedded） |
-| `inference/` | PaddleOCR 模型檔 |
+| `visual_search/` | 圖搜漫模型、向量分片、`visual_index.db` |
 
-### 測試（`ComicOrganizer.Tests/`，xUnit + `ITestOutputHelper`）
+以 BaseDirectory 為準（不跟 DataDirectory）：`plugins/`、`inference/`（PaddleOCR 模型）、`lib/`（原生 DLL）。
 
-涵蓋面已遠超歸檔本身。重點分組：
-- **歸檔/學習**：`SelfLearningTests`（改 `ArchiveOrganizer` 比對邏輯的主要回歸網）、`RealDataHybridTest`（兩階段：富資訊檔名「教」→ 簡化檔名驗證 `IsLearned=true`）、`PersistenceTests`（獨立 `test_mappings.json` 驗 save/load）。
-- **解析/metadata**：`FilenameMetadataParserTests`、`FolderRoleAnalysisTest` / `FolderRoleDetectorTests`、`MetadataPersistenceTest` / `MetadataEditTests` / `ScanMetadataIntegrationTest` / `AuthorAggregationTests`。
-- **快取/DB**：`CatalogReconcileTests`、`ReparseAllTests`、`MigrationV1V2Test`、`BookmarkStoreTests`。
-- **外部/翻譯**：`NhentaiApiClientTests`、`ExternalSourceTests`、`TagTranslationTests` / `TagTranslationStoreTests` / `TagTranslationUpdaterTests`、`TranslationTest`、`RealTranslationFlowTest`、`OcrTest`。
-- **搜尋/虛擬庫**：`SearchDslTests`、`VirtualLibraryQueryTests` / `VirtualLibraryStoreTests`。
-- **閱讀器/效能**：`ContinuousLayoutTests`、`FontSizeConsistencyTests`、`CoverDecodePerfTest` / `FolderCoverPerfTest` / `WebpOptimizationTest` / `ImageFormatBenchmarkTest`。
-- **大批量人工觀察**：`FullRealDataBatchTest`（寫死真實路徑，不 assert）。
+## 測試（`src/ComicOrganizer.Tests/`，xUnit + `ITestOutputHelper`）
+
+- 歸檔/學習：`SelfLearningTests`（改比對邏輯的主要回歸網）、`RealDataHybridTest`、`PersistenceTests`、`ArchiveMoveHelperTests`。
+- 解析/metadata：`FilenameMetadataParserTests`、`FolderRoleDetectorTests`、`MetadataEditTests`、`AuthorAggregationTests`、`TagAliasVirtualMergeTests`。
+- 快取/DB：`CatalogReconcileTests`、`ReparseAllTests`、`MigrationV1V2Test`、`BookmarkStoreTests`。
+- 外部/翻譯：`NhentaiApiClientTests`、`ExternalSourceTests`、`TagTranslation*Tests`、`RealTranslationFlowTest`、`OcrTest`、`OcrPluginTests`。
+- 搜尋/虛擬庫/探索：`SearchDslTests`、`ExtendedSearchCoreTests`、`VirtualLibrary*Tests`、`ExploreWallServiceTests`。
+- Avalonia ViewModel：`ExplorePageViewModelTests`、`GalleryPageViewModelTests`、`ReadingTrackPageViewModelTests`、`ReaderViewModelTests`、`Phase4ManagementTests`、`SkiaCoverServiceTests`。
+- 閱讀器/圖搜漫/效能：`SkiaPageRendererTests`、`SkiaTranslationRendererTests`、`ReaderImageEnhancerTests`、`ContinuousLayoutTests`、`VisualSearchEngineTests`、`CoverDecodePerfTest` / `WebpOptimizationTest` 等。
 
 ## 規範與常見坑
 
-- **回應一律繁體中文**（個人 global 規則）；程式註解既有風格也是繁中，請延續。
-- 流程：**思考與討論 → 規劃 → 列工作項目 → 逐項執行（執行前確認）→ 測試**；每項完成後先讓使用者確認再進下一項，不要一次跑完整批改動。
-- 對 UI 的非同步操作必須切回 UI thread（`InvokeRequired` → `BeginInvoke`，既有程式如 `MainForm.UpdateStatusFromTracker` / `ShowStatus` 有完整範例，照抄即可）。
-- 服務初始化有**時序相依**：`ThemeManager.Initialize` 必須在 `InitializeComponent` 前（否則 Designer 取到錯主題色）；各 UserControl 的 `Initialize(...)` 在 `Form.Load` 才呼叫（handle 已建立）。
-- 修改任何 `*.Designer.cs` 時要確保 Designer 區與對應 `.cs` 的 event 綁定一致 —— 曾因 Designer 變更未提交導致建置失敗（見 commit `e5e08d7`）。VS Designer regenerate 會還原寫死的 ARGB 主題色（見記憶 `project_theme_colors`）。
-- 知識庫（`mappings.json`）的 key 一律以**小寫正規化形式**儲存；新增比對流程時別忘了同樣 `ToLower()` 才能命中。
-- `CacheWriter` / `SqliteAssetMetaStore` 的 dispose 有先後順序（見上）；SqliteConnection 非 thread-safe，DB 存取靠內部 lock 序列化，別繞過。
-- DPAPI 密文不可硬塞明文 token 進 `appsettings.json`，一律走 `SecureStringStore` / `AppConfigExtensions`。
-- 進行中工作與待辦見記憶 `project_52_53_progress`；roadmap（`GEMINI.md`）：歸檔衝突選擇介面、Undo、空間檢查尚未實作。
+- **回應一律繁體中文**；程式註解也用繁中。區塊敘述（using/if/foreach/try）一律多行標準區塊，禁止單行寫法。
+- 流程：**思考與討論 → 規劃 → 列工作項目 → 逐項執行（執行前確認）→ 測試**；每項完成先讓使用者確認再進下一項。
+- 新邏輯優先放 Core（保持 `net8.0`、不引入 System.Drawing / WinForms）；UI 專屬放 Avalonia。
+- 知識庫 key 一律小寫正規化；新增比對流程記得 `ToLower()`。
+- `CacheWriter` → meta store 的 dispose 順序；SqliteConnection 靠內部 lock 序列化。
+- DPAPI 密文不可塞明文進 `appsettings.json`，走 `SecureStringStore` / `AppConfigExtensions`。
+- ONNX 模型（comic-text-detector、圖搜漫模型）**絕不進 repo**（授權問題，見記憶 `project_licensing`）。
+- 進行中工作見記憶 `project_52_53_progress`；roadmap：歸檔衝突選擇介面、Undo、空間檢查尚未實作。
