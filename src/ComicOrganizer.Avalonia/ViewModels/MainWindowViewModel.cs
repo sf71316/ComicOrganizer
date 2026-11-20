@@ -51,6 +51,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly AppDataContext _dataContext;
     private readonly SkiaCoverService _coverService;
     private bool _isSyncingSearch;
+    private bool _deferredInitStarted;
     private bool _disposed;
 
     public MainWindowViewModel(AppDataContext dataContext)
@@ -71,17 +72,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
                 SelectAccent))
             .ToList();
 
-        ExplorePage = new ExplorePageViewModel(dataContext, _coverService);
+        ExplorePage = new ExplorePageViewModel(dataContext, _coverService, autoLoad: true);
         ExplorePage.PropertyChanged += OnExplorePagePropertyChanged;
         ExplorePage.OpenInGalleryRequested += OnOpenInGalleryRequested;
 
-        GalleryPage = new GalleryPageViewModel(dataContext, _coverService);
-        ReadingTrackPage = new ReadingTrackPageViewModel(dataContext, _coverService);
+        GalleryPage = new GalleryPageViewModel(dataContext, _coverService, autoLoad: false);
+        ReadingTrackPage = new ReadingTrackPageViewModel(dataContext, _coverService, autoLoad: false);
         ReadingTrackPage.OpenInGalleryRequested += OnOpenInGalleryRequested;
+        VisualSearchPage = new VisualSearchPageViewModel(dataContext);
+        VisualSearchPage.OpenSettingsRequested += OnVisualSearchOpenSettingsRequested;
         AutoArchivePage = new AutoArchivePageViewModel(dataContext);
-        DataManagementPage = new DataManagementPageViewModel(dataContext, _coverService);
+        DataManagementPage = new DataManagementPageViewModel(dataContext, _coverService, autoLoad: false);
         DataManagementPage.OpenInGalleryRequested += OnOpenInGalleryRequested;
         SettingsPage = new SettingsPageViewModel(dataContext);
+        SettingsPage.OpenVisualSearchRequested += OnSettingsOpenVisualSearchRequested;
 
         _dataContext.ThemeChanged += OnDataContextThemeChanged;
         _dataContext.SettingsChanged += OnDataContextSettingsChanged;
@@ -99,11 +103,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
 
     public ReadingTrackPageViewModel ReadingTrackPage { get; }
 
+    public VisualSearchPageViewModel VisualSearchPage { get; }
+
     public AutoArchivePageViewModel AutoArchivePage { get; }
 
     public DataManagementPageViewModel DataManagementPage { get; }
 
     public SettingsPageViewModel SettingsPage { get; }
+
+    public bool IsVisualSearchEnabled => _dataContext.Config.EnableVisualSearch;
 
     [ObservableProperty]
     private bool _isSideMenuExpanded = true;
@@ -237,11 +245,38 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         }
     }
 
+    public void StartDeferredInitialization()
+    {
+        if (_deferredInitStarted || _disposed) return;
+        _deferredInitStarted = true;
+
+        // 視窗出現後再非同步載入其他次要分頁，消除啟動時主執行緒阻塞與資料庫搶鎖
+        _ = Task.Run(async () =>
+        {
+            await Task.WhenAll(
+                GalleryPage.RefreshAsync(),
+                ReadingTrackPage.RefreshAsync()).ConfigureAwait(false);
+            await DataManagementPage.EnsureLoadedAsync().ConfigureAwait(false);
+        });
+    }
+
+    private void OnVisualSearchOpenSettingsRequested()
+    {
+        NavigateToPageRequested?.Invoke(SettingsPage);
+    }
+
+    private void OnSettingsOpenVisualSearchRequested()
+    {
+        NavigateToPageRequested?.Invoke(VisualSearchPage);
+    }
+
     private void OnDataContextSettingsChanged()
     {
+        OnPropertyChanged(nameof(IsVisualSearchEnabled));
         _ = ExplorePage.RefreshCommand.ExecuteAsync(null);
         _ = GalleryPage.RefreshAsync();
         _ = ReadingTrackPage.RefreshAsync();
+        VisualSearchPage.RefreshStatus();
         AutoArchivePage.RefreshConfigSummary();
         DataManagementPage.RefreshAll();
     }
@@ -267,6 +302,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         GalleryPage.Dispose();
         ReadingTrackPage.OpenInGalleryRequested -= OnOpenInGalleryRequested;
         ReadingTrackPage.Dispose();
+        VisualSearchPage.OpenSettingsRequested -= OnVisualSearchOpenSettingsRequested;
+        VisualSearchPage.Dispose();
+        SettingsPage.OpenVisualSearchRequested -= OnSettingsOpenVisualSearchRequested;
         DataManagementPage.OpenInGalleryRequested -= OnOpenInGalleryRequested;
         DataManagementPage.Dispose();
         _coverService.Dispose();

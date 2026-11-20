@@ -37,6 +37,8 @@ public sealed class AppDataContext : IDisposable
     private readonly Lazy<IAssetMetaStore> _metaStore;
     private readonly Lazy<IThumbStore> _thumbStore;
     private readonly SukiToastManager _toastManager;
+    private readonly VisualIndexHostService _visualIndexHost;
+    private Lazy<TagTranslator> _tagTranslator;
     private bool _disposed;
 
     public AppDataContext(string? explicitDataDirectory = null, string[]? args = null, bool? forceReadOnlyDatabase = null)
@@ -44,7 +46,7 @@ public sealed class AppDataContext : IDisposable
         var (resolvedDir, isSharedDev) = ResolveDataDirectory(explicitDataDirectory, args);
         DataDirectory = resolvedDir;
         IsSharedDevDataDirectory = isSharedDev;
-        IsReadOnlyDatabase = forceReadOnlyDatabase ?? (isSharedDev && File.Exists(Path.Combine(DataDirectory, "cache.db")));
+        IsReadOnlyDatabase = forceReadOnlyDatabase ?? ResolveReadOnlyRequested(args);
 
         _configManager = new ConfigManager(Path.Combine(DataDirectory, "appsettings.json"));
         _preferencesManager = new UserPreferencesManager(Path.Combine(DataDirectory, "preferences.json"));
@@ -58,9 +60,10 @@ public sealed class AppDataContext : IDisposable
 
         _metaStore = new Lazy<IAssetMetaStore>(CreateMetaStore);
         _thumbStore = new Lazy<IThumbStore>(() => new FileSystemThumbStore(Path.Combine(DataDirectory, "thumbs")));
+        _visualIndexHost = new VisualIndexHostService(DataDirectory);
 
         var translationDiskPath = Path.Combine(DataDirectory, "translations", "db.text.json.gz");
-        TagTranslator = new TagTranslator(translationDiskPath);
+        _tagTranslator = new Lazy<TagTranslator>(() => new TagTranslator(translationDiskPath));
 
         if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
         {
@@ -84,12 +87,14 @@ public sealed class AppDataContext : IDisposable
 
     public IThumbStore ThumbStore => _thumbStore.Value;
 
-    public TagTranslator TagTranslator { get; private set; }
+    public VisualIndexHostService VisualIndexHost => _visualIndexHost;
+
+    public TagTranslator TagTranslator => _tagTranslator.Value;
 
     public void ReloadTagTranslator()
     {
         var translationDiskPath = Path.Combine(DataDirectory, "translations", "db.text.json.gz");
-        TagTranslator = new TagTranslator(translationDiskPath);
+        _tagTranslator = new Lazy<TagTranslator>(() => new TagTranslator(translationDiskPath));
     }
 
     public ISukiToastManager ToastManager => _toastManager;
@@ -186,6 +191,8 @@ public sealed class AppDataContext : IDisposable
         Preferences = prefs;
         SettingsChanged?.Invoke();
     }
+
+    public void NotifySettingsChanged() => SettingsChanged?.Invoke();
 
     public void ReloadSettings()
     {
@@ -291,6 +298,20 @@ public sealed class AppDataContext : IDisposable
         return (baseDir, false);
     }
 
+    private static bool ResolveReadOnlyRequested(string[]? args)
+    {
+        // 預設可寫入；需要保護時以 --read-only 或環境變數 COMIC_ORGANIZER_READONLY=1 明確啟用唯讀
+        var effectiveArgs = args ?? Environment.GetCommandLineArgs().Skip(1).ToArray();
+        if (effectiveArgs.Any(a => string.Equals(a, "--read-only", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        var env = Environment.GetEnvironmentVariable("COMIC_ORGANIZER_READONLY");
+        return string.Equals(env, "1", StringComparison.Ordinal)
+               || string.Equals(env, "true", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string? ParseCliDataDir(string[]? args)
     {
         var effectiveArgs = args ?? Environment.GetCommandLineArgs().Skip(1).ToArray();
@@ -339,6 +360,7 @@ public sealed class AppDataContext : IDisposable
         }
 
         _disposed = true;
+        _visualIndexHost.Dispose();
         _toastManager.Dispose();
 
         if (_metaStore.IsValueCreated)

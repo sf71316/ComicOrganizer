@@ -114,4 +114,21 @@ public class AppConfig
     /// <summary>閱讀器底圖改用 SkiaSharp/GPU(SKGLControl) 繪製(實驗)。預設 false；
     /// 開啟後單頁等非譯文模式走 GPU canvas，GL 起不來時自動退回 GDI+。需重開閱讀器生效。</summary>
     public bool UseGpuRendering { get; set; } = false;
+
+    // ===== 圖搜漫（額外選配功能，預設關閉，需於設定頁啟用並下載 ONNX 模型） =====
+
+    /// <summary>是否啟用「🔎 圖搜漫」功能（預設 false，關閉時不載入模型與向量索引）。</summary>
+    public bool EnableVisualSearch { get; set; } = false;
+
+    /// <summary>自動歸檔搬檔完成後，是否自動補建新歸檔漫畫的視覺索引（預設 false）。</summary>
+    public bool VisualSearchAutoIndexAfterArchive { get; set; } = false;
+
+    /// <summary>圖搜漫於低信心（Top-1 &lt; 0.72）時自動觸發純 CPU Multi-Crop 極端裁切精排（預設 true）。</summary>
+    public bool VisualSearchEnableMultiCropRerank { get; set; } = true;
+
+    /// <summary>分鏡偵測模型（panel_detector.onnx）選用自訂下載網址（空值代表使用預設或本機匯入）。</summary>
+    public string VisualSearchPanelModelUrl { get; set; } = "";
+
+    /// <summary>特徵提取模型（sscd_disc_mixup.onnx）選用自訂下載網址（空值代表使用預設或本機匯入）。</summary>
+    public string VisualSearchEmbedModelUrl { get; set; } = "";
 }

@@ -1,3 +1,4 @@
+using Avalonia.Threading;
 using ComicOrganizer.Avalonia.ViewModels;
 using SukiUI.Controls;
 
@@ -11,7 +12,16 @@ public partial class MainWindow : SukiWindow
     {
         InitializeComponent();
         DataContextChanged += OnMainDataContextChanged;
+        Opened += OnWindowOpened;
         Closed += (_, _) => DetachViewModel();
+    }
+
+    private void OnWindowOpened(object? sender, EventArgs e)
+    {
+        if (_boundViewModel is not null)
+        {
+            Dispatcher.UIThread.Post(_boundViewModel.StartDeferredInitialization, DispatcherPriority.Background);
+        }
     }
 
     private void OnMainDataContextChanged(object? sender, EventArgs e)

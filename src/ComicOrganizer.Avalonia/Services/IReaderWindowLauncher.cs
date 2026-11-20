@@ -15,6 +15,16 @@ public interface IReaderWindowLauncher
         string? authorName,
         Action? onReaderClosed,
         out string? errorMessage);
+
+    bool OpenInReaderAtPage(
+        string path,
+        int pageIndexZeroBased,
+        (float X, float Y, float W, float H)? highlightBox,
+        string? displayTitle,
+        string? authorName,
+        Action? onReaderClosed,
+        out string? errorMessage)
+        => OpenInReader(path, displayTitle, authorName, onReaderClosed, out errorMessage);
 }
 
 /// <summary>
@@ -31,6 +41,26 @@ public sealed class AvaloniaReaderWindowLauncher : IReaderWindowLauncher
 
     public bool OpenInReader(
         string path,
+        string? displayTitle,
+        string? authorName,
+        Action? onReaderClosed,
+        out string? errorMessage)
+        => OpenInReaderInternal(path, null, null, displayTitle, authorName, onReaderClosed, out errorMessage);
+
+    public bool OpenInReaderAtPage(
+        string path,
+        int pageIndexZeroBased,
+        (float X, float Y, float W, float H)? highlightBox,
+        string? displayTitle,
+        string? authorName,
+        Action? onReaderClosed,
+        out string? errorMessage)
+        => OpenInReaderInternal(path, pageIndexZeroBased, highlightBox, displayTitle, authorName, onReaderClosed, out errorMessage);
+
+    private bool OpenInReaderInternal(
+        string path,
+        int? initialPageZeroBasedOverride,
+        (float X, float Y, float W, float H)? highlightBox,
         string? displayTitle,
         string? authorName,
         Action? onReaderClosed,
@@ -52,7 +82,13 @@ public sealed class AvaloniaReaderWindowLauncher : IReaderWindowLauncher
         ReaderViewModel? vm = null;
         try
         {
-            vm = new ReaderViewModel(_dataContext, normalized, displayTitle, authorName);
+            vm = new ReaderViewModel(
+                _dataContext,
+                normalized,
+                displayTitle,
+                authorName,
+                initialPageZeroBasedOverride: initialPageZeroBasedOverride,
+                initialHighlightBox: highlightBox);
             if (vm.PageCount <= 0)
             {
                 vm.Dispose();

@@ -61,6 +61,10 @@ public partial class ReaderWindow : SukiWindow
         Viewport.IsTranslationEnabled = vm.IsTranslationEnabled;
         Viewport.IsComparingOriginal = vm.IsComparingOriginal;
         Viewport.EnhancementOptions = vm.EnhancementOptions;
+        if (vm.InitialHighlightBox is { } hb)
+        {
+            Viewport.SetHighlightPanel(hb.PageIndex, hb.X, hb.Y, hb.W, hb.H);
+        }
         Viewport.ResetAutoZoom(vm.ZoomMode);
         Viewport.GoToPage(vm.CurrentPageIndex);
     }

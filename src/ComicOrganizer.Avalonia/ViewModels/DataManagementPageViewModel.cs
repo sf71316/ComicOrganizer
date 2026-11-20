@@ -119,12 +119,14 @@ public sealed partial class DataManagementPageViewModel : ViewModelBase, IDispos
     private CacheIntegrityChecker.IntegrityReport? _lastIntegrityReport;
     private ReconcileReport? _lastReconcileReport;
     private LatestReleaseInfo? _latestEhTagRelease;
+    private bool _hasLoadedOnce;
     private bool _disposed;
 
     public DataManagementPageViewModel(
         AppDataContext dataContext,
         SkiaCoverService coverService,
-        Func<Action, Task>? runOnUiAsync = null)
+        Func<Action, Task>? runOnUiAsync = null,
+        bool autoLoad = true)
     {
         _dataContext = dataContext ?? throw new ArgumentNullException(nameof(dataContext));
         _store = dataContext.MetaStore;
@@ -138,7 +140,22 @@ public sealed partial class DataManagementPageViewModel : ViewModelBase, IDispos
         _tracker.StateChanged += OnTrackerStateChanged;
 
         TagCategoryOptions = ["", "content", "parody", "character", "artist", "group", "language", "virtual"];
-        RefreshAll();
+        if (autoLoad)
+        {
+            RefreshAll();
+        }
+    }
+
+    public Task EnsureLoadedAsync()
+    {
+        if (_hasLoadedOnce || _disposed) return Task.CompletedTask;
+        return _runOnUiAsync(() =>
+        {
+            if (!_hasLoadedOnce && !_disposed)
+            {
+                RefreshAll();
+            }
+        });
     }
 
     public bool IsReadOnlyDatabase => _dataContext.IsReadOnlyDatabase;
@@ -314,6 +331,7 @@ public sealed partial class DataManagementPageViewModel : ViewModelBase, IDispos
     [RelayCommand]
     public void RefreshAll()
     {
+        _hasLoadedOnce = true;
         LoadTags();
         LoadAuthors();
         RefreshCacheStats();

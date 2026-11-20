@@ -29,6 +29,7 @@ public sealed class SkiaComicViewport : Control
     private ReaderZoomMode _zoomMode = ReaderZoomMode.FitPage;
     private float? _manualZoomScale;
     private int _currentPageIndex;
+    private (int PageIndex, float X, float Y, float W, float H)? _highlightPanel;
     private bool _isRightToLeft = true;
     private int _continuousGapPx = ContinuousLayout.PageGap;
     private bool _isTranslationEnabled = true;
@@ -63,6 +64,12 @@ public sealed class SkiaComicViewport : Control
     public event Action? TranslationToggledRequested;
     public event Action? CompareOriginalToggledRequested;
     public event Action? ForceRetranslateCurrentPageRequested;
+
+    public void SetHighlightPanel(int pageIndex, float x, float y, float w, float h)
+    {
+        _highlightPanel = (pageIndex, x, y, w, h);
+        InvalidateVisual();
+    }
     public event Action? CustomEnhancementDialogRequested;
     public event Action<string, string>? StatusNotificationRequested;
 
@@ -382,7 +389,7 @@ public sealed class SkiaComicViewport : Control
 
         var dest = new SKRect(left, top, left + drawW, top + drawH);
         ReaderImageEnhancer.DrawEnhancedImage(canvas, img, dest, _enhancementOptions);
-        DrawPageOverlayStatus(canvas, dest, page.IsSuperRes, _pipeline.IsPageTranslating(_currentPageIndex));
+        DrawPageOverlayStatus(canvas, dest, page.IsSuperRes, _pipeline.IsPageTranslating(_currentPageIndex), GetHighlightRectIfMatch(_currentPageIndex));
     }
 
     private void RenderDoubleSpread(SKCanvas canvas, Rect bounds)
@@ -443,8 +450,8 @@ public sealed class SkiaComicViewport : Control
 
             ReaderImageEnhancer.DrawEnhancedImage(canvas, imgA, rectA, _enhancementOptions);
             ReaderImageEnhancer.DrawEnhancedImage(canvas, imgB, rectB, _enhancementOptions);
-            DrawPageOverlayStatus(canvas, rectA, firstPage.IsSuperRes, _pipeline.IsPageTranslating(p1));
-            DrawPageOverlayStatus(canvas, rectB, secondPage.IsSuperRes, _pipeline.IsPageTranslating(p2));
+            DrawPageOverlayStatus(canvas, rectA, firstPage.IsSuperRes, _pipeline.IsPageTranslating(p1), GetHighlightRectIfMatch(p1));
+            DrawPageOverlayStatus(canvas, rectB, secondPage.IsSuperRes, _pipeline.IsPageTranslating(p2), GetHighlightRectIfMatch(p2));
         }
         else if (imgA != null)
         {
@@ -457,7 +464,7 @@ public sealed class SkiaComicViewport : Control
             float top = ((float)bounds.Height - drawH) / 2f + _panY;
             var dest = new SKRect(left, top, left + drawW, top + drawH);
             ReaderImageEnhancer.DrawEnhancedImage(canvas, imgA, dest, _enhancementOptions);
-            DrawPageOverlayStatus(canvas, dest, firstPage.IsSuperRes, _pipeline.IsPageTranslating(p1));
+            DrawPageOverlayStatus(canvas, dest, firstPage.IsSuperRes, _pipeline.IsPageTranslating(p1), GetHighlightRectIfMatch(p1));
         }
     }
 
@@ -495,7 +502,7 @@ public sealed class SkiaComicViewport : Control
                 }
 
                 ReaderImageEnhancer.DrawEnhancedImage(canvas, page.Image, dest, _enhancementOptions);
-                DrawPageOverlayStatus(canvas, dest, page.IsSuperRes, _pipeline.IsPageTranslating(i));
+                DrawPageOverlayStatus(canvas, dest, page.IsSuperRes, _pipeline.IsPageTranslating(i), GetHighlightRectIfMatch(i));
             }
             else
             {
@@ -548,8 +555,32 @@ public sealed class SkiaComicViewport : Control
         canvas.DrawText(text, cx, cy, SKTextAlign.Center, font, paint);
     }
 
-    private static void DrawPageOverlayStatus(SKCanvas canvas, SKRect dest, bool isSuperRes, bool isTranslating)
+    private SKRect? GetHighlightRectIfMatch(int pageIndex)
     {
+        if (_highlightPanel is { } hb && hb.PageIndex == pageIndex)
+        {
+            return new SKRect(hb.X, hb.Y, hb.X + hb.W, hb.Y + hb.H);
+        }
+        return null;
+    }
+
+    private static void DrawPageOverlayStatus(SKCanvas canvas, SKRect dest, bool isSuperRes, bool isTranslating, SKRect? normalizedHighlight)
+    {
+        if (normalizedHighlight is { } nh)
+        {
+            var box = new SKRect(
+                dest.Left + nh.Left * dest.Width,
+                dest.Top + nh.Top * dest.Height,
+                dest.Left + nh.Right * dest.Width,
+                dest.Top + nh.Bottom * dest.Height);
+            using var fill = new SKPaint { Style = SKPaintStyle.Fill, Color = new SKColor(34, 197, 94, 42) };
+            using var outer = new SKPaint { Style = SKPaintStyle.Stroke, Color = new SKColor(22, 163, 74, 240), StrokeWidth = 4f, IsAntialias = true };
+            using var inner = new SKPaint { Style = SKPaintStyle.Stroke, Color = new SKColor(187, 247, 208, 220), StrokeWidth = 1.5f, IsAntialias = true };
+            canvas.DrawRect(box, fill);
+            canvas.DrawRect(box, outer);
+            canvas.DrawRect(box, inner);
+        }
+
         if (!isSuperRes && !isTranslating) return;
 
         string badge = isTranslating

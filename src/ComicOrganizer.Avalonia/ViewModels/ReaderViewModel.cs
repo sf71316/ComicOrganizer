@@ -162,7 +162,9 @@ public sealed partial class ReaderViewModel : ViewModelBase, IDisposable
         string sourcePath,
         string? displayTitleOverride = null,
         string? authorOverride = null,
-        Func<Action, Task>? runOnUiAsync = null)
+        Func<Action, Task>? runOnUiAsync = null,
+        int? initialPageZeroBasedOverride = null,
+        (float X, float Y, float W, float H)? initialHighlightBox = null)
     {
         _dataContext = dataContext ?? throw new ArgumentNullException(nameof(dataContext));
         ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
@@ -206,8 +208,12 @@ public sealed partial class ReaderViewModel : ViewModelBase, IDisposable
 
         IsReadOnlyDatabase = _dataContext.IsReadOnlyDatabase;
 
-        // 恢復上次閱讀頁（若由單一圖片直接進入則優先以該圖頁碼為主）
-        if (initialPageIndex == 0 && PageCount > 0)
+        // 恢復上次閱讀頁（若由單一圖片或圖搜漫指定頁碼進入則優先採用指定頁碼）
+        if (initialPageZeroBasedOverride.HasValue && PageCount > 0)
+        {
+            initialPageIndex = initialPageZeroBasedOverride.Value;
+        }
+        else if (initialPageIndex == 0 && PageCount > 0)
         {
             int? savedPage = TryGetLastPage(SourceRootPath);
             if (savedPage is >= 0 && savedPage.Value < PageCount)
@@ -217,6 +223,10 @@ public sealed partial class ReaderViewModel : ViewModelBase, IDisposable
         }
 
         _currentPageIndex = PageCount > 0 ? Math.Clamp(initialPageIndex, 0, PageCount - 1) : 0;
+        if (initialHighlightBox is { } hb)
+        {
+            InitialHighlightBox = (_currentPageIndex, hb.X, hb.Y, hb.W, hb.H);
+        }
         _visitedPages.Add(_currentPageIndex);
         _sliderPageOneBased = PageCount > 0 ? _currentPageIndex + 1 : 1;
 
@@ -252,6 +262,7 @@ public sealed partial class ReaderViewModel : ViewModelBase, IDisposable
     public int PageCount { get; }
     public int MaxPageOneBased { get; }
     public bool IsReadOnlyDatabase { get; }
+    public (int PageIndex, float X, float Y, float W, float H)? InitialHighlightBox { get; }
 
     public string WorkTitle { get; }
     public string WorkSubtitle { get; }

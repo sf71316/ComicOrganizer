@@ -366,7 +366,7 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
     private bool _suppressReload;
     private volatile bool _disposed;
 
-    public GalleryPageViewModel(AppDataContext dataContext, SkiaCoverService coverService)
+    public GalleryPageViewModel(AppDataContext dataContext, SkiaCoverService coverService, bool autoLoad = true)
         : this(
             dataContext?.MetaStore ?? throw new ArgumentNullException(nameof(dataContext)),
             coverService,
@@ -374,7 +374,7 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
             new SystemExternalLauncher(),
             dataContext.ToastManager,
             ExploreCardVmBase.DefaultRunOnUiAsync,
-            autoLoad: true,
+            autoLoad: autoLoad,
             isReadOnlyDatabase: dataContext.IsReadOnlyDatabase,
             readerLauncher: new AvaloniaReaderWindowLauncher(dataContext))
     {

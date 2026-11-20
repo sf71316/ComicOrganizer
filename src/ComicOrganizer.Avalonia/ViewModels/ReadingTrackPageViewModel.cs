@@ -277,14 +277,14 @@ public sealed partial class ReadingTrackPageViewModel : ViewModelBase, IDisposab
     private int _loadVersion;
     private volatile bool _disposed;
 
-    public ReadingTrackPageViewModel(AppDataContext dataContext, SkiaCoverService coverService)
+    public ReadingTrackPageViewModel(AppDataContext dataContext, SkiaCoverService coverService, bool autoLoad = true)
         : this(
             dataContext?.MetaStore ?? throw new ArgumentNullException(nameof(dataContext)),
             coverService,
             new SystemExternalLauncher(),
             dataContext.ToastManager,
             ExploreCardVmBase.DefaultRunOnUiAsync,
-            autoLoad: true,
+            autoLoad: autoLoad,
             isReadOnlyDatabase: dataContext.IsReadOnlyDatabase,
             readerLauncher: new AvaloniaReaderWindowLauncher(dataContext))
     {

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Avalonia.Controls.Notifications;
@@ -5,6 +6,7 @@ using Avalonia.Media;
 using ComicOrganizer.App.Core;
 using ComicOrganizer.App.Models;
 using ComicOrganizer.Avalonia.Services;
+using ComicOrganizer.VisualSearch;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SukiUI.Toasts;
@@ -69,12 +71,20 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
         ["Amber"] = "琥珀金",
     };
 
+    private static readonly IBrush WarnBgBrush = new SolidColorBrush(Color.FromArgb(24, 245, 158, 11));
+    private static readonly IBrush WarnBorderBrush = new SolidColorBrush(Color.FromArgb(136, 245, 158, 11));
+    private static readonly IBrush WarnTextBrush = new SolidColorBrush(Color.Parse("#F59E0B"));
+    private static readonly IBrush ReadyBgBrush = new SolidColorBrush(Color.FromArgb(24, 34, 197, 94));
+    private static readonly IBrush ReadyBorderBrush = new SolidColorBrush(Color.FromArgb(120, 34, 197, 94));
+
     private readonly AppDataContext _dataContext;
+    private readonly Func<Action, Task> _runOnUiAsync;
     private bool _isSynchronizing;
 
-    public SettingsPageViewModel(AppDataContext dataContext)
+    public SettingsPageViewModel(AppDataContext dataContext, Func<Action, Task>? runOnUiAsync = null)
     {
         _dataContext = dataContext ?? throw new ArgumentNullException(nameof(dataContext));
+        _runOnUiAsync = runOnUiAsync ?? ExploreCardVmBase.DefaultRunOnUiAsync;
 
         LanguageOptions =
         [
@@ -147,6 +157,11 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
     /// </summary>
     public Func<string, string?, Task<string?>>? PickFolderAsync { get; set; }
 
+    /// <summary>
+    /// 由 View 注入之檔案選擇器委派：(對話框標題, 初始資料夾, 篩選說明, 副檔名清單) → 使用者選取的本機檔案路徑。
+    /// </summary>
+    public Func<string, string?, string, IReadOnlyList<string>, Task<string?>>? PickFileAsync { get; set; }
+
     public string DataDirectory => _dataContext.DataDirectory;
 
     public bool IsSharedDevDataDirectory => _dataContext.IsSharedDevDataDirectory;
@@ -155,9 +170,11 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
         ? "開發共享資料目錄"
         : "應用程式本機目錄";
 
-    public string DataDirectoryDescription => IsSharedDevDataDirectory
-        ? "目前唯讀共用既有漫畫庫資料目錄（appsettings.json / preferences.json / cache.db / thumbs），僅在按下「儲存設定」時才會寫入設定檔。"
-        : "應用程式設定檔與快取索引皆存放於此目錄中。";
+    public string DataDirectoryDescription => _dataContext.IsReadOnlyDatabase
+        ? "目前以唯讀模式使用資料目錄（--read-only 或 COMIC_ORGANIZER_READONLY=1），不會寫入 cache.db；僅在按下「儲存設定」時才會寫入設定檔。"
+        : IsSharedDevDataDirectory
+            ? "目前與既有漫畫庫共用資料目錄（appsettings.json / preferences.json / cache.db / thumbs），已開啟寫入模式；異動會直接寫入共用 cache.db。"
+            : "應用程式設定檔與快取索引皆存放於此目錄中。";
 
     public IReadOnlyList<AccentColorOption> AccentOptions { get; }
 
@@ -295,6 +312,111 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
         false => StatusErrorBrush,
         _ => StatusNeutralBrush,
     };
+
+    public event Action? OpenVisualSearchRequested;
+
+    // ── 組 6：圖搜漫（額外選配 ONNX 引擎） ─────────────────────────────
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowVisualIndexGuideCard))]
+    private bool _enableVisualSearch;
+
+    [ObservableProperty]
+    private bool _visualSearchEnableMultiCropRerank = true;
+
+    [ObservableProperty]
+    private bool _visualSearchAutoIndexAfterArchive;
+
+    [ObservableProperty]
+    private string _visualSearchPanelModelUrl = string.Empty;
+
+    [ObservableProperty]
+    private string _visualSearchEmbedModelUrl = string.Empty;
+
+    [ObservableProperty]
+    private string _panelModelStatusText = "尚未安裝";
+
+    [ObservableProperty]
+    private string _embedModelStatusText = "尚未安裝";
+
+    [ObservableProperty]
+    private bool _isPanelModelReady;
+
+    [ObservableProperty]
+    private bool _isEmbedModelReady;
+
+    [ObservableProperty]
+    private bool _isDownloadingVisualModel;
+
+    [ObservableProperty]
+    private string _visualModelDownloadProgressText = string.Empty;
+
+    [ObservableProperty]
+    private double _visualModelDownloadPercent;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(VisualIndexGuideBgBrush))]
+    [NotifyPropertyChangedFor(nameof(VisualIndexGuideBorderBrush))]
+    [NotifyPropertyChangedFor(nameof(VisualIndexGuideTitleBrush))]
+    [NotifyPropertyChangedFor(nameof(VisualIndexGoButtonText))]
+    private bool _visualIndexReady;
+
+    [ObservableProperty]
+    private string _visualIndexGuideTitle = "正在檢查圖搜漫索引資料庫…";
+
+    [ObservableProperty]
+    private string _visualIndexGuideDetail = string.Empty;
+
+    [ObservableProperty]
+    private string _visualIndexEstimatedDurationText = string.Empty;
+
+    public string VisualSearchModelsDirectory => new VisualSearchPaths(_dataContext.DataDirectory).ModelsDirectory;
+
+    public bool AreAllVisualModelsReady => IsPanelModelReady && IsEmbedModelReady;
+
+    public bool ShowVisualIndexGuideCard => EnableVisualSearch;
+
+    public string VisualIndexGoButtonText => VisualIndexReady
+        ? "🔎 前往「圖搜漫」頁面"
+        : "🚀 儲存設定並前往建立索引庫";
+
+    public IBrush VisualIndexGuideBgBrush => VisualIndexReady ? ReadyBgBrush : WarnBgBrush;
+
+    public IBrush VisualIndexGuideBorderBrush => VisualIndexReady ? ReadyBorderBrush : WarnBorderBrush;
+
+    public IBrush VisualIndexGuideTitleBrush => VisualIndexReady ? StatusSuccessBrush : WarnTextBrush;
+
+    public IBrush PanelModelStatusBrush => IsPanelModelReady ? StatusSuccessBrush : StatusNeutralBrush;
+
+    public IBrush EmbedModelStatusBrush => IsEmbedModelReady ? StatusSuccessBrush : StatusNeutralBrush;
+
+    partial void OnEnableVisualSearchChanged(bool value)
+    {
+        if (!_isSynchronizing && value)
+        {
+            _ = RefreshVisualSearchIndexStatusAsync();
+        }
+    }
+
+    partial void OnIsPanelModelReadyChanged(bool value)
+    {
+        OnPropertyChanged(nameof(AreAllVisualModelsReady));
+        OnPropertyChanged(nameof(PanelModelStatusBrush));
+        if (!_isSynchronizing && EnableVisualSearch)
+        {
+            _ = RefreshVisualSearchIndexStatusAsync();
+        }
+    }
+
+    partial void OnIsEmbedModelReadyChanged(bool value)
+    {
+        OnPropertyChanged(nameof(AreAllVisualModelsReady));
+        OnPropertyChanged(nameof(EmbedModelStatusBrush));
+        if (!_isSynchronizing && EnableVisualSearch)
+        {
+            _ = RefreshVisualSearchIndexStatusAsync();
+        }
+    }
 
     // ── 屬性變更連動 ────────────────────────────────────────────────────
 
@@ -511,6 +633,13 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
             updatedConfig.AutoCheckTranslationDbUpdate = AutoCheckTranslationDbUpdate;
             updatedConfig.NhentaiApiKeyProtected = ProtectApiKey(NhentaiApiKey);
 
+            // 組 6：圖搜漫（額外選配 ONNX 引擎）
+            updatedConfig.EnableVisualSearch = EnableVisualSearch;
+            updatedConfig.VisualSearchEnableMultiCropRerank = VisualSearchEnableMultiCropRerank;
+            updatedConfig.VisualSearchAutoIndexAfterArchive = VisualSearchAutoIndexAfterArchive;
+            updatedConfig.VisualSearchPanelModelUrl = VisualSearchPanelModelUrl.Trim();
+            updatedConfig.VisualSearchEmbedModelUrl = VisualSearchEmbedModelUrl.Trim();
+
             _dataContext.SaveConfig(updatedConfig);
             _dataContext.SavePreferences(updatedPrefs);
             _dataContext.ApplyTheme(IsDarkTheme, SelectedAccentName);
@@ -518,6 +647,34 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
             // 正規化回填多行文字框（反映已去除的空白行）
             BlacklistText = string.Join(Environment.NewLine, blacklist);
             BlacklistPatternsText = string.Join(Environment.NewLine, blacklistPatterns);
+
+            if (EnableVisualSearch)
+            {
+                var paths = new VisualSearchPaths(_dataContext.DataDirectory);
+                bool modelsReady = paths.AreModelsReady();
+                var snap = InspectVisualIndexAndEstimate(paths);
+                ApplyVisualIndexSnapshot(snap, modelsReady);
+
+                if (!modelsReady)
+                {
+                    ShowToast(
+                        "設定已儲存（圖搜漫尚缺模型）",
+                        "請先下載或匯入 2 個 ONNX 模型，再前往左側「🔎 圖搜漫」建立索引資料庫。",
+                        NotificationType.Warning,
+                        5);
+                    return;
+                }
+
+                if (!VisualIndexReady)
+                {
+                    ShowToast(
+                        "設定已儲存，請建立圖搜漫索引庫",
+                        $"尚未建立圖搜漫索引（{VisualIndexEstimatedDurationText}），請前往左側「🔎 圖搜漫」開始建庫。",
+                        NotificationType.Warning,
+                        6);
+                    return;
+                }
+            }
 
             ShowToast("設定已儲存", "所有變更已成功寫入 appsettings.json 與 preferences.json。", NotificationType.Success, 3);
         }
@@ -580,10 +737,313 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
             NhentaiApiKey = TryUnprotectApiKey(cfg.NhentaiApiKeyProtected);
             NhentaiConnectionStatus = string.Empty;
             NhentaiConnectionSucceeded = null;
+
+            // 組 6：圖搜漫
+            EnableVisualSearch = cfg.EnableVisualSearch;
+            VisualSearchEnableMultiCropRerank = cfg.VisualSearchEnableMultiCropRerank;
+            VisualSearchAutoIndexAfterArchive = cfg.VisualSearchAutoIndexAfterArchive;
+            VisualSearchPanelModelUrl = cfg.VisualSearchPanelModelUrl ?? string.Empty;
+            VisualSearchEmbedModelUrl = cfg.VisualSearchEmbedModelUrl ?? string.Empty;
+            RefreshVisualSearchModelStatus();
         }
         finally
         {
             _isSynchronizing = false;
+        }
+
+        if (EnableVisualSearch)
+        {
+            _ = RefreshVisualSearchIndexStatusAsync();
+        }
+    }
+
+    [RelayCommand]
+    public async Task RefreshVisualSearchIndexStatusAsync()
+    {
+        var paths = new VisualSearchPaths(_dataContext.DataDirectory);
+        bool modelsReady = paths.AreModelsReady();
+
+        var snapshot = await Task.Run(() => InspectVisualIndexAndEstimate(paths)).ConfigureAwait(false);
+
+        await _runOnUiAsync(() => ApplyVisualIndexSnapshot(snapshot, modelsReady)).ConfigureAwait(false);
+    }
+
+    private void ApplyVisualIndexSnapshot(VisualIndexEstimateSnapshot snapshot, bool modelsReady)
+    {
+        VisualIndexEstimatedDurationText = snapshot.DurationText;
+        VisualIndexReady = snapshot.IndexedMangas > 0;
+
+        if (!modelsReady)
+        {
+            VisualIndexGuideTitle = "⚠️ 尚未備齊 ONNX 模型（完成後需建立索引庫）";
+            VisualIndexGuideDetail =
+                $"圖搜漫必須先建置索引庫才能進行截圖搜尋。請先安裝上方 2 個 ONNX 模型，" +
+                $"之後再前往「🔎 圖搜漫」建庫；依目前書庫規模（{snapshot.ScopeSummary}），首次建庫預估約需 {snapshot.DurationText}、佔用約 {snapshot.EstimatedSizeText}（過程可隨時停止並續建）。";
+        }
+        else if (snapshot.IndexedMangas <= 0)
+        {
+            VisualIndexGuideTitle = "📦 尚未建立「圖搜漫」索引資料庫";
+            VisualIndexGuideDetail =
+                $"必須先建立視覺索引資料庫才能使用圖搜漫。依目前漫畫庫規模（{snapshot.ScopeSummary}），" +
+                $"首次完整建庫預估約需 {snapshot.DurationText}、索引空間約 {snapshot.EstimatedSizeText}（實測 GPU 速率 ~78 頁/秒；建庫期間可隨時停止，已完成進度會保存並支援接續）。";
+        }
+        else
+        {
+            string pendingHint = snapshot.EstimatedWorks > snapshot.IndexedMangas + 5
+                ? $" 目前書庫估計約 {snapshot.EstimatedWorks:N0} 本，尚有約 {snapshot.EstimatedWorks - snapshot.IndexedMangas:N0} 本待增量補建（約需 {snapshot.IncrementalDurationText}）。"
+                : string.Empty;
+            VisualIndexGuideTitle = "✅ 圖搜漫索引資料庫已就緒";
+            VisualIndexGuideDetail =
+                $"已建庫 {snapshot.IndexedMangas:N0} 本 · {snapshot.IndexedPages:N0} 頁 · {snapshot.ActiveVectors:N0} 筆向量 · " +
+                $"佔用 {FormatMbOrGb(snapshot.DiskBytes)}。{pendingHint}";
+        }
+    }
+
+    [RelayCommand]
+    private void SaveAndGoToVisualSearch()
+    {
+        if (!EnableVisualSearch)
+        {
+            EnableVisualSearch = true;
+        }
+        Save();
+        OpenVisualSearchRequested?.Invoke();
+    }
+
+    private sealed record VisualIndexEstimateSnapshot(
+        int IndexedMangas,
+        int IndexedPages,
+        int ActiveVectors,
+        long DiskBytes,
+        int EstimatedWorks,
+        long EstimatedPages,
+        string ScopeSummary,
+        string DurationText,
+        string IncrementalDurationText,
+        string EstimatedSizeText);
+
+    private VisualIndexEstimateSnapshot InspectVisualIndexAndEstimate(VisualSearchPaths paths)
+    {
+        int indexedMangas = 0, indexedPages = 0, activeVecs = 0;
+        long diskBytes = 0;
+
+        if (File.Exists(paths.DatabasePath))
+        {
+            try
+            {
+                using var db = new VisualIndexDatabase(paths.DatabasePath, readOnly: true);
+                var ov = db.GetOverview();
+                indexedMangas = ov.MangaCount;
+                indexedPages = ov.TotalPages;
+                activeVecs = ov.ActiveVectorCount;
+                diskBytes = paths.GetTotalDiskUsageBytes();
+            }
+            catch
+            {
+            }
+        }
+
+        int totalWorks = 0;
+        long knownPages = 0;
+        int knownWorkCount = 0;
+        try
+        {
+            var works = _dataContext.MetaStore.GetExploreCorpusSnapshot("zh-TW").Works;
+            totalWorks = works.Count;
+            foreach (var w in works)
+            {
+                if (w.PageCount is > 0)
+                {
+                    knownPages += w.PageCount.Value;
+                    knownWorkCount++;
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        if (totalWorks == 0 && !string.IsNullOrWhiteSpace(_dataContext.Config.RootDirectory))
+        {
+            try
+            {
+                totalWorks = VisualComicReader.DiscoverComics(_dataContext.Config.RootDirectory).Count;
+            }
+            catch
+            {
+            }
+        }
+
+        double avgPages = knownWorkCount > 0 ? (double)knownPages / knownWorkCount : 68.0;
+        long estTotalPages = totalWorks > 0
+            ? knownPages + (long)Math.Round(Math.Max(0, totalWorks - knownWorkCount) * avgPages)
+            : 0;
+
+        const double pagesPerSec = 78.0; // M4 RTX 4080 DirectML 實測吞吐
+        const double bytesPerPage = 4383.0; // M4 USearch Int8 + SQLite 實測均攤
+
+        double estTotalSec = estTotalPages / pagesPerSec;
+        int diffWorks = Math.Max(0, totalWorks - indexedMangas);
+        double estIncSec = (diffWorks * avgPages) / pagesPerSec;
+        long estBytes = (long)Math.Round(estTotalPages * bytesPerPage);
+
+        string scopeSummary = totalWorks > 0
+            ? $"約 {totalWorks:N0} 本 / {estTotalPages:N0} 頁"
+            : "每 200 頁漫畫";
+        string durationText = totalWorks > 0
+            ? FormatDuration(estTotalSec)
+            : "每本約 2.6 秒（每 1,000 本約 15 分鐘）";
+        string sizeText = totalWorks > 0
+            ? FormatMbOrGb(estBytes)
+            : "每 1,000 本約 300 MB";
+
+        return new VisualIndexEstimateSnapshot(
+            indexedMangas,
+            indexedPages,
+            activeVecs,
+            diskBytes,
+            totalWorks,
+            estTotalPages,
+            scopeSummary,
+            durationText,
+            FormatDuration(estIncSec),
+            sizeText);
+    }
+
+    private static string FormatDuration(double seconds)
+    {
+        if (seconds < 60) return "約 1 分鐘內";
+        int totalMinutes = Math.Max(1, (int)Math.Ceiling(seconds / 60.0));
+        if (totalMinutes < 60) return $"約 {totalMinutes} 分鐘";
+        int hours = totalMinutes / 60;
+        int mins = totalMinutes % 60;
+        return mins > 0 ? $"約 {hours} 小時 {mins} 分鐘" : $"約 {hours} 小時";
+    }
+
+    private static string FormatMbOrGb(long bytes)
+    {
+        double mb = bytes / (1024.0 * 1024.0);
+        return mb >= 1024.0 ? $"{mb / 1024.0:F2} GB" : $"{mb:F1} MB";
+    }
+
+    [RelayCommand]
+    public void RefreshVisualSearchModelStatus()
+    {
+        var paths = new VisualSearchPaths(_dataContext.DataDirectory);
+        var statuses = paths.GetModelStatuses();
+        var panel = statuses[0];
+        var embed = statuses[1];
+
+        IsPanelModelReady = panel.Exists;
+        PanelModelStatusText = panel.Exists
+            ? $"✅ 已就緒（{panel.SizeBytes / (1024.0 * 1024.0):F1} MB）"
+            : $"⬜ 尚未下載 / 匯入（預期 {panel.ExpectedSizeHint}）";
+
+        IsEmbedModelReady = embed.Exists;
+        EmbedModelStatusText = embed.Exists
+            ? $"✅ 已就緒（{embed.SizeBytes / (1024.0 * 1024.0):F1} MB）"
+            : $"⬜ 尚未下載 / 匯入（預期 {embed.ExpectedSizeHint}）";
+    }
+
+    [RelayCommand]
+    private async Task ImportPanelModelAsync()
+        => await ImportVisualModelAsync("選擇分鏡偵測模型 (panel_detector.onnx)", VisualSearchPaths.PanelModelFileName);
+
+    [RelayCommand]
+    private async Task ImportEmbedModelAsync()
+        => await ImportVisualModelAsync("選擇特徵提取模型 (sscd_disc_mixup.onnx)", VisualSearchPaths.EmbedModelFileName);
+
+    [RelayCommand]
+    private async Task DownloadPanelModelAsync()
+        => await DownloadVisualModelAsync(VisualSearchPanelModelUrl, VisualSearchPaths.PanelModelFileName);
+
+    [RelayCommand]
+    private async Task DownloadEmbedModelAsync()
+        => await DownloadVisualModelAsync(VisualSearchEmbedModelUrl, VisualSearchPaths.EmbedModelFileName);
+
+    [RelayCommand]
+    private void OpenVisualSearchModelsFolder()
+    {
+        var paths = new VisualSearchPaths(_dataContext.DataDirectory);
+        paths.EnsureDirectories();
+        try
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe", $"\"{paths.ModelsDirectory}\"") { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            ShowToast("無法開啟資料夾", ex.Message, NotificationType.Warning, 4);
+        }
+    }
+
+    private async Task ImportVisualModelAsync(string title, string targetFileName)
+    {
+        if (PickFileAsync is null) return;
+
+        var initialDir = Directory.Exists(VisualSearchModelsDirectory) ? VisualSearchModelsDirectory : _dataContext.DataDirectory;
+        var selected = await PickFileAsync(title, initialDir, "ONNX 模型檔 (*.onnx)", ["*.onnx"]);
+        if (string.IsNullOrWhiteSpace(selected)) return;
+
+        try
+        {
+            var paths = new VisualSearchPaths(_dataContext.DataDirectory);
+            paths.ImportLocalModel(selected, targetFileName);
+            RefreshVisualSearchModelStatus();
+            _dataContext.NotifySettingsChanged();
+            ShowToast("模型已匯入", $"{targetFileName} 已安裝至視覺搜尋模型目錄。", NotificationType.Success, 3);
+        }
+        catch (Exception ex)
+        {
+            ShowToast("匯入模型失敗", ex.Message, NotificationType.Error, 4);
+        }
+    }
+
+    private async Task DownloadVisualModelAsync(string url, string targetFileName)
+    {
+        if (IsDownloadingVisualModel) return;
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            ShowToast("請先輸入下載網址", $"請於左側欄位填入 {targetFileName} 的直連網址，或改用「匯入本機 .onnx」。", NotificationType.Warning, 4);
+            return;
+        }
+
+        IsDownloadingVisualModel = true;
+        VisualModelDownloadPercent = 0;
+        VisualModelDownloadProgressText = $"正在下載 {targetFileName}…";
+
+        try
+        {
+            var paths = new VisualSearchPaths(_dataContext.DataDirectory);
+            var progress = new Progress<(long Downloaded, long? Total)>(p =>
+            {
+                double mb = p.Downloaded / (1024.0 * 1024.0);
+                if (p.Total is > 0)
+                {
+                    double totalMb = p.Total.Value / (1024.0 * 1024.0);
+                    VisualModelDownloadPercent = Math.Clamp(100.0 * p.Downloaded / p.Total.Value, 0, 100);
+                    VisualModelDownloadProgressText = $"正在下載 {targetFileName}：{mb:F1} / {totalMb:F1} MB ({VisualModelDownloadPercent:F0}%)";
+                }
+                else
+                {
+                    VisualModelDownloadProgressText = $"正在下載 {targetFileName}：{mb:F1} MB";
+                }
+            });
+
+            await paths.DownloadModelAsync(url.Trim(), targetFileName, progress);
+            RefreshVisualSearchModelStatus();
+            _dataContext.NotifySettingsChanged();
+            VisualModelDownloadPercent = 100;
+            VisualModelDownloadProgressText = $"✅ {targetFileName} 下載完成";
+            ShowToast("下載完成", $"{targetFileName} 已安裝就緒。", NotificationType.Success, 3);
+        }
+        catch (Exception ex)
+        {
+            VisualModelDownloadProgressText = $"⚠️ 下載失敗：{ex.Message}";
+            ShowToast("下載模型失敗", ex.Message, NotificationType.Error, 5);
+        }
+        finally
+        {
+            IsDownloadingVisualModel = false;
         }
     }
 
@@ -663,14 +1123,5 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
     }
 
     private void ShowToast(string title, string content, NotificationType type, int seconds)
-    {
-        _dataContext.ToastManager
-            .CreateToast()
-            .WithTitle(title)
-            .WithContent(content)
-            .OfType(type)
-            .Dismiss().After(TimeSpan.FromSeconds(seconds))
-            .Dismiss().ByClicking()
-            .Queue();
-    }
+        => _dataContext.TryShowToast(title, content, type, seconds);
 }

@@ -3,6 +3,7 @@ using Avalonia.Controls.Notifications;
 using ComicOrganizer.App.Core;
 using ComicOrganizer.App.Models;
 using ComicOrganizer.Avalonia.Services;
+using ComicOrganizer.VisualSearch;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SukiUI.Toasts;
@@ -426,6 +427,7 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
             var mappingsPath = Path.Combine(_dataContext.DataDirectory, "mappings.json");
             var intelligence = _intelligence ?? new MappingIntelligence(mappingsPath);
             var organizer = new ArchiveOrganizer(intelligence, cfg);
+            var movedPaths = new List<string>();
 
             await Task.Run(() =>
             {
@@ -484,6 +486,7 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
                         item.ExecutionStatus = "✓ 已歸檔";
                         item.ExecutionMessage = movedPath;
                         item.IsChecked = false;
+                        movedPaths.Add(movedPath);
                         okCount++;
                     }
                     catch (Exception ex)
@@ -506,6 +509,15 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
                     StatusMessage,
                     skipOrFailCount == 0 ? NotificationType.Success : NotificationType.Warning);
             }).ConfigureAwait(false);
+
+            if (!isDryRun
+                && movedPaths.Count > 0
+                && !IsReadOnlyDatabase
+                && cfg is { EnableVisualSearch: true, VisualSearchAutoIndexAfterArchive: true }
+                && new VisualSearchPaths(_dataContext.DataDirectory).AreModelsReady())
+            {
+                _ = _dataContext.VisualIndexHost.RunSyncWorkerAsync(cfg.RootDirectory, movedPaths);
+            }
         }
         finally
         {

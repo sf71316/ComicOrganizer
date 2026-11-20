@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ComicOrganizer.Core\ComicOrganizer.Core.csproj" />
+    <ProjectReference Include="..\ComicOrganizer.VisualSearch\ComicOrganizer.VisualSearch.csproj" />
     <ProjectReference Include="..\ComicOrganizer.App\ComicOrganizer.App.csproj" />
     <ProjectReference Include="..\ComicOrganizer.Avalonia\ComicOrganizer.Avalonia.csproj" />
     <ProjectReference Include="..\ComicOrganizer.Plugin.PaddleOcr\ComicOrganizer.Plugin.PaddleOcr.csproj" />

@@ -1,0 +1,296 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:suki="https://github.com/kikipoulet/SukiUI"
+             xmlns:vm="using:ComicOrganizer.Avalonia.ViewModels"
+             x:Class="ComicOrganizer.Avalonia.Views.VisualSearchPageView"
+             x:DataType="vm:VisualSearchPageViewModel"
+             Focusable="True">
+
+  <Grid RowDefinitions="Auto,Auto,*" Margin="18,14,18,16">
+
+    <!-- 頂部：索引狀態與管理控制列 -->
+    <suki:GlassCard Grid.Row="0" CornerRadius="14" Padding="16,12" Margin="0,0,0,10">
+      <StackPanel Spacing="8">
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Grid.Column="0" Spacing="2">
+            <TextBlock Text="🔎 圖搜漫（截圖／分鏡反查）" FontSize="20" FontWeight="Bold" />
+            <TextBlock Text="{Binding IndexSummaryText}" FontSize="12" Opacity="0.82" />
+            <TextBlock Text="{Binding ShardsSummaryText}" FontSize="11.5" Opacity="0.65" />
+          </StackPanel>
+
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <Button Classes="Flat"
+                    Padding="12,7"
+                    Content="{Binding SyncButtonText}"
+                    Command="{Binding StartOrStopIncrementalSyncCommand}" />
+            <Button Classes="Outlined"
+                    Padding="10,7"
+                    Content="🧹 重整空間"
+                    IsEnabled="{Binding !IsIndexing}"
+                    Command="{Binding CompactShardsCommand}"
+                    ToolTip.Tip="壓縮移除已刪除紀錄佔用的向量分片空間" />
+            <Button Classes="Outlined"
+                    Padding="10,7"
+                    Content="{Binding RebuildButtonText}"
+                    IsEnabled="{Binding !IsIndexing}"
+                    Command="{Binding RebuildIndexCommand}" />
+            <Button Classes="Outlined"
+                    Padding="10,7"
+                    Content="🔄"
+                    IsEnabled="{Binding !IsIndexing}"
+                    Command="{Binding RefreshStatusCommand}"
+                    ToolTip.Tip="重新整理索引與模型狀態" />
+          </StackPanel>
+        </Grid>
+
+        <!-- 建庫子行程進度列 -->
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" IsVisible="{Binding IsIndexing}">
+          <StackPanel Grid.Column="0" Spacing="4">
+            <TextBlock Text="{Binding ProgressStatusText}" FontSize="12" TextTrimming="CharacterEllipsis" />
+            <ProgressBar Minimum="0" Maximum="100" Value="{Binding ProgressPercent}" Height="6" />
+          </StackPanel>
+          <TextBlock Grid.Column="1"
+                     Text="{Binding ProgressPercent, StringFormat='{}{0:F0}%'}"
+                     FontSize="13"
+                     FontWeight="SemiBold"
+                     VerticalAlignment="Center" />
+        </Grid>
+
+        <TextBlock Text="{Binding ProgressStatusText}"
+                   IsVisible="{Binding !IsIndexing}"
+                   FontSize="11.5"
+                   Opacity="0.72"
+                   TextTrimming="CharacterEllipsis" />
+      </StackPanel>
+    </suki:GlassCard>
+
+    <!-- 模型未就緒提示列 -->
+    <Border Grid.Row="1"
+            IsVisible="{Binding !AreModelsReady}"
+            CornerRadius="10"
+            Padding="14,10"
+            Margin="0,0,0,10"
+            Background="#1AF59E0B"
+            BorderBrush="#88F59E0B"
+            BorderThickness="1">
+      <Grid ColumnDefinitions="*,Auto">
+        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+          <TextBlock Text="ONNX 模型尚未就緒" FontWeight="SemiBold" FontSize="13.5" Foreground="#F59E0B" />
+          <TextBlock Text="{Binding ModelsBannerText}" FontSize="12" TextWrapping="Wrap" />
+        </StackPanel>
+        <Button Grid.Column="1"
+                Classes="Flat"
+                Padding="12,7"
+                Content="⚙️ 前往設定下載／匯入"
+                Command="{Binding GoToSettingsCommand}"
+                VerticalAlignment="Center" />
+      </Grid>
+    </Border>
+
+    <!-- 主作業區：左欄丟圖／貼圖查詢，右欄搜尋命中清單 -->
+    <Grid Grid.Row="2" ColumnDefinitions="340,*" ColumnSpacing="14">
+
+      <!-- 左欄：查詢輸入與截圖預覽 -->
+      <suki:GlassCard Grid.Column="0" CornerRadius="14" Padding="14">
+        <Grid RowDefinitions="Auto,*,Auto,Auto" RowSpacing="10">
+          <StackPanel Grid.Row="0" Spacing="8">
+            <Grid ColumnDefinitions="*,*,Auto" ColumnSpacing="6">
+              <Button Grid.Column="0"
+                      Classes="Flat"
+                      Padding="8,8"
+                      HorizontalContentAlignment="Center"
+                      Click="OnPickImageClicked">
+                <TextBlock Text="📁 選擇圖片" FontSize="12.5" FontWeight="SemiBold" />
+              </Button>
+              <Button Grid.Column="1"
+                      Classes="Outlined"
+                      Padding="8,8"
+                      HorizontalContentAlignment="Center"
+                      Click="OnPasteClipboardClicked">
+                <TextBlock Text="📋 貼上截圖" FontSize="12.5" />
+              </Button>
+              <Button Grid.Column="2"
+                      Classes="Outlined"
+                      Padding="10,8"
+                      IsEnabled="{Binding HasQueryImage}"
+                      Command="{Binding ClearQueryCommand}"
+                      ToolTip.Tip="清除查詢圖片">
+                <TextBlock Text="🧹" FontSize="12.5" />
+              </Button>
+            </Grid>
+
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Grid.Column="0"
+                         Text="低信心自動 Multi-Crop 精排"
+                         FontSize="12"
+                         Opacity="0.82"
+                         VerticalAlignment="Center" />
+              <ToggleSwitch Grid.Column="1"
+                            IsChecked="{Binding EnableMultiCropRerank}" />
+            </Grid>
+          </StackPanel>
+
+          <!-- 拖曳／貼圖區與預覽畫布 -->
+          <Border x:Name="DropTargetBorder"
+                  Grid.Row="1"
+                  DragDrop.AllowDrop="True"
+                  CornerRadius="12"
+                  BorderThickness="1.5"
+                  BorderBrush="{DynamicResource SukiBorderBrush}"
+                  Background="#0D808080"
+                  Padding="8">
+            <Panel>
+              <StackPanel VerticalAlignment="Center"
+                          HorizontalAlignment="Center"
+                          Spacing="8"
+                          IsVisible="{Binding !HasQueryImage}">
+                <TextBlock Text="🖼️" FontSize="42" HorizontalAlignment="Center" Opacity="0.65" />
+                <TextBlock Text="按 Ctrl+V 直接貼上截圖"
+                           FontSize="14"
+                           FontWeight="SemiBold"
+                           HorizontalAlignment="Center" />
+                <TextBlock Text="或將 PNG / JPG / WebP 拖曳至此處"
+                           FontSize="12"
+                           Opacity="0.7"
+                           HorizontalAlignment="Center"
+                           TextWrapping="Wrap"
+                           TextAlignment="Center" />
+              </StackPanel>
+
+              <Image Source="{Binding QueryPreviewBitmap}"
+                     IsVisible="{Binding HasQueryImage}"
+                     Stretch="Uniform"
+                     VerticalAlignment="Center"
+                     HorizontalAlignment="Center" />
+            </Panel>
+          </Border>
+
+          <TextBlock Grid.Row="2"
+                     Text="{Binding QuerySourceInfo}"
+                     FontSize="11.5"
+                     Opacity="0.72"
+                     TextWrapping="Wrap" />
+
+          <ProgressBar Grid.Row="3"
+                       IsIndeterminate="True"
+                       IsVisible="{Binding IsSearching}"
+                       Height="4" />
+        </Grid>
+      </suki:GlassCard>
+
+      <!-- 右欄：命中結果清單 -->
+      <suki:GlassCard Grid.Column="1" CornerRadius="14" Padding="14">
+        <Grid RowDefinitions="Auto,*" RowSpacing="10">
+          <Border Grid.Row="0"
+                  CornerRadius="8"
+                  Padding="10,7"
+                  Background="#10808080">
+            <TextBlock Text="{Binding QueryMetricsText}" FontSize="12.5" FontWeight="SemiBold" />
+          </Border>
+
+          <Panel Grid.Row="1">
+            <StackPanel VerticalAlignment="Center"
+                        HorizontalAlignment="Center"
+                        Spacing="6"
+                        IsVisible="{Binding !HasSearchResults}">
+              <TextBlock Text="🔍" FontSize="38" HorizontalAlignment="Center" Opacity="0.5" />
+              <TextBlock Text="輸入截圖後將在此顯示 Top 命中結果與分鏡定位"
+                         FontSize="13.5"
+                         Opacity="0.7" />
+            </StackPanel>
+
+            <ScrollViewer IsVisible="{Binding HasSearchResults}">
+              <ItemsControl ItemsSource="{Binding SearchHits}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <WrapPanel Orientation="Horizontal" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate DataType="vm:VisualSearchHitCardVm">
+                    <Border Width="290"
+                            Margin="0,0,12,12"
+                            Padding="10"
+                            CornerRadius="12"
+                            BorderThickness="1"
+                            BorderBrush="{DynamicResource SukiBorderBrush}"
+                            Background="#0C808080">
+                      <StackPanel Spacing="8">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                          <Border Grid.Column="0"
+                                  CornerRadius="6"
+                                  Padding="7,2"
+                                  Background="{Binding SimilarityBadgeBrush}">
+                            <TextBlock Text="{Binding SimilarityText}"
+                                       FontSize="12"
+                                       FontWeight="Bold"
+                                       Foreground="White" />
+                          </Border>
+                          <TextBlock Grid.Column="1"
+                                     Text="{Binding MatchKindBadge}"
+                                     FontSize="11.5"
+                                     Opacity="0.82"
+                                     Margin="8,0,0,0"
+                                     VerticalAlignment="Center" />
+                          <TextBlock Grid.Column="2"
+                                     Text="{Binding Rank, StringFormat='#{0}'}"
+                                     FontSize="12"
+                                     FontWeight="Bold"
+                                     Opacity="0.65"
+                                     VerticalAlignment="Center" />
+                        </Grid>
+
+                        <Border Height="220"
+                                CornerRadius="8"
+                                ClipToBounds="True"
+                                Background="#18000000">
+                          <Image Source="{Binding PreviewBitmap}"
+                                 Stretch="Uniform" />
+                        </Border>
+
+                        <StackPanel Spacing="2">
+                          <TextBlock Text="{Binding DisplayTitle}"
+                                     FontSize="13"
+                                     FontWeight="SemiBold"
+                                     TextTrimming="CharacterEllipsis"
+                                     ToolTip.Tip="{Binding DisplayTitle}" />
+                          <TextBlock Text="{Binding AuthorName}"
+                                     FontSize="11.5"
+                                     Opacity="0.72"
+                                     TextTrimming="CharacterEllipsis" />
+                          <TextBlock Text="{Binding PageBadgeText}"
+                                     FontSize="11.5"
+                                     FontWeight="Medium"
+                                     Foreground="{DynamicResource SukiPrimaryColor}"
+                                     TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                          <Button Grid.Column="0"
+                                  Classes="Flat"
+                                  Padding="10,6"
+                                  HorizontalContentAlignment="Center"
+                                  Command="{Binding OpenInReaderCommand}">
+                            <TextBlock Text="📖 跳至此頁閱讀" FontSize="12" FontWeight="SemiBold" />
+                          </Button>
+                          <Button Grid.Column="1"
+                                  Classes="Outlined"
+                                  Padding="10,6"
+                                  Command="{Binding RevealInExplorerCommand}"
+                                  ToolTip.Tip="於檔案總管顯示">
+                            <TextBlock Text="📂" FontSize="12" />
+                          </Button>
+                        </Grid>
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </Panel>
+        </Grid>
+      </suki:GlassCard>
+
+    </Grid>
+  </Grid>
+</UserControl>

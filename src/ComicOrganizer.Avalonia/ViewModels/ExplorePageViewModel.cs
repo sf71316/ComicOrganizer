@@ -63,7 +63,7 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
     private bool _suppressReload;
     private volatile bool _disposed;
 
-    public ExplorePageViewModel(AppDataContext dataContext, SkiaCoverService coverService)
+    public ExplorePageViewModel(AppDataContext dataContext, SkiaCoverService coverService, bool autoLoad = true)
         : this(
             new ExploreWallService(
                 (dataContext ?? throw new ArgumentNullException(nameof(dataContext))).MetaStore,
@@ -71,7 +71,7 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
                 dataContext.Preferences.Language),
             coverService,
             dataContext.ToastManager,
-            autoLoad: true,
+            autoLoad: autoLoad,
             readerLauncher: new AvaloniaReaderWindowLauncher(dataContext))
     {
     }
