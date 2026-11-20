@@ -61,6 +61,7 @@ public partial class ReaderWindow : SukiWindow
         Viewport.IsTranslationEnabled = vm.IsTranslationEnabled;
         Viewport.IsComparingOriginal = vm.IsComparingOriginal;
         Viewport.EnhancementOptions = vm.EnhancementOptions;
+        Viewport.ResetAutoZoom(vm.ZoomMode);
         Viewport.GoToPage(vm.CurrentPageIndex);
     }
 

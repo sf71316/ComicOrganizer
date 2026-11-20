@@ -1,0 +1,259 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:suki="https://github.com/kikipoulet/SukiUI"
+             xmlns:vm="using:ComicOrganizer.Avalonia.ViewModels"
+             x:Class="ComicOrganizer.Avalonia.Views.AutoArchivePageView"
+             x:DataType="vm:AutoArchivePageViewModel">
+
+  <UserControl.Styles>
+    <Style Selector="Border.filter-pill">
+      <Setter Property="CornerRadius" Value="7" />
+      <Setter Property="Padding" Value="10,4" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Button:pointerover Border.filter-pill">
+      <Setter Property="Background" Value="#14808080" />
+    </Style>
+    <Style Selector="Border.filter-pill.active">
+      <Setter Property="Background" Value="{DynamicResource SukiPrimaryColor15}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource SukiPrimaryColor}" />
+    </Style>
+    <Style Selector="Border.filter-pill.active TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource SukiPrimaryColor}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+  </UserControl.Styles>
+
+  <Grid RowDefinitions="Auto,Auto,*" Margin="18,14,18,16">
+    <!-- 1. 標題與設定摘要卡片 -->
+    <suki:GlassCard Grid.Row="0" CornerRadius="14" Padding="16,12" Margin="0,0,0,10">
+      <StackPanel Spacing="10">
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Grid.Column="0" Spacing="3">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <TextBlock Text="📦 自動歸檔與智慧配對" FontSize="20" FontWeight="Bold" />
+              <Border CornerRadius="6"
+                      Padding="8,2"
+                      Background="{DynamicResource SukiPrimaryColor15}"
+                      VerticalAlignment="Center">
+                <TextBlock Text="{Binding RulesSummaryText}"
+                           FontSize="11.5"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource SukiPrimaryColor}" />
+              </Border>
+            </StackPanel>
+            <TextBlock Text="{Binding StatusMessage}"
+                       FontSize="12.5"
+                       Opacity="0.82"
+                       TextTrimming="CharacterEllipsis" />
+          </StackPanel>
+
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <Button Classes="Flat"
+                    Padding="14,7"
+                    Command="{Binding ScanCommand}"
+                    IsEnabled="{Binding !IsBusy}">
+              <TextBlock Text="🔍 掃描與智慧配對" FontSize="12.5" FontWeight="SemiBold" />
+            </Button>
+
+            <Button Classes="Outlined"
+                    Padding="12,7"
+                    Command="{Binding SimulateExecuteCommand}"
+                    IsEnabled="{Binding CanSimulate}"
+                    ToolTip.Tip="只檢查路徑與衝突，不實際搬移磁碟檔案或寫入資料庫">
+              <TextBlock Text="🧪 模擬測試" FontSize="12.5" />
+            </Button>
+
+            <Button Classes="Flat"
+                    Padding="14,7"
+                    Command="{Binding ExecuteArchiveCommand}"
+                    IsEnabled="{Binding CanExecuteRealMove}"
+                    ToolTip.Tip="搬移已勾選項目至目標目錄並將有效關鍵字寫回 mappings.json">
+              <TextBlock Text="{Binding CheckedCount, StringFormat='📦 執行歸檔 ({0})'}"
+                         FontSize="12.5"
+                         FontWeight="SemiBold" />
+            </Button>
+          </StackPanel>
+        </Grid>
+
+        <!-- 路徑摘要列 -->
+        <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+          <Border Grid.Column="0"
+                  CornerRadius="8"
+                  Padding="10,6"
+                  BorderThickness="1"
+                  BorderBrush="{DynamicResource SukiBorderBrush}">
+            <StackPanel Spacing="2">
+              <TextBlock Text="來源未整理目錄" FontSize="11" Opacity="0.65" />
+              <TextBlock Text="{Binding UnorganizedDirectoryText}" FontSize="12" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding UnorganizedDirectoryText}" />
+            </StackPanel>
+          </Border>
+
+          <Border Grid.Column="1"
+                  CornerRadius="8"
+                  Padding="10,6"
+                  BorderThickness="1"
+                  BorderBrush="{DynamicResource SukiBorderBrush}">
+            <StackPanel Spacing="2">
+              <TextBlock Text="目標漫畫庫根目錄" FontSize="11" Opacity="0.65" />
+              <TextBlock Text="{Binding RootDirectoryText}" FontSize="12" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding RootDirectoryText}" />
+            </StackPanel>
+          </Border>
+        </Grid>
+
+        <!-- 共用開發庫唯讀警示橫幅 -->
+        <Border CornerRadius="8"
+                Padding="10,6"
+                Background="#18F59E0B"
+                BorderBrush="#66F59E0B"
+                BorderThickness="1"
+                IsVisible="{Binding IsReadOnlyDatabase}">
+          <TextBlock Text="{Binding ReadOnlyBannerText}"
+                     FontSize="12"
+                     Foreground="#F59E0B"
+                     TextWrapping="Wrap" />
+        </Border>
+      </StackPanel>
+    </suki:GlassCard>
+
+    <!-- 2. 預覽清單篩選與批次勾選列 -->
+    <suki:GlassCard Grid.Row="1" CornerRadius="12" Padding="12,8" Margin="0,0,0,10">
+      <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+          <Button Classes="Basic" Padding="0" Command="{Binding SelectFilterTabCommand}" CommandParameter="All">
+            <Border Classes="filter-pill" Classes.active="{Binding IsAllFilterTab}">
+              <TextBlock Text="{Binding TotalScannedCount, StringFormat='全部 ({0})'}" FontSize="12" />
+            </Border>
+          </Button>
+          <Button Classes="Basic" Padding="0" Command="{Binding SelectFilterTabCommand}" CommandParameter="Checked">
+            <Border Classes="filter-pill" Classes.active="{Binding IsCheckedFilterTab}">
+              <TextBlock Text="{Binding CheckedCount, StringFormat='已勾選 ({0})'}" FontSize="12" />
+            </Border>
+          </Button>
+          <Button Classes="Basic" Padding="0" Command="{Binding SelectFilterTabCommand}" CommandParameter="Unmatched">
+            <Border Classes="filter-pill" Classes.active="{Binding IsUnmatchedFilterTab}">
+              <TextBlock Text="{Binding UnmatchedCount, StringFormat='未匹配 ({0})'}" FontSize="12" />
+            </Border>
+          </Button>
+        </StackPanel>
+
+        <Border Grid.Column="1" Width="1" Height="18" Background="{DynamicResource SukiBorderBrush}" Margin="10,0" />
+
+        <TextBox Grid.Column="2"
+                 MaxWidth="320"
+                 HorizontalAlignment="Left"
+                 Watermark="過濾來源名稱或目標目錄…"
+                 Text="{Binding FilterKeyword, Mode=TwoWay}"
+                 FontSize="12"
+                 VerticalAlignment="Center" />
+
+        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+          <Button Classes="Outlined" Padding="9,4" Command="{Binding CheckHighConfidenceCommand}">
+            <TextBlock Text="勾選高信心 (≥85%)" FontSize="11.5" />
+          </Button>
+          <Button Classes="Outlined" Padding="9,4" Command="{Binding CheckAllMatchedCommand}">
+            <TextBlock Text="全選已匹配" FontSize="11.5" />
+          </Button>
+          <Button Classes="Basic" Padding="9,4" Command="{Binding UncheckAllCommand}">
+            <TextBlock Text="全不選" FontSize="11.5" />
+          </Button>
+        </StackPanel>
+      </Grid>
+    </suki:GlassCard>
+
+    <!-- 3. 預覽與微調清單主區 -->
+    <suki:GlassCard Grid.Row="2" CornerRadius="14" Padding="10">
+      <Grid>
+        <StackPanel VerticalAlignment="Center"
+                    HorizontalAlignment="Center"
+                    Spacing="8"
+                    IsVisible="{Binding !HasCandidates}">
+          <TextBlock Text="📭" FontSize="36" HorizontalAlignment="Center" Opacity="0.6" />
+          <TextBlock Text="目前清單為空" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center" />
+          <TextBlock Text="請點擊上方「🔍 掃描與智慧配對」，系統將自動比對知識庫與目標作者目錄並產生預覽清單。"
+                     FontSize="12.5"
+                     Opacity="0.7" />
+        </StackPanel>
+
+        <ScrollViewer IsVisible="{Binding HasCandidates}"
+                      HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto">
+          <ItemsControl ItemsSource="{Binding VisibleCandidates}" Margin="0,0,8,0">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:AutoArchiveCandidateVm">
+                <Border Margin="0,3"
+                        Padding="10,8"
+                        CornerRadius="9"
+                        BorderThickness="1"
+                        BorderBrush="{DynamicResource SukiBorderBrush}">
+                  <Grid ColumnDefinitions="Auto,*,Auto,230,Auto,Auto" ColumnSpacing="10">
+                    <CheckBox Grid.Column="0"
+                              IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                              VerticalAlignment="Center" />
+
+                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Border CornerRadius="5" Padding="6,1" Background="#16808080">
+                          <TextBlock Text="{Binding TypeBadgeText}" FontSize="10.5" FontWeight="SemiBold" />
+                        </Border>
+                        <TextBlock Text="{Binding SourceName}"
+                                   FontSize="13"
+                                   FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis"
+                                   ToolTip.Tip="{Binding SourceFullPath}" />
+                      </StackPanel>
+                      <TextBlock Text="{Binding ExecutionMessage}"
+                                 FontSize="11"
+                                 Opacity="0.68"
+                                 IsVisible="{Binding ExecutionMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                 TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                      <TextBlock Text="{Binding MatchSourceLabel}" FontSize="11.5" VerticalAlignment="Center" />
+                      <Border CornerRadius="5" Padding="6,2" Background="{DynamicResource SukiPrimaryColor15}">
+                        <TextBlock Text="{Binding ConfidenceText}"
+                                   FontSize="11.5"
+                                   FontWeight="Bold"
+                                   Foreground="{DynamicResource SukiPrimaryColor}" />
+                      </Border>
+                    </StackPanel>
+
+                    <ComboBox Grid.Column="3"
+                              ItemsSource="{Binding TargetFolderOptions}"
+                              SelectedItem="{Binding SelectedTargetFolder, Mode=TwoWay}"
+                              FontSize="12"
+                              HorizontalAlignment="Stretch"
+                              VerticalAlignment="Center" />
+
+                    <Border Grid.Column="4"
+                            CornerRadius="6"
+                            Padding="8,3"
+                            Background="#14808080"
+                            VerticalAlignment="Center">
+                      <TextBlock Text="{Binding ExecutionStatus}" FontSize="11.5" />
+                    </Border>
+
+                    <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                      <Button Classes="Basic" Padding="6,4" Command="{Binding InspectInReaderCommand}" ToolTip.Tip="以內建閱讀器預覽內容">
+                        <TextBlock Text="📖" FontSize="12" />
+                      </Button>
+                      <Button Classes="Basic" Padding="6,4" Command="{Binding RevealInExplorerCommand}" ToolTip.Tip="在檔案總管中顯示">
+                        <TextBlock Text="📂" FontSize="12" />
+                      </Button>
+                      <Button Classes="Basic" Padding="6,4" Command="{Binding RemoveFromListCommand}" ToolTip.Tip="從預覽清單移除">
+                        <TextBlock Text="×" FontSize="13" />
+                      </Button>
+                    </StackPanel>
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </Grid>
+    </suki:GlassCard>
+  </Grid>
+</UserControl>

@@ -50,7 +50,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
 
     private readonly AppDataContext _dataContext;
     private readonly SkiaCoverService _coverService;
-    private readonly IReadOnlyList<PlaceholderPageViewModel> _placeholderPages;
     private bool _isSyncingSearch;
     private bool _disposed;
 
@@ -79,15 +78,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         GalleryPage = new GalleryPageViewModel(dataContext, _coverService);
         ReadingTrackPage = new ReadingTrackPageViewModel(dataContext, _coverService);
         ReadingTrackPage.OpenInGalleryRequested += OnOpenInGalleryRequested;
-        AutoArchivePage = CreateAutoArchivePage();
-        DataManagementPage = CreateDataManagementPage();
+        AutoArchivePage = new AutoArchivePageViewModel(dataContext);
+        DataManagementPage = new DataManagementPageViewModel(dataContext, _coverService);
+        DataManagementPage.OpenInGalleryRequested += OnOpenInGalleryRequested;
         SettingsPage = new SettingsPageViewModel(dataContext);
-
-        _placeholderPages =
-        [
-            AutoArchivePage,
-            DataManagementPage,
-        ];
 
         _dataContext.ThemeChanged += OnDataContextThemeChanged;
         _dataContext.SettingsChanged += OnDataContextSettingsChanged;
@@ -105,9 +99,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
 
     public ReadingTrackPageViewModel ReadingTrackPage { get; }
 
-    public PlaceholderPageViewModel AutoArchivePage { get; }
+    public AutoArchivePageViewModel AutoArchivePage { get; }
 
-    public PlaceholderPageViewModel DataManagementPage { get; }
+    public DataManagementPageViewModel DataManagementPage { get; }
 
     public SettingsPageViewModel SettingsPage { get; }
 
@@ -248,105 +242,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         _ = ExplorePage.RefreshCommand.ExecuteAsync(null);
         _ = GalleryPage.RefreshAsync();
         _ = ReadingTrackPage.RefreshAsync();
-        foreach (var page in _placeholderPages)
-        {
-            _ = page.RefreshAsync();
-        }
-    }
-
-    private PlaceholderPageViewModel CreateAutoArchivePage()
-    {
-        return new PlaceholderPageViewModel(
-            "📦",
-            "自動歸檔",
-            "Phase 4 實作",
-            "自動掃描未整理資料夾中的漫畫與壓縮檔，結合自我學習知識庫與模糊比對建議最佳目標目錄，經預覽確認後安全搬檔。",
-            [
-                "兩階段比對：優先命中自我學習知識庫（mappings.json），再以 FuzzySharp 計分",
-                "歸檔預覽清單：搬檔前可逐項勾選、修正目標路徑或略過雜訊項目",
-                "非同步批次搬檔與成功歸檔自動回寫學習記錄",
-            ],
-            () =>
-            {
-                var config = _dataContext.Config;
-                var mappingsExists = File.Exists(Path.Combine(_dataContext.DataDirectory, "mappings.json"));
-
-                return new PlaceholderSnapshot(
-                    [
-                        new PlaceholderMetricItem("來源未整理目錄", FormatPathOrUnset(config.UnorganizedDirectory), "等待掃描與自動比對的下載／未整理目錄"),
-                        new PlaceholderMetricItem("目標漫畫庫路徑", FormatPathOrUnset(config.RootDirectory), "歸檔確認後移入的漫畫庫根目錄"),
-                        new PlaceholderMetricItem("雜訊過濾規則", $"{config.Blacklist.Count} 詞 / {config.BlacklistPatterns.Count} 正則", $"自我學習庫 mappings.json：{(mappingsExists ? "已就緒" : "尚未建立")}｜掃描深度 {config.MaxScanDepth} 層"),
-                    ],
-                    $"設定檔來源：{Path.Combine(_dataContext.DataDirectory, "appsettings.json")}（更新時間：{DateTime.Now:HH:mm:ss}）");
-            });
-    }
-
-    private PlaceholderPageViewModel CreateDataManagementPage()
-    {
-        return new PlaceholderPageViewModel(
-            "🏷️",
-            "資料管理",
-            "Phase 4 實作",
-            "集中維護漫畫庫的標籤、作者、多語別名與外部 Metadata 同步，提供批次整理、合併與譯名編輯能力。",
-            [
-                "標籤管理與虛擬主標籤合併（含 tag_alias 自動導向與一鍵畫廊檢視）",
-                "作者主名重命名、合併重複作者與多語別名維護",
-                "nhentai 外部 Metadata 同步與 EhTag 中文翻譯詞庫線上更新",
-            ],
-            () =>
-            {
-                var store = _dataContext.MetaStore;
-                var tagCount = store.ListTagsByUsage().Count;
-                var authorCount = store.ListAuthorsByUsage().Count;
-                var authorAliasCount = store.ListAllAuthorAliases().Count;
-                var tagAliasCount = store.ListAllTagAliases().Count;
-                var hasDiskTranslation = File.Exists(Path.Combine(_dataContext.DataDirectory, "translations", "db.text.json.gz"));
-
-                return new PlaceholderSnapshot(
-                    [
-                        new PlaceholderMetricItem("標籤總數", $"{tagCount:N0}", "包含所有已分類與待分類的漫畫標籤"),
-                        new PlaceholderMetricItem("作者總數", $"{authorCount:N0}", "已登錄的漫畫作者與社團主檔數量"),
-                        new PlaceholderMetricItem("別名總數", $"{authorAliasCount + tagAliasCount:N0}", $"作者別名：{authorAliasCount:N0} 筆｜標籤別名：{tagAliasCount:N0} 筆"),
-                        new PlaceholderMetricItem("翻譯詞庫", hasDiskTranslation ? "本地快取詞庫" : "內嵌 EhTag 詞庫", $"外部 Metadata 同步：{(_dataContext.Config.EnableExternalMetadata ? "已啟用" : "未啟用")}"),
-                    ],
-                    BuildDbFootnote());
-            });
-    }
-
-    private string BuildDbFootnote()
-    {
-        var dbMode = _dataContext.IsReadOnlyDatabase ? "唯讀預覽（不改寫 cache.db）" : "讀寫模式";
-        return $"資料目錄：{_dataContext.DataDirectory}｜資料庫模式：{dbMode}｜更新時間：{DateTime.Now:HH:mm:ss}";
+        AutoArchivePage.RefreshConfigSummary();
+        DataManagementPage.RefreshAll();
     }
 
     private static string FormatAccentLabel(string name)
     {
         return AccentLabels.TryGetValue(name, out var zh) ? $"{zh} {name}" : name;
-    }
-
-    private static string FormatPathOrUnset(string? path)
-    {
-        return string.IsNullOrWhiteSpace(path) ? "尚未設定" : path;
-    }
-
-    private static string FormatBytes(long bytes)
-    {
-        if (bytes <= 0)
-        {
-            return "0 B";
-        }
-
-        const double kb = 1024.0;
-        const double mb = kb * 1024.0;
-        const double gb = mb * 1024.0;
-
-        return bytes >= gb
-            ? $"{bytes / gb:F2} GB"
-            : bytes >= mb
-                ? $"{bytes / mb:F1} MB"
-                : bytes >= kb
-                    ? $"{bytes / kb:F1} KB"
-                    : $"{bytes} B";
     }
 
     public void Dispose()
@@ -365,6 +267,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         GalleryPage.Dispose();
         ReadingTrackPage.OpenInGalleryRequested -= OnOpenInGalleryRequested;
         ReadingTrackPage.Dispose();
+        DataManagementPage.OpenInGalleryRequested -= OnOpenInGalleryRequested;
+        DataManagementPage.Dispose();
         _coverService.Dispose();
     }
 }

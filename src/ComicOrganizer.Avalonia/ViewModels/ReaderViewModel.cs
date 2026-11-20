@@ -220,6 +220,7 @@ public sealed partial class ReaderViewModel : ViewModelBase, IDisposable
         _visitedPages.Add(_currentPageIndex);
         _sliderPageOneBased = PageCount > 0 ? _currentPageIndex + 1 : 1;
 
+        ApplyUserPreferencesDefaults();
         InitializeOcrEngineOptions();
         LoadInitialBookmarks();
         BuildThumbnailList();
@@ -227,6 +228,22 @@ public sealed partial class ReaderViewModel : ViewModelBase, IDisposable
         RefreshBookmarkFlagForCurrentPage();
         RefreshOcrInspectorForCurrentPage();
         ApplyPresetInternal(ReaderImageEnhancementPreset.Off, syncOptions: true);
+    }
+
+    private void ApplyUserPreferencesDefaults()
+    {
+        var prefs = _dataContext.Preferences;
+        IsRightToLeft = !string.Equals(prefs.DefaultReadingDirection, "ltr", StringComparison.OrdinalIgnoreCase);
+
+        if (Enum.TryParse<ComicOrganizer.App.UI.ReaderViewMode>(prefs.DefaultReaderViewMode, ignoreCase: true, out var viewMode))
+        {
+            ViewMode = viewMode;
+        }
+
+        if (Enum.TryParse<ComicOrganizer.App.UI.ReaderZoomMode>(prefs.DefaultReaderZoomMode, ignoreCase: true, out var zoomMode))
+        {
+            ZoomMode = zoomMode;
+        }
     }
 
     public AppDataContext DataContext => _dataContext;

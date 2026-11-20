@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Controls.Notifications;
 using Avalonia.Media;
 using Avalonia.Platform;
 using Avalonia.Styling;
@@ -38,12 +39,12 @@ public sealed class AppDataContext : IDisposable
     private readonly SukiToastManager _toastManager;
     private bool _disposed;
 
-    public AppDataContext(string? explicitDataDirectory = null, string[]? args = null)
+    public AppDataContext(string? explicitDataDirectory = null, string[]? args = null, bool? forceReadOnlyDatabase = null)
     {
         var (resolvedDir, isSharedDev) = ResolveDataDirectory(explicitDataDirectory, args);
         DataDirectory = resolvedDir;
         IsSharedDevDataDirectory = isSharedDev;
-        IsReadOnlyDatabase = isSharedDev && File.Exists(Path.Combine(DataDirectory, "cache.db"));
+        IsReadOnlyDatabase = forceReadOnlyDatabase ?? (isSharedDev && File.Exists(Path.Combine(DataDirectory, "cache.db")));
 
         _configManager = new ConfigManager(Path.Combine(DataDirectory, "appsettings.json"));
         _preferencesManager = new UserPreferencesManager(Path.Combine(DataDirectory, "preferences.json"));
@@ -83,9 +84,40 @@ public sealed class AppDataContext : IDisposable
 
     public IThumbStore ThumbStore => _thumbStore.Value;
 
-    public TagTranslator TagTranslator { get; }
+    public TagTranslator TagTranslator { get; private set; }
+
+    public void ReloadTagTranslator()
+    {
+        var translationDiskPath = Path.Combine(DataDirectory, "translations", "db.text.json.gz");
+        TagTranslator = new TagTranslator(translationDiskPath);
+    }
 
     public ISukiToastManager ToastManager => _toastManager;
+
+    /// <summary>
+    /// 在有執行期 Avalonia 視覺環境時安全發送 Toast（無介面單元測試環境下自動略過，避免 SukiUI.Content.Icons 例外）。
+    /// </summary>
+    public void TryShowToast(string title, string message, NotificationType type, int durationSeconds = 3)
+    {
+        if (Application.Current == null)
+        {
+            return;
+        }
+
+        try
+        {
+            _toastManager.CreateToast()
+                .WithTitle(title)
+                .WithContent(message)
+                .OfType(type)
+                .Dismiss().After(TimeSpan.FromSeconds(durationSeconds))
+                .Queue();
+        }
+        catch
+        {
+            // 非視覺測試環境忽略 Toast 失敗
+        }
+    }
 
     public IReadOnlyList<string> AvailableAccentNames => AccentNames;
 

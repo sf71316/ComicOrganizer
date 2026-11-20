@@ -1,0 +1,577 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:suki="https://github.com/kikipoulet/SukiUI"
+             xmlns:vm="using:ComicOrganizer.Avalonia.ViewModels"
+             x:Class="ComicOrganizer.Avalonia.Views.DataManagementPageView"
+             x:DataType="vm:DataManagementPageViewModel">
+
+  <UserControl.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="DmTabBodyBg" Color="#F1F5FA" />
+          <SolidColorBrush x:Key="DmTabBorder" Color="#CBD5E1" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="DmTabBodyBg" Color="#141924" />
+          <SolidColorBrush x:Key="DmTabBorder" Color="#334155" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+
+      <ControlTheme x:Key="DmRoundedTabItemTheme" TargetType="TabItem">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="Medium" />
+        <Setter Property="Padding" Value="14,7" />
+        <Setter Property="Margin" Value="0,0,6,0" />
+        <Setter Property="MinHeight" Value="34" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Template">
+          <ControlTemplate>
+            <Border x:Name="PART_TabPill"
+                    Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="{TemplateBinding CornerRadius}"
+                    Padding="{TemplateBinding Padding}">
+              <ContentPresenter x:Name="PART_ContentPresenter"
+                                Content="{TemplateBinding Header}"
+                                ContentTemplate="{TemplateBinding HeaderTemplate}"
+                                HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+            </Border>
+          </ControlTemplate>
+        </Setter>
+        <Style Selector="^:pointerover">
+          <Setter Property="Background" Value="#14808080" />
+        </Style>
+        <Style Selector="^:selected">
+          <Setter Property="Background" Value="{DynamicResource SukiPrimaryColor15}" />
+          <Setter Property="BorderBrush" Value="{DynamicResource SukiPrimaryColor}" />
+          <Setter Property="Foreground" Value="{DynamicResource SukiPrimaryColor}" />
+          <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+      </ControlTheme>
+    </ResourceDictionary>
+  </UserControl.Resources>
+
+  <UserControl.Styles>
+    <Style Selector="Border.dm-tab-body">
+      <Setter Property="Background" Value="{DynamicResource DmTabBodyBg}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource DmTabBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="Padding" Value="12" />
+      <Setter Property="Margin" Value="0,8,0,0" />
+    </Style>
+  </UserControl.Styles>
+
+  <Grid RowDefinitions="Auto,*" Margin="18,14,18,16">
+    <!-- 頂部標題 ＋ 唯讀警示 + 進度列 -->
+    <suki:GlassCard Grid.Row="0" CornerRadius="14" Padding="16,12" Margin="0,0,0,10">
+      <StackPanel Spacing="8">
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Grid.Column="0" Spacing="2">
+            <TextBlock Text="🏷️ 資料管理與維護中心" FontSize="20" FontWeight="Bold" />
+            <TextBlock Text="{Binding CacheStatsText}" FontSize="12" Opacity="0.78" />
+          </StackPanel>
+
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <Button Classes="Outlined"
+                    Padding="12,6"
+                    IsVisible="{Binding IsMaintenanceRunning}"
+                    Command="{Binding CancelMaintenanceCommand}">
+              <TextBlock Text="⏹ 中斷作業" FontSize="12" />
+            </Button>
+            <Button Classes="Flat"
+                    Padding="12,6"
+                    Command="{Binding RefreshAllCommand}">
+              <TextBlock Text="🔄 重新整理" FontSize="12" FontWeight="SemiBold" />
+            </Button>
+          </StackPanel>
+        </Grid>
+
+        <!-- 背景維護進度列 -->
+        <Grid ColumnDefinitions="Auto,*,Auto"
+              ColumnSpacing="10"
+              IsVisible="{Binding IsMaintenanceRunning}">
+          <TextBlock Grid.Column="0" Text="{Binding MaintenancePhaseText}" FontSize="12" VerticalAlignment="Center" />
+          <ProgressBar Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding MaintenanceProgressPercent}" Height="6" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="2" Text="{Binding MaintenanceProgressPercent, StringFormat='{}{0:F0}%'}" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" />
+        </Grid>
+
+        <!-- 1.A 共用庫唯讀保護橫幅 -->
+        <Border CornerRadius="8"
+                Padding="10,6"
+                Background="#18F59E0B"
+                BorderBrush="#66F59E0B"
+                BorderThickness="1"
+                IsVisible="{Binding IsReadOnlyDatabase}">
+          <TextBlock Text="{Binding ReadOnlyBannerText}"
+                     FontSize="12"
+                     Foreground="#F59E0B"
+                     TextWrapping="Wrap" />
+        </Border>
+      </StackPanel>
+    </suki:GlassCard>
+
+    <!-- 四大功能圓角頁籤 -->
+    <TabControl Grid.Row="1"
+                Margin="0"
+                Padding="0"
+                HorizontalContentAlignment="Stretch"
+                ItemContainerTheme="{StaticResource DmRoundedTabItemTheme}"
+                SelectedIndex="{Binding SelectedTabIndex, Mode=TwoWay}">
+
+      <!-- Tab 0: 標籤、譯文與虛擬主標籤合併 -->
+      <TabItem Header="🏷️ 標籤與虛擬別名">
+        <Border Classes="dm-tab-body">
+          <Grid ColumnDefinitions="1.15*,0.85*" ColumnSpacing="14">
+            <!-- 左側：標籤搜尋與勾選清單 + 合併虛擬標籤區 -->
+            <Grid Grid.Column="0" RowDefinitions="Auto,*,Auto" RowSpacing="10">
+              <Grid Grid.Row="0" ColumnDefinitions="*,140,Auto" ColumnSpacing="8">
+                <TextBox Grid.Column="0"
+                         Watermark="搜尋標籤原文或中文譯名…"
+                         Text="{Binding TagSearchText, Mode=TwoWay}"
+                         FontSize="12.5" />
+                <ComboBox Grid.Column="1"
+                          ItemsSource="{Binding TagCategoryOptions}"
+                          SelectedItem="{Binding SelectedTagCategoryFilter, Mode=TwoWay}"
+                          FontSize="12"
+                          HorizontalAlignment="Stretch" />
+                <TextBlock Grid.Column="2"
+                           Text="{Binding TagSummaryText}"
+                           FontSize="11.5"
+                           Opacity="0.72"
+                           VerticalAlignment="Center" />
+              </Grid>
+
+              <ListBox Grid.Row="1"
+                       ItemsSource="{Binding VisibleTags}"
+                       SelectedItem="{Binding SelectedTag, Mode=TwoWay}"
+                       Background="Transparent">
+                <ListBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:TagManagerItemVm">
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8" Margin="2,3">
+                      <CheckBox Grid.Column="0"
+                                IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                                VerticalAlignment="Center" />
+                      <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                        <TextBlock Text="{Binding DisplayTitle}" FontSize="12.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding Name}" FontSize="10.5" Opacity="0.62" IsVisible="{Binding HasTranslation}" />
+                      </StackPanel>
+                      <Border Grid.Column="2" CornerRadius="5" Padding="6,2" Background="#16808080" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding CategoryBadge}" FontSize="10.5" />
+                      </Border>
+                      <TextBlock Grid.Column="3"
+                                 Text="{Binding CountText}"
+                                 FontSize="11.5"
+                                 Opacity="0.72"
+                                 VerticalAlignment="Center" />
+                    </Grid>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+
+              <!-- 批次合併為虛擬主標籤工具列 -->
+              <Border Grid.Row="2"
+                      CornerRadius="10"
+                      Padding="10"
+                      BorderThickness="1"
+                      BorderBrush="{DynamicResource DmTabBorder}">
+                <StackPanel Spacing="6">
+                  <TextBlock Text="✨ 將勾選標籤合併為虛擬主標籤 (tag_alias 自動導向)" FontSize="12" FontWeight="SemiBold" />
+                  <Grid ColumnDefinitions="*,*,Auto" ColumnSpacing="8">
+                    <TextBox Grid.Column="0"
+                             Watermark="主標籤識別名 (例: full color)"
+                             Text="{Binding VirtualMasterName, Mode=TwoWay}"
+                             FontSize="12" />
+                    <TextBox Grid.Column="1"
+                             Watermark="繁中顯示名 (選填)"
+                             Text="{Binding VirtualMasterZhName, Mode=TwoWay}"
+                             FontSize="12" />
+                    <Button Grid.Column="2"
+                            Classes="Flat"
+                            Padding="10,6"
+                            Command="{Binding MergeCheckedTagsIntoVirtualCommand}">
+                      <TextBlock Text="建立/合併" FontSize="12" FontWeight="SemiBold" />
+                    </Button>
+                  </Grid>
+                </StackPanel>
+              </Border>
+            </Grid>
+
+            <!-- 右側：選取標籤編輯與別名維護 -->
+            <suki:GlassCard Grid.Column="1" CornerRadius="12" Padding="14">
+              <Grid>
+                <TextBlock Text="請從左側選取一個標籤檢視或編輯"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           Opacity="0.6"
+                           IsVisible="{Binding !HasSelectedTag}" />
+
+                <ScrollViewer IsVisible="{Binding HasSelectedTag}"
+                              HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto">
+                  <StackPanel Spacing="10">
+                    <Grid ColumnDefinitions="*,Auto">
+                      <TextBlock Text="標籤屬性編輯" FontSize="15" FontWeight="Bold" VerticalAlignment="Center" />
+                      <Button Grid.Column="1"
+                              Classes="Flat"
+                              Padding="10,5"
+                              Command="{Binding OpenSelectedTagInGalleryCommand}">
+                        <TextBlock Text="🖼️ 在圖庫檢視作品" FontSize="12" />
+                      </Button>
+                    </Grid>
+
+                    <StackPanel Spacing="4">
+                      <TextBlock Text="原始名稱" FontSize="11.5" Opacity="0.72" />
+                      <TextBox Text="{Binding EditTagName, Mode=TwoWay}" FontSize="12.5" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                      <TextBlock Text="中文譯名 (zh-TW)" FontSize="11.5" Opacity="0.72" />
+                      <TextBox Watermark="輸入手動自訂繁中翻譯（優先於 EhTag）"
+                               Text="{Binding EditTagTranslation, Mode=TwoWay}"
+                               FontSize="12.5" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                      <TextBlock Text="分類 (Category)" FontSize="11.5" Opacity="0.72" />
+                      <ComboBox ItemsSource="{Binding TagCategoryOptions}"
+                                SelectedItem="{Binding EditTagCategory, Mode=TwoWay}"
+                                HorizontalAlignment="Stretch" />
+                    </StackPanel>
+
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                      <Button Grid.Column="0"
+                              Classes="Flat"
+                              Padding="10,7"
+                              HorizontalAlignment="Stretch"
+                              Command="{Binding SaveSelectedTagCommand}">
+                        <TextBlock Text="💾 儲存標籤修正" FontSize="12.5" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                      </Button>
+                      <Button Grid.Column="1"
+                              Classes="Outlined"
+                              Padding="10,7"
+                              Command="{Binding DeleteSelectedTagCommand}">
+                        <TextBlock Text="🗑️ 刪除" FontSize="12" />
+                      </Button>
+                    </Grid>
+
+                    <Border Height="1" Background="{DynamicResource DmTabBorder}" />
+
+                    <!-- tag_alias 清單 -->
+                    <StackPanel Spacing="6">
+                      <TextBlock Text="別名轉向清單 (tag_alias)" FontSize="13" FontWeight="Bold" />
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                        <TextBox Grid.Column="0"
+                                 Watermark="輸入別名 (搜尋此別名將導向目前標籤)"
+                                 Text="{Binding NewTagAliasText, Mode=TwoWay}"
+                                 FontSize="12" />
+                        <Button Grid.Column="1"
+                                Classes="Outlined"
+                                Padding="10,5"
+                                Command="{Binding AddTagAliasCommand}">
+                          <TextBlock Text="+ 新增" FontSize="12" />
+                        </Button>
+                      </Grid>
+
+                      <ItemsControl ItemsSource="{Binding SelectedTagAliases}">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="vm:TagAliasItemVm">
+                            <Border Margin="0,2" Padding="8,4" CornerRadius="6" BorderThickness="1" BorderBrush="{DynamicResource SukiBorderBrush}">
+                              <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Grid.Column="0" Text="{Binding AliasName}" FontSize="12" VerticalAlignment="Center" />
+                                <Button Grid.Column="1" Classes="Basic" Padding="6,2" Command="{Binding DeleteCommand}">
+                                  <TextBlock Text="×" FontSize="13" />
+                                </Button>
+                              </Grid>
+                            </Border>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </StackPanel>
+
+                    <Border Height="1" Background="{DynamicResource DmTabBorder}" />
+
+                    <Button Classes="Basic"
+                            Padding="8,5"
+                            HorizontalAlignment="Left"
+                            Command="{Binding CleanupOrphanTagsCommand}">
+                      <TextBlock Text="🧹 清理全庫無作品關聯之孤兒標籤" FontSize="12" />
+                    </Button>
+                  </StackPanel>
+                </ScrollViewer>
+              </Grid>
+            </suki:GlassCard>
+          </Grid>
+        </Border>
+      </TabItem>
+
+      <!-- Tab 1: 作者主名、重複合併與多語別名 -->
+      <TabItem Header="👤 作者與多語別名">
+        <Border Classes="dm-tab-body">
+          <Grid ColumnDefinitions="1.05*,0.95*" ColumnSpacing="14">
+            <Grid Grid.Column="0" RowDefinitions="Auto,*" RowSpacing="10">
+              <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <TextBox Grid.Column="0"
+                         Watermark="搜尋作者主名稱…"
+                         Text="{Binding AuthorSearchText, Mode=TwoWay}"
+                         FontSize="12.5" />
+                <TextBlock Grid.Column="1"
+                           Text="{Binding AuthorSummaryText}"
+                           FontSize="11.5"
+                           Opacity="0.72"
+                           VerticalAlignment="Center" />
+              </Grid>
+
+              <ListBox Grid.Row="1"
+                       ItemsSource="{Binding VisibleAuthors}"
+                       SelectedItem="{Binding SelectedAuthor, Mode=TwoWay}"
+                       Background="Transparent">
+                <ListBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:AuthorManagerItemVm">
+                    <Grid ColumnDefinitions="*,Auto" Margin="4,4">
+                      <StackPanel Grid.Column="0" Spacing="1">
+                        <TextBlock Text="{Binding MainName}" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding FolderPath}" FontSize="10.5" Opacity="0.6" TextTrimming="CharacterEllipsis" />
+                      </StackPanel>
+                      <TextBlock Grid.Column="1"
+                                 Text="{Binding StatsText}"
+                                 FontSize="11.5"
+                                 Opacity="0.75"
+                                 VerticalAlignment="Center" />
+                    </Grid>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+            </Grid>
+
+            <suki:GlassCard Grid.Column="1" CornerRadius="12" Padding="14">
+              <Grid>
+                <TextBlock Text="請從左側選取一位作者管理名稱、合併或別名"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           Opacity="0.6"
+                           IsVisible="{Binding !HasSelectedAuthor}" />
+
+                <ScrollViewer IsVisible="{Binding HasSelectedAuthor}"
+                              HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto">
+                  <StackPanel Spacing="12">
+                    <Grid ColumnDefinitions="*,Auto">
+                      <TextBlock Text="作者資料維護" FontSize="15" FontWeight="Bold" VerticalAlignment="Center" />
+                      <Button Grid.Column="1"
+                              Classes="Flat"
+                              Padding="10,5"
+                              Command="{Binding OpenSelectedAuthorInGalleryCommand}">
+                        <TextBlock Text="🖼️ 在圖庫檢視作品" FontSize="12" />
+                      </Button>
+                    </Grid>
+
+                    <StackPanel Spacing="4">
+                      <TextBlock Text="主作者名稱" FontSize="11.5" Opacity="0.72" />
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                        <TextBox Grid.Column="0" Text="{Binding EditAuthorMainName, Mode=TwoWay}" FontSize="12.5" />
+                        <Button Grid.Column="1" Classes="Flat" Padding="10,6" Command="{Binding RenameSelectedAuthorCommand}">
+                          <TextBlock Text="重命名" FontSize="12" FontWeight="SemiBold" />
+                        </Button>
+                      </Grid>
+                    </StackPanel>
+
+                    <Border Height="1" Background="{DynamicResource DmTabBorder}" />
+
+                    <StackPanel Spacing="6">
+                      <TextBlock Text="多語別名 (author_alias)" FontSize="13" FontWeight="Bold" />
+                      <Grid ColumnDefinitions="*,84,Auto" ColumnSpacing="6">
+                        <TextBox Grid.Column="0"
+                                 Watermark="輸入別名 / 日文原名 / 英文拼寫"
+                                 Text="{Binding NewAuthorAliasName, Mode=TwoWay}"
+                                 FontSize="12" />
+                        <TextBox Grid.Column="1"
+                                 Watermark="語系"
+                                 Text="{Binding NewAuthorAliasLang, Mode=TwoWay}"
+                                 FontSize="12" />
+                        <Button Grid.Column="2" Classes="Outlined" Padding="10,5" Command="{Binding AddAuthorAliasCommand}">
+                          <TextBlock Text="+ 新增" FontSize="12" />
+                        </Button>
+                      </Grid>
+
+                      <ItemsControl ItemsSource="{Binding SelectedAuthorAliases}">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="vm:AuthorAliasItemVm">
+                            <Border Margin="0,2" Padding="8,4" CornerRadius="6" BorderThickness="1" BorderBrush="{DynamicResource SukiBorderBrush}">
+                              <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                                <TextBlock Grid.Column="0" Text="{Binding Name}" FontSize="12" VerticalAlignment="Center" />
+                                <Border Grid.Column="1" CornerRadius="4" Padding="6,1" Background="#16808080">
+                                  <TextBlock Text="{Binding Lang}" FontSize="10.5" />
+                                </Border>
+                                <Button Grid.Column="2" Classes="Basic" Padding="6,2" Command="{Binding DeleteCommand}">
+                                  <TextBlock Text="×" FontSize="13" />
+                                </Button>
+                              </Grid>
+                            </Border>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </StackPanel>
+
+                    <Border Height="1" Background="{DynamicResource DmTabBorder}" />
+
+                    <StackPanel Spacing="6">
+                      <TextBlock Text="🔀 合併重複作者（將目前作者併入目標作者並保留舊名為別名）"
+                                 FontSize="12"
+                                 FontWeight="SemiBold"
+                                 TextWrapping="Wrap" />
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                        <ComboBox Grid.Column="0"
+                                  ItemsSource="{Binding MergeTargetAuthors}"
+                                  SelectedItem="{Binding MergeDestinationAuthor, Mode=TwoWay}"
+                                  HorizontalAlignment="Stretch" />
+                        <Button Grid.Column="1"
+                                Classes="Outlined"
+                                Padding="12,6"
+                                Command="{Binding MergeSelectedAuthorIntoTargetCommand}">
+                          <TextBlock Text="執行合併" FontSize="12" FontWeight="SemiBold" />
+                        </Button>
+                      </Grid>
+                    </StackPanel>
+                  </StackPanel>
+                </ScrollViewer>
+              </Grid>
+            </suki:GlassCard>
+          </Grid>
+        </Border>
+      </TabItem>
+
+      <!-- Tab 2: 外部資料同步與翻譯詞庫更新 -->
+      <TabItem Header="🌐 外部同步與詞庫">
+        <Border Classes="dm-tab-body">
+          <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="14" MaxWidth="920" HorizontalAlignment="Left">
+              <suki:GlassCard CornerRadius="12" Padding="16">
+                <StackPanel Spacing="10">
+                  <TextBlock Text="📖 EhTagTranslation 中文標籤翻譯詞庫" FontSize="15.5" FontWeight="Bold" />
+                  <TextBlock Text="{Binding EhTagStatusText}" FontSize="12.5" Opacity="0.84" TextWrapping="Wrap" />
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Button Classes="Outlined" Padding="12,6" Command="{Binding CheckEhTagUpdateCommand}">
+                      <TextBlock Text="🔍 檢查 GitHub 最新版本" FontSize="12.5" />
+                    </Button>
+                    <Button Classes="Flat"
+                            Padding="14,6"
+                            Command="{Binding DownloadAndApplyEhTagCommand}"
+                            IsEnabled="{Binding IsWritable}">
+                      <TextBlock Text="{Binding EhTagDownloadButtonText}" FontSize="12.5" FontWeight="SemiBold" />
+                    </Button>
+                  </StackPanel>
+                </StackPanel>
+              </suki:GlassCard>
+
+              <suki:GlassCard CornerRadius="12" Padding="16">
+                <StackPanel Spacing="10">
+                  <TextBlock Text="🔗 nhentai 全庫自動補齊標籤與外部 Metadata" FontSize="15.5" FontWeight="Bold" />
+                  <TextBlock Text="{Binding ExternalSyncSummaryText}" FontSize="12.5" Opacity="0.84" TextWrapping="Wrap" />
+                  <Grid ColumnDefinitions="Auto,160,*" ColumnSpacing="10">
+                    <TextBlock Grid.Column="0" Text="搜尋配對最低信心門檻：" FontSize="12.5" VerticalAlignment="Center" />
+                    <Slider Grid.Column="1" Minimum="50" Maximum="100" TickFrequency="5" IsSnapToTickEnabled="True" Value="{Binding SyncConfidenceThreshold, Mode=TwoWay}" />
+                    <TextBlock Grid.Column="2" Text="{Binding SyncConfidenceThreshold, StringFormat='{}{0}%'}" FontSize="12.5" FontWeight="Bold" VerticalAlignment="Center" />
+                  </Grid>
+                  <Button Classes="Flat"
+                          HorizontalAlignment="Left"
+                          Padding="14,7"
+                          Command="{Binding RunBatchNhentaiSyncCommand}"
+                          IsEnabled="{Binding !IsMaintenanceRunning}">
+                    <TextBlock Text="▶️ 開始自動補齊缺失標籤（跳過手動編輯與已綁定項目）" FontSize="12.5" FontWeight="SemiBold" />
+                  </Button>
+                </StackPanel>
+              </suki:GlassCard>
+            </StackPanel>
+          </ScrollViewer>
+        </Border>
+      </TabItem>
+
+      <!-- Tab 3: 資料庫、目錄對帳與快取維護 -->
+      <TabItem Header="🛠️ 資料庫與快取維護">
+        <Border Classes="dm-tab-body">
+          <Grid RowDefinitions="Auto,*" RowSpacing="12">
+            <Grid Grid.Row="0" ColumnDefinitions="*,*" ColumnSpacing="12">
+              <suki:GlassCard Grid.Column="0" CornerRadius="12" Padding="14">
+                <StackPanel Spacing="8">
+                  <TextBlock Text="🔬 快取與檔案完整性健檢" FontSize="14.5" FontWeight="Bold" />
+                  <TextBlock Text="{Binding IntegritySummaryText}" FontSize="12" Opacity="0.82" TextWrapping="Wrap" />
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Classes="Outlined" Padding="10,6" Command="{Binding ScanIntegrityCommand}">
+                      <TextBlock Text="🔬 檢查快取完整性" FontSize="12" />
+                    </Button>
+                    <Button Classes="Flat"
+                            Padding="10,6"
+                            IsEnabled="{Binding CanFixIntegrity}"
+                            Command="{Binding FixIntegrityOrphansCommand}">
+                      <TextBlock Text="🧹 清理孤兒紀錄與縮圖" FontSize="12" FontWeight="SemiBold" />
+                    </Button>
+                  </StackPanel>
+                </StackPanel>
+              </suki:GlassCard>
+
+              <suki:GlassCard Grid.Column="1" CornerRadius="12" Padding="14">
+                <StackPanel Spacing="8">
+                  <TextBlock Text="🧭 目錄與資料庫檔案對帳" FontSize="14.5" FontWeight="Bold" />
+                  <TextBlock Text="{Binding ReconcileSummaryText}" FontSize="12" Opacity="0.82" TextWrapping="Wrap" />
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Classes="Outlined" Padding="10,6" Command="{Binding AnalyzeReconcileCommand}">
+                      <TextBlock Text="🧭 分析目錄對帳" FontSize="12" />
+                    </Button>
+                    <Button Classes="Flat"
+                            Padding="10,6"
+                            IsEnabled="{Binding CanApplyReconcile}"
+                            Command="{Binding ApplyReconcileChangesCommand}">
+                      <TextBlock Text="✓ 套用對帳更新" FontSize="12" FontWeight="SemiBold" />
+                    </Button>
+                  </StackPanel>
+                </StackPanel>
+              </suki:GlassCard>
+            </Grid>
+
+            <Grid Grid.Row="1" RowDefinitions="Auto,*" RowSpacing="10">
+              <suki:GlassCard Grid.Row="0" CornerRadius="12" Padding="14">
+                <WrapPanel>
+                  <Button Classes="Flat" Margin="0,0,8,4" Padding="12,7" Command="{Binding SyncSkiaThumbnailsCommand}">
+                    <TextBlock Text="🖼️ 增量補建 Skia 縮圖快取" FontSize="12.5" FontWeight="SemiBold" />
+                  </Button>
+                  <Button Classes="Outlined" Margin="0,0,8,4" Padding="12,7" Command="{Binding RunReparseAllCommand}">
+                    <TextBlock Text="🔄 全庫 Metadata 重新解析 (保留手動編輯)" FontSize="12.5" />
+                  </Button>
+                  <Button Classes="Outlined" Margin="0,0,8,4" Padding="12,7" Command="{Binding ClearThumbCacheCommand}">
+                    <TextBlock Text="🗑️ 清除磁碟縮圖快取" FontSize="12.5" />
+                  </Button>
+                </WrapPanel>
+              </suki:GlassCard>
+
+              <suki:GlassCard Grid.Row="1" CornerRadius="12" Padding="12">
+                <Grid RowDefinitions="Auto,*">
+                  <TextBlock Grid.Row="0" Text="作業紀錄" FontSize="12.5" FontWeight="Bold" Margin="0,0,0,6" />
+                  <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding MaintenanceLogs}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <TextBlock Text="{Binding}" FontSize="11.5" Opacity="0.8" Margin="0,2" TextWrapping="Wrap" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </ScrollViewer>
+                </Grid>
+              </suki:GlassCard>
+            </Grid>
+          </Grid>
+        </Border>
+      </TabItem>
+
+    </TabControl>
+  </Grid>
+</UserControl>
