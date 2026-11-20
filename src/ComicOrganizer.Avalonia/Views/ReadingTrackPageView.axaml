@@ -151,6 +151,13 @@
                                 Padding="10"
                                 Margin="0,0,12,12"
                                 EffectiveViewportChanged="OnWorkItemEffectiveViewportChanged">
+                  <suki:GlassCard.ContextMenu>
+                    <ContextMenu>
+                      <MenuItem Header="📖 以內建閱讀器繼續閱讀" Command="{Binding OpenCommand}" />
+                      <MenuItem Header="↗ 以外部預設程式開啟" Command="{Binding OpenExternalCommand}" />
+                      <MenuItem Header="📂 在檔案總管中顯示" Command="{Binding RevealInExplorerCommand}" />
+                    </ContextMenu>
+                  </suki:GlassCard.ContextMenu>
                   <Grid ColumnDefinitions="Auto,*" ColumnSpacing="11">
 
                     <!-- 左側直式封面 -->
@@ -159,7 +166,7 @@
                             Padding="0"
                             Command="{Binding OpenCommand}"
                             Cursor="Hand"
-                            ToolTip.Tip="以系統預設程式開啟繼續閱讀">
+                            ToolTip.Tip="以內建閱讀器開啟繼續閱讀">
                       <Border Width="80"
                               Height="112"
                               CornerRadius="8"
@@ -444,6 +451,13 @@
                                 Padding="10"
                                 Margin="0,0,12,12"
                                 EffectiveViewportChanged="OnWorkItemEffectiveViewportChanged">
+                  <suki:GlassCard.ContextMenu>
+                    <ContextMenu>
+                      <MenuItem Header="📖 以內建閱讀器開啟" Command="{Binding OpenCommand}" />
+                      <MenuItem Header="↗ 以外部預設程式開啟" Command="{Binding OpenExternalCommand}" />
+                      <MenuItem Header="📂 在檔案總管中顯示" Command="{Binding RevealInExplorerCommand}" />
+                    </ContextMenu>
+                  </suki:GlassCard.ContextMenu>
                   <StackPanel Spacing="7">
                     <Button Classes="Basic"
                             Padding="0"
@@ -451,7 +465,7 @@
                             HorizontalContentAlignment="Stretch"
                             Command="{Binding OpenCommand}"
                             Cursor="Hand"
-                            ToolTip.Tip="點擊以系統預設程式開啟閱讀">
+                            ToolTip.Tip="點擊以內建閱讀器開啟閱讀">
                       <StackPanel Spacing="7">
                         <Border Height="250"
                                 CornerRadius="9"

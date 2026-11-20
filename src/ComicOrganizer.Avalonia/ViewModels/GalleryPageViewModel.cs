@@ -124,6 +124,8 @@ public sealed partial class GalleryItemVm : ViewModelBase
     private readonly Action<GalleryItemVm> _onRevealInExplorer;
     private readonly Action<GalleryItemVm>? _onInspectDetail;
     private readonly Action<GalleryItemVm>? _onCoverLoaded;
+    private readonly Action<GalleryItemVm>? _onOpenInReader;
+    private readonly Action<GalleryItemVm>? _onOpenExternal;
     private readonly Func<Action, Task> _runOnUiAsync;
 
     public GalleryItemVm(
@@ -137,7 +139,9 @@ public sealed partial class GalleryItemVm : ViewModelBase
         Action<GalleryItemVm> onRevealInExplorer,
         Func<Action, Task>? runOnUiAsync = null,
         Action<GalleryItemVm>? onInspectDetail = null,
-        Action<GalleryItemVm>? onCoverLoaded = null)
+        Action<GalleryItemVm>? onCoverLoaded = null,
+        Action<GalleryItemVm>? onOpenInReader = null,
+        Action<GalleryItemVm>? onOpenExternal = null)
     {
         SortMetadata = sortMeta ?? throw new ArgumentNullException(nameof(sortMeta));
         Path = sortMeta.Path;
@@ -158,6 +162,8 @@ public sealed partial class GalleryItemVm : ViewModelBase
         _onRevealInExplorer = onRevealInExplorer ?? throw new ArgumentNullException(nameof(onRevealInExplorer));
         _onInspectDetail = onInspectDetail;
         _onCoverLoaded = onCoverLoaded;
+        _onOpenInReader = onOpenInReader;
+        _onOpenExternal = onOpenExternal;
         _runOnUiAsync = runOnUiAsync ?? ExploreCardVmBase.DefaultRunOnUiAsync;
 
         AccentColorHex = ExploreVisualFormatting.PickAccentHex(DisplayTitle);
@@ -287,10 +293,16 @@ public sealed partial class GalleryItemVm : ViewModelBase
 
     public string PrimaryActionTooltip => IsFolder
         ? $"進入資料夾：{DisplayTitle}"
-        : $"以系統預設程式開啟：{DisplayTitle}";
+        : $"以內建閱讀器開啟：{DisplayTitle}";
 
     [RelayCommand]
     private void Activate() => _onActivate(this);
+
+    [RelayCommand]
+    private void OpenInReader() => (_onOpenInReader ?? _onActivate)(this);
+
+    [RelayCommand]
+    private void OpenExternal() => _onOpenExternal?.Invoke(this);
 
     [RelayCommand]
     private void InspectDetail() => _onInspectDetail?.Invoke(this);
@@ -336,6 +348,7 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
     private readonly IAssetMetaStore _store;
     private readonly SkiaCoverService _coverService;
     private readonly IExternalLauncher _externalLauncher;
+    private readonly IReaderWindowLauncher _readerLauncher;
     private readonly ISukiToastManager? _toastManager;
     private readonly Func<Action, Task> _runOnUiAsync;
     private readonly SemaphoreSlim _coverLoadSemaphore = new(4, 4);
@@ -362,7 +375,8 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
             dataContext.ToastManager,
             ExploreCardVmBase.DefaultRunOnUiAsync,
             autoLoad: true,
-            isReadOnlyDatabase: dataContext.IsReadOnlyDatabase)
+            isReadOnlyDatabase: dataContext.IsReadOnlyDatabase,
+            readerLauncher: new AvaloniaReaderWindowLauncher(dataContext))
     {
         _dataContext = dataContext;
     }
@@ -375,11 +389,13 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
         ISukiToastManager? toastManager = null,
         Func<Action, Task>? runOnUiAsync = null,
         bool autoLoad = true,
-        bool isReadOnlyDatabase = false)
+        bool isReadOnlyDatabase = false,
+        IReaderWindowLauncher? readerLauncher = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _coverService = coverService ?? throw new ArgumentNullException(nameof(coverService));
         _externalLauncher = externalLauncher ?? new SystemExternalLauncher();
+        _readerLauncher = readerLauncher ?? new FallbackExternalReaderLauncher(_externalLauncher);
         _toastManager = toastManager;
         _runOnUiAsync = runOnUiAsync ?? ExploreCardVmBase.DefaultRunOnUiAsync;
         IsReadOnlyDatabase = isReadOnlyDatabase;
@@ -397,10 +413,11 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
             () => RootDirectory,
             dsl => _ = ApplyExternalDslQueryAsync(dsl),
             NavigateToFolder,
-            OpenPathWithDefaultApp,
+            OpenWorkPathInReader,
             RevealPathInExplorer,
             OnDetailDrawerMutated,
-            _toastManager);
+            _toastManager,
+            OpenPathWithDefaultApp);
 
         SortOptions =
         [
@@ -1480,7 +1497,9 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
                 OnItemRevealInExplorer,
                 _runOnUiAsync,
                 OnItemInspectDetail,
-                OnItemCoverLoaded));
+                OnItemCoverLoaded,
+                OnItemOpenInReader,
+                OnItemOpenExternal));
         }
 
         return items;
@@ -1547,7 +1566,9 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
                 OnItemRevealInExplorer,
                 _runOnUiAsync,
                 OnItemInspectDetail,
-                OnItemCoverLoaded));
+                OnItemCoverLoaded,
+                OnItemOpenInReader,
+                OnItemOpenExternal));
         }
 
         return items;
@@ -1783,7 +1804,42 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        OpenWorkInReader(item.Path, item.DisplayTitle, item.AuthorName);
+    }
+
+    private void OnItemOpenInReader(GalleryItemVm item)
+    {
+        SelectGalleryItem(item);
+        OpenWorkInReader(item.Path, item.DisplayTitle, item.AuthorName);
+    }
+
+    private void OnItemOpenExternal(GalleryItemVm item)
+    {
+        SelectGalleryItem(item);
         OpenPathWithDefaultApp(item.Path);
+    }
+
+    private void OpenWorkPathInReader(string path)
+    {
+        OpenWorkInReader(path, null, null);
+    }
+
+    private void OpenWorkInReader(string path, string? displayTitle, string? authorName)
+    {
+        if (_disposed) return;
+        if (!_readerLauncher.OpenInReader(path, displayTitle, authorName, OnReaderClosedRefreshIfWritable, out var error))
+        {
+            ShowToast("無法開啟內建閱讀器", error ?? path, NotificationType.Warning);
+        }
+    }
+
+    private void OnReaderClosedRefreshIfWritable()
+    {
+        if (!_disposed && !IsReadOnlyDatabase)
+        {
+            _cachedSnapshot = null;
+            _ = LoadCurrentScopeItemsAsync();
+        }
     }
 
     private void OnItemInspectDetail(GalleryItemVm item)

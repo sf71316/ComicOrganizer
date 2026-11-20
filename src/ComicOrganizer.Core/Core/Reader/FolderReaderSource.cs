@@ -49,6 +49,25 @@ public class FolderReaderSource : IReaderSource
     public string GetPageExtension(int index) => Path.GetExtension(_files[index]);
     public string GetPageName(int index) => Path.GetFileName(_files[index]);
 
+    /// <summary>尋找指定檔案路徑在自然排序頁面清單中的索引（找不到回 -1）。</summary>
+    public int FindIndex(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath)) return -1;
+        string fullTarget;
+        try { fullTarget = Path.GetFullPath(filePath); }
+        catch { fullTarget = filePath; }
+
+        for (int i = 0; i < _files.Length; i++)
+        {
+            if (string.Equals(_files[i], filePath, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(Path.GetFullPath(_files[i]), fullTarget, StringComparison.OrdinalIgnoreCase))
+            {
+                return i;
+            }
+        }
+        return -1;
+    }
+
     public ReaderPageMetadata GetPageMetadata(int index)
     {
         if (index < 0 || index >= _files.Length) throw new ArgumentOutOfRangeException(nameof(index));

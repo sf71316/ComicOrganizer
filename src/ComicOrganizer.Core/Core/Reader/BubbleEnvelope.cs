@@ -1,7 +1,4 @@
-using System;
-using System.Drawing;
-using System.Drawing.Imaging;
-using System.Runtime.InteropServices;
+using SkiaSharp;
 
 namespace ComicOrganizer.App.Core;
 
@@ -21,112 +18,147 @@ public sealed class BubbleEnvelope
 
     private BubbleEnvelope() { }
 
+    /// <summary>從 Skia <see cref="SKBitmap"/> 偵測氣泡輪廓。</summary>
+    public static BubbleEnvelope Detect(
+        SKBitmap img,
+        SKRectI textRegion,
+        float lumThreshold = 165f,
+        float marginRatio = 0.5f,
+        IReadOnlyList<SKRectI>? blockers = null,
+        int erodeRadius = 3,
+        float clampMargin = 0.30f)
+    {
+        if (img == null || img.Width <= 0 || img.Height <= 0)
+            return new BubbleEnvelope();
+
+        using var bgraBmp = img.ColorType == SKColorType.Bgra8888
+            ? null
+            : img.Copy(SKColorType.Bgra8888);
+        var src = bgraBmp ?? img;
+        var span = src.GetPixelSpan();
+        int stride = src.RowBytes;
+        return DetectFromBgra32(span, stride, src.Width, src.Height, textRegion, lumThreshold, marginRatio, blockers, erodeRadius, clampMargin);
+    }
+
     /// <summary>
-    /// 偵測氣泡輪廓。textRegion 提供 flood-fill 種子來源與外擴上限（防漏出爆炸）。
-    /// 偵測失敗（漏出、找不到合理內部）時回傳 Valid=false（呼叫端 fallback）。
+    /// 從 BGRA32 原始像素緩衝區偵測氣泡輪廓（共用於 SkiaSharp 與 WinForms GDI+）。
     /// </summary>
-    public static BubbleEnvelope Detect(Bitmap img, Rectangle textRegion, float lumThreshold = 165f, float marginRatio = 0.5f,
-        System.Collections.Generic.IReadOnlyList<Rectangle>? blockers = null, int erodeRadius = 3, float clampMargin = 0.30f)
+    public static BubbleEnvelope DetectFromBgra32(
+        ReadOnlySpan<byte> buf,
+        int stride,
+        int W,
+        int H,
+        SKRectI textRegion,
+        float lumThreshold = 165f,
+        float marginRatio = 0.5f,
+        IReadOnlyList<SKRectI>? blockers = null,
+        int erodeRadius = 3,
+        float clampMargin = 0.30f)
     {
         var env = new BubbleEnvelope();
-        int W = img.Width, H = img.Height;
-        if (W <= 0 || H <= 0) return env;
+        if (W <= 0 || H <= 0 || stride <= 0 || buf.Length < stride * H) return env;
 
-        var data = img.LockBits(new Rectangle(0, 0, W, H), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-        byte[] buf = new byte[data.Stride * H];
-        Marshal.Copy(data.Scan0, buf, 0, buf.Length);
-        int stride = data.Stride;
-        img.UnlockBits(data);
+        static float Lum(ReadOnlySpan<byte> px, int st, int x, int y)
+        {
+            int o = y * st + x * 4;
+            return 0.114f * px[o] + 0.587f * px[o + 1] + 0.299f * px[o + 2];
+        }
 
-        float Lum(int x, int y) { int o = y * stride + x * 4; return 0.114f * buf[o] + 0.587f * buf[o + 1] + 0.299f * buf[o + 2]; }
-
-        int bx = textRegion.X, by = textRegion.Y, bw = textRegion.Width, bh = textRegion.Height;
+        int bx = textRegion.Left, by = textRegion.Top, bw = textRegion.Width, bh = textRegion.Height;
         int mx = (int)(bw * marginRatio), my = (int)(bh * marginRatio);
         int x0 = Math.Max(0, bx - mx), y0 = Math.Max(0, by - my);
         int x1 = Math.Min(W - 1, bx + bw + mx), y1 = Math.Min(H - 1, by + bh + my);
         if (x1 <= x0 || y1 <= y0) return env;
 
         // 判斷氣泡內部是亮(白底)還是暗(黑底)：取文字框四邊中點附近的中位亮度
-        float[] samp = { Lum(Math.Clamp(bx + bw / 2, 0, W - 1), Math.Clamp(by + 2, 0, H - 1)),
-                         Lum(Math.Clamp(bx + bw / 2, 0, W - 1), Math.Clamp(by + bh - 2, 0, H - 1)),
-                         Lum(Math.Clamp(bx + 2, 0, W - 1), Math.Clamp(by + bh / 2, 0, H - 1)),
-                         Lum(Math.Clamp(bx + bw - 2, 0, W - 1), Math.Clamp(by + bh / 2, 0, H - 1)) };
+        float[] samp =
+        {
+            Lum(buf, stride, Math.Clamp(bx + bw / 2, 0, W - 1), Math.Clamp(by + 2, 0, H - 1)),
+            Lum(buf, stride, Math.Clamp(bx + bw / 2, 0, W - 1), Math.Clamp(by + bh - 2, 0, H - 1)),
+            Lum(buf, stride, Math.Clamp(bx + 2, 0, W - 1), Math.Clamp(by + bh / 2, 0, H - 1)),
+            Lum(buf, stride, Math.Clamp(bx + bw - 2, 0, W - 1), Math.Clamp(by + bh / 2, 0, H - 1))
+        };
         Array.Sort(samp);
         float mid = (samp[1] + samp[2]) / 2f;
         bool bright = mid >= 128f;
         env.DarkBubble = !bright;
         // 填充條件：亮底填亮像素、暗底填暗像素
-        bool IsInside(int x, int y) { float l = Lum(x, y); return bright ? l > lumThreshold : l < (255f - lumThreshold); }
-
-        // 形態學侵蝕 erodeRadius px：只有「自身及周邊 r 內全是內部像素」才算內部 →
-        // 斷開氣泡與旁邊亮部(膚色/披帛)之間的細亮橋，防 flood-fill 滲出氣泡；同時 envelope 略縮一圈(留邊)。
-        bool Inside(int x, int y)
+        bool IsInsidePx(ReadOnlySpan<byte> px, int x, int y)
         {
-            if (erodeRadius <= 0) return IsInside(x, y);
+            float l = Lum(px, stride, x, y);
+            return bright ? l > lumThreshold : l < (255f - lumThreshold);
+        }
+
+        // 形態學侵蝕 erodeRadius px：斷開氣泡與旁邊亮部的細亮橋，防 flood-fill 滲出氣泡
+        bool InsidePx(ReadOnlySpan<byte> px, int x, int y)
+        {
+            if (erodeRadius <= 0) return IsInsidePx(px, x, y);
             for (int dy = -erodeRadius; dy <= erodeRadius; dy++)
                 for (int dx = -erodeRadius; dx <= erodeRadius; dx++)
                 {
                     int nx2 = Math.Clamp(x + dx, 0, W - 1), ny2 = Math.Clamp(y + dy, 0, H - 1);
-                    if (!IsInside(nx2, ny2)) return false;
+                    if (!IsInsidePx(px, nx2, ny2)) return false;
                 }
             return true;
         }
 
         // 種子：文字框中心附近找符合內部條件的點
-        int sx = bx + bw / 2, sy = by + bh / 2;
-        if (!Inside(sx, sy))
+        int sx = Math.Clamp(bx + bw / 2, x0, x1), sy = Math.Clamp(by + bh / 2, y0, y1);
+        if (!InsidePx(buf, sx, sy))
         {
             bool found = false;
             for (int r = 1; r < Math.Max(bw, bh) / 2 && !found; r++)
                 foreach (var (dx, dy) in new[] { (r, 0), (-r, 0), (0, r), (0, -r) })
                 {
                     int nx = Math.Clamp(sx + dx, x0, x1), ny = Math.Clamp(sy + dy, y0, y1);
-                    if (Inside(nx, ny)) { sx = nx; sy = ny; found = true; break; }
+                    if (InsidePx(buf, nx, ny)) { sx = nx; sy = ny; found = true; break; }
                 }
             if (!found) return env;
         }
 
         var filled = new bool[W * H];
-        var stack = new System.Collections.Generic.Stack<int>();
-        filled[sy * W + sx] = true; stack.Push(sy * W + sx);
+        var stack = new Stack<int>();
+        filled[sy * W + sx] = true;
+        stack.Push(sy * W + sx);
         long cnt = 0;
         while (stack.Count > 0)
         {
-            int p = stack.Pop(); cnt++;
+            int p = stack.Pop();
+            cnt++;
             int cx = p % W, cy = p / W;
-            void Try(int nx, int ny)
+            void Try(ReadOnlySpan<byte> px, int nx, int ny)
             {
                 if (nx < x0 || nx > x1 || ny < y0 || ny > y1) return;
                 int np = ny * W + nx;
-                if (filled[np] || !Inside(nx, ny)) return;
-                // 不擴張進鄰塊文字框 → 避免相鄰氣泡 envelope 互相侵入(文字重疊)
+                if (filled[np] || !InsidePx(px, nx, ny)) return;
                 if (blockers != null)
                     for (int bi = 0; bi < blockers.Count; bi++)
                         if (blockers[bi].Contains(nx, ny)) return;
-                filled[np] = true; stack.Push(np);
+                filled[np] = true;
+                stack.Push(np);
             }
-            Try(cx - 1, cy); Try(cx + 1, cy); Try(cx, cy - 1); Try(cx, cy + 1);
+            Try(buf, cx - 1, cy);
+            Try(buf, cx + 1, cy);
+            Try(buf, cx, cy - 1);
+            Try(buf, cx, cy + 1);
         }
 
-        // 漏出判定：填充佔外擴框比例過高 → 視為漏出(無封閉輪廓)，無效
         double boxArea = (double)(x1 - x0 + 1) * (y1 - y0 + 1);
-        if (cnt / boxArea > 0.85) return env;          // 幾乎填滿外擴框 = 漏出
-        if (cnt < bw * bh * 0.15) return env;          // 填得太少 = 沒抓到氣泡
+        if (cnt / boxArea > 0.85) return env;
+        if (cnt < bw * bh * 0.15) return env;
 
-        // 每欄上下邊界
-        var top = new int[W]; var bot = new int[W];
+        var top = new int[W];
+        var bot = new int[W];
         for (int x = 0; x < W; x++) { top[x] = -1; bot[x] = -1; }
         for (int x = x0; x <= x1; x++)
         {
             int tt = -1, bb = -1;
             for (int y = y0; y <= y1; y++)
                 if (filled[y * W + x]) { if (tt < 0) tt = y; bb = y; }
-            top[x] = tt; bot[x] = bb;
+            top[x] = tt;
+            bot[x] = bb;
         }
 
-        // 文字框錨定夾住：envelope 各邊離 OCR 文字框不超過 clampMargin×文字框尺寸。
-        // 氣泡與旁邊同亮度藝術(膚色/披帛)相連、純亮度 flood-fill 分不開時，漏出的邊會一路填到外擴框邊；
-        // 用「原文確實在氣泡內」的文字框當錨拉回——正常氣泡各邊本就 <margin，不受影響。
         int aL = (int)(bx - bw * clampMargin), aR = (int)(bx + bw + bw * clampMargin);
         int aT = (int)(by - bh * clampMargin), aB = (int)(by + bh + bh * clampMargin);
         int left = int.MaxValue, right = int.MinValue;
@@ -137,11 +169,16 @@ public sealed class BubbleEnvelope
             if (top[x] < aT) top[x] = aT;
             if (bot[x] > aB) bot[x] = aB;
             if (bot[x] < top[x]) { top[x] = -1; bot[x] = -1; continue; }
-            if (x < left) left = x; if (x > right) right = x;
+            if (x < left) left = x;
+            if (x > right) right = x;
         }
         if (right <= left) return env;
 
-        env.Top = top; env.Bottom = bot; env.Left = left; env.Right = right; env.Valid = true;
+        env.Top = top;
+        env.Bottom = bot;
+        env.Left = left;
+        env.Right = right;
+        env.Valid = true;
         return env;
     }
 

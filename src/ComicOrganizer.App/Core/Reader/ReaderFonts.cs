@@ -32,8 +32,9 @@ public static class ReaderFonts
                 if (_family != null) return _family;
                 try
                 {
-                    var asm = typeof(ReaderFonts).Assembly;
-                    using Stream? s = asm.GetManifestResourceStream(ResourceName);
+                    var asm = typeof(ChineseWordDict).Assembly;
+                    using Stream? s = asm.GetManifestResourceStream(ResourceName)
+                        ?? typeof(ReaderFonts).Assembly.GetManifestResourceStream(ResourceName);
                     if (s != null)
                     {
                         byte[] data = new byte[s.Length];

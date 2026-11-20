@@ -1,6 +1,8 @@
 using PDFtoImage;
 using SkiaSharp;
 
+#pragma warning disable CA1416 // PDFtoImage 已跨平台實作 Windows/macOS/Linux；ComicOrganizer.Core 為 net8.0 跨平台核心
+
 namespace ComicOrganizer.App.Core;
 
 /// <summary>

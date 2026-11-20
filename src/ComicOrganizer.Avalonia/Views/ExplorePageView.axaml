@@ -964,16 +964,23 @@
                                     Padding="10"
                                     Margin="0,0,14,14"
                                     EffectiveViewportChanged="OnCardEffectiveViewportChanged">
+                      <suki:GlassCard.ContextMenu>
+                        <ContextMenu>
+                          <MenuItem Header="📖 以內建閱讀器開啟" Command="{Binding SelectCardCommand}" />
+                          <MenuItem Header="↗ 以外部預設程式開啟" Command="{Binding OpenExternalCommand}" />
+                          <MenuItem Header="📂 在檔案總管中顯示" Command="{Binding RevealInExplorerCommand}" />
+                        </ContextMenu>
+                      </suki:GlassCard.ContextMenu>
                       <StackPanel Spacing="8">
 
-                        <!-- 可點擊主體（封面 ＋ 標題資訊 → 開啟預設閱讀器） -->
+                        <!-- 可點擊主體（封面 ＋ 標題資訊 → 開啟內建閱讀器） -->
                         <Button Classes="Basic"
                                 Padding="0"
                                 HorizontalAlignment="Stretch"
                                 HorizontalContentAlignment="Stretch"
                                 Command="{Binding SelectCardCommand}"
                                 Cursor="Hand"
-                                ToolTip.Tip="點擊以系統預設程式開啟閱讀">
+                                ToolTip.Tip="點擊以內建閱讀器開啟閱讀">
                           <StackPanel Spacing="8">
                             <Border Height="260"
                                     CornerRadius="10"

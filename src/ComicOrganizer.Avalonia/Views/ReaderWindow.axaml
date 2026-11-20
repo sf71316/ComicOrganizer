@@ -1,0 +1,698 @@
+<suki:SukiWindow xmlns="https://github.com/avaloniaui"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:suki="https://github.com/kikipoulet/SukiUI"
+                 xmlns:vm="using:ComicOrganizer.Avalonia.ViewModels"
+                 xmlns:controls="using:ComicOrganizer.Avalonia.Views.Controls"
+                 x:Class="ComicOrganizer.Avalonia.Views.ReaderWindow"
+                 x:DataType="vm:ReaderViewModel"
+                 Title="{Binding WorkTitle}"
+                 Width="1360"
+                 Height="880"
+                 MinWidth="960"
+                 MinHeight="620"
+                 WindowStartupLocation="CenterScreen"
+                 IsTitleBarVisible="True"
+                 BackgroundStyle="GradientSoft">
+
+  <suki:SukiWindow.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="ReaderHudBg" Color="#E6ECF5" />
+          <SolidColorBrush x:Key="ReaderHudBorder" Color="#CBD5E1" />
+          <SolidColorBrush x:Key="DrawerContentBg" Color="#F1F5FA" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="ReaderHudBg" Color="#E61C2230" />
+          <SolidColorBrush x:Key="ReaderHudBorder" Color="#334155" />
+          <SolidColorBrush x:Key="DrawerContentBg" Color="#141924" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+
+      <ControlTheme x:Key="ReaderRoundedTabItemTheme" TargetType="TabItem">
+        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontWeight" Value="Medium" />
+        <Setter Property="Padding" Value="6,6" />
+        <Setter Property="Margin" Value="2,0" />
+        <Setter Property="MinHeight" Value="30" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Template">
+          <ControlTemplate>
+            <Border x:Name="PART_TabPill"
+                    Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="{TemplateBinding CornerRadius}"
+                    Padding="{TemplateBinding Padding}">
+              <ContentPresenter x:Name="PART_ContentPresenter"
+                                Content="{TemplateBinding Header}"
+                                ContentTemplate="{TemplateBinding HeaderTemplate}"
+                                HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+            </Border>
+          </ControlTemplate>
+        </Setter>
+        <Style Selector="^:pointerover">
+          <Setter Property="Background" Value="#14808080" />
+        </Style>
+        <Style Selector="^:selected">
+          <Setter Property="Background" Value="{DynamicResource SukiPrimaryColor15}" />
+          <Setter Property="BorderBrush" Value="{DynamicResource SukiPrimaryColor}" />
+          <Setter Property="Foreground" Value="{DynamicResource SukiPrimaryColor}" />
+          <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+      </ControlTheme>
+    </ResourceDictionary>
+  </suki:SukiWindow.Resources>
+
+  <suki:SukiWindow.Styles>
+    <Style Selector="Border.reader-hud Button.hud-btn">
+      <Setter Property="MinHeight" Value="30" />
+      <Setter Property="Height" Value="30" />
+      <Setter Property="Padding" Value="8,3" />
+      <Setter Property="Margin" Value="0" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.reader-hud ToggleButton.hud-btn">
+      <Setter Property="MinHeight" Value="30" />
+      <Setter Property="Height" Value="30" />
+      <Setter Property="Padding" Value="8,3" />
+      <Setter Property="Margin" Value="0" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.reader-hud ComboBox.hud-combo">
+      <Setter Property="MinHeight" Value="36" />
+      <Setter Property="Height" Value="36" />
+      <Setter Property="Padding" Value="8,3" />
+      <Setter Property="Margin" Value="0,-3" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.drawer-tab-body">
+      <Setter Property="Background" Value="{DynamicResource DrawerContentBg}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource ReaderHudBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="6" />
+      <Setter Property="Margin" Value="0,6,0,0" />
+    </Style>
+    <Style Selector="Border.thumb-card">
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="5" />
+      <Setter Property="Margin" Value="4" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="{DynamicResource SukiBorderBrush}" />
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Border.thumb-card:pointerover">
+      <Setter Property="Background" Value="#10808080" />
+    </Style>
+    <Style Selector="Border.thumb-card.current">
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="BorderBrush" Value="{DynamicResource SukiPrimaryColor}" />
+      <Setter Property="Background" Value="{DynamicResource SukiPrimaryColor10}" />
+    </Style>
+  </suki:SukiWindow.Styles>
+
+  <suki:SukiWindow.LogoContent>
+    <Border Width="24" Height="24"
+            CornerRadius="6"
+            Background="{DynamicResource SukiPrimaryColor15}"
+            VerticalAlignment="Center">
+      <TextBlock Text="📖" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center" />
+    </Border>
+  </suki:SukiWindow.LogoContent>
+
+  <suki:SukiWindow.RightWindowTitleBarControls>
+    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="0,0,6,0">
+      <Border CornerRadius="8"
+              Padding="8,3"
+              Background="#18F59E0B"
+              BorderBrush="#66F59E0B"
+              BorderThickness="1"
+              IsVisible="{Binding IsReadOnlyDatabase}"
+              ToolTip.Tip="共用 WinForms 開發庫為唯讀模式：本機瀏覽頁碼與書籤變更僅保留於此次工作階段記憶體，絕不會寫回 D:\ComicOrganizer\cache.db。">
+        <TextBlock Text="🔒 共用庫唯讀" FontSize="11.5" FontWeight="SemiBold" Foreground="#F59E0B" />
+      </Border>
+      <TextBlock Text="{Binding WorkSubtitle}"
+                 FontSize="12"
+                 Opacity="0.72"
+                 VerticalAlignment="Center" />
+    </StackPanel>
+  </suki:SukiWindow.RightWindowTitleBarControls>
+
+  <Grid RowDefinitions="Auto,*,Auto">
+    <!-- 頂部精簡高對比工具列 (可按 H 隱藏) -->
+    <Border Grid.Row="0"
+            Classes="reader-hud"
+            Margin="10,4,10,4"
+            CornerRadius="9"
+            Padding="8,5"
+            Background="{DynamicResource ReaderHudBg}"
+            BorderBrush="{DynamicResource ReaderHudBorder}"
+            BorderThickness="1"
+            IsVisible="{Binding IsHudVisible}">
+      <Grid ColumnDefinitions="Auto,*,Auto">
+        <!-- 左段：返回 + 頁數統計點擊開關側欄 -->
+        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+          <Button x:Name="BackButton"
+                  Classes="Basic hud-btn"
+                  Click="OnBackClick"
+                  ToolTip.Tip="返回上一視窗 (關閉閱讀器並儲存進度)">
+            <TextBlock Text="← 返回" FontSize="12" FontWeight="SemiBold" />
+          </Button>
+
+          <Border Width="1" Height="16" Background="{DynamicResource ReaderHudBorder}" />
+
+          <Button Classes="Basic hud-btn"
+                  Command="{Binding ToggleDrawerOrThumbnailsCommand}"
+                  ToolTip.Tip="點擊展開/收合右側欄（含頁碼縮圖、書籤與底部跳頁滑桿）">
+            <StackPanel Orientation="Horizontal" Spacing="5">
+              <TextBlock Text="📄" FontSize="11.5" />
+              <TextBlock Text="{Binding PageCounterText}" FontSize="12" FontWeight="SemiBold" />
+            </StackPanel>
+          </Button>
+        </StackPanel>
+
+        <!-- 中段：閱讀模式 + 翻頁方向/韓漫無縫 + 縮放比例調整 -->
+        <StackPanel Grid.Column="1"
+                    Orientation="Horizontal"
+                    Spacing="5"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+          <!-- 檢視模式切換 (無外框，保留各自按鈕框線) -->
+          <StackPanel Orientation="Horizontal" Spacing="3" VerticalAlignment="Center">
+            <ToggleButton Classes="hud-btn"
+                          IsChecked="{Binding IsSingleMode, Mode=OneWay}"
+                          Command="{Binding SetViewModeCommand}"
+                          CommandParameter="SinglePage">
+              <TextBlock Text="單頁" FontSize="11.5" FontWeight="SemiBold" />
+            </ToggleButton>
+            <ToggleButton Classes="hud-btn"
+                          IsChecked="{Binding IsDoubleMode, Mode=OneWay}"
+                          Command="{Binding SetViewModeCommand}"
+                          CommandParameter="DualPage">
+              <TextBlock Text="雙頁" FontSize="11.5" FontWeight="SemiBold" />
+            </ToggleButton>
+            <ToggleButton Classes="hud-btn"
+                          IsChecked="{Binding IsContinuousMode, Mode=OneWay}"
+                          Command="{Binding SetViewModeCommand}"
+                          CommandParameter="ContinuousScroll">
+              <TextBlock Text="連續長條" FontSize="11.5" FontWeight="SemiBold" />
+            </ToggleButton>
+          </StackPanel>
+
+          <!-- 單/雙頁時：翻頁方向 RTL/LTR -->
+          <Button Classes="Basic hud-btn"
+                  IsVisible="{Binding ShowDirectionToggle}"
+                  Command="{Binding ToggleDirectionCommand}"
+                  ToolTip.Tip="切換日漫右翻 (RTL) 或美漫左翻 (LTR)">
+            <TextBlock Text="{Binding DirectionToggleLabel}" FontSize="11.5" FontWeight="SemiBold" />
+          </Button>
+
+          <!-- 連續長條時：標準頁距 / 韓漫無縫切換 -->
+          <ToggleButton Classes="hud-btn"
+                        IsChecked="{Binding IsGaplessWebtoon, Mode=OneWay}"
+                        IsVisible="{Binding ShowContinuousGapToggle}"
+                        Command="{Binding ToggleContinuousGapCommand}"
+                        ToolTip.Tip="切換標準頁距 (8px) 與韓漫無縫緊貼 (0px)">
+            <TextBlock Text="{Binding ContinuousGapLabel}" FontSize="11.5" FontWeight="SemiBold" />
+          </ToggleButton>
+
+          <Border Width="1" Height="16" Background="{DynamicResource ReaderHudBorder}" />
+
+          <!-- 縮放模式 + 數值調整 -->
+          <ToggleButton Classes="hud-btn"
+                        IsChecked="{Binding IsFitPageMode, Mode=OneWay}"
+                        Command="{Binding SetZoomModeCommand}"
+                        CommandParameter="FitPage">
+            <TextBlock Text="適頁" FontSize="11.5" />
+          </ToggleButton>
+          <ToggleButton Classes="hud-btn"
+                        IsChecked="{Binding IsFitWidthMode, Mode=OneWay}"
+                        Command="{Binding SetZoomModeCommand}"
+                        CommandParameter="FitWidth">
+            <TextBlock Text="適寬" FontSize="11.5" />
+          </ToggleButton>
+          <ToggleButton Classes="hud-btn"
+                        IsChecked="{Binding IsActualZoomMode, Mode=OneWay}"
+                        Command="{Binding SetZoomModeCommand}"
+                        CommandParameter="Actual">
+            <TextBlock Text="100%" FontSize="11.5" />
+          </ToggleButton>
+
+          <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+            <Button Classes="Basic hud-btn" Padding="6,3" Command="{Binding ZoomOutCommand}" ToolTip.Tip="縮小 (-15%)">
+              <TextBlock Text="－" FontSize="11.5" FontWeight="Bold" />
+            </Button>
+            <TextBlock Text="{Binding ZoomPercentText}"
+                       Width="42"
+                       TextAlignment="Center"
+                       FontSize="11.5"
+                       FontWeight="SemiBold"
+                       VerticalAlignment="Center" />
+            <Button Classes="Basic hud-btn" Padding="6,3" Command="{Binding ZoomInCommand}" ToolTip.Tip="放大 (+15%)">
+              <TextBlock Text="＋" FontSize="11.5" FontWeight="Bold" />
+            </Button>
+          </StackPanel>
+        </StackPanel>
+
+        <!-- 右段：AI翻譯 / 原文對照 / OCR引擎 / 書籤 / 側欄 / 全螢幕 / 隱藏HUD -->
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+          <ToggleButton Classes="hud-btn"
+                        IsChecked="{Binding IsTranslationEnabled, Mode=TwoWay}"
+                        ToolTip.Tip="開啟或關閉 AI 氣泡偵測與繁中翻譯 (快速鍵 T)">
+            <TextBlock Text="🌐 AI 翻譯" FontSize="11.5" FontWeight="SemiBold" />
+          </ToggleButton>
+
+          <ToggleButton Classes="hud-btn"
+                        IsChecked="{Binding IsComparingOriginal, Mode=TwoWay}"
+                        IsEnabled="{Binding IsTranslationEnabled}"
+                        ToolTip.Tip="暫時顯示未塗白原圖進行對照 (快速鍵 Space)">
+            <TextBlock Text="👁️ 原文" FontSize="11.5" />
+          </ToggleButton>
+
+          <ComboBox Classes="hud-combo"
+                    HorizontalAlignment="Left"
+                    MinWidth="120"
+                    FontSize="11.5"
+                    ItemsSource="{Binding OcrEngineOptions}"
+                    SelectedItem="{Binding SelectedOcrEngine, Mode=TwoWay}"
+                    ToolTip.Tip="切換 OCR 文字辨識引擎">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:OcrEngineOptionVm">
+                <TextBlock Text="{Binding DisplayLabel}"
+                           FontSize="11.5"
+                           TextTrimming="None"
+                           VerticalAlignment="Center" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+
+          <ToggleButton Classes="hud-btn"
+                        IsChecked="{Binding IsCurrentPageBookmarked, Mode=OneWay}"
+                        Command="{Binding ToggleCurrentBookmarkCommand}"
+                        ToolTip.Tip="新增 / 移除本頁書籤 (快速鍵 B)">
+            <TextBlock Text="{Binding BookmarkButtonText}" FontSize="11.5" />
+          </ToggleButton>
+
+          <ToggleButton Classes="hud-btn"
+                        IsChecked="{Binding IsDrawerOpen, Mode=TwoWay}"
+                        ToolTip.Tip="展開 / 收合右側功能側欄（含頁碼縮圖與快速跳頁滑桿）">
+            <TextBlock Text="📑 側欄" FontSize="11.5" />
+          </ToggleButton>
+
+          <Button Classes="Basic hud-btn"
+                  Command="{Binding ToggleFullscreenCommand}"
+                  ToolTip.Tip="切換全螢幕 (F11)">
+            <TextBlock Text="⛶" FontSize="12" />
+          </Button>
+
+          <Button Classes="Basic hud-btn"
+                  Command="{Binding ToggleHudCommand}"
+                  ToolTip.Tip="隱藏頂部工具列 (H)">
+            <TextBlock Text="✕" FontSize="11.5" />
+          </Button>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- 主畫布 ＋ 可收合右側欄 -->
+    <Grid Grid.Row="1" ColumnDefinitions="*,Auto" Margin="12,0,12,10">
+      <!-- 閱讀畫布 -->
+      <Border Grid.Column="0"
+              CornerRadius="12"
+              ClipToBounds="True"
+              BorderThickness="1"
+              BorderBrush="{DynamicResource SukiBorderBrush}">
+        <Grid>
+          <controls:SkiaComicViewport x:Name="Viewport" />
+
+          <!-- HUD 隱藏時的頂端浮動喚回提示膠囊 -->
+          <Button HorizontalAlignment="Center"
+                  VerticalAlignment="Top"
+                  Margin="0,12,0,0"
+                  Padding="14,5"
+                  CornerRadius="999"
+                  Opacity="0.88"
+                  IsVisible="{Binding !IsHudVisible}"
+                  Command="{Binding ToggleHudCommand}"
+                  ToolTip.Tip="顯示頂部工具列 (快速鍵 H)">
+            <TextBlock Text="顯示工具列 (H)" FontSize="11.5" FontWeight="SemiBold" />
+          </Button>
+        </Grid>
+      </Border>
+
+      <!-- 可收合右側欄（官方 SukiUI TabControl 頁籤 + 底部整合翻頁滑桿） -->
+      <Border Grid.Column="1"
+              Width="348"
+              Margin="10,0,0,0"
+              IsVisible="{Binding IsDrawerOpen}">
+        <suki:GlassCard CornerRadius="12" Padding="10">
+          <Grid RowDefinitions="*,Auto">
+            <TabControl Grid.Row="0"
+                        Margin="0"
+                        Padding="0,4,0,0"
+                        HorizontalContentAlignment="Stretch"
+                        ItemContainerTheme="{StaticResource ReaderRoundedTabItemTheme}"
+                        SelectedIndex="{Binding ActiveDrawerTabIndex, Mode=TwoWay}">
+              <TabControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <UniformGrid Columns="4" />
+                </ItemsPanelTemplate>
+              </TabControl.ItemsPanel>
+              <!-- Tab 0: 頁碼縮圖清單 -->
+              <TabItem Header="縮圖">
+                <Border Classes="drawer-tab-body">
+                  <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                                VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding Thumbnails}" Margin="0,0,10,0">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                          <UniformGrid Columns="2" />
+                        </ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ReaderThumbnailItemVm">
+                          <Border Classes="thumb-card"
+                                  Classes.current="{Binding IsCurrent}">
+                            <Button Classes="Basic"
+                                    Margin="0"
+                                    Padding="0"
+                                    MinWidth="0"
+                                    HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Stretch"
+                                    Command="{Binding SelectCommand}">
+                              <StackPanel Spacing="4">
+                                <Border Height="128"
+                                        CornerRadius="6"
+                                        ClipToBounds="True"
+                                        Background="#18000000">
+                                  <Grid>
+                                    <Image Source="{Binding Thumbnail}"
+                                           Stretch="Uniform"
+                                           IsVisible="{Binding Thumbnail, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                    <TextBlock Text="{Binding PageNumberOneBased}"
+                                               FontSize="16"
+                                               FontWeight="Bold"
+                                               Opacity="0.35"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               IsVisible="{Binding Thumbnail, Converter={x:Static ObjectConverters.IsNull}}" />
+                                    <Border HorizontalAlignment="Right"
+                                            VerticalAlignment="Top"
+                                            Margin="4"
+                                            Padding="4,1"
+                                            CornerRadius="4"
+                                            Background="#CC0F172A"
+                                            IsVisible="{Binding IsBookmarked}">
+                                      <TextBlock Text="🔖" FontSize="10" />
+                                    </Border>
+                                  </Grid>
+                                </Border>
+                                <Grid ColumnDefinitions="Auto,*">
+                                  <TextBlock Grid.Column="0"
+                                             Text="{Binding PageNumberOneBased, StringFormat='P.{0}'}"
+                                             FontSize="11.5"
+                                             FontWeight="Bold" />
+                                  <TextBlock Grid.Column="1"
+                                             Margin="4,0,0,0"
+                                             Text="{Binding PageName}"
+                                             FontSize="10.5"
+                                             Opacity="0.7"
+                                             TextTrimming="CharacterEllipsis" />
+                                </Grid>
+                              </StackPanel>
+                            </Button>
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </ScrollViewer>
+                </Border>
+              </TabItem>
+
+              <!-- Tab 1: 書籤清單 -->
+              <TabItem Header="書籤">
+                <Border Classes="drawer-tab-body" Padding="8">
+                  <Grid RowDefinitions="Auto,*">
+                    <StackPanel Grid.Row="0" Spacing="6" Margin="0,0,0,8">
+                      <Button Command="{Binding ToggleCurrentBookmarkCommand}" HorizontalAlignment="Stretch">
+                        <TextBlock Text="{Binding BookmarkButtonText}" HorizontalAlignment="Center" />
+                      </Button>
+                      <TextBlock Text="{Binding ReadOnlyBadgeText}"
+                                 FontSize="11"
+                                 Opacity="0.75"
+                                 TextWrapping="Wrap"
+                                 IsVisible="{Binding IsReadOnlyDatabase}" />
+                    </StackPanel>
+
+                    <ScrollViewer Grid.Row="1"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  VerticalScrollBarVisibility="Auto">
+                      <ItemsControl ItemsSource="{Binding Bookmarks}" Margin="0,0,8,0">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="vm:ReaderBookmarkItemVm">
+                            <Border Margin="0,3"
+                                    Padding="8,6"
+                                    CornerRadius="8"
+                                    BorderThickness="1"
+                                    BorderBrush="{DynamicResource SukiBorderBrush}">
+                              <Grid ColumnDefinitions="Auto,*,Auto">
+                                <Button Grid.Column="0"
+                                        Classes="Basic"
+                                        Padding="4,2"
+                                        Command="{Binding JumpCommand}">
+                                  <TextBlock Text="{Binding DisplayPageLabel}" FontWeight="Bold" FontSize="12" />
+                                </Button>
+                                <TextBlock Grid.Column="1"
+                                           Margin="6,0"
+                                           Text="{Binding Label}"
+                                           FontSize="12"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" />
+                                <Button Grid.Column="2"
+                                        Classes="Basic"
+                                        Padding="6,2"
+                                        Command="{Binding RemoveCommand}"
+                                        ToolTip.Tip="刪除此書籤">
+                                  <TextBlock Text="×" FontSize="13" />
+                                </Button>
+                              </Grid>
+                            </Border>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </ScrollViewer>
+                  </Grid>
+                </Border>
+              </TabItem>
+
+              <!-- Tab 2: OCR / LLM 逐框檢視與重新翻譯 -->
+              <TabItem Header="OCR/翻譯">
+                <Border Classes="drawer-tab-body" Padding="8">
+                  <Grid RowDefinitions="Auto,*">
+                    <StackPanel Grid.Row="0" Spacing="6" Margin="0,0,0,8">
+                      <TextBlock Text="{Binding TranslationStatusText}"
+                                 FontSize="12"
+                                 FontWeight="SemiBold"
+                                 TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding LlmSummaryText}"
+                                 FontSize="11"
+                                 Opacity="0.72"
+                                 TextWrapping="Wrap" />
+                      <Button Command="{Binding ForceRetranslateCurrentPageCommand}"
+                              HorizontalAlignment="Stretch">
+                        <TextBlock Text="🔄 重新辨識並翻譯本頁" HorizontalAlignment="Center" FontSize="12" />
+                      </Button>
+                    </StackPanel>
+
+                    <ScrollViewer Grid.Row="1"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  VerticalScrollBarVisibility="Auto">
+                      <ItemsControl ItemsSource="{Binding CurrentPageOcrBlocks}" Margin="0,0,8,0">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="vm:ReaderOcrBlockItemVm">
+                            <Border Margin="0,4"
+                                    Padding="8"
+                                    CornerRadius="8"
+                                    BorderThickness="1"
+                                    BorderBrush="{DynamicResource SukiBorderBrush}">
+                              <StackPanel Spacing="4">
+                                <TextBlock Text="{Binding IndexLabel}" FontSize="11" FontWeight="Bold" Opacity="0.7" />
+                                <TextBlock Text="{Binding OriginalText}"
+                                           FontSize="11.5"
+                                           Opacity="0.75"
+                                           TextWrapping="Wrap" />
+                                <Border Height="1" Background="{DynamicResource SukiBorderBrush}" Opacity="0.5" />
+                                <TextBlock Text="{Binding TranslatedText}"
+                                           FontSize="12.5"
+                                           FontWeight="SemiBold"
+                                           TextWrapping="Wrap" />
+                              </StackPanel>
+                            </Border>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </ScrollViewer>
+                  </Grid>
+                </Border>
+              </TabItem>
+
+              <!-- Tab 3: 組合 B 漫畫畫質優化微調與單頁超解析 -->
+              <TabItem Header="畫質">
+                <Border Classes="drawer-tab-body" Padding="8">
+                  <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                                VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="10" Margin="0,0,10,0">
+                      <StackPanel Spacing="4">
+                        <TextBlock Text="畫質優化預設模式" FontSize="12" FontWeight="Bold" />
+                        <TextBlock Text="{Binding ActivePresetBadgeText, StringFormat='目前套用：{0}'}"
+                                   FontSize="11.5"
+                                   Opacity="0.8" />
+                        <WrapPanel>
+                          <ToggleButton Margin="0,3,4,0" Padding="8,4" IsChecked="{Binding IsPresetOff, Mode=OneWay}" Command="{Binding ApplyEnhancementPresetCommand}" CommandParameter="Off">
+                            <TextBlock Text="原圖關閉" FontSize="11.5" />
+                          </ToggleButton>
+                          <ToggleButton Margin="0,3,4,0" Padding="8,4" IsChecked="{Binding IsPresetMangaCrisp, Mode=OneWay}" Command="{Binding ApplyEnhancementPresetCommand}" CommandParameter="MangaCrisp">
+                            <TextBlock Text="✨ 漫畫清晰" FontSize="11.5" />
+                          </ToggleButton>
+                          <ToggleButton Margin="0,3,4,0" Padding="8,4" IsChecked="{Binding IsPresetVintageBleach, Mode=OneWay}" Command="{Binding ApplyEnhancementPresetCommand}" CommandParameter="VintageBleach">
+                            <TextBlock Text="📜 老舊漂白" FontSize="11.5" />
+                          </ToggleButton>
+                          <ToggleButton Margin="0,3,4,0" Padding="8,4" IsChecked="{Binding IsPresetColorVivid, Mode=OneWay}" Command="{Binding ApplyEnhancementPresetCommand}" CommandParameter="ColorVivid">
+                            <TextBlock Text="🎨 彩漫增艷" FontSize="11.5" />
+                          </ToggleButton>
+                          <ToggleButton Margin="0,3,4,0" Padding="8,4" IsChecked="{Binding IsPresetNightEyeCare, Mode=OneWay}" Command="{Binding ApplyEnhancementPresetCommand}" CommandParameter="NightEyeCare">
+                            <TextBlock Text="🌙 夜間護眼" FontSize="11.5" />
+                          </ToggleButton>
+                        </WrapPanel>
+                      </StackPanel>
+
+                      <CheckBox IsChecked="{Binding HighQualitySampling, Mode=TwoWay}"
+                                Content="高品質 Catmull-Rom 重取樣（減緩摩爾紋）"
+                                FontSize="11.5" />
+
+                      <Border Height="1" Background="{DynamicResource SukiBorderBrush}" Opacity="0.5" />
+
+                      <!-- 即時 Shader 微調滑桿 -->
+                      <StackPanel Spacing="4">
+                        <Grid ColumnDefinitions="*,Auto">
+                          <TextBlock Text="邊緣銳化 (Unsharp Mask)" FontSize="11.5" />
+                          <TextBlock Grid.Column="1" Text="{Binding SharpenAmount, StringFormat='{}{0:F2}'}" FontSize="11.5" />
+                        </Grid>
+                        <Slider Minimum="0" Maximum="1.5" TickFrequency="0.05" Value="{Binding SharpenAmount, Mode=TwoWay}" />
+
+                        <Grid ColumnDefinitions="*,Auto">
+                          <TextBlock Text="Anime4K 墨線收斂" FontSize="11.5" />
+                          <TextBlock Grid.Column="1" Text="{Binding LineCrispAmount, StringFormat='{}{0:F2}'}" FontSize="11.5" />
+                        </Grid>
+                        <Slider Minimum="0" Maximum="1.0" TickFrequency="0.05" Value="{Binding LineCrispAmount, Mode=TwoWay}" />
+
+                        <Grid ColumnDefinitions="*,Auto">
+                          <TextBlock Text="黑點壓實 (Black Point)" FontSize="11.5" />
+                          <TextBlock Grid.Column="1" Text="{Binding BlackPoint, StringFormat='{}{0:F2}'}" FontSize="11.5" />
+                        </Grid>
+                        <Slider Minimum="0" Maximum="0.30" TickFrequency="0.01" Value="{Binding BlackPoint, Mode=TwoWay}" />
+
+                        <Grid ColumnDefinitions="*,Auto">
+                          <TextBlock Text="白點漂白 (White Point 去黃)" FontSize="11.5" />
+                          <TextBlock Grid.Column="1" Text="{Binding WhitePoint, StringFormat='{}{0:F2}'}" FontSize="11.5" />
+                        </Grid>
+                        <Slider Minimum="0.70" Maximum="1.00" TickFrequency="0.01" Value="{Binding WhitePoint, Mode=TwoWay}" />
+
+                        <Grid ColumnDefinitions="*,Auto">
+                          <TextBlock Text="對比度 (Contrast)" FontSize="11.5" />
+                          <TextBlock Grid.Column="1" Text="{Binding Contrast, StringFormat='{}{0:F2}'}" FontSize="11.5" />
+                        </Grid>
+                        <Slider Minimum="-0.50" Maximum="0.80" TickFrequency="0.02" Value="{Binding Contrast, Mode=TwoWay}" />
+
+                        <Grid ColumnDefinitions="*,Auto">
+                          <TextBlock Text="Gamma（加深墨線）" FontSize="11.5" />
+                          <TextBlock Grid.Column="1" Text="{Binding Gamma, StringFormat='{}{0:F2}'}" FontSize="11.5" />
+                        </Grid>
+                        <Slider Minimum="0.50" Maximum="2.00" TickFrequency="0.05" Value="{Binding Gamma, Mode=TwoWay}" />
+
+                        <Grid ColumnDefinitions="*,Auto">
+                          <TextBlock Text="飽和度 (Saturation)" FontSize="11.5" />
+                          <TextBlock Grid.Column="1" Text="{Binding Saturation, StringFormat='{}{0:F2}'}" FontSize="11.5" />
+                        </Grid>
+                        <Slider Minimum="0.00" Maximum="1.80" TickFrequency="0.05" Value="{Binding Saturation, Mode=TwoWay}" />
+
+                        <Grid ColumnDefinitions="*,Auto">
+                          <TextBlock Text="夜間護眼亮度上限" FontSize="11.5" />
+                          <TextBlock Grid.Column="1" Text="{Binding BrightnessCap, StringFormat='{}{0:F2}'}" FontSize="11.5" />
+                        </Grid>
+                        <Slider Minimum="0.50" Maximum="1.00" TickFrequency="0.02" Value="{Binding BrightnessCap, Mode=TwoWay}" />
+
+                        <Grid ColumnDefinitions="*,Auto">
+                          <TextBlock Text="暖紙色溫 (Warm Paper)" FontSize="11.5" />
+                          <TextBlock Grid.Column="1" Text="{Binding WarmPaperTint, StringFormat='{}{0:F2}'}" FontSize="11.5" />
+                        </Grid>
+                        <Slider Minimum="0.00" Maximum="0.35" TickFrequency="0.01" Value="{Binding WarmPaperTint, Mode=TwoWay}" />
+                      </StackPanel>
+
+                      <Border Height="1" Background="{DynamicResource SukiBorderBrush}" Opacity="0.5" />
+
+                      <StackPanel Spacing="6">
+                        <TextBlock Text="單頁深度超解析重繪插件" FontSize="12" FontWeight="Bold" />
+                        <Button Command="{Binding RunSinglePageSuperResCommand}" HorizontalAlignment="Stretch">
+                          <TextBlock Text="⚡ Anime4K 超解析重繪目前頁" FontSize="12" HorizontalAlignment="Center" />
+                        </Button>
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="6">
+                          <Button Grid.Column="0" Classes="Basic" Command="{Binding ClearSinglePageSuperResCommand}">
+                            <TextBlock Text="清除本頁超解析" FontSize="11.5" HorizontalAlignment="Center" />
+                          </Button>
+                          <Button Grid.Column="1" Classes="Basic" Command="{Binding ResetEnhancementCommand}">
+                            <TextBlock Text="重置全部參數" FontSize="11.5" HorizontalAlignment="Center" />
+                          </Button>
+                        </Grid>
+                      </StackPanel>
+                    </StackPanel>
+                  </ScrollViewer>
+                </Border>
+              </TabItem>
+            </TabControl>
+
+            <!-- 側欄底部整合之「頁碼快速捲動條 + 快捷鍵提醒」 (取代獨立底部翻頁條) -->
+            <Border Grid.Row="1"
+                    Margin="0,8,0,0"
+                    Padding="8,8,8,4"
+                    BorderThickness="0,1,0,0"
+                    BorderBrush="{DynamicResource SukiBorderBrush}">
+              <StackPanel Spacing="4">
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Text="快速跳頁" FontSize="11.5" FontWeight="SemiBold" Opacity="0.85" />
+                  <TextBlock Grid.Column="1"
+                             Text="{Binding PageCounterText}"
+                             FontSize="11.5"
+                             FontWeight="Bold" />
+                </Grid>
+                <Slider Minimum="1"
+                        Maximum="{Binding MaxPageOneBased}"
+                        IsSnapToTickEnabled="True"
+                        TickFrequency="1"
+                        Value="{Binding SliderPageOneBased, Mode=TwoWay}" />
+                <TextBlock Text="滾輪/方向鍵翻頁 • Ctrl+滾輪縮放 • 右鍵畫質選單 • T 翻譯 • Space 原文 • F11 全螢幕 • H 隱藏HUD"
+                           FontSize="10.5"
+                           Opacity="0.62"
+                           TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+          </Grid>
+        </suki:GlassCard>
+      </Border>
+    </Grid>
+  </Grid>
+</suki:SukiWindow>

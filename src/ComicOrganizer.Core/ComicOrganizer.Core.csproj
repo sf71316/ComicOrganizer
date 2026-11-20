@@ -17,6 +17,14 @@
     <EmbeddedResource Include="Resources\db.text.json.gz">
       <LogicalName>ComicOrganizer.App.Resources.db.text.json.gz</LogicalName>
     </EmbeddedResource>
+    <!-- 獅尾黑體 Medium (max32002/swei-sans, SIL OFL 1.1) — 漫畫譯文中黑體 -->
+    <EmbeddedResource Include="Resources\fonts\SweiSansCJKtc-Medium.ttf">
+      <LogicalName>ComicOrganizer.App.Resources.fonts.SweiSansCJKtc-Medium.ttf</LogicalName>
+    </EmbeddedResource>
+    <!-- 繁體常用詞表 (APCLab/jieba-tw, MIT) — 直排譯文避免詞中斷行 -->
+    <EmbeddedResource Include="Resources\dict\zh_tw_words.txt.gz">
+      <LogicalName>ComicOrganizer.App.Resources.dict.zh_tw_words.txt.gz</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <ItemGroup>
@@ -24,6 +32,9 @@
     <PackageReference Include="FuzzySharp" Version="2.0.2" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.7" />
     <PackageReference Include="OpenCCNET" Version="1.1.0" />
+    <PackageReference Include="PDFtoImage" Version="5.2.1" />
+    <PackageReference Include="SharpCompress" Version="0.48.0" />
+    <PackageReference Include="SkiaSharp" Version="3.119.2" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
 

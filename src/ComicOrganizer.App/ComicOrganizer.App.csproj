@@ -38,17 +38,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- 獅尾黑體 Medium (max32002/swei-sans, SIL OFL 1.1, 思源黑體衍生) — 漫畫譯文中黑體 -->
-    <EmbeddedResource Include="Resources\fonts\SweiSansCJKtc-Medium.ttf">
-      <LogicalName>ComicOrganizer.App.Resources.fonts.SweiSansCJKtc-Medium.ttf</LogicalName>
-    </EmbeddedResource>
-    <!-- 繁體常用詞表 (APCLab/jieba-tw, MIT, 詞頻>=10) — 直排譯文避免詞中斷行 -->
-    <EmbeddedResource Include="Resources\dict\zh_tw_words.txt.gz">
-      <LogicalName>ComicOrganizer.App.Resources.dict.zh_tw_words.txt.gz</LogicalName>
-    </EmbeddedResource>
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\ComicOrganizer.Core\ComicOrganizer.Core.csproj" />
   </ItemGroup>
 

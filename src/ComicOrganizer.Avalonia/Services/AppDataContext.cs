@@ -61,6 +61,11 @@ public sealed class AppDataContext : IDisposable
         var translationDiskPath = Path.Combine(DataDirectory, "translations", "db.text.json.gz");
         TagTranslator = new TagTranslator(translationDiskPath);
 
+        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
+        {
+            SkiaOcrPluginManager.RegisterNativeFallback(() => new WindowsSkiaOcrService());
+        }
+
         _toastManager = new SukiToastManager();
     }
 

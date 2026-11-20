@@ -3118,7 +3118,7 @@ public partial class ReaderForm : Window, IThemedControl
 					if (ReferenceEquals(o, item)) continue;
 					blockers.Add(new Rectangle((int)o.X, (int)o.Y, (int)o.Width, (int)o.Height));
 				}
-				var e = BubbleEnvelope.Detect(bmp, new Rectangle((int)item.X, (int)item.Y, (int)item.Width, (int)item.Height), blockers: blockers);
+				var e = BubbleEnvelopeGdi.Detect(bmp, new Rectangle((int)item.X, (int)item.Y, (int)item.Width, (int)item.Height), blockers: blockers);
 				if (e.Valid) env = e;
 			}
 		}

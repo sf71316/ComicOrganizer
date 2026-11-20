@@ -1,0 +1,1457 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ComicOrganizer — Phase 3 內建閱讀器 + OCR/LLM 翻譯 UI 互動雛型</title>
+  <style>
+    :root {
+      --bg-canvas: #0b0d13;
+      --glass-bg: rgba(20, 24, 34, 0.78);
+      --glass-solid: rgba(22, 26, 38, 0.96);
+      --glass-border: rgba(255, 255, 255, 0.12);
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent: #3b82f6;
+      --accent-soft: rgba(59, 130, 246, 0.18);
+      --accent-glow: rgba(59, 130, 246, 0.35);
+      --warn-soft: rgba(245, 158, 11, 0.16);
+      --warn-border: rgba(245, 158, 11, 0.55);
+      --warn-text: #fbbf24;
+      --emerald: #10b981;
+      --radius-lg: 14px;
+      --radius-md: 10px;
+    }
+
+    body.light-hud {
+      --glass-bg: rgba(255, 255, 255, 0.86);
+      --glass-solid: rgba(255, 255, 255, 0.97);
+      --glass-border: rgba(15, 23, 42, 0.12);
+      --text-main: #0f172a;
+      --text-muted: #475569;
+    }
+
+    * {
+      box-sizing: border-box;
+      user-select: none;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: "Microsoft JhengHei UI", "Noto Sans TC", "Segoe UI", system-ui, sans-serif;
+      background: var(--bg-canvas);
+      color: var(--text-main);
+    }
+
+    /* 主架構 */
+    .reader-shell {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      background:
+        radial-gradient(circle at 20% 15%, rgba(59, 130, 246, 0.08), transparent 45%),
+        radial-gradient(circle at 80% 85%, rgba(139, 92, 246, 0.08), transparent 45%),
+        var(--bg-canvas);
+    }
+
+    /* 懸浮玻璃 HUD（頂部） */
+    .top-hud {
+      position: fixed;
+      top: 12px;
+      left: 16px;
+      right: 16px;
+      z-index: 40;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 9px 14px;
+      border-radius: var(--radius-lg);
+      background: var(--glass-bg);
+      backdrop-filter: blur(18px);
+      border: 1px solid var(--glass-border);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
+      transition: transform 0.22s ease, opacity 0.22s ease;
+    }
+
+    .hud-hidden .top-hud {
+      transform: translateY(-90px);
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .hud-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .title-block {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      max-width: 260px;
+    }
+
+    .work-title {
+      font-size: 13.5px;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .work-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .readonly-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--warn-soft);
+      border: 1px solid var(--warn-border);
+      color: var(--warn-text);
+      font-size: 10.5px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    /* 控制按鈕與分段器 */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      height: 30px;
+      padding: 0 10px;
+      border-radius: 8px;
+      border: 1px solid var(--glass-border);
+      background: rgba(128, 128, 128, 0.14);
+      color: var(--text-main);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .btn:hover {
+      background: rgba(128, 128, 128, 0.25);
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+
+    .btn.active, .btn.primary {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+      color: #fff;
+      font-weight: 600;
+    }
+
+    body.light-hud .btn.active,
+    body.light-hud .btn.primary {
+      color: var(--accent);
+    }
+
+    .btn.solid-accent {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      font-weight: 600;
+      box-shadow: 0 4px 14px var(--accent-glow);
+    }
+
+    .segment {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px;
+      border-radius: 9px;
+      background: rgba(128, 128, 128, 0.14);
+      border: 1px solid var(--glass-border);
+      gap: 2px;
+    }
+
+    .segment .seg-btn {
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-muted);
+      height: 25px;
+      padding: 0 9px;
+      border-radius: 7px;
+      font-size: 11.5px;
+      cursor: pointer;
+      transition: all 0.14s ease;
+    }
+
+    .segment .seg-btn:hover {
+      color: var(--text-main);
+    }
+
+    .segment .seg-btn.active {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+      color: var(--text-main);
+      font-weight: 600;
+    }
+
+    body.light-hud .segment .seg-btn.active {
+      color: var(--accent);
+    }
+
+    .accent-dots {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 0 6px;
+    }
+
+    .dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: transform 0.15s ease;
+    }
+
+    .dot:hover { transform: scale(1.18); }
+    .dot.active { border-color: #fff; box-shadow: 0 0 0 1px var(--accent); }
+
+    /* 主閱讀畫布 */
+    .viewport {
+      flex: 1;
+      position: relative;
+      overflow: auto;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 72px 24px 28px;
+      scroll-behavior: smooth;
+    }
+
+    .viewport.centered {
+      align-items: center;
+    }
+
+    .pages-stage {
+      display: flex;
+      gap: 14px;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.16s ease;
+    }
+
+    .pages-stage.continuous {
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .pages-stage.continuous.gapless {
+      gap: 0;
+    }
+
+    .pages-stage.continuous.gapless .comic-page {
+      border-radius: 0;
+      box-shadow: 0 0 36px rgba(0, 0, 0, 0.65);
+    }
+
+    .pages-stage.rtl {
+      flex-direction: row-reverse;
+    }
+
+    /* 漫畫頁面外框與氣泡疊層 */
+    .comic-page {
+      position: relative;
+      background: #fff;
+      border-radius: 4px;
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.7);
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    .comic-page svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    .page-tag-corner {
+      position: absolute;
+      bottom: 8px;
+      right: 10px;
+      background: rgba(15, 23, 42, 0.72);
+      color: #e2e8f0;
+      font-size: 10.5px;
+      padding: 2px 7px;
+      border-radius: 6px;
+      pointer-events: none;
+    }
+
+    /* 局部塗白與繁中翻譯重繪層 */
+    .translation-layer {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      transition: opacity 0.18s ease;
+    }
+
+    .translation-layer.hidden {
+      opacity: 0;
+    }
+
+    .bubble-mask {
+      position: absolute;
+      background: #ffffff;
+      border-radius: 46%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6% 8%;
+      text-align: center;
+      color: #111827;
+      font-weight: 700;
+      line-height: 1.32;
+      box-shadow: 0 0 0 2px #ffffff;
+      pointer-events: auto;
+      cursor: help;
+      transition: box-shadow 0.15s ease, background 0.15s ease;
+    }
+
+    .bubble-mask:hover {
+      box-shadow: 0 0 0 2px var(--accent), 0 0 14px var(--accent-glow);
+      background: #f8fafc;
+    }
+
+    .bubble-tooltip {
+      position: fixed;
+      z-index: 90;
+      display: none;
+      max-width: 280px;
+      padding: 8px 11px;
+      border-radius: 10px;
+      background: var(--glass-solid);
+      border: 1px solid var(--accent);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+      font-size: 11.5px;
+      line-height: 1.45;
+      pointer-events: none;
+    }
+
+    /* 左右翻頁熱區（單頁/雙頁） */
+    .nav-hotspot {
+      position: fixed;
+      top: 76px;
+      bottom: 90px;
+      width: 14%;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      opacity: 0;
+      transition: opacity 0.18s ease;
+      cursor: pointer;
+    }
+
+    .nav-hotspot.left { left: 0; justify-content: flex-start; padding-left: 18px; }
+    .nav-hotspot.right { right: 0; justify-content: flex-end; padding-right: 18px; }
+    .nav-hotspot:hover { opacity: 1; }
+
+    .nav-circle {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: rgba(15, 23, 42, 0.72);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      backdrop-filter: blur(10px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      color: #fff;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+    }
+
+    /* 右側可收合抽屜（頁碼滑桿／縮圖跳頁 / 書籤 / OCR 譯文檢視） */
+    .side-drawer {
+      position: fixed;
+      top: 68px;
+      right: 16px;
+      bottom: 16px;
+      width: 332px;
+      z-index: 45;
+      border-radius: var(--radius-lg);
+      background: var(--glass-solid);
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--glass-border);
+      box-shadow: 0 18px 42px rgba(0, 0, 0, 0.55);
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .drawer-nav-bar {
+      padding: 10px 12px;
+      border-top: 1px solid var(--glass-border);
+      background: rgba(128, 128, 128, 0.08);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .drawer-nav-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .side-drawer.open {
+      display: flex;
+    }
+
+    .drawer-header {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--glass-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .drawer-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .thumb-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+
+    .thumb-card {
+      border-radius: 9px;
+      padding: 6px;
+      border: 1.5px solid var(--glass-border);
+      background: rgba(128, 128, 128, 0.08);
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      transition: all 0.15s ease;
+    }
+
+    .thumb-card:hover {
+      border-color: rgba(255, 255, 255, 0.35);
+      transform: translateY(-1px);
+    }
+
+    .thumb-card.active {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .thumb-preview {
+      height: 118px;
+      border-radius: 6px;
+      background: #1e293b;
+      overflow: hidden;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .thumb-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+    }
+
+    .ocr-block-card {
+      padding: 9px 10px;
+      border-radius: 9px;
+      border: 1px solid var(--glass-border);
+      background: rgba(128, 128, 128, 0.08);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 12px;
+    }
+
+    .ocr-block-card.filtered {
+      opacity: 0.65;
+      border-style: dashed;
+    }
+
+    .ocr-badge {
+      display: inline-block;
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 5px;
+      font-weight: 600;
+      width: fit-content;
+    }
+
+    .ocr-badge.dialog {
+      background: var(--accent-soft);
+      color: #93c5fd;
+    }
+
+    body.light-hud .ocr-badge.dialog {
+      color: var(--accent);
+    }
+
+    .ocr-badge.sfx {
+      background: rgba(148, 163, 184, 0.18);
+      color: var(--text-muted);
+    }
+
+    /* 懸浮玻璃 HUD（底部控制條） */
+    .bottom-hud {
+      position: fixed;
+      bottom: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(940px, calc(100% - 32px));
+      z-index: 40;
+      padding: 9px 14px;
+      border-radius: var(--radius-lg);
+      background: var(--glass-bg);
+      backdrop-filter: blur(18px);
+      border: 1px solid var(--glass-border);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      transition: transform 0.22s ease, opacity 0.22s ease;
+    }
+
+    .hud-hidden .bottom-hud {
+      transform: translate(-50%, 95px);
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .scrubber-wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    input[type="range"] {
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .page-scrubber {
+      flex: 1;
+    }
+
+    .page-counter {
+      font-size: 12px;
+      font-weight: 600;
+      min-width: 72px;
+      text-align: center;
+    }
+
+    /* Toast 提示 */
+    .toast-box {
+      position: fixed;
+      top: 70px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-10px);
+      z-index: 95;
+      padding: 8px 14px;
+      border-radius: 10px;
+      background: var(--glass-solid);
+      border: 1px solid var(--accent);
+      box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+      font-size: 12px;
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.2s ease;
+    }
+
+    .toast-box.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* 原圖比對浮動提示 */
+    .peek-badge {
+      position: fixed;
+      top: 70px;
+      left: 20px;
+      z-index: 35;
+      padding: 5px 11px;
+      border-radius: 8px;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid var(--accent);
+      color: #fff;
+      font-size: 11.5px;
+      display: none;
+    }
+
+    .hud-restore-hint {
+      position: fixed;
+      bottom: 14px;
+      right: 18px;
+      z-index: 35;
+      display: none;
+    }
+
+    .hud-hidden .hud-restore-hint {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div id="shell" class="reader-shell">
+
+    <!-- 頂部浮動工具列 -->
+    <header class="top-hud">
+      <div class="hud-group">
+        <button class="btn" id="btnBack" title="返回（Esc）">← 返回</button>
+        <div class="title-block">
+          <div class="work-title">[きのこのみ (kino)] 放課後の秘密レッスン [日翻中預覽]</div>
+          <div class="work-sub">
+            <span>作者：きのこのみ · ZIP (8 頁示範)</span>
+            <span class="readonly-pill" title="共用 D:\ComicOrganizer\cache.db 唯讀模式保護">🔒 共用庫唯讀</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 中央：頁數、檢視模式、方向與縮放比例 -->
+      <div class="hud-group">
+        <button class="btn" id="pageCounter" style="min-width:54px;font-weight:700;" title="點擊展開／收合右側跳頁與 OCR 側欄">1 / 8</button>
+
+        <div class="segment" title="閱讀檢視模式">
+          <button class="seg-btn active" data-view="single">單頁</button>
+          <button class="seg-btn" data-view="double">雙頁</button>
+          <button class="seg-btn" data-view="continuous">連續長條</button>
+        </div>
+
+        <button class="btn" id="btnDirection" title="切換日漫右翻 (RTL) / 左翻 (LTR)">右翻 RTL</button>
+        <button class="btn" id="btnContinuousGap" style="display:none;" title="切換連續長條頁間距（有間隔 / 韓漫無間隔）">頁距：標準</button>
+
+        <div class="segment" title="縮放適應模式">
+          <button class="seg-btn active" data-fit="fit-height">適高</button>
+          <button class="seg-btn" data-fit="fit-width">適寬</button>
+          <button class="seg-btn" data-fit="original">100%</button>
+        </div>
+
+        <div class="hud-group" style="gap:4px;" title="手動微調縮放比例">
+          <button class="btn" id="btnZoomOut" style="padding:0 7px;">－</button>
+          <span id="zoomLabel" style="font-size:11.5px;min-width:40px;text-align:center;font-weight:600;">100%</span>
+          <button class="btn" id="btnZoomIn" style="padding:0 7px;">＋</button>
+        </div>
+      </div>
+
+      <!-- 右側：OCR + LLM 翻譯與抽屜 -->
+      <div class="hud-group">
+        <button class="btn solid-accent" id="btnTranslate" title="切換即看即譯（T）">🌐 AI 翻譯：開</button>
+        <button class="btn" id="btnPeekOriginal" title="按住或點擊檢視原文原圖（Space）">👁️ 原文對照</button>
+        <select class="btn" id="selOcrEngine" style="padding:0 6px;">
+          <option value="paddle">PaddleOCR v6（離線）</option>
+          <option value="win">Windows Native OCR</option>
+        </select>
+
+        <button class="btn" id="btnBookmark" title="加入／移除書籤（B）">🔖 書籤</button>
+        <button class="btn" id="btnDrawerThumbs" title="頁面預覽／書籤／OCR 詳情">📑 側欄</button>
+
+        <button class="btn" id="btnFullscreen" title="全螢幕（F11）">⛶</button>
+        <button class="btn" id="btnToggleHud" title="隱藏工具列（H）">✕</button>
+      </div>
+    </header>
+
+    <div class="peek-badge" id="peekBadge">👁️ 原文原圖對照模式（放開或再按一次回到譯文）</div>
+
+    <!-- 左右點擊翻頁熱區 -->
+    <div class="nav-hotspot left" id="hotspotLeft">
+      <div class="nav-circle">‹</div>
+    </div>
+    <div class="nav-hotspot right" id="hotspotRight">
+      <div class="nav-circle">›</div>
+    </div>
+
+    <!-- 主畫布 -->
+    <main class="viewport centered" id="viewport">
+      <div class="pages-stage rtl" id="pagesStage"></div>
+    </main>
+
+    <!-- 隱藏 HUD 時的恢復鈕 -->
+    <div class="hud-restore-hint">
+      <button class="btn solid-accent" id="btnRestoreHud">顯示工具列 (H)</button>
+    </div>
+
+    <!-- 右側滑出抽屜（縮圖跳頁 / 書籤 / OCR 氣泡偵測明細 / 頁碼滑桿） -->
+    <aside class="side-drawer" id="sideDrawer">
+      <div class="drawer-header">
+        <div class="segment">
+          <button class="seg-btn active" data-drawer-tab="thumbs">縮圖 (8)</button>
+          <button class="seg-btn" data-drawer-tab="bookmarks">書籤 (<span id="bmCount">2</span>)</button>
+          <button class="seg-btn" data-drawer-tab="ocr">OCR / LLM</button>
+        </div>
+        <button class="btn" id="btnCloseDrawer" style="padding:0 8px;">✕</button>
+      </div>
+      <div class="drawer-body" id="drawerBody"></div>
+      <div class="drawer-nav-bar">
+        <div class="scrubber-wrap">
+          <span class="page-counter" id="drawerPageCounter" style="min-width:46px;">1 / 8</span>
+          <input type="range" id="pageScrubber" class="page-scrubber" min="1" max="8" value="1" />
+        </div>
+      </div>
+    </aside>
+
+    <!-- 雙語氣泡懸浮檢視框 -->
+    <div class="bubble-tooltip" id="bubbleTooltip"></div>
+
+    <!-- Toast 通知 -->
+    <div class="toast-box" id="toastBox"></div>
+  </div>
+
+  <script>
+    // 8 頁示範漫畫資料（含日文原句、合併段落、LLM 繁中譯文、以及模擬手繪狀聲詞過濾）
+    const PAGES = [
+      {
+        num: 1,
+        sceneTitle: "第 1 話 · 放學後的社團教室",
+        bgTone: "#f8fafc",
+        accent: "#3b82f6",
+        sfx: [{ text: "キーンコーン…", x: 10, y: 12, rot: -8 }, { text: "ドキッ…", x: 74, y: 78, rot: 7 }],
+        bubbles: [
+          {
+            left: 56, top: 8, width: 32, height: 22, fontSize: 15,
+            jp: "待ってよ、先輩！",
+            zh: "等一下啊，學長！",
+            mergedBlocks: 2
+          },
+          {
+            left: 11, top: 44, width: 34, height: 24, fontSize: 14,
+            jp: "えっ…放課後の部室で二人きり？",
+            zh: "咦…放學後的社團教室只有我們兩個人嗎？",
+            mergedBlocks: 2
+          },
+          {
+            left: 54, top: 64, width: 33, height: 21, fontSize: 14,
+            jp: "昨日描いた原稿、ちょっと見せてくれないか",
+            zh: "昨天畫好的原稿，能稍微借我看一下嗎？",
+            mergedBlocks: 1
+          }
+        ]
+      },
+      {
+        num: 2,
+        sceneTitle: "夕陽與分鏡草稿",
+        bgTone: "#fffbeb",
+        accent: "#f59e0b",
+        sfx: [{ text: "パラッ", x: 16, y: 18, rot: -10 }, { text: "ジー…", x: 70, y: 66, rot: 5 }],
+        bubbles: [
+          {
+            left: 58, top: 10, width: 30, height: 21, fontSize: 14.5,
+            jp: "まだ清書してないのに恥ずかしいです…！",
+            zh: "都還沒完稿耶，這樣好害羞…！",
+            mergedBlocks: 2
+          },
+          {
+            left: 12, top: 58, width: 35, height: 23, fontSize: 14,
+            jp: "十分上手いよ。特に三コマ目の表情がいい",
+            zh: "已經畫得很棒了喔。特別是第三格的表情很有張力。",
+            mergedBlocks: 2
+          }
+        ]
+      },
+      {
+        num: 3,
+        sceneTitle: "意外接近的距離",
+        bgTone: "#fdf2f8",
+        accent: "#ec4899",
+        sfx: [{ text: "スッ…", x: 64, y: 15, rot: 9 }],
+        bubbles: [
+          {
+            left: 14, top: 12, width: 33, height: 22, fontSize: 14.5,
+            jp: "ここ、トーンを貼ったらもっと映えるぞ",
+            zh: "這裡如果加上網點，畫面會更有立體感喔。",
+            mergedBlocks: 2
+          },
+          {
+            left: 55, top: 54, width: 32, height: 24, fontSize: 14.5,
+            jp: "（ち、近い…先輩の声が耳元で…！）",
+            zh: "（好、好近…學長的聲音就在耳邊…！）",
+            mergedBlocks: 2
+          }
+        ]
+      },
+      {
+        num: 4,
+        sceneTitle: "截稿日前夜",
+        bgTone: "#eef2ff",
+        accent: "#6366f1",
+        sfx: [{ text: "カリカリ", x: 20, y: 74, rot: -6 }],
+        bubbles: [
+          {
+            left: 56, top: 14, width: 32, height: 22, fontSize: 14,
+            jp: "冬コミまであと三日しかないのか",
+            zh: "距離冬漫展竟然只剩三天了嗎…",
+            mergedBlocks: 1
+          },
+          {
+            left: 12, top: 48, width: 34, height: 22, fontSize: 14.5,
+            jp: "手伝うよ。背景のベタ塗りなら任せて",
+            zh: "我來幫忙吧，背景塗黑交給我就好了。",
+            mergedBlocks: 2
+          }
+        ]
+      },
+      {
+        num: 5,
+        sceneTitle: "深夜熱可可與悄悄話",
+        bgTone: "#ecfdf5",
+        accent: "#10b981",
+        sfx: [{ text: "フーッ…", x: 62, y: 20, rot: -5 }],
+        bubbles: [
+          {
+            left: 14, top: 14, width: 34, height: 23, fontSize: 14,
+            jp: "ほら、温かいココア。少し休憩しよう",
+            zh: "來，熱可可。先稍微休息一下吧。",
+            mergedBlocks: 2
+          },
+          {
+            left: 55, top: 60, width: 32, height: 21, fontSize: 14.5,
+            jp: "ありがとうございます…先輩って優しいですね",
+            zh: "謝謝你…學長人真的很溫柔呢。",
+            mergedBlocks: 2
+          }
+        ]
+      },
+      {
+        num: 6,
+        sceneTitle: "新刊完成！",
+        bgTone: "#f0f9ff",
+        accent: "#0ea5e9",
+        sfx: [{ text: "パチパチ！", x: 42, y: 46, rot: -7 }],
+        bubbles: [
+          {
+            left: 56, top: 11, width: 33, height: 22, fontSize: 15,
+            jp: "ついに全ページ入稿完了だ！",
+            zh: "終於全部頁數都送印完成了！",
+            mergedBlocks: 1
+          },
+          {
+            left: 12, top: 62, width: 35, height: 22, fontSize: 14,
+            jp: "当日、売り子も一緒にやってくれますか？",
+            zh: "活動當天，學長也願意跟我一起顧攤嗎？",
+            mergedBlocks: 2
+          }
+        ]
+      },
+      {
+        num: 7,
+        sceneTitle: "活動當天的攤位前",
+        bgTone: "#fff7ed",
+        accent: "#f97316",
+        sfx: [{ text: "ザワザワ…", x: 14, y: 15, rot: 4 }],
+        bubbles: [
+          {
+            left: 56, top: 12, width: 32, height: 21, fontSize: 14.5,
+            jp: "すごい行列！新刊もう半分売れたよ",
+            zh: "好長的排隊人潮！新刊已經賣掉一半了喔。",
+            mergedBlocks: 2
+          },
+          {
+            left: 14, top: 56, width: 34, height: 23, fontSize: 14.5,
+            jp: "全部先輩のおかげです…！",
+            zh: "這全都是多虧了學長幫忙…！",
+            mergedBlocks: 1
+          }
+        ]
+      },
+      {
+        num: 8,
+        sceneTitle: "後記 · 下一本的約定",
+        bgTone: "#faf5ff",
+        accent: "#a855f7",
+        sfx: [{ text: "ニコッ", x: 64, y: 74, rot: -4 }],
+        bubbles: [
+          {
+            left: 55, top: 12, width: 34, height: 22, fontSize: 14.5,
+            jp: "次は二人の名前で新刊を出そうか",
+            zh: "下一次，我們用兩個人共同的名字出新刊吧？",
+            mergedBlocks: 2
+          },
+          {
+            left: 12, top: 58, width: 34, height: 22, fontSize: 15,
+            jp: "はいっ！喜んで！",
+            zh: "好！我很樂意！",
+            mergedBlocks: 1
+          }
+        ]
+      }
+    ];
+
+    const state = {
+      currentPage: 1,
+      viewMode: "single", // single | double | continuous
+      isRtl: true,
+      continuousGapless: false,
+      fitMode: "fit-height", // fit-height | fit-width | original
+      zoom: 1.0,
+      translateOn: true,
+      peekOriginal: false,
+      hudHidden: false,
+      drawerTab: "thumbs",
+      drawerOpen: false,
+      bookmarks: new Set([1, 6]),
+      ocrEngine: "paddle"
+    };
+
+    const $ = id => document.getElementById(id);
+    const pagesStage = $("pagesStage");
+    const viewport = $("viewport");
+    const shell = $("shell");
+    const bubbleTooltip = $("bubbleTooltip");
+    let toastTimer = null;
+
+    function showToast(msg) {
+      const box = $("toastBox");
+      box.textContent = msg;
+      box.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => box.classList.remove("show"), 2200);
+    }
+
+    function getPageSize() {
+      const vw = viewport.clientWidth - 64;
+      const vh = viewport.clientHeight - 104;
+      const aspect = 0.707; // B5/A4 漫畫常見比例 1:1.414
+
+      let baseW = 540;
+      let baseH = Math.round(baseW / aspect);
+
+      if (state.fitMode === "fit-height") {
+        baseH = Math.max(360, vh);
+        baseW = Math.round(baseH * aspect);
+        if (state.viewMode === "double" && baseW * 2 + 24 > vw) {
+          baseW = Math.floor((vw - 24) / 2);
+          baseH = Math.round(baseW / aspect);
+        }
+      } else if (state.fitMode === "fit-width") {
+        baseW = state.viewMode === "double"
+          ? Math.max(260, Math.floor((vw - 28) / 2))
+          : Math.max(320, Math.min(920, vw));
+        baseH = Math.round(baseW / aspect);
+      } else {
+        baseW = 680;
+        baseH = Math.round(baseW / aspect);
+      }
+
+      return {
+        w: Math.round(baseW * state.zoom),
+        h: Math.round(baseH * state.zoom)
+      };
+    }
+
+    function buildComicSvg(page) {
+      const sfxSvg = page.sfx.map(s => `
+        <text x="${s.x}%" y="${s.y}%"
+              transform="rotate(${s.rot} 250 350)"
+              fill="#334155" font-size="22" font-weight="900"
+              letter-spacing="2" opacity="0.55">${s.text}</text>
+      `).join("");
+
+      const bubblesSvg = page.bubbles.map(b => {
+        const cx = b.left + b.width / 2;
+        const cy = b.top + b.height / 2;
+        const rx = b.width / 2;
+        const ry = b.height / 2;
+        return `
+          <ellipse cx="${cx}%" cy="${cy}%" rx="${rx}%" ry="${ry}%"
+                   fill="#ffffff" stroke="#0f172a" stroke-width="2.2" />
+          <text x="${cx}%" y="${cy}%"
+                text-anchor="middle" dominant-baseline="middle"
+                fill="#0f172a" font-size="13" font-weight="600">
+            ${escapeXml(b.jp)}
+          </text>
+        `;
+      }).join("");
+
+      // 模擬漫畫分格線與角色剪影
+      return `
+        <svg viewBox="0 0 500 707" xmlns="http://www.w3.org/2000/svg">
+          <rect width="500" height="707" fill="${page.bgTone}" />
+          <!-- 外框與兩格分鏡 -->
+          <rect x="18" y="18" width="464" height="310" fill="#ffffff" stroke="#0f172a" stroke-width="3" rx="4" />
+          <rect x="18" y="346" width="464" height="343" fill="#ffffff" stroke="#0f172a" stroke-width="3" rx="4" />
+
+          <!-- 上格插畫裝飾：人物剪影與窗景網點 -->
+          <rect x="30" y="30" width="210" height="286" fill="${page.accent}" opacity="0.12" />
+          <circle cx="145" cy="145" r="56" fill="${page.accent}" opacity="0.22" />
+          <path d="M85 316 C85 235, 205 235, 205 316 Z" fill="#1e293b" opacity="0.82" />
+          <circle cx="145" cy="175" r="42" fill="#e2e8f0" stroke="#0f172a" stroke-width="2.5" />
+          <path d="M105 168 Q145 118 185 168" fill="#1e293b" />
+
+          <!-- 下格插畫裝飾 -->
+          <rect x="260" y="360" width="210" height="316" fill="${page.accent}" opacity="0.10" />
+          <path d="M295 676 C295 570, 440 570, 440 676 Z" fill="${page.accent}" opacity="0.72" />
+          <circle cx="368" cy="505" r="48" fill="#f8fafc" stroke="#0f172a" stroke-width="2.5" />
+          <path d="M320 495 Q368 430 416 495" fill="#334155" />
+
+          <!-- 畫面標題浮水印 -->
+          <text x="32" y="54" fill="#64748b" font-size="12" font-weight="600">
+            PAGE ${page.num} · ${escapeXml(page.sceneTitle)}
+          </text>
+
+          ${sfxSvg}
+          ${bubblesSvg}
+        </svg>
+      `;
+    }
+
+    function escapeXml(str) {
+      return str.replace(/[<>&'"]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" }[c]));
+    }
+
+    function createPageElement(page, size) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "comic-page";
+      wrapper.style.width = size.w + "px";
+      wrapper.style.height = size.h + "px";
+      wrapper.dataset.page = page.num;
+      wrapper.innerHTML = buildComicSvg(page);
+
+      const transLayer = document.createElement("div");
+      const showTrans = state.translateOn && !state.peekOriginal;
+      transLayer.className = "translation-layer" + (showTrans ? "" : " hidden");
+
+      page.bubbles.forEach(b => {
+        const mask = document.createElement("div");
+        mask.className = "bubble-mask";
+        mask.style.left = (b.left + 1.5) + "%";
+        mask.style.top = (b.top + 1.5) + "%";
+        mask.style.width = (b.width - 3) + "%";
+        mask.style.height = (b.height - 3) + "%";
+        mask.style.fontSize = Math.max(10, Math.round(b.fontSize * (size.w / 540))) + "px";
+        mask.textContent = b.zh;
+
+        mask.addEventListener("mouseenter", e => {
+          bubbleTooltip.innerHTML = `
+            <div style="color:var(--accent);font-weight:700;margin-bottom:3px;">
+              ${state.ocrEngine === "paddle" ? "PaddleOCR v6" : "Windows OCR"} · 合併 ${b.mergedBlocks} 個氣泡區塊
+            </div>
+            <div style="color:var(--text-muted);margin-bottom:4px;"><b>原文：</b>${escapeXml(b.jp)}</div>
+            <div><b>譯文：</b>${escapeXml(b.zh)}</div>
+          `;
+          bubbleTooltip.style.display = "block";
+          positionTooltip(e);
+        });
+        mask.addEventListener("mousemove", positionTooltip);
+        mask.addEventListener("mouseleave", () => { bubbleTooltip.style.display = "none"; });
+
+        transLayer.appendChild(mask);
+      });
+
+      const pageBadge = document.createElement("div");
+      pageBadge.className = "page-tag-corner";
+      pageBadge.textContent = `P.${page.num}` + (state.bookmarks.has(page.num) ? " 🔖" : "");
+
+      wrapper.appendChild(transLayer);
+      wrapper.appendChild(pageBadge);
+      return wrapper;
+    }
+
+    function positionTooltip(e) {
+      const x = Math.min(window.innerWidth - 295, e.clientX + 14);
+      const y = Math.min(window.innerHeight - 110, e.clientY + 14);
+      bubbleTooltip.style.left = x + "px";
+      bubbleTooltip.style.top = y + "px";
+    }
+
+    function getVisiblePages() {
+      if (state.viewMode === "continuous") {
+        return PAGES;
+      }
+      if (state.viewMode === "double") {
+        if (state.currentPage === 1) return [PAGES[0]]; // 封面獨立
+        const pairStart = state.currentPage % 2 === 0 ? state.currentPage : state.currentPage - 1;
+        const p1 = PAGES[pairStart - 1];
+        const p2 = PAGES[pairStart];
+        return p2 ? [p1, p2] : [p1];
+      }
+      return [PAGES[state.currentPage - 1]];
+    }
+
+    function renderStage() {
+      const size = getPageSize();
+      pagesStage.innerHTML = "";
+      pagesStage.className = "pages-stage";
+      if (state.viewMode === "continuous") {
+        pagesStage.classList.add("continuous");
+        if (state.continuousGapless) {
+          pagesStage.classList.add("gapless");
+        }
+        viewport.classList.remove("centered");
+      } else {
+        viewport.classList.add("centered");
+        if (state.isRtl && state.viewMode === "double") {
+          pagesStage.classList.add("rtl");
+        }
+      }
+
+      const visible = getVisiblePages();
+      visible.forEach(p => pagesStage.appendChild(createPageElement(p, size)));
+
+      $("hotspotLeft").style.display = state.viewMode === "continuous" ? "none" : "flex";
+      $("hotspotRight").style.display = state.viewMode === "continuous" ? "none" : "flex";
+
+      updateHudState();
+      if (state.drawerOpen) renderDrawer();
+    }
+
+    function updateHudState() {
+      $("pageCounter").textContent = `${state.currentPage} / ${PAGES.length}`;
+      $("drawerPageCounter").textContent = `${state.currentPage} / ${PAGES.length}`;
+      $("pageScrubber").value = state.currentPage;
+      $("zoomLabel").textContent = Math.round(state.zoom * 100) + "%";
+
+      $("btnDirection").textContent = state.isRtl ? "右翻 RTL" : "左翻 LTR";
+      $("btnDirection").style.display = state.viewMode === "continuous" ? "none" : "inline-flex";
+
+      const btnGap = $("btnContinuousGap");
+      btnGap.style.display = state.viewMode === "continuous" ? "inline-flex" : "none";
+      btnGap.textContent = state.continuousGapless ? "韓漫無縫 (0px)" : "頁距：標準";
+      btnGap.classList.toggle("active", state.continuousGapless);
+
+      const btnTrans = $("btnTranslate");
+      btnTrans.textContent = state.translateOn ? "🌐 AI 翻譯：開" : "🌐 AI 翻譯：關";
+      btnTrans.classList.toggle("solid-accent", state.translateOn);
+
+      const btnPeek = $("btnPeekOriginal");
+      btnPeek.classList.toggle("active", state.peekOriginal);
+      $("peekBadge").style.display = state.peekOriginal ? "block" : "none";
+
+      const isBookmarked = state.bookmarks.has(state.currentPage);
+      $("btnBookmark").textContent = isBookmarked ? "🔖 已書籤" : "🔖 書籤";
+      $("btnBookmark").classList.toggle("active", isBookmarked);
+      $("bmCount").textContent = state.bookmarks.size;
+
+      shell.classList.toggle("hud-hidden", state.hudHidden);
+    }
+
+    function renderDrawer() {
+      const body = $("drawerBody");
+      body.innerHTML = "";
+
+      if (state.drawerTab === "thumbs") {
+        const grid = document.createElement("div");
+        grid.className = "thumb-grid";
+        PAGES.forEach(p => {
+          const card = document.createElement("div");
+          card.className = "thumb-card" + (p.num === state.currentPage ? " active" : "");
+          card.innerHTML = `
+            <div class="thumb-preview" style="background:${p.bgTone};color:#0f172a;">
+              <div style="font-size:11px;font-weight:700;text-align:center;padding:6px;">
+                P.${p.num}<br/><span style="font-weight:400;font-size:10px;color:#475569;">${p.sceneTitle}</span>
+              </div>
+            </div>
+            <div class="thumb-label">
+              <span>第 ${p.num} 頁</span>
+              <span>${state.bookmarks.has(p.num) ? "🔖" : `${p.bubbles.length} 句`}</span>
+            </div>
+          `;
+          card.onclick = () => goToPage(p.num);
+          grid.appendChild(card);
+        });
+        body.appendChild(grid);
+        return;
+      }
+
+      if (state.drawerTab === "bookmarks") {
+        if (state.bookmarks.size === 0) {
+          body.innerHTML = `<div style="font-size:12px;color:var(--text-muted);padding:12px;">目前沒有書籤。按 B 鍵或上方「🔖 書籤」即可加入。</div>`;
+          return;
+        }
+        [...state.bookmarks].sort((a, b) => a - b).forEach(num => {
+          const p = PAGES[num - 1];
+          const row = document.createElement("div");
+          row.className = "ocr-block-card";
+          row.style.cursor = "pointer";
+          row.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <strong>🔖 第 ${p.num} 頁</strong>
+              <button class="btn" style="height:22px;padding:0 7px;font-size:11px;">移除</button>
+            </div>
+            <div style="color:var(--text-muted);font-size:11px;">${p.sceneTitle}</div>
+          `;
+          row.querySelector("button").onclick = e => {
+            e.stopPropagation();
+            state.bookmarks.delete(num);
+            showToast(`已移除第 ${num} 頁書籤（唯讀模式下僅供本次預覽）`);
+            renderStage();
+          };
+          row.onclick = () => goToPage(num);
+          body.appendChild(row);
+        });
+        return;
+      }
+
+      // OCR / LLM 明細頁籤
+      const page = PAGES[state.currentPage - 1];
+      const info = document.createElement("div");
+      info.style.cssText = "font-size:11.5px;color:var(--text-muted);line-height:1.5;";
+      info.innerHTML = `
+        目前檢視：<b>第 ${page.num} 頁</b>（引擎：${state.ocrEngine === "paddle" ? "PaddleOCR v6 離線" : "Windows OCR"}）<br/>
+        偵測到 <b>${page.bubbles.length}</b> 個有效對白區塊，並自動過濾 <b>${page.sfx.length}</b> 個手繪狀聲詞以保留原圖背景。
+      `;
+      body.appendChild(info);
+
+      page.bubbles.forEach((b, idx) => {
+        const card = document.createElement("div");
+        card.className = "ocr-block-card";
+        card.innerHTML = `
+          <span class="ocr-badge dialog">對白 #${idx + 1} · 已合併 ${b.mergedBlocks} 區</span>
+          <div style="color:var(--text-muted);font-size:11px;">原文：${escapeXml(b.jp)}</div>
+          <div style="font-weight:600;">譯文：${escapeXml(b.zh)}</div>
+        `;
+        body.appendChild(card);
+      });
+
+      page.sfx.forEach(s => {
+        const card = document.createElement("div");
+        card.className = "ocr-block-card filtered";
+        card.innerHTML = `
+          <span class="ocr-badge sfx">狀聲詞／雜訊已忽略（不塗白）</span>
+          <div style="color:var(--text-muted);font-size:11px;">識別文字：${escapeXml(s.text)} → ""</div>
+        `;
+        body.appendChild(card);
+      });
+    }
+
+    function goToPage(num) {
+      state.currentPage = Math.max(1, Math.min(PAGES.length, num));
+      if (state.viewMode === "continuous") {
+        const target = pagesStage.querySelector(`[data-page="${state.currentPage}"]`);
+        if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+        updateHudState();
+        if (state.drawerOpen) renderDrawer();
+      } else {
+        renderStage();
+      }
+    }
+
+    function stepPage(delta) {
+      const step = state.viewMode === "double" && state.currentPage > 1 ? delta * 2 : delta;
+      goToPage(state.currentPage + step);
+    }
+
+    // 綁定互動事件
+    document.querySelectorAll("[data-view]").forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll("[data-view]").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        state.viewMode = btn.dataset.view;
+        renderStage();
+      };
+    });
+
+    document.querySelectorAll("[data-fit]").forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll("[data-fit]").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        state.fitMode = btn.dataset.fit;
+        state.zoom = 1.0;
+        renderStage();
+      };
+    });
+
+    document.querySelectorAll("[data-drawer-tab]").forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll("[data-drawer-tab]").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        state.drawerTab = btn.dataset.drawerTab;
+        renderDrawer();
+      };
+    });
+
+    $("btnDirection").onclick = () => {
+      state.isRtl = !state.isRtl;
+      renderStage();
+      showToast(state.isRtl ? "已切換為日漫右翻 (RTL)" : "已切換為左翻 (LTR)");
+    };
+
+    $("btnContinuousGap").onclick = () => {
+      state.continuousGapless = !state.continuousGapless;
+      renderStage();
+      showToast(state.continuousGapless ? "已切換為韓漫無間隔無縫長條（0px）" : "已切換為標準頁面間隔（18px）");
+    };
+
+    $("btnTranslate").onclick = () => {
+      state.translateOn = !state.translateOn;
+      renderStage();
+      showToast(state.translateOn ? "🌐 已開啟即看即譯疊加層" : "已關閉翻譯，顯示原圖");
+    };
+
+    $("btnPeekOriginal").onclick = () => {
+      state.peekOriginal = !state.peekOriginal;
+      renderStage();
+    };
+
+    $("selOcrEngine").onchange = e => {
+      state.ocrEngine = e.target.value;
+      if (state.drawerOpen) renderDrawer();
+      showToast(`已切換 OCR 引擎：${e.target.options[e.target.selectedIndex].text}`);
+    };
+
+    $("btnBookmark").onclick = () => {
+      if (state.bookmarks.has(state.currentPage)) {
+        state.bookmarks.delete(state.currentPage);
+        showToast(`已取消第 ${state.currentPage} 頁書籤`);
+      } else {
+        state.bookmarks.add(state.currentPage);
+        showToast(`🔖 已加入第 ${state.currentPage} 頁書籤（共用庫唯讀模式不寫入 DB）`);
+      }
+      renderStage();
+    };
+
+    $("btnDrawerThumbs").onclick = () => {
+      state.drawerOpen = !state.drawerOpen;
+      $("sideDrawer").classList.toggle("open", state.drawerOpen);
+      $("btnDrawerThumbs").classList.toggle("active", state.drawerOpen);
+      if (state.drawerOpen) renderDrawer();
+    };
+
+    $("btnCloseDrawer").onclick = () => {
+      state.drawerOpen = false;
+      $("sideDrawer").classList.remove("open");
+      $("btnDrawerThumbs").classList.remove("active");
+    };
+
+    $("btnFullscreen").onclick = () => {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen?.();
+      } else {
+        document.exitFullscreen?.();
+      }
+    };
+
+    $("btnToggleHud").onclick = () => {
+      state.hudHidden = true;
+      updateHudState();
+    };
+
+    $("btnRestoreHud").onclick = () => {
+      state.hudHidden = false;
+      updateHudState();
+    };
+
+    $("btnBack").onclick = () => showToast("在實際 Avalonia 應用中將關閉 ReaderWindow 並保留主視窗狀態");
+
+    $("pageCounter").onclick = () => $("btnDrawerThumbs").click();
+
+    $("hotspotLeft").onclick = () => stepPage(state.isRtl ? 1 : -1);
+    $("hotspotRight").onclick = () => stepPage(state.isRtl ? -1 : 1);
+
+    $("pageScrubber").oninput = e => goToPage(parseInt(e.target.value, 10));
+
+    $("btnZoomIn").onclick = () => {
+      state.zoom = Math.min(2.2, +(state.zoom + 0.15).toFixed(2));
+      renderStage();
+    };
+    $("btnZoomOut").onclick = () => {
+      state.zoom = Math.max(0.5, +(state.zoom - 0.15).toFixed(2));
+      renderStage();
+    };
+
+    window.addEventListener("resize", () => renderStage());
+
+    // 滑鼠滾輪支援：Ctrl+滾輪縮放、單頁/雙頁滾輪翻頁（防高頻觸控板連跳）、連續模式自動捲動並同步頁碼
+    let wheelAccum = 0;
+    let lastWheelTurnAt = 0;
+    viewport.addEventListener("wheel", e => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+        const deltaZoom = e.deltaY < 0 ? 0.1 : -0.1;
+        state.zoom = Math.max(0.5, Math.min(2.2, +(state.zoom + deltaZoom).toFixed(2)));
+        renderStage();
+        return;
+      }
+
+      if (state.viewMode === "continuous") {
+        return; // 連續長條模式交由原生垂直捲動處理
+      }
+
+      const maxScroll = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      const atTop = viewport.scrollTop <= 2;
+      const atBottom = viewport.scrollTop >= maxScroll - 2;
+      const goingDown = e.deltaY > 0;
+      const goingUp = e.deltaY < 0;
+
+      // 若頁面已放大且尚未捲到底/頂，先捲動頁面內容；否則直接翻頁
+      if (maxScroll > 6 && ((goingDown && !atBottom) || (goingUp && !atTop))) {
+        return;
+      }
+
+      e.preventDefault();
+      wheelAccum += e.deltaY;
+      const now = Date.now();
+      if (Math.abs(wheelAccum) >= 60 && now - lastWheelTurnAt > 120) {
+        const step = wheelAccum > 0 ? 1 : -1;
+        wheelAccum = 0;
+        lastWheelTurnAt = now;
+        stepPage(step);
+      }
+    }, { passive: false });
+
+    viewport.addEventListener("scroll", () => {
+      if (state.viewMode !== "continuous") return;
+      const pages = [...pagesStage.querySelectorAll(".comic-page")];
+      const midY = viewport.getBoundingClientRect().top + viewport.clientHeight * 0.4;
+      for (const el of pages) {
+        const rect = el.getBoundingClientRect();
+        if (rect.top <= midY && rect.bottom >= midY) {
+          const num = parseInt(el.dataset.page, 10);
+          if (num && num !== state.currentPage) {
+            state.currentPage = num;
+            updateHudState();
+            if (state.drawerOpen) renderDrawer();
+          }
+          break;
+        }
+      }
+    });
+
+    window.addEventListener("keydown", e => {
+      if (e.key === "ArrowLeft") stepPage(state.isRtl ? 1 : -1);
+      else if (e.key === "ArrowRight") stepPage(state.isRtl ? -1 : 1);
+      else if (e.key.toLowerCase() === "t") { state.translateOn = !state.translateOn; renderStage(); }
+      else if (e.key.toLowerCase() === "b") $("btnBookmark").click();
+      else if (e.key.toLowerCase() === "h") { state.hudHidden = !state.hudHidden; updateHudState(); }
+      else if (e.key === " ") { e.preventDefault(); $("btnPeekOriginal").click(); }
+      else if (e.key === "Escape" && state.drawerOpen) $("btnCloseDrawer").click();
+    });
+
+    renderStage();
+  </script>
+</body>
+</html>

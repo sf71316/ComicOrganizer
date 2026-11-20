@@ -18,6 +18,7 @@ public enum ReadingTrackRecordTab
 public sealed partial class ReadingWorkItemVm : ViewModelBase
 {
     private readonly Action<ReadingWorkItemVm> _onOpen;
+    private readonly Action<ReadingWorkItemVm>? _onOpenExternal;
     private readonly Action<ReadingWorkItemVm> _onReveal;
     private readonly Action<ReadingWorkItemVm> _onMarkCompleted;
     private readonly Action<ReadingWorkItemVm> _onResetUnread;
@@ -38,7 +39,8 @@ public sealed partial class ReadingWorkItemVm : ViewModelBase
         Action<ReadingWorkItemVm> onReveal,
         Action<ReadingWorkItemVm> onMarkCompleted,
         Action<ReadingWorkItemVm> onResetUnread,
-        Func<Action, Task>? runOnUiAsync = null)
+        Func<Action, Task>? runOnUiAsync = null,
+        Action<ReadingWorkItemVm>? onOpenExternal = null)
     {
         Path = path;
         Title = title;
@@ -49,6 +51,7 @@ public sealed partial class ReadingWorkItemVm : ViewModelBase
         ReadCount = readCount;
 
         _onOpen = onOpen ?? throw new ArgumentNullException(nameof(onOpen));
+        _onOpenExternal = onOpenExternal;
         _onReveal = onReveal ?? throw new ArgumentNullException(nameof(onReveal));
         _onMarkCompleted = onMarkCompleted ?? throw new ArgumentNullException(nameof(onMarkCompleted));
         _onResetUnread = onResetUnread ?? throw new ArgumentNullException(nameof(onResetUnread));
@@ -167,6 +170,9 @@ public sealed partial class ReadingWorkItemVm : ViewModelBase
     private void Open() => _onOpen(this);
 
     [RelayCommand]
+    private void OpenExternal() => _onOpenExternal?.Invoke(this);
+
+    [RelayCommand]
     private void RevealInExplorer() => _onReveal(this);
 
     [RelayCommand]
@@ -256,6 +262,7 @@ public sealed partial class ReadingTrackPageViewModel : ViewModelBase, IDisposab
     private readonly IAssetMetaStore _store;
     private readonly SkiaCoverService _coverService;
     private readonly IExternalLauncher _externalLauncher;
+    private readonly IReaderWindowLauncher _readerLauncher;
     private readonly ISukiToastManager? _toastManager;
     private readonly Func<Action, Task> _runOnUiAsync;
     private readonly SemaphoreSlim _coverLoadSemaphore = new(4, 4);
@@ -278,7 +285,8 @@ public sealed partial class ReadingTrackPageViewModel : ViewModelBase, IDisposab
             dataContext.ToastManager,
             ExploreCardVmBase.DefaultRunOnUiAsync,
             autoLoad: true,
-            isReadOnlyDatabase: dataContext.IsReadOnlyDatabase)
+            isReadOnlyDatabase: dataContext.IsReadOnlyDatabase,
+            readerLauncher: new AvaloniaReaderWindowLauncher(dataContext))
     {
         _dataContext = dataContext;
     }
@@ -290,11 +298,13 @@ public sealed partial class ReadingTrackPageViewModel : ViewModelBase, IDisposab
         ISukiToastManager? toastManager = null,
         Func<Action, Task>? runOnUiAsync = null,
         bool autoLoad = true,
-        bool isReadOnlyDatabase = false)
+        bool isReadOnlyDatabase = false,
+        IReaderWindowLauncher? readerLauncher = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _coverService = coverService ?? throw new ArgumentNullException(nameof(coverService));
         _externalLauncher = externalLauncher ?? new SystemExternalLauncher();
+        _readerLauncher = readerLauncher ?? new FallbackExternalReaderLauncher(_externalLauncher);
         _toastManager = toastManager;
         _runOnUiAsync = runOnUiAsync ?? ExploreCardVmBase.DefaultRunOnUiAsync;
         IsReadOnlyDatabase = isReadOnlyDatabase;
@@ -623,7 +633,8 @@ public sealed partial class ReadingTrackPageViewModel : ViewModelBase, IDisposab
                 OnRevealWork,
                 OnMarkCompleted,
                 OnResetUnread,
-                _runOnUiAsync));
+                _runOnUiAsync,
+                OnOpenWorkExternal));
         }
 
         return list;
@@ -703,9 +714,25 @@ public sealed partial class ReadingTrackPageViewModel : ViewModelBase, IDisposab
 
     private void OnOpenWork(ReadingWorkItemVm item)
     {
+        if (!_readerLauncher.OpenInReader(item.Path, item.Title, item.AuthorName, OnReaderClosedRefreshIfWritable, out var error))
+        {
+            ShowToast("無法開啟內建閱讀器", error ?? item.Path, NotificationType.Warning);
+        }
+    }
+
+    private void OnOpenWorkExternal(ReadingWorkItemVm item)
+    {
         if (!_externalLauncher.OpenWithDefaultApp(item.Path, out var error))
         {
             ShowToast("無法開啟作品", error ?? item.Path, NotificationType.Warning);
+        }
+    }
+
+    private void OnReaderClosedRefreshIfWritable()
+    {
+        if (!_disposed && !IsReadOnlyDatabase)
+        {
+            _ = RefreshAsync();
         }
     }
 

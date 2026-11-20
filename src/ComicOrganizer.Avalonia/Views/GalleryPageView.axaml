@@ -534,9 +534,17 @@
                                     Padding="10"
                                     Margin="0,0,12,12"
                                     EffectiveViewportChanged="OnItemEffectiveViewportChanged">
+                      <suki:GlassCard.ContextMenu>
+                        <ContextMenu>
+                          <MenuItem Header="📖 以內建閱讀器開啟" Command="{Binding OpenInReaderCommand}" />
+                          <MenuItem Header="↗ 以外部預設程式開啟" Command="{Binding OpenExternalCommand}" />
+                          <MenuItem Header="ℹ 查看 / 編輯詳細資訊" Command="{Binding InspectDetailCommand}" />
+                          <MenuItem Header="📂 在檔案總管中顯示" Command="{Binding RevealInExplorerCommand}" />
+                        </ContextMenu>
+                      </suki:GlassCard.ContextMenu>
                       <StackPanel Spacing="7">
 
-                        <!-- 點擊封面或標題：資料夾為進入子目錄，作品為系統預設程式開啟 -->
+                        <!-- 點擊封面或標題：資料夾為進入子目錄，作品為內建閱讀器開啟 -->
                         <Button Classes="Basic"
                                 Padding="0"
                                 HorizontalAlignment="Stretch"
@@ -651,6 +659,14 @@
                                     Padding="10,7"
                                     Margin="0,0,0,6"
                                     EffectiveViewportChanged="OnItemEffectiveViewportChanged">
+                      <suki:GlassCard.ContextMenu>
+                        <ContextMenu>
+                          <MenuItem Header="📖 以內建閱讀器開啟" Command="{Binding OpenInReaderCommand}" />
+                          <MenuItem Header="↗ 以外部預設程式開啟" Command="{Binding OpenExternalCommand}" />
+                          <MenuItem Header="ℹ 查看 / 編輯詳細資訊" Command="{Binding InspectDetailCommand}" />
+                          <MenuItem Header="📂 在檔案總管中顯示" Command="{Binding RevealInExplorerCommand}" />
+                        </ContextMenu>
+                      </suki:GlassCard.ContextMenu>
                       <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10">
 
                         <!-- 迷你縮圖 -->
@@ -932,8 +948,8 @@
                   </Grid>
                 </Border>
 
-                <Grid ColumnDefinitions="*,Auto"
-                      ColumnSpacing="8"
+                <Grid ColumnDefinitions="*,Auto,Auto"
+                      ColumnSpacing="6"
                       IsVisible="{Binding DetailDrawer.HasTargetPath}">
                   <Button Grid.Column="0"
                           Classes="Flat"
@@ -948,10 +964,18 @@
                   </Button>
                   <Button Grid.Column="1"
                           Classes="Outlined"
-                          Padding="10,7"
+                          Padding="9,7"
+                          IsVisible="{Binding DetailDrawer.IsWorkKind}"
+                          Command="{Binding DetailDrawer.OpenExternalCommand}"
+                          ToolTip.Tip="以作業系統預設外部程式開啟此作品">
+                    <TextBlock Text="↗ 外部" FontSize="12" />
+                  </Button>
+                  <Button Grid.Column="2"
+                          Classes="Outlined"
+                          Padding="9,7"
                           Command="{Binding DetailDrawer.RevealInExplorerCommand}"
                           ToolTip.Tip="以 Windows 檔案總管直接開啟此目錄（或定位檔案位置）">
-                    <TextBlock Text="📂 用檔案總管開啟" FontSize="12" />
+                    <TextBlock Text="📂 檔案總管" FontSize="12" />
                   </Button>
                 </Grid>
 

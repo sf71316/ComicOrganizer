@@ -646,12 +646,14 @@ public sealed class ExploreComboCardVm : ExploreCardVmBase
 public sealed partial class ExploreWorkCardVm : ExploreCardVmBase
 {
     private readonly Action<ExploreWorkItem> _onRevealInExplorer;
+    private readonly Action<ExploreWorkItem>? _onOpenExternal;
 
     public ExploreWorkCardVm(
         ExploreWorkItem work,
         Action<ExploreWorkItem> onOpenWork,
         Action<ExploreWorkItem> onRevealInExplorer,
-        Func<Action, Task>? runOnUiAsync = null)
+        Func<Action, Task>? runOnUiAsync = null,
+        Action<ExploreWorkItem>? onOpenExternal = null)
         : base(
             new[] { work ?? throw new ArgumentNullException(nameof(work)) },
             work.Title,
@@ -661,6 +663,7 @@ public sealed partial class ExploreWorkCardVm : ExploreCardVmBase
     {
         SourceWork = work;
         _onRevealInExplorer = onRevealInExplorer ?? throw new ArgumentNullException(nameof(onRevealInExplorer));
+        _onOpenExternal = onOpenExternal;
 
         var filteredTags = work.Tags
             .Where(t => !string.Equals(t.Category, "artist", StringComparison.OrdinalIgnoreCase)
@@ -733,6 +736,9 @@ public sealed partial class ExploreWorkCardVm : ExploreCardVmBase
 
     [RelayCommand]
     private void RevealInExplorer() => _onRevealInExplorer(SourceWork);
+
+    [RelayCommand]
+    private void OpenExternal() => _onOpenExternal?.Invoke(SourceWork);
 }
 
 internal static class ExploreVisualFormatting

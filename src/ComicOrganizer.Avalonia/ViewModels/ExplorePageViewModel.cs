@@ -26,6 +26,7 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
     private readonly ExploreWallService _wallService;
     private readonly SkiaCoverService _coverService;
     private readonly IExternalLauncher _externalLauncher;
+    private readonly IReaderWindowLauncher _readerLauncher;
     private readonly ISukiToastManager? _toastManager;
     private readonly Func<Action, Task> _runOnUiAsync;
     private readonly TimeSpan _searchDebounceDelay;
@@ -70,7 +71,8 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
                 dataContext.Preferences.Language),
             coverService,
             dataContext.ToastManager,
-            autoLoad: true)
+            autoLoad: true,
+            readerLauncher: new AvaloniaReaderWindowLauncher(dataContext))
     {
     }
 
@@ -81,11 +83,13 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
         bool autoLoad = true,
         TimeSpan? searchDebounceDelay = null,
         Func<Action, Task>? runOnUiAsync = null,
-        IExternalLauncher? externalLauncher = null)
+        IExternalLauncher? externalLauncher = null,
+        IReaderWindowLauncher? readerLauncher = null)
     {
         _wallService = wallService ?? throw new ArgumentNullException(nameof(wallService));
         _coverService = coverService ?? throw new ArgumentNullException(nameof(coverService));
         _externalLauncher = externalLauncher ?? new SystemExternalLauncher();
+        _readerLauncher = readerLauncher ?? new FallbackExternalReaderLauncher(_externalLauncher);
         _toastManager = toastManager;
         _searchDebounceDelay = searchDebounceDelay ?? DefaultSearchDebounce;
         _pickerDebounceDelay = TimeSpan.FromMilliseconds(Math.Min(120, _searchDebounceDelay.TotalMilliseconds));
@@ -1767,7 +1771,7 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
         };
 
         var vms = ordered
-            .Select(w => new ExploreWorkCardVm(w, OpenWork, RevealWorkInExplorer, _runOnUiAsync))
+            .Select(w => new ExploreWorkCardVm(w, OpenWork, RevealWorkInExplorer, _runOnUiAsync, OpenWorkExternal))
             .ToList();
 
         _allFilteredDrillDownWorkVms = vms;
@@ -1814,6 +1818,19 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
     }
 
     private void OpenWork(ExploreWorkItem work)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (!_readerLauncher.OpenInReader(work.Path, work.Title, work.AuthorName, null, out var error))
+        {
+            ShowToast("開啟閱讀器失敗", error ?? "無法開啟指定檔案或資料夾。", NotificationType.Error, 4);
+        }
+    }
+
+    private void OpenWorkExternal(ExploreWorkItem work)
     {
         if (_disposed)
         {

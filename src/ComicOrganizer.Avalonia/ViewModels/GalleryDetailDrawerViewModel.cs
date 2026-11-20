@@ -94,6 +94,7 @@ public sealed partial class GalleryDetailDrawerViewModel : ViewModelBase
     private readonly Action<string> _onSearchDslRequested;
     private readonly Action<string> _onNavigateFolderRequested;
     private readonly Action<string> _onOpenPathRequested;
+    private readonly Action<string>? _onOpenExternalRequested;
     private readonly Action<string> _onRevealPathRequested;
     private readonly Action _onDataMutated;
     private readonly ISukiToastManager? _toastManager;
@@ -119,7 +120,8 @@ public sealed partial class GalleryDetailDrawerViewModel : ViewModelBase
         Action<string> onOpenPathRequested,
         Action<string> onRevealPathRequested,
         Action onDataMutated,
-        ISukiToastManager? toastManager = null)
+        ISukiToastManager? toastManager = null,
+        Action<string>? onOpenExternalRequested = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _isReadOnlyDatabase = isReadOnlyDatabase;
@@ -128,6 +130,7 @@ public sealed partial class GalleryDetailDrawerViewModel : ViewModelBase
         _onNavigateFolderRequested = onNavigateFolderRequested ?? throw new ArgumentNullException(nameof(onNavigateFolderRequested));
         _onOpenPathRequested = onOpenPathRequested ?? throw new ArgumentNullException(nameof(onOpenPathRequested));
         _onRevealPathRequested = onRevealPathRequested ?? throw new ArgumentNullException(nameof(onRevealPathRequested));
+        _onOpenExternalRequested = onOpenExternalRequested;
         _onDataMutated = onDataMutated ?? throw new ArgumentNullException(nameof(onDataMutated));
         _toastManager = toastManager;
     }
@@ -256,7 +259,7 @@ public sealed partial class GalleryDetailDrawerViewModel : ViewModelBase
     public string OpenTargetButtonText => IsWorkKind ? "📖 開啟閱讀" : "📁 進入此資料夾";
 
     public string OpenTargetTooltip => IsWorkKind
-        ? "以系統預設程式開啟閱讀此作品"
+        ? "以內建高畫質 Skia 閱讀器開啟此作品"
         : "只在左側／目前畫廊中進入瀏覽這個實體資料夾內的檔案";
 
     public bool HasPreviewCover => PreviewCover != null;
@@ -376,6 +379,15 @@ public sealed partial class GalleryDetailDrawerViewModel : ViewModelBase
         if (!string.IsNullOrWhiteSpace(TargetPath))
         {
             _onRevealPathRequested(TargetPath);
+        }
+    }
+
+    [RelayCommand]
+    private void OpenExternal()
+    {
+        if (!string.IsNullOrWhiteSpace(TargetPath))
+        {
+            (_onOpenExternalRequested ?? _onOpenPathRequested)(TargetPath);
         }
     }
 
