@@ -38,6 +38,17 @@ public partial class GalleryPageView : UserControl
         DetachViewModel();
     }
 
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+
+        // 保留頁面（KeepAlivePageHost）切回本頁時重新計算可見範圍；隱藏期間版面不會更新
+        if (change.Property == IsVisibleProperty && change.GetNewValue<bool>())
+        {
+            ScheduleViewportRangeUpdate();
+        }
+    }
+
     private void AttachViewModel()
     {
         if (DataContext is not GalleryPageViewModel vm)

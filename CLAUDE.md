@@ -89,6 +89,8 @@ dotnet publish src/ComicOrganizer.App/ComicOrganizer.App.csproj -c Release
 - **`Services/AppDataContext` = 組合根**：解析 DataDirectory → Config / Preferences 載入 → `Lazy` SqliteAssetMetaStore（可唯讀）→ `Lazy` FileSystemThumbStore → `VisualIndexHostService` → `Lazy` TagTranslator → `SkiaOcrPluginManager.RegisterNativeFallback(WindowsSkiaOcrService)` → SukiToastManager；也管 SukiUI 主題（深/淺 + 5 種強調色）。
 - **MVVM**：CommunityToolkit.Mvvm（`[ObservableProperty]` / `[RelayCommand]`）+ `ViewLocator`；`ViewModels/` ↔ `Views/*.axaml`。
 - **導覽**：`SukiSideMenu` 7 頁 —— 靈感探索牆（`ExplorePageViewModel`，啟動即載）、漫畫庫畫廊（`Gallery`）、閱讀軌跡（`ReadingTrack`）、圖搜漫（`VisualSearch`）、自動歸檔（`AutoArchive`）、資料管理/維護中心（`DataManagement`）、系統設定（`Settings`）。其餘頁面由 `StartDeferredInitialization()` 在視窗顯示後背景載入。
+  - **保留頁面**：`SukiSideMenu UseCustomContent="True"`，內容是 `Views/Controls/KeepAlivePageHost`；每頁 View 只在第一次進入時經 `ViewLocator` 建立，之後切頁只切換 `IsVisible`（淡出 / 淡入各 250ms，比照 SukiUI）。View 會一直掛在畫面樹上（VM 訂閱不會解除、捲動位置保留）；頁面若需要「重新顯示時」做事，覆寫 `OnPropertyChanged` 監看 `IsVisibleProperty`（見 Gallery / Explore）。
+  - 實測：Avalonia 11 上隱藏頁仍會拖慢其他頁繪製；12 版無此問題。把隱藏頁移出畫面樹再掛回會重新套用整頁樣式（比重建還慢），不要這樣做。
 - **自訂控制項**：`DslSearchBox`（區塊化 DSL 搜尋框）、`DeckCoverControl`（疊牌懸停輪播）、`SkiaComicViewport`。
 - **閱讀器**：`ReaderWindow` + `ReaderViewModel`，經 `IReaderWindowLauncher`（`AvaloniaReaderWindowLauncher`，fallback 外部 viewer）開啟。`SkiaComicViewport` 用 `ICustomDrawOperation` 直接畫 SKCanvas（單頁 / 雙頁跨頁 / 連續捲動）；`Services/ReaderPagePipeline` 負責頁快取、預載、超解析、OCR→翻譯。
 - **唯讀保護**：以 `--read-only` / `COMIC_ORGANIZER_READONLY=1` 啟用，各 VM 寫入動作會被攔截並 toast 提示（共用開發庫 `D:\ComicOrganizer` 常用此模式）。

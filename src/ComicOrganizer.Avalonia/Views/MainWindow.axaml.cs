@@ -14,10 +14,25 @@ public partial class MainWindow : SukiWindow
         DataContextChanged += OnMainDataContextChanged;
         Opened += OnWindowOpened;
         Closed += (_, _) => DetachViewModel();
+
+        // 保留頁面：選取項目改變時切換 PageHost 顯示的頁面（不再由 SukiSideMenu 重建 View）
+        MainSideMenu.SelectionChanged += (_, _) => SyncPageHost();
+    }
+
+    /// <summary>依目前選取的選單項目，讓 PageHost 顯示對應頁面。</summary>
+    private void SyncPageHost()
+    {
+        if (MainSideMenu.SelectedItem is SukiSideMenuItem item)
+        {
+            PageHost.ShowPage(item.PageContent);
+        }
     }
 
     private void OnWindowOpened(object? sender, EventArgs e)
     {
+        // 啟動時 SukiSideMenu 可能在 PageContent 繫結完成前就已選取第一項，這裡補同步一次
+        SyncPageHost();
+
         if (_boundViewModel is not null)
         {
             Dispatcher.UIThread.Post(_boundViewModel.StartDeferredInitialization, DispatcherPriority.Background);

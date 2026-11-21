@@ -2,6 +2,7 @@
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                  xmlns:suki="https://github.com/kikipoulet/SukiUI"
                  xmlns:vm="using:ComicOrganizer.Avalonia.ViewModels"
+                 xmlns:controls="using:ComicOrganizer.Avalonia.Views.Controls"
                  x:Class="ComicOrganizer.Avalonia.Views.MainWindow"
                  x:DataType="vm:MainWindowViewModel"
                  Title="ComicOrganizer"
@@ -159,7 +160,13 @@
                      SidebarToggleEnabled="True"
                      IsToggleButtonVisible="True"
                      IsSearchEnabled="False"
-                     HeaderMinHeight="68">
+                     HeaderMinHeight="68"
+                     UseCustomContent="True">
+
+    <!-- 保留頁面：各頁 View 只建立一次，切頁只切換顯示（含與 SukiUI 相同的淡出淡入動畫），由 MainWindow.axaml.cs 依選取項目切換 -->
+    <suki:SukiSideMenu.Content>
+      <controls:KeepAlivePageHost x:Name="PageHost" />
+    </suki:SukiSideMenu.Content>
 
     <suki:SukiSideMenu.HeaderContent>
       <StackPanel Margin="14,12,14,8" Spacing="2">
