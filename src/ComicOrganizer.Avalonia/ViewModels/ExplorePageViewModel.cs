@@ -906,7 +906,11 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
                 ScrollResetRequested?.Invoke();
             }
 
-            comboVm = new ExploreComboCardVm(combo, _card => { _ = BrowseActiveRandomComboAsync(); }, _runOnUiAsync);
+            comboVm = new ExploreComboCardVm(
+                combo,
+                _card => { _ = BrowseActiveRandomComboAsync(); },
+                _runOnUiAsync,
+                isRandomComboPreview: true);
             ActiveRandomCombo = comboVm;
             ShowComboPlaceholder?.Invoke(combo);
         }).ConfigureAwait(false);

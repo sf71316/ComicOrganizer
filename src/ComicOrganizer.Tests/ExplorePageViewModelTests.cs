@@ -330,6 +330,71 @@ public class ExplorePageViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task AuthorCard_DecodesPrimaryCoverAtFullSizeAndSecondaryCoversAtDeckSize()
+    {
+        EnsureAvaloniaSkiaBackend();
+
+        // 直式封面：400x600 → 縮圖 330x495
+        var srcPng = Path.Combine(_tempDir, "cover_decode_size.png");
+        WriteSolidPng(srcPng, 400, 600, new SKColor(150, 90, 200));
+        var jpegBytes = await _coverService.ExtractCoverJpegBytesAsync(srcPng);
+        Assert.NotNull(jpegBytes);
+
+        const string k1 = "4444444444444444444444444444444444444444";
+        const string k2 = "5555555555555555555555555555555555555555";
+        const string k3 = "6666666666666666666666666666666666666666";
+        _thumbStore.Write(k1, jpegBytes!);
+        _thumbStore.Write(k2, jpegBytes!);
+        _thumbStore.Write(k3, jpegBytes!);
+
+        var authorId = _store.UpsertAuthor("DecodeSizeAuthor");
+        SeedWork("ds1.zip", "Decode Work 1", authorId, k1, ReadStatus.Unread);
+        SeedWork("ds2.zip", "Decode Work 2", authorId, k2, ReadStatus.Unread);
+        SeedWork("ds3.zip", "Decode Work 3", authorId, k3, ReadStatus.Unread);
+
+        using var vm = CreateVm(autoLoad: false);
+        var modelCard = Assert.Single(new ExploreWallService(_store).GetAuthorCards());
+        var cardVm = new ExploreAuthorCardVm(modelCard, _ => { });
+
+        // 第 1 張原尺寸（單張精選模式需要），第 2、3 張疊牌大小
+        Assert.Null(cardVm.CoverSlots[0].DecodeDipSize);
+        Assert.Equal(CoverDipSize.DeckCover, cardVm.CoverSlots[1].DecodeDipSize);
+        Assert.Equal(CoverDipSize.DeckCover, cardVm.CoverSlots[2].DecodeDipSize);
+
+        // 150% 縮放：疊牌框 188x263 px → 直式封面縮到 188 寬
+        _coverService.ReportDisplayScale(1.5);
+        await cardVm.EnsureCoversLoadedAsync(_coverService);
+
+        Assert.Equal(330, cardVm.Cover1!.PixelSize.Width);
+        Assert.Equal(188, cardVm.Cover2!.PixelSize.Width);
+        Assert.Equal(188, cardVm.Cover3!.PixelSize.Width);
+    }
+
+    [Fact]
+    public void ComboCard_RandomComboPreviewUsesSmallSizeForAllSlots()
+    {
+        var works = Enumerable.Range(1, 3)
+            .Select(i => new ExploreWorkItem(
+                i, $@"C:\fake\combo{i}.zip", $"combo{i}.zip", $"Combo {i}", null, string.Empty, null, null, null,
+                ReadStatus.Unread, 0, null, 0, null, null, Array.Empty<ExploreTagBadge>()))
+            .ToList();
+        var card = new ExploreComboCard(
+            new ExploreTagBadge(1, "a", "A", "tag", 3, false),
+            new ExploreTagBadge(2, "b", "B", "tag", 3, false),
+            3,
+            3,
+            works);
+
+        var preview = new ExploreComboCardVm(card, _ => { }, isRandomComboPreview: true);
+        Assert.All(preview.CoverSlots, slot => Assert.Equal(CoverDipSize.RandomComboPreview, slot.DecodeDipSize));
+
+        var deckCard = new ExploreComboCardVm(card, _ => { });
+        Assert.Null(deckCard.CoverSlots[0].DecodeDipSize);
+        Assert.Equal(CoverDipSize.DeckCover, deckCard.CoverSlots[1].DecodeDipSize);
+        Assert.Equal(CoverDipSize.DeckCover, deckCard.CoverSlots[2].DecodeDipSize);
+    }
+
+    [Fact]
     public async Task EnsureCoversLoadedAsync_TwoArgOverload_WithAutoLoadFalse_KeepsLimiterAliveUntilAllCoversLoad()
     {
         EnsureAvaloniaSkiaBackend();

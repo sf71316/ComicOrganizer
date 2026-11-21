@@ -15,6 +15,9 @@ public partial class MainWindow : SukiWindow
         Opened += OnWindowOpened;
         Closed += (_, _) => DetachViewModel();
 
+        // 封面依顯示大小解碼需要知道螢幕縮放比例；視窗移到不同縮放的螢幕時再回報一次
+        ScalingChanged += (_, _) => ReportDisplayScale();
+
         // 保留頁面：選取項目改變時切換 PageHost 顯示的頁面（不再由 SukiSideMenu 重建 View）
         MainSideMenu.SelectionChanged += (_, _) => SyncPageHost();
     }
@@ -33,6 +36,9 @@ public partial class MainWindow : SukiWindow
         // 啟動時 SukiSideMenu 可能在 PageContent 繫結完成前就已選取第一項，這裡補同步一次
         SyncPageHost();
 
+        // 視窗實際放到螢幕上後再回報一次縮放比例（多螢幕時可能與建立時不同）
+        ReportDisplayScale();
+
         if (_boundViewModel is not null)
         {
             Dispatcher.UIThread.Post(_boundViewModel.StartDeferredInitialization, DispatcherPriority.Background);
@@ -46,7 +52,15 @@ public partial class MainWindow : SukiWindow
         {
             _boundViewModel = vm;
             vm.NavigateToPageRequested += OnNavigateToPageRequested;
+
+            // 盡早回報，讓頁面第一次載入封面時就用正確的縮放比例
+            ReportDisplayScale();
         }
+    }
+
+    private void ReportDisplayScale()
+    {
+        _boundViewModel?.ReportDisplayScale(RenderScaling);
     }
 
     private void DetachViewModel()

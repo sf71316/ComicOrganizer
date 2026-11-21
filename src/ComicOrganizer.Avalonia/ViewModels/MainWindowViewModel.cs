@@ -54,6 +54,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
     private bool _deferredInitStarted;
     private bool _disposed;
 
+    /// <summary>主視窗回報螢幕縮放比例，供封面依顯示大小解碼（只升不降，見 <see cref="SkiaCoverService.ReportDisplayScale"/>）。</summary>
+    public void ReportDisplayScale(double scale) => _coverService.ReportDisplayScale(scale);
+
     public MainWindowViewModel(AppDataContext dataContext)
     {
         _dataContext = dataContext;

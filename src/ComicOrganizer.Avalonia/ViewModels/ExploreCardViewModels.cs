@@ -173,9 +173,13 @@ public sealed partial class CoverSlotVm : ObservableObject
     private Task? _inflightTask;
     private bool _completed;
 
-    public CoverSlotVm(ExploreWorkItem work, string accentHex)
+    /// <param name="decodeDipSize">
+    /// 封面顯示框大小（DIP），用於依顯示大小縮小解碼以節省記憶體；<c>null</c> 表示原尺寸解碼。
+    /// </param>
+    public CoverSlotVm(ExploreWorkItem work, string accentHex, CoverDipSize? decodeDipSize = null)
     {
         ArgumentNullException.ThrowIfNull(work);
+        DecodeDipSize = decodeDipSize;
         AssetId = work.AssetId;
         SourcePath = work.Path;
         ThumbKey = work.CoverThumbKey;
@@ -195,6 +199,9 @@ public sealed partial class CoverSlotVm : ObservableObject
     public string FallbackGlyph { get; }
 
     public string AccentHex { get; }
+
+    /// <summary>封面顯示框大小（DIP）；<c>null</c> 表示原尺寸解碼。</summary>
+    public CoverDipSize? DecodeDipSize { get; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasImage))]
@@ -257,8 +264,11 @@ public sealed partial class CoverSlotVm : ObservableObject
                 return;
             }
 
+            var decodeSize = DecodeDipSize is { } dip
+                ? coverService.ToDecodeSize(dip.Width, dip.Height)
+                : CoverDecodeSize.Original;
             var bitmap = await coverService
-                .LoadOrExtractCoverAsync(SourcePath, ThumbKey, ct)
+                .LoadOrExtractCoverAsync(SourcePath, ThumbKey, ct, decodeSize)
                 .ConfigureAwait(false);
 
             if (ct.IsCancellationRequested)
@@ -312,7 +322,9 @@ public abstract partial class ExploreCardVmBase : ViewModelBase
         string fallbackText,
         string accentColorHex,
         Action<ExploreCardVmBase> onSelectCard,
-        Func<Action, Task>? runOnUiAsync = null)
+        Func<Action, Task>? runOnUiAsync = null,
+        CoverDipSize? primaryCoverDecodeDipSize = null,
+        CoverDipSize? secondaryCoverDecodeDipSize = null)
     {
         _onSelectCard = onSelectCard ?? throw new ArgumentNullException(nameof(onSelectCard));
         _runOnUiAsync = runOnUiAsync ?? DefaultRunOnUiAsync;
@@ -322,7 +334,11 @@ public abstract partial class ExploreCardVmBase : ViewModelBase
         var slots = new List<CoverSlotVm>(Math.Min(3, representativeWorks.Count));
         for (int i = 0; i < representativeWorks.Count && i < 3; i++)
         {
-            var slot = new CoverSlotVm(representativeWorks[i], accentColorHex);
+            // 第 1 張與第 2、3 張可用不同解碼大小（見 CoverDipSize：單張精選模式只顯示第 1 張且尺寸較大）
+            var slot = new CoverSlotVm(
+                representativeWorks[i],
+                accentColorHex,
+                i == 0 ? primaryCoverDecodeDipSize : secondaryCoverDecodeDipSize);
             int slotIndex = i;
             slot.PropertyChanged += (_, args) =>
             {
@@ -483,7 +499,9 @@ public sealed class ExploreAuthorCardVm : ExploreCardVmBase
             card.MainName,
             ExploreVisualFormatting.PickAccentHex(card.MainName),
             onSelectCard,
-            runOnUiAsync)
+            runOnUiAsync,
+            primaryCoverDecodeDipSize: null,
+            secondaryCoverDecodeDipSize: CoverDipSize.DeckCover)
     {
         SourceCard = card;
         AuthorId = card.AuthorId;
@@ -558,7 +576,9 @@ public sealed class ExploreThemeCardVm : ExploreCardVmBase
             card.DisplayName,
             ExploreVisualFormatting.PickAccentHex(card.Name),
             onSelectCard,
-            runOnUiAsync)
+            runOnUiAsync,
+            primaryCoverDecodeDipSize: null,
+            secondaryCoverDecodeDipSize: CoverDipSize.DeckCover)
     {
         SourceCard = card;
         TagId = card.TagId;
@@ -599,16 +619,23 @@ public sealed class ExploreThemeCardVm : ExploreCardVmBase
 
 public sealed class ExploreComboCardVm : ExploreCardVmBase
 {
+    /// <param name="isRandomComboPreview">
+    /// true = 探索牆頂部「隨機雙題材碰撞」預覽（3 張都是 62x88 小圖，沒有單張精選模式）；
+    /// false = 組合卡片（第 1 張原尺寸、第 2、3 張疊牌大小）。
+    /// </param>
     public ExploreComboCardVm(
         ExploreComboCard card,
         Action<ExploreCardVmBase> onSelectCard,
-        Func<Action, Task>? runOnUiAsync = null)
+        Func<Action, Task>? runOnUiAsync = null,
+        bool isRandomComboPreview = false)
         : base(
             card.RepresentativeWorks,
             card.FirstTag.DisplayName,
             ExploreVisualFormatting.PickAccentHex($"{card.FirstTag.Name}:{card.SecondTag.Name}"),
             onSelectCard,
-            runOnUiAsync)
+            runOnUiAsync,
+            primaryCoverDecodeDipSize: isRandomComboPreview ? CoverDipSize.RandomComboPreview : null,
+            secondaryCoverDecodeDipSize: isRandomComboPreview ? CoverDipSize.RandomComboPreview : CoverDipSize.DeckCover)
     {
         SourceCard = card;
         FirstTag = card.FirstTag;
@@ -739,6 +766,22 @@ public sealed partial class ExploreWorkCardVm : ExploreCardVmBase
 
     [RelayCommand]
     private void OpenExternal() => _onOpenExternal?.Invoke(SourceWork);
+}
+
+/// <summary>
+/// 封面顯示框大小（DIP），用於依顯示大小縮小解碼。數值需與 XAML 版面一致，改版面時一併調整。
+/// 疊牌卡片的第 1 張刻意維持原尺寸：探索牆可隨時切到「單張精選」，該模式只顯示第 1 張並填滿整張卡片（約 212x186 DIP，
+/// 懸停再放大 1.035 倍），高 DPI 下需要完整縮圖解析度；第 2、3 張只在疊牌模式出現，才用 <see cref="DeckCover"/>。
+/// </summary>
+public readonly record struct CoverDipSize(double Width, double Height)
+{
+    /// <summary>
+    /// 疊牌單張封面：DeckCoverControl 的 deck-slot 為 120x168，懸停時最前張放大 1.04 倍（role-front hovered）。
+    /// </summary>
+    public static CoverDipSize DeckCover { get; } = new(120 * 1.04, 168 * 1.04);
+
+    /// <summary>探索牆頂部「隨機雙題材碰撞」預覽小圖（ExplorePageView 的 62x88 Border）。</summary>
+    public static CoverDipSize RandomComboPreview { get; } = new(62, 88);
 }
 
 internal static class ExploreVisualFormatting

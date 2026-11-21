@@ -337,6 +337,196 @@ public class SkiaCoverServiceTests : IDisposable
         Assert.Null(await service.LoadOrExtractCoverAsync(corruptPng, corruptThumbKey));
     }
 
+    [Fact]
+    public async Task GetCachedThumbAsync_WithDecodeWidth_DownscalesProportionallyAndCachesPerWidth()
+    {
+        EnsureAvaloniaSkiaBackend();
+
+        var srcImg = Path.Combine(_tempDir, "decode_width_src.png");
+        WriteSolidPng(srcImg, 400, 300, new SKColor(200, 120, 40));
+
+        using var service = new SkiaCoverService(_thumbStore, maxMemoryCacheItems: 16);
+        var jpeg = await service.ExtractCoverJpegBytesAsync(srcImg);
+        Assert.NotNull(jpeg);
+
+        const string key = "55eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+        _thumbStore.Write(key, jpeg!);
+
+        // 縮小解碼：330x248 → 188 寬，高度等比（約 141）
+        var small = await service.GetCachedThumbAsync(key, decodeSize: new CoverDecodeSize(188, 0));
+        Assert.NotNull(small);
+        Assert.Equal(188, small!.PixelSize.Width);
+        Assert.InRange(small.PixelSize.Height, 140, 142);
+
+        // 同寬度命中同一個快取實例
+        var smallAgain = await service.GetCachedThumbAsync(key, decodeSize: new CoverDecodeSize(188, 0));
+        Assert.Same(small, smallAgain);
+
+        // 原尺寸與縮小尺寸在快取中各自獨立
+        var original = await service.GetCachedThumbAsync(key);
+        Assert.NotNull(original);
+        Assert.Equal(330, original!.PixelSize.Width);
+        Assert.NotSame(small, original);
+        Assert.Equal(2, service.MemoryCacheCount);
+
+        // 縮小後顏色仍正確（高品質縮放不應產生明顯色偏）
+        var center = ReadCenterPixel(small);
+        Assert.InRange(center.Red, 185, 215);
+        Assert.InRange(center.Green, 105, 135);
+        Assert.InRange(center.Blue, 25, 55);
+    }
+
+    [Fact]
+    public async Task GetCachedThumbAsync_DecodeWidthNotSmallerThanOriginal_DoesNotUpscaleAndSharesOriginalCacheEntry()
+    {
+        EnsureAvaloniaSkiaBackend();
+
+        var srcImg = Path.Combine(_tempDir, "decode_width_noupscale.png");
+        WriteSolidPng(srcImg, 400, 300, new SKColor(60, 90, 200));
+
+        using var service = new SkiaCoverService(_thumbStore, maxMemoryCacheItems: 16);
+        var jpeg = await service.ExtractCoverJpegBytesAsync(srcImg);
+        Assert.NotNull(jpeg);
+
+        const string key = "66ffffffffffffffffffffffffffffffffffffff";
+        _thumbStore.Write(key, jpeg!);
+
+        var original = await service.GetCachedThumbAsync(key);
+        Assert.NotNull(original);
+
+        // 要求寬度 >= 原圖（330）時不放大，且直接共用原尺寸快取，不另存一份
+        var wide = await service.GetCachedThumbAsync(key, decodeSize: new CoverDecodeSize(500, 0));
+        var exact = await service.GetCachedThumbAsync(key, decodeSize: new CoverDecodeSize(330, 0));
+        Assert.Same(original, wide);
+        Assert.Same(original, exact);
+        Assert.Equal(330, wide!.PixelSize.Width);
+        Assert.Equal(1, service.MemoryCacheCount);
+    }
+
+    [Fact]
+    public async Task LoadOrExtractCoverAsync_WithDecodeWidth_ExtractsAndDownscalesWithoutWritingBack()
+    {
+        EnsureAvaloniaSkiaBackend();
+
+        var srcImg = Path.Combine(_tempDir, "decode_width_extract.png");
+        WriteSolidPng(srcImg, 660, 936, new SKColor(30, 160, 90));
+
+        using var service = new SkiaCoverService(_thumbStore, maxMemoryCacheItems: 16);
+        const string missKey = "77abababababababababababababababababababab";
+
+        var bmp = await service.LoadOrExtractCoverAsync(srcImg, missKey, decodeSize: new CoverDecodeSize(120, 0));
+        Assert.NotNull(bmp);
+        Assert.Equal(120, bmp!.PixelSize.Width);
+        Assert.InRange(bmp.PixelSize.Height, 169, 171);
+        Assert.Null(_thumbStore.OpenRead(missKey));
+
+        // 第二次同寬度命中快取
+        var again = await service.LoadOrExtractCoverAsync(srcImg, missKey, decodeSize: new CoverDecodeSize(120, 0));
+        Assert.Same(bmp, again);
+    }
+
+    [Fact]
+    public void ReportDisplayScale_OnlyIncreases_AndToDecodeSizeRoundsUp()
+    {
+        using var service = new SkiaCoverService(_thumbStore);
+
+        // 預設 1.0
+        Assert.Equal(1.0, service.DisplayScale);
+        Assert.Equal(new CoverDecodeSize(125, 175), service.ToDecodeSize(124.8, 174.72));
+
+        // 150%：疊牌 120x168 DIP × 1.04（懸停放大）= 124.8x174.72 → 187.2x262.08 → 進位 188x263
+        service.ReportDisplayScale(1.5);
+        Assert.Equal(1.5, service.DisplayScale);
+        Assert.Equal(new CoverDecodeSize(188, 263), service.ToDecodeSize(120 * 1.04, 168 * 1.04));
+
+        // 移到較低縮放的螢幕：維持 1.5（只升不降）
+        service.ReportDisplayScale(1.0);
+        Assert.Equal(1.5, service.DisplayScale);
+
+        // 無效值忽略
+        service.ReportDisplayScale(0);
+        service.ReportDisplayScale(-2);
+        service.ReportDisplayScale(double.NaN);
+        service.ReportDisplayScale(double.PositiveInfinity);
+        Assert.Equal(1.5, service.DisplayScale);
+
+        // 移到更高縮放的螢幕：升到 2.0
+        service.ReportDisplayScale(2.0);
+        Assert.Equal(2.0, service.DisplayScale);
+        Assert.Equal(new CoverDecodeSize(124, 176), service.ToDecodeSize(62, 88));
+
+        // 非正數 / 無效值 → 該方向不限制；兩方向皆無效 → 原尺寸
+        Assert.Equal(new CoverDecodeSize(124, 0), service.ToDecodeSize(62, 0));
+        Assert.Equal(CoverDecodeSize.Original, service.ToDecodeSize(-10, double.NaN));
+        Assert.False(service.ToDecodeSize(0, 0).IsSpecified);
+    }
+
+    [Fact]
+    public async Task GetCachedThumbAsync_FillBox_KeepsEnoughWidthForWideCoversAndDownscalesPortraitCovers()
+    {
+        EnsureAvaloniaSkiaBackend();
+
+        using var service = new SkiaCoverService(_thumbStore, maxMemoryCacheItems: 16);
+
+        // 直式封面（縮圖 330x468）放進 188x263 的框：填滿所需寬度 = max(188, 263×330/468≈186) = 188 → 縮小
+        var portraitSrc = Path.Combine(_tempDir, "fill_portrait.png");
+        WriteSolidPng(portraitSrc, 660, 936, new SKColor(120, 60, 160));
+        var portraitJpeg = await service.ExtractCoverJpegBytesAsync(portraitSrc);
+        const string portraitKey = "88cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd";
+        _thumbStore.Write(portraitKey, portraitJpeg!);
+
+        var portrait = await service.GetCachedThumbAsync(portraitKey, decodeSize: new CoverDecodeSize(188, 263));
+        Assert.NotNull(portrait);
+        Assert.Equal(188, portrait!.PixelSize.Width);
+        Assert.True(portrait.PixelSize.Height >= 263 - 1, $"高度 {portrait.PixelSize.Height} 不足以填滿框高");
+
+        // 寬扁封面（如跨頁，縮圖 330x165）放進同一個框：填滿框高需要寬度 263×2 = 526 > 330 → 不縮小，避免被放大而模糊
+        var wideSrc = Path.Combine(_tempDir, "fill_wide.png");
+        WriteSolidPng(wideSrc, 800, 400, new SKColor(40, 140, 140));
+        var wideJpeg = await service.ExtractCoverJpegBytesAsync(wideSrc);
+        const string wideKey = "99efefefefefefefefefefefefefefefefefefef";
+        _thumbStore.Write(wideKey, wideJpeg!);
+
+        var wideOriginal = await service.GetCachedThumbAsync(wideKey);
+        var wide = await service.GetCachedThumbAsync(wideKey, decodeSize: new CoverDecodeSize(188, 263));
+        Assert.Same(wideOriginal, wide);
+        Assert.Equal(330, wide!.PixelSize.Width);
+
+        // 稍微寬一點的封面（縮圖 330x330）：填滿框高需要寬度 263 → 縮到 263 而不是 188
+        var squareSrc = Path.Combine(_tempDir, "fill_square.png");
+        WriteSolidPng(squareSrc, 500, 500, new SKColor(200, 200, 60));
+        var squareJpeg = await service.ExtractCoverJpegBytesAsync(squareSrc);
+        const string squareKey = "aa12121212121212121212121212121212121212";
+        _thumbStore.Write(squareKey, squareJpeg!);
+
+        var square = await service.GetCachedThumbAsync(squareKey, decodeSize: new CoverDecodeSize(188, 263));
+        Assert.NotNull(square);
+        Assert.Equal(263, square!.PixelSize.Width);
+        Assert.Equal(263, square.PixelSize.Height);
+    }
+
+    private static (byte Red, byte Green, byte Blue) ReadCenterPixel(global::Avalonia.Media.Imaging.Bitmap bitmap)
+    {
+        int width = bitmap.PixelSize.Width;
+        int height = bitmap.PixelSize.Height;
+        var pixels = new byte[width * height * 4];
+        var handle = System.Runtime.InteropServices.GCHandle.Alloc(pixels, System.Runtime.InteropServices.GCHandleType.Pinned);
+        try
+        {
+            bitmap.CopyPixels(new global::Avalonia.PixelRect(0, 0, width, height), handle.AddrOfPinnedObject(), pixels.Length, width * 4);
+        }
+        finally
+        {
+            handle.Free();
+        }
+
+        int offset = ((height / 2) * width + (width / 2)) * 4;
+        bool isBgra = bitmap.Format is { } format && format == global::Avalonia.Platform.PixelFormat.Bgra8888;
+        return isBgra
+            ? (pixels[offset + 2], pixels[offset + 1], pixels[offset])
+            : (pixels[offset], pixels[offset + 1], pixels[offset + 2]);
+    }
+
     private static void EnsureAvaloniaSkiaBackend()
     {
         if (_avaloniaSkiaInitialized)

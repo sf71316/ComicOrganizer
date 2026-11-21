@@ -44,6 +44,57 @@ public sealed class SkiaCoverService : IDisposable
         _maxMemoryCacheItems = maxMemoryCacheItems;
     }
 
+    private double _displayScale = 1.0;
+
+    /// <summary>
+    /// 封面解碼用的螢幕縮放比例（DIP → 實際像素），由主視窗經 <see cref="ReportDisplayScale"/> 回報。
+    /// </summary>
+    public double DisplayScale => Volatile.Read(ref _displayScale);
+
+    /// <summary>
+    /// 回報視窗目前的螢幕縮放比例。只升不降：視窗移到較低縮放的螢幕時維持較高值，
+    /// 避免移回高縮放螢幕時已載入的封面變模糊。非正數 / NaN / 無限大忽略。
+    /// </summary>
+    public void ReportDisplayScale(double scale)
+    {
+        if (!double.IsFinite(scale) || scale <= 0)
+        {
+            return;
+        }
+
+        double current = Volatile.Read(ref _displayScale);
+        while (scale > current)
+        {
+            double observed = Interlocked.CompareExchange(ref _displayScale, scale, current);
+            if (observed == current)
+            {
+                return;
+            }
+
+            current = observed;
+        }
+    }
+
+    /// <summary>
+    /// 將顯示框大小（DIP）換算為解碼尺寸（實際像素，無條件進位），供 <see cref="GetCachedThumbAsync"/> 等的 decodeSize 使用。
+    /// 寬或高 &lt;= 0 視為不限制該方向；兩者皆無效時回傳 <see cref="CoverDecodeSize.Original"/>。
+    /// </summary>
+    public CoverDecodeSize ToDecodeSize(double dipWidth, double dipHeight)
+    {
+        double scale = DisplayScale;
+        return new CoverDecodeSize(ToDevicePixels(dipWidth, scale), ToDevicePixels(dipHeight, scale));
+    }
+
+    private static int ToDevicePixels(double dip, double scale)
+    {
+        if (!double.IsFinite(dip) || dip <= 0)
+        {
+            return 0;
+        }
+
+        return (int)Math.Ceiling(dip * scale);
+    }
+
     /// <summary>目前記憶體 LRU 快取中的項目數量。</summary>
     public int MemoryCacheCount
     {
@@ -76,7 +127,11 @@ public sealed class SkiaCoverService : IDisposable
     /// 命中執行緒安全 LRU 記憶體快取時直接回傳既有實例避免重複 IO 與解碼。
     /// 若檔案不存在或損壞，安全回傳 <c>null</c>。
     /// </summary>
-    public Task<Bitmap?> GetCachedThumbAsync(string? thumbKey, CancellationToken ct = default)
+    /// <param name="decodeSize">
+    /// 顯示框大小（實際像素）；預設為原尺寸。依 UniformToFill 計算「填滿框所需的最小尺寸」縮小解碼，只縮小不放大；
+    /// 不同框大小在記憶體快取中各自獨立。
+    /// </param>
+    public Task<Bitmap?> GetCachedThumbAsync(string? thumbKey, CancellationToken ct = default, CoverDecodeSize decodeSize = default)
     {
         if (_disposed || ct.IsCancellationRequested || !IsValidThumbKey(thumbKey))
         {
@@ -84,7 +139,7 @@ public sealed class SkiaCoverService : IDisposable
         }
 
         string key = thumbKey!;
-        string cacheKey = BuildThumbCacheKey(key);
+        string cacheKey = BuildThumbCacheKey(key, decodeSize);
 
         if (TryGetFromMemoryCache(cacheKey, out var cached))
         {
@@ -109,13 +164,23 @@ public sealed class SkiaCoverService : IDisposable
                 return null;
             }
 
-            var decoded = DecodeAvaloniaBitmap(bytes);
+            // 原圖不比目標寬時不縮小，改用原尺寸 key，避免同一張圖在快取中存兩份相同像素
+            int effectiveWidth = GetEffectiveDecodeWidth(bytes, decodeSize);
+            string effectiveCacheKey = effectiveWidth > 0 || !decodeSize.IsSpecified
+                ? cacheKey
+                : BuildThumbCacheKey(key, CoverDecodeSize.Original);
+            if (!ReferenceEquals(effectiveCacheKey, cacheKey) && TryGetFromMemoryCache(effectiveCacheKey, out var cachedOriginal))
+            {
+                return cachedOriginal;
+            }
+
+            var decoded = DecodeAvaloniaBitmap(bytes, effectiveWidth);
             if (decoded == null)
             {
                 return null;
             }
 
-            return AddOrGetFromMemoryCache(cacheKey, decoded);
+            return AddOrGetFromMemoryCache(effectiveCacheKey, decoded);
         });
     }
 
@@ -144,10 +209,12 @@ public sealed class SkiaCoverService : IDisposable
     /// 優先從 <see cref="IThumbStore"/> 與記憶體快取載入封面；若未命中且來源存在，
     /// 則現場提取封面並解碼為 <see cref="Bitmap"/>（預設不主動寫回 <see cref="IThumbStore"/>）。
     /// </summary>
+    /// <param name="decodeSize">顯示框大小（實際像素），見 <see cref="GetCachedThumbAsync"/>；預設為原尺寸。</param>
     public async Task<Bitmap?> LoadOrExtractCoverAsync(
         string sourcePath,
         string? thumbKey,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        CoverDecodeSize decodeSize = default)
     {
         if (_disposed || ct.IsCancellationRequested)
         {
@@ -156,7 +223,7 @@ public sealed class SkiaCoverService : IDisposable
 
         if (IsValidThumbKey(thumbKey))
         {
-            var fromThumb = await GetCachedThumbAsync(thumbKey, ct).ConfigureAwait(false);
+            var fromThumb = await GetCachedThumbAsync(thumbKey, ct, decodeSize).ConfigureAwait(false);
             if (fromThumb != null)
             {
                 return fromThumb;
@@ -169,8 +236,8 @@ public sealed class SkiaCoverService : IDisposable
         }
 
         string fallbackCacheKey = IsValidThumbKey(thumbKey)
-            ? BuildThumbCacheKey(thumbKey!)
-            : BuildSourceCacheKey(sourcePath);
+            ? BuildThumbCacheKey(thumbKey!, decodeSize)
+            : BuildSourceCacheKey(sourcePath, decodeSize);
 
         if (TryGetFromMemoryCache(fallbackCacheKey, out var cachedSource))
         {
@@ -195,13 +262,19 @@ public sealed class SkiaCoverService : IDisposable
                 return null;
             }
 
-            var decoded = DecodeAvaloniaBitmap(jpegBytes);
+            int effectiveWidth = GetEffectiveDecodeWidth(jpegBytes, decodeSize);
+            var effectiveSize = effectiveWidth > 0 ? decodeSize : CoverDecodeSize.Original;
+            string effectiveCacheKey = IsValidThumbKey(thumbKey)
+                ? BuildThumbCacheKey(thumbKey!, effectiveSize)
+                : BuildSourceCacheKey(sourcePath, effectiveSize);
+
+            var decoded = DecodeAvaloniaBitmap(jpegBytes, effectiveWidth);
             if (decoded == null)
             {
                 return null;
             }
 
-            return AddOrGetFromMemoryCache(fallbackCacheKey, decoded);
+            return AddOrGetFromMemoryCache(effectiveCacheKey, decoded);
         }).ConfigureAwait(false);
     }
 
@@ -737,17 +810,62 @@ public sealed class SkiaCoverService : IDisposable
         return encoded?.ToArray();
     }
 
-    private static Bitmap? DecodeAvaloniaBitmap(byte[] imageBytes)
+    /// <summary>
+    /// 實際要縮小解碼的寬度（0 = 原尺寸）。封面以 UniformToFill 顯示，需同時填滿框寬與框高：
+    /// 所需寬度 = max(框寬, 框高 × 原圖寬高比)；寬扁封面（如跨頁）因此會保留較大寬度，避免被放大而模糊。
+    /// 所需寬度不小於原圖寬度時回傳 0（不放大）。
+    /// </summary>
+    internal static int GetEffectiveDecodeWidth(byte[] imageBytes, CoverDecodeSize decodeSize)
+    {
+        if (!decodeSize.IsSpecified)
+        {
+            return 0;
+        }
+
+        var (originalWidth, originalHeight) = ReadImageSize(imageBytes);
+        if (originalWidth <= 0 || originalHeight <= 0)
+        {
+            return 0;
+        }
+
+        int required = Math.Max(decodeSize.Width, 0);
+        if (decodeSize.Height > 0)
+        {
+            int forHeight = (int)Math.Ceiling(decodeSize.Height * (double)originalWidth / originalHeight);
+            required = Math.Max(required, forHeight);
+        }
+
+        return required > 0 && required < originalWidth ? required : 0;
+    }
+
+    /// <summary>
+    /// 解碼為 Avalonia <see cref="Bitmap"/>；<paramref name="decodePixelWidth"/> &gt; 0 時以高品質縮小解碼到該寬度
+    /// （例：探索牆疊牌 330 → 約 188 px，記憶體約省 68%）。呼叫端需先經 <see cref="GetEffectiveDecodeWidth"/> 計算並確保不放大。
+    /// </summary>
+    private static Bitmap? DecodeAvaloniaBitmap(byte[] imageBytes, int decodePixelWidth = 0)
     {
         try
         {
             using var ms = new MemoryStream(imageBytes, writable: false);
+            if (decodePixelWidth > 0)
+            {
+                return Bitmap.DecodeToWidth(ms, decodePixelWidth, BitmapInterpolationMode.HighQuality);
+            }
+
             return new Bitmap(ms);
         }
         catch
         {
             return null;
         }
+    }
+
+    /// <summary>只讀圖檔標頭取得尺寸（不解碼像素）；無法辨識時回傳 (0, 0)。</summary>
+    private static (int Width, int Height) ReadImageSize(byte[] imageBytes)
+    {
+        using var data = SKData.CreateCopy(imageBytes);
+        using var codec = SKCodec.Create(data);
+        return codec is null ? (0, 0) : (codec.Info.Width, codec.Info.Height);
     }
 
     private bool TryGetFromMemoryCache(string cacheKey, out Bitmap? bitmap)
@@ -846,9 +964,15 @@ public sealed class SkiaCoverService : IDisposable
     private static bool IsValidThumbKey(string? thumbKey)
         => !string.IsNullOrWhiteSpace(thumbKey) && thumbKey.Length >= 2;
 
-    private static string BuildThumbCacheKey(string thumbKey) => "thumb:" + thumbKey;
+    private static string BuildThumbCacheKey(string thumbKey, CoverDecodeSize decodeSize = default)
+        => "thumb:" + thumbKey + BuildSizeSuffix(decodeSize);
 
-    private static string BuildSourceCacheKey(string sourcePath) => "src:" + sourcePath;
+    private static string BuildSourceCacheKey(string sourcePath, CoverDecodeSize decodeSize = default)
+        => "src:" + sourcePath + BuildSizeSuffix(decodeSize);
+
+    /// <summary>原尺寸不加後綴，維持與既有快取 key 相同；指定框大小時以 <c>@寬x高</c> 區分。</summary>
+    private static string BuildSizeSuffix(CoverDecodeSize decodeSize)
+        => decodeSize.IsSpecified ? "@" + decodeSize.Width + "x" + decodeSize.Height : string.Empty;
 
     private static bool IsIgnoredDirectoryName(string? name)
     {
@@ -887,4 +1011,15 @@ public sealed class SkiaCoverService : IDisposable
         public string Key { get; }
         public Bitmap Bitmap { get; }
     }
+}
+
+/// <summary>
+/// 封面顯示框大小（實際像素），用於依顯示大小縮小解碼；<see cref="Original"/>（預設值）表示原尺寸解碼。
+/// 寬或高 &lt;= 0 表示不限制該方向。
+/// </summary>
+public readonly record struct CoverDecodeSize(int Width, int Height)
+{
+    public static CoverDecodeSize Original => default;
+
+    public bool IsSpecified => Width > 0 || Height > 0;
 }
