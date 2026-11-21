@@ -149,7 +149,7 @@
                    FontSize="13"
                    VerticalAlignment="Center"
                    VerticalContentAlignment="Center"
-                   Watermark="{Binding Watermark}"
+                   PlaceholderText="{Binding Watermark}"
                    Text="{Binding InputText, Mode=TwoWay}" />
         </WrapPanel>
 

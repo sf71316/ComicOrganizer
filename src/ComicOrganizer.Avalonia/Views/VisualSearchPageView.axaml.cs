@@ -103,7 +103,7 @@ public partial class VisualSearchPageView : UserControl
         if (bmp != null)
         {
             using var ms = new MemoryStream();
-            bmp.Save(ms);
+            bmp.Save(ms, global::Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
             await vm.SearchFromImageBytesAsync(ms.ToArray(), "剪貼簿截圖");
         }
     }

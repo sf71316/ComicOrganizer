@@ -35,7 +35,7 @@
       <TextBox Width="250"
                Height="30"
                FontSize="12.5"
-               Watermark="🔍 全域搜尋（支援 @artist: / @tag:）"
+               PlaceholderText="🔍 全域搜尋（支援 @artist: / @tag:）"
                Text="{Binding GlobalSearchText, Mode=TwoWay}"
                VerticalContentAlignment="Center">
         <TextBox.KeyBindings>

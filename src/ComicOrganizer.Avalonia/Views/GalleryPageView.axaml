@@ -138,7 +138,7 @@
                        FontWeight="Medium"
                        VerticalAlignment="Center" />
             <TextBox Grid.Column="1"
-                     Watermark="輸入自訂閱讀清單名稱（例如：必看女僕精選）"
+                     PlaceholderText="輸入自訂閱讀清單名稱（例如：必看女僕精選）"
                      Text="{Binding NewVirtualLibraryName, Mode=TwoWay}"
                      FontSize="12" />
             <Button Grid.Column="2"
@@ -273,7 +273,7 @@
 
           <!-- 側欄快速過濾框 -->
           <TextBox Grid.Row="2"
-                   Watermark="篩選左側節點…"
+                   PlaceholderText="篩選左側節點…"
                    Text="{Binding SidebarFilterText, Mode=TwoWay}"
                    FontSize="12"
                    Margin="0,0,0,8" />
@@ -415,7 +415,7 @@
 
                 <!-- 頁內快速篩選 -->
                 <Grid Width="185" Margin="0,0,8,0" VerticalAlignment="Center">
-                  <TextBox Watermark="頁內篩選名稱…"
+                  <TextBox PlaceholderText="頁內篩選名稱…"
                            Text="{Binding LocalFilterKeyword, Mode=TwoWay}"
                            FontSize="12"
                            Padding="8,5,24,5" />
@@ -1036,13 +1036,13 @@
                   <!-- Metadata 檢視／編輯欄 -->
                   <StackPanel Spacing="6">
                     <TextBlock Text="作品 Metadata" FontSize="12" FontWeight="SemiBold" Opacity="0.82" />
-                    <TextBox Watermark="作品標題"
+                    <TextBox PlaceholderText="作品標題"
                              Text="{Binding DetailDrawer.EditTitle, Mode=TwoWay}"
                              IsReadOnly="{Binding DetailDrawer.IsReadOnlyDatabase}"
                              FontSize="12" />
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
                       <TextBox Grid.Column="0"
-                               Watermark="作者名稱"
+                               PlaceholderText="作者名稱"
                                Text="{Binding DetailDrawer.EditAuthorName, Mode=TwoWay}"
                                IsReadOnly="{Binding DetailDrawer.IsReadOnlyDatabase}"
                                FontSize="12" />
@@ -1056,24 +1056,24 @@
                     </Grid>
                     <Grid ColumnDefinitions="*,84" ColumnSpacing="6">
                       <TextBox Grid.Column="0"
-                               Watermark="系列名稱 (Series)"
+                               PlaceholderText="系列名稱 (Series)"
                                Text="{Binding DetailDrawer.EditSeries, Mode=TwoWay}"
                                IsReadOnly="{Binding DetailDrawer.IsReadOnlyDatabase}"
                                FontSize="12" />
                       <TextBox Grid.Column="1"
-                               Watermark="話數"
+                               PlaceholderText="話數"
                                Text="{Binding DetailDrawer.EditChapterNo, Mode=TwoWay}"
                                IsReadOnly="{Binding DetailDrawer.IsReadOnlyDatabase}"
                                FontSize="12" />
                     </Grid>
                     <Grid ColumnDefinitions="88,*" ColumnSpacing="6">
                       <TextBox Grid.Column="0"
-                               Watermark="語言"
+                               PlaceholderText="語言"
                                Text="{Binding DetailDrawer.EditLanguage, Mode=TwoWay}"
                                IsReadOnly="{Binding DetailDrawer.IsReadOnlyDatabase}"
                                FontSize="12" />
                       <TextBox Grid.Column="1"
-                               Watermark="漢化組 / 社團"
+                               PlaceholderText="漢化組 / 社團"
                                Text="{Binding DetailDrawer.EditTranslationGroup, Mode=TwoWay}"
                                IsReadOnly="{Binding DetailDrawer.IsReadOnlyDatabase}"
                                FontSize="12" />
@@ -1123,7 +1123,7 @@
                           ColumnSpacing="6"
                           IsVisible="{Binding DetailDrawer.IsWritable}">
                       <TextBox Grid.Column="0"
-                               Watermark="輸入標籤名稱後新增…"
+                               PlaceholderText="輸入標籤名稱後新增…"
                                Text="{Binding DetailDrawer.NewTagInput, Mode=TwoWay}"
                                FontSize="12" />
                       <Button Grid.Column="1"

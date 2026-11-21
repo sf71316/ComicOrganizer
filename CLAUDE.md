@@ -48,7 +48,7 @@ dotnet publish src/ComicOrganizer.App/ComicOrganizer.App.csproj -c Release
 |------|-----|------|------|
 | `ComicOrganizer.Core` | net8.0 | 業務邏輯 / DB / 解析 / 閱讀器資料層（不依賴 System.Drawing / WinForms） | — |
 | `ComicOrganizer.VisualSearch` | net8.0 x64 | 「圖搜漫」：ONNX (DirectML) + USearch 向量索引 | Core |
-| `ComicOrganizer.Avalonia` | net8.0-windows | **主力 UI**：Avalonia 11.3 + SukiUI 6 + CommunityToolkit.Mvvm | Core, VisualSearch |
+| `ComicOrganizer.Avalonia` | net8.0-windows | **主力 UI**：Avalonia 12.1 + SukiUI 7 + CommunityToolkit.Mvvm | Core, VisualSearch |
 | `ComicOrganizer.App` | net8.0-windows | legacy WinForms UI（AntdUI 2.3.12） | Core |
 | `ComicOrganizer.Plugin.PaddleOcr` | net8.0-windows | PaddleOCR 外掛（拆出以縮小主程式） | Core, App（`Private=false`） |
 | `ComicOrganizer.Tests` | net8.0-windows | xUnit | 上面全部 |
@@ -92,7 +92,8 @@ dotnet publish src/ComicOrganizer.App/ComicOrganizer.App.csproj -c Release
 - **自訂控制項**：`DslSearchBox`（區塊化 DSL 搜尋框）、`DeckCoverControl`（疊牌懸停輪播）、`SkiaComicViewport`。
 - **閱讀器**：`ReaderWindow` + `ReaderViewModel`，經 `IReaderWindowLauncher`（`AvaloniaReaderWindowLauncher`，fallback 外部 viewer）開啟。`SkiaComicViewport` 用 `ICustomDrawOperation` 直接畫 SKCanvas（單頁 / 雙頁跨頁 / 連續捲動）；`Services/ReaderPagePipeline` 負責頁快取、預載、超解析、OCR→翻譯。
 - **唯讀保護**：以 `--read-only` / `COMIC_ORGANIZER_READONLY=1` 啟用，各 VM 寫入動作會被攔截並 toast 提示（共用開發庫 `D:\ComicOrganizer` 常用此模式）。
-- UI thread：非同步結果更新 UI 要經 `Dispatcher.UIThread`。
+- UI thread：非同步結果更新 UI 要經 `Dispatcher.UIThread`。Avalonia 12 會嚴格檢查控制項是否在 UI 執行緒操作；測試中要建立 / 操作 View 時，用 `AvaloniaTestThread.Run(...)` 送到測試專用 UI 執行緒。
+- TextBox 浮水印屬性在 Avalonia 12 是 `PlaceholderText`（`Watermark` 已過時）。
 
 ## 圖搜漫（`src/ComicOrganizer.VisualSearch/`）
 

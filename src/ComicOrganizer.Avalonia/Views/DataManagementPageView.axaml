@@ -136,7 +136,7 @@
             <Grid Grid.Column="0" RowDefinitions="Auto,*,Auto" RowSpacing="10">
               <Grid Grid.Row="0" ColumnDefinitions="*,140,Auto" ColumnSpacing="8">
                 <TextBox Grid.Column="0"
-                         Watermark="搜尋標籤原文或中文譯名…"
+                         PlaceholderText="搜尋標籤原文或中文譯名…"
                          Text="{Binding TagSearchText, Mode=TwoWay}"
                          FontSize="12.5" />
                 <ComboBox Grid.Column="1"
@@ -188,11 +188,11 @@
                   <TextBlock Text="✨ 將勾選標籤合併為虛擬主標籤 (tag_alias 自動導向)" FontSize="12" FontWeight="SemiBold" />
                   <Grid ColumnDefinitions="*,*,Auto" ColumnSpacing="8">
                     <TextBox Grid.Column="0"
-                             Watermark="主標籤識別名 (例: full color)"
+                             PlaceholderText="主標籤識別名 (例: full color)"
                              Text="{Binding VirtualMasterName, Mode=TwoWay}"
                              FontSize="12" />
                     <TextBox Grid.Column="1"
-                             Watermark="繁中顯示名 (選填)"
+                             PlaceholderText="繁中顯示名 (選填)"
                              Text="{Binding VirtualMasterZhName, Mode=TwoWay}"
                              FontSize="12" />
                     <Button Grid.Column="2"
@@ -236,7 +236,7 @@
 
                     <StackPanel Spacing="4">
                       <TextBlock Text="中文譯名 (zh-TW)" FontSize="11.5" Opacity="0.72" />
-                      <TextBox Watermark="輸入手動自訂繁中翻譯（優先於 EhTag）"
+                      <TextBox PlaceholderText="輸入手動自訂繁中翻譯（優先於 EhTag）"
                                Text="{Binding EditTagTranslation, Mode=TwoWay}"
                                FontSize="12.5" />
                     </StackPanel>
@@ -271,7 +271,7 @@
                       <TextBlock Text="別名轉向清單 (tag_alias)" FontSize="13" FontWeight="Bold" />
                       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
                         <TextBox Grid.Column="0"
-                                 Watermark="輸入別名 (搜尋此別名將導向目前標籤)"
+                                 PlaceholderText="輸入別名 (搜尋此別名將導向目前標籤)"
                                  Text="{Binding NewTagAliasText, Mode=TwoWay}"
                                  FontSize="12" />
                         <Button Grid.Column="1"
@@ -321,7 +321,7 @@
             <Grid Grid.Column="0" RowDefinitions="Auto,*" RowSpacing="10">
               <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="8">
                 <TextBox Grid.Column="0"
-                         Watermark="搜尋作者主名稱…"
+                         PlaceholderText="搜尋作者主名稱…"
                          Text="{Binding AuthorSearchText, Mode=TwoWay}"
                          FontSize="12.5" />
                 <TextBlock Grid.Column="1"
@@ -391,11 +391,11 @@
                       <TextBlock Text="多語別名 (author_alias)" FontSize="13" FontWeight="Bold" />
                       <Grid ColumnDefinitions="*,84,Auto" ColumnSpacing="6">
                         <TextBox Grid.Column="0"
-                                 Watermark="輸入別名 / 日文原名 / 英文拼寫"
+                                 PlaceholderText="輸入別名 / 日文原名 / 英文拼寫"
                                  Text="{Binding NewAuthorAliasName, Mode=TwoWay}"
                                  FontSize="12" />
                         <TextBox Grid.Column="1"
-                                 Watermark="語系"
+                                 PlaceholderText="語系"
                                  Text="{Binding NewAuthorAliasLang, Mode=TwoWay}"
                                  FontSize="12" />
                         <Button Grid.Column="2" Classes="Outlined" Padding="10,5" Command="{Binding AddAuthorAliasCommand}">

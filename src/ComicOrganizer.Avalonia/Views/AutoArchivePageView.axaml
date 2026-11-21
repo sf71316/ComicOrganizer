@@ -144,7 +144,7 @@
         <TextBox Grid.Column="2"
                  MaxWidth="320"
                  HorizontalAlignment="Left"
-                 Watermark="過濾來源名稱或目標目錄…"
+                 PlaceholderText="過濾來源名稱或目標目錄…"
                  Text="{Binding FilterKeyword, Mode=TwoWay}"
                  FontSize="12"
                  VerticalAlignment="Center" />

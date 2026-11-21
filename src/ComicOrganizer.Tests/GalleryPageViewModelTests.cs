@@ -247,21 +247,25 @@ public sealed class GalleryPageViewModelTests : IDisposable
             autoLoad: false);
         await vm.ReloadAllAsync();
 
-        var view = new ComicOrganizer.Avalonia.Views.GalleryPageView
+        // Avalonia 12 起控制項（如 Transitions）會檢查 Dispatcher.UIThread 存取權，需在專用 UI 測試執行緒上建立與操作 View
+        AvaloniaTestThread.Run(() =>
         {
-            DataContext = vm,
-        };
+            var view = new ComicOrganizer.Avalonia.Views.GalleryPageView
+            {
+                DataContext = vm,
+            };
 
-        Assert.Equal(226.0, view.Resources["GalleryCardWidth"]);
-        Assert.Equal(264.0, view.Resources["GalleryCardCoverHeight"]);
+            Assert.Equal(226.0, view.Resources["GalleryCardWidth"]);
+            Assert.Equal(264.0, view.Resources["GalleryCardCoverHeight"]);
 
-        vm.SelectMediumCardViewCommand.Execute(null);
-        Assert.Equal(182.0, view.Resources["GalleryCardWidth"]);
-        Assert.Equal(212.0, view.Resources["GalleryCardCoverHeight"]);
+            vm.SelectMediumCardViewCommand.Execute(null);
+            Assert.Equal(182.0, view.Resources["GalleryCardWidth"]);
+            Assert.Equal(212.0, view.Resources["GalleryCardCoverHeight"]);
 
-        vm.SelectSmallCardViewCommand.Execute(null);
-        Assert.Equal(148.0, view.Resources["GalleryCardWidth"]);
-        Assert.Equal(168.0, view.Resources["GalleryCardCoverHeight"]);
+            vm.SelectSmallCardViewCommand.Execute(null);
+            Assert.Equal(148.0, view.Resources["GalleryCardWidth"]);
+            Assert.Equal(168.0, view.Resources["GalleryCardCoverHeight"]);
+        });
     }
 
     [Fact]

@@ -215,7 +215,7 @@
               <Grid ColumnDefinitions="*,Auto">
                 <TextBox Grid.Column="0"
                          Text="{Binding UnorganizedDirectory}"
-                         Watermark="選擇存放待歸檔漫畫或壓縮檔的來源資料夾"
+                         PlaceholderText="選擇存放待歸檔漫畫或壓縮檔的來源資料夾"
                          Margin="0,0,10,0" />
                 <Button Grid.Column="1"
                         Content="瀏覽…"
@@ -230,7 +230,7 @@
               <Grid ColumnDefinitions="*,Auto">
                 <TextBox Grid.Column="0"
                          Text="{Binding RootDirectory}"
-                         Watermark="選擇已整理漫畫庫的主根目錄路徑"
+                         PlaceholderText="選擇已整理漫畫庫的主根目錄路徑"
                          Margin="0,0,10,0" />
                 <Button Grid.Column="1"
                         Content="瀏覽…"
@@ -302,7 +302,7 @@
                        MinHeight="104"
                        MaxHeight="180"
                        VerticalContentAlignment="Top"
-                       Watermark="每行輸入一個關鍵字…" />
+                       PlaceholderText="每行輸入一個關鍵字…" />
             </StackPanel>
 
             <!-- 正則黑名單規則 -->
@@ -317,7 +317,7 @@
                        MaxHeight="180"
                        VerticalContentAlignment="Top"
                        FontFamily="Consolas, Cascadia Mono, monospace"
-                       Watermark="例如：C\d{2,3}" />
+                       PlaceholderText="例如：C\d{2,3}" />
               <Border IsVisible="{Binding HasBlacklistPatternsError}"
                       Background="#22EF4444"
                       BorderBrush="#88EF4444"
@@ -445,7 +445,7 @@
             <StackPanel Spacing="6">
               <TextBlock Text="LLM API 端點 URL" Classes="field-label" />
               <TextBox Text="{Binding TranslationEndpoint}"
-                       Watermark="例如：http://127.0.0.1:1234 或 https://api.openai.com" />
+                       PlaceholderText="例如：http://127.0.0.1:1234 或 https://api.openai.com" />
             </StackPanel>
 
             <!-- LLM 模型名稱與 API Key -->
@@ -453,14 +453,14 @@
               <StackPanel Grid.Column="0" Spacing="6">
                 <TextBlock Text="LLM 模型名稱" Classes="field-label" />
                 <TextBox Text="{Binding TranslationModelName}"
-                         Watermark="例如：qwen3.6-35b-a3b-mtp / gpt-4o-mini" />
+                         PlaceholderText="例如：qwen3.6-35b-a3b-mtp / gpt-4o-mini" />
               </StackPanel>
 
               <StackPanel Grid.Column="2" Spacing="6">
                 <TextBlock Text="LLM API Key（選填）" Classes="field-label" />
                 <TextBox Text="{Binding TranslationApiKey}"
                          PasswordChar="•"
-                         Watermark="本地端免填；雲端輸入金鑰（留空儲存將清空）" />
+                         PlaceholderText="本地端免填；雲端輸入金鑰（留空儲存將清空）" />
               </StackPanel>
             </Grid>
           </StackPanel>
@@ -512,7 +512,7 @@
                 <TextBox Grid.Column="0"
                          Text="{Binding NhentaiApiKey}"
                          PasswordChar="•"
-                         Watermark="輸入 nhentai API Key（nhk_...），留空儲存將清空既有金鑰"
+                         PlaceholderText="輸入 nhentai API Key（nhk_...），留空儲存將清空既有金鑰"
                          Margin="0,0,10,0" />
                 <Button Grid.Column="1"
                         Content="{Binding TestNhentaiButtonText}"
@@ -609,7 +609,7 @@
                   </StackPanel>
                   <TextBox Grid.Column="1"
                            Text="{Binding VisualSearchPanelModelUrl}"
-                           Watermark="填入下載網址（或右側匯入本機 .onnx）"
+                           PlaceholderText="填入下載網址（或右側匯入本機 .onnx）"
                            VerticalAlignment="Center" />
                   <Button Grid.Column="2"
                           Content="⬇️ 下載"
@@ -633,7 +633,7 @@
                   </StackPanel>
                   <TextBox Grid.Column="1"
                            Text="{Binding VisualSearchEmbedModelUrl}"
-                           Watermark="填入下載網址（或右側匯入本機 .onnx）"
+                           PlaceholderText="填入下載網址（或右側匯入本機 .onnx）"
                            VerticalAlignment="Center" />
                   <Button Grid.Column="2"
                           Content="⬇️ 下載"
