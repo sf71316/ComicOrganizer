@@ -43,14 +43,15 @@
         </TextBox.KeyBindings>
       </TextBox>
 
-      <!-- 共用資料目錄狀態指示 -->
+      <!-- 唯讀模式提示（僅以唯讀參數或 COMIC_ORGANIZER_READONLY=1 啟動時顯示） -->
       <Border CornerRadius="8"
               Padding="10,4"
               BorderThickness="1"
               BorderBrush="{DynamicResource SukiBorderBrush}"
               VerticalAlignment="Center"
-              ToolTip.Tip="{Binding DataDirectoryTooltip}">
-        <TextBlock Text="{Binding DataDirectoryBadgeText}"
+              IsVisible="{Binding IsReadOnlyDatabase}"
+              ToolTip.Tip="{Binding ReadOnlyBadgeTooltip}">
+        <TextBlock Text="🔒 唯讀模式"
                    FontSize="12"
                    Opacity="0.86"
                    VerticalAlignment="Center" />
@@ -170,26 +171,6 @@
                    Opacity="0.65" />
       </StackPanel>
     </suki:SukiSideMenu.HeaderContent>
-
-    <suki:SukiSideMenu.FooterContent>
-      <Border Margin="10,8,10,12"
-              Padding="10,8"
-              CornerRadius="10"
-              BorderThickness="1"
-              BorderBrush="{DynamicResource SukiBorderBrush}"
-              IsVisible="{Binding IsSideMenuExpanded}"
-              ToolTip.Tip="{Binding DataDirectoryTooltip}">
-        <StackPanel Spacing="2">
-          <TextBlock Text="{Binding DataDirectoryBadgeText}"
-                     FontSize="11.5"
-                     FontWeight="SemiBold" />
-          <TextBlock Text="{Binding DataDirectoryShortPath}"
-                     FontSize="10.5"
-                     Opacity="0.62"
-                     TextTrimming="CharacterEllipsis" />
-        </StackPanel>
-      </Border>
-    </suki:SukiSideMenu.FooterContent>
 
     <suki:SukiSideMenu.Items>
 

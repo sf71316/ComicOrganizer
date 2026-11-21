@@ -136,17 +136,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         ? label
         : CurrentAccentName;
 
-    public string DataDirectoryBadgeText => _dataContext.IsReadOnlyDatabase
-        ? "🔒 共享開發庫（唯讀）"
-        : _dataContext.IsSharedDevDataDirectory
-            ? "📂 共享開發庫"
-            : "📂 本地資料目錄";
+    /// <summary>唯讀模式時才在標題列顯示 🔒 提示；一般模式不顯示資料目錄標籤。</summary>
+    public bool IsReadOnlyDatabase => _dataContext.IsReadOnlyDatabase;
 
-    public string DataDirectoryShortPath => _dataContext.DataDirectory;
-
-    public string DataDirectoryTooltip => _dataContext.IsReadOnlyDatabase
-        ? $"目前共用資料目錄：{_dataContext.DataDirectory}\n模式：唯讀預覽（不寫入或遷移既有 cache.db；僅於系統設定按下儲存時寫入設定檔）"
-        : $"目前共用資料目錄：{_dataContext.DataDirectory}";
+    public string ReadOnlyBadgeTooltip =>
+        $"資料目錄：{_dataContext.DataDirectory}\n模式：唯讀預覽（不寫入或遷移既有 cache.db；僅於系統設定按下儲存時寫入設定檔）";
 
     [RelayCommand]
     private void ToggleTheme()
