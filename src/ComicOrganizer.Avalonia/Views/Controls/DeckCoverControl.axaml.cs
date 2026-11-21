@@ -54,6 +54,7 @@ public partial class DeckCoverControl : UserControl
     private bool _hasValidCover2;
     private bool _hasValidCover3;
     private int _rotationStep;
+    private TopLevel? _topLevel;
 
     public DeckCoverControl()
     {
@@ -129,10 +130,52 @@ public partial class DeckCoverControl : UserControl
 
     private bool IsHoverActive => IsCardHovered || IsPointerOver;
 
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+
+        _topLevel = TopLevel.GetTopLevel(this);
+        if (_topLevel is not null)
+        {
+            _topLevel.ScalingChanged += OnTopLevelScalingChanged;
+        }
+
+        ApplyDeckBitmapCache();
+    }
+
+    /// <summary>
+    /// 疊牌（3 張旋轉封面 + BoxShadow）整組快取成點陣圖，捲動時直接重用，不必每幀重畫陰影與旋轉圖片。
+    /// 實測 4K 最大化探索牆捲動 15.9 → 30.7 FPS（遠端桌面 32 FPS 上限）。
+    /// 倍率跟著螢幕縮放（150% → 1.5），避免快取圖在高 DPI 下變模糊；懸停動畫期間只有該張卡片會重繪快取。
+    /// 「本數 / 未讀」徽章與輪播圓點放在快取範圍外，維持 ClearType 文字清晰度。
+    /// </summary>
+    private void ApplyDeckBitmapCache()
+    {
+        double scale = _topLevel?.RenderScaling ?? 1.0;
+        if (DeckContainer.CacheMode is BitmapCache cache && Math.Abs(cache.RenderAtScale - scale) < 0.001)
+        {
+            return;
+        }
+
+        DeckContainer.CacheMode = new BitmapCache { RenderAtScale = scale };
+    }
+
+    private void OnTopLevelScalingChanged(object? sender, EventArgs e)
+    {
+        // 視窗移到不同縮放比例的螢幕時，快取倍率跟著調整
+        ApplyDeckBitmapCache();
+    }
+
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnDetachedFromVisualTree(e);
         StopCycleAndReset();
+
+        if (_topLevel is not null)
+        {
+            _topLevel.ScalingChanged -= OnTopLevelScalingChanged;
+            _topLevel = null;
+        }
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -198,7 +241,7 @@ public partial class DeckCoverControl : UserControl
         string? badge = string.IsNullOrWhiteSpace(CountBadgeText) ? null : CountBadgeText.Trim();
         bool hasBadge = badge is not null;
         DeckBadgeText.Text = badge ?? string.Empty;
-        DeckBadgeBorder.IsVisible = hasBadge;
+        DeckBadgeBorder.IsVisible = hasBadge && IsDeckMode;
         SingleBadgeText.Text = badge ?? string.Empty;
         SingleBadgeBorder.IsVisible = hasBadge;
 

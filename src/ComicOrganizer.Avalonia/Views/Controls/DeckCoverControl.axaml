@@ -197,43 +197,45 @@
         </Border>
       </Border>
 
-      <!-- 底部輪播頁碼指示點（僅懸停且有 >=2 張實圖時顯示） -->
-      <Border x:Name="DeckDotsPill"
-              ZIndex="5"
-              HorizontalAlignment="Center"
-              VerticalAlignment="Bottom"
-              Margin="0,0,0,4"
-              Padding="7,3"
-              CornerRadius="999"
-              Background="#990F172A"
-              IsVisible="False"
-              IsHitTestVisible="False">
-        <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-          <Border x:Name="Dot0" Classes="deck-dot active" />
-          <Border x:Name="Dot1" Classes="deck-dot" />
-          <Border x:Name="Dot2" Classes="deck-dot" />
-        </StackPanel>
-      </Border>
-
-      <!-- 右上角統計 / 未讀徽章 -->
-      <Border x:Name="DeckBadgeBorder"
-              ZIndex="6"
-              HorizontalAlignment="Right"
-              VerticalAlignment="Top"
-              Margin="0,4,4,0"
-              Padding="8,3"
-              CornerRadius="999"
-              Background="#CC0F172A"
-              BorderBrush="#42FFFFFF"
-              BorderThickness="1"
-              IsVisible="False"
-              IsHitTestVisible="False">
-        <TextBlock x:Name="DeckBadgeText"
-                   FontSize="11"
-                   FontWeight="SemiBold"
-                   Foreground="#F8FAFC" />
-      </Border>
     </Grid>
+
+    <!-- 疊牌的徽章與輪播圓點放在快取（DeckContainer.CacheMode）範圍外，維持 ClearType 文字清晰度、更新時不必重畫整組疊牌 -->
+    <!-- 底部輪播頁碼指示點（僅懸停且有 >=2 張實圖時顯示） -->
+    <Border x:Name="DeckDotsPill"
+            ZIndex="5"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Bottom"
+            Margin="0,0,0,4"
+            Padding="7,3"
+            CornerRadius="999"
+            Background="#990F172A"
+            IsVisible="False"
+            IsHitTestVisible="False">
+      <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+        <Border x:Name="Dot0" Classes="deck-dot active" />
+        <Border x:Name="Dot1" Classes="deck-dot" />
+        <Border x:Name="Dot2" Classes="deck-dot" />
+      </StackPanel>
+    </Border>
+
+    <!-- 右上角統計 / 未讀徽章 -->
+    <Border x:Name="DeckBadgeBorder"
+            ZIndex="6"
+            HorizontalAlignment="Right"
+            VerticalAlignment="Top"
+            Margin="0,4,4,0"
+            Padding="8,3"
+            CornerRadius="999"
+            Background="#CC0F172A"
+            BorderBrush="#42FFFFFF"
+            BorderThickness="1"
+            IsVisible="False"
+            IsHitTestVisible="False">
+      <TextBlock x:Name="DeckBadgeText"
+                 FontSize="11"
+                 FontWeight="SemiBold"
+                 Foreground="#F8FAFC" />
+    </Border>
 
     <!-- 模式二：🖼️ 單張精選 -->
     <Border x:Name="SingleContainer"
