@@ -818,6 +818,102 @@ public class ExplorePageViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task SwitchingBackToDeck_LoadsSecondaryCoversOnlyForRealizedCards()
+    {
+        EnsureAvaloniaSkiaBackend();
+        const string key = "4444444444444444444444444444444444444444";
+        await WriteThumbAsync(key);
+
+        // 30 位作者，每位 3 部作品（疊牌有 2 張副封面）；初始預載只涵蓋前 18 張卡片
+        for (int a = 0; a < 30; a++)
+        {
+            var authorId = _store.UpsertAuthor($"DeckAuthor_{a:00}");
+            for (int w = 0; w < 3; w++)
+            {
+                SeedWork($"deck_{a:00}_{w}.zip", $"Deck {a:00}-{w}", authorId, key);
+            }
+        }
+
+        Func<Action, Task> inline = static action => { action(); return Task.CompletedTask; };
+        using var vm = new ExplorePageViewModel(new ExploreWallService(_store), _coverService, autoLoad: true, runOnUiAsync: inline);
+        await vm.InitializationTask;
+        Assert.Equal(30, vm.AuthorCards.Count);
+        Assert.True(vm.IsDeckCoverStyle);
+
+        // 切到單張，只有兩張「畫面上」的卡片（超出初始預載範圍）被建立：此時只載主封面
+        vm.ToggleCoverStyleCommand.Execute(null);
+        Assert.True(vm.IsSingleCoverStyle);
+        var realized = new[] { vm.AuthorCards[20], vm.AuthorCards[21] };
+        foreach (var card in realized)
+        {
+            await vm.NotifyCardRealized(card);
+        }
+
+        Assert.All(realized, c => Assert.True(c.HasCover1));
+        Assert.All(realized, c => Assert.Null(c.Cover2));
+
+        // 切回疊牌：只替已建立的卡片補副封面，不可對整面牆全部卡片預載
+        vm.SelectDeckCoverStyleCommand.Execute(null);
+        await WaitUntilAsync(() => realized.All(c => c.Cover2 != null && c.Cover3 != null));
+        await Task.Delay(300);
+
+        var untouched = vm.AuthorCards.Skip(22).ToList();
+        Assert.All(untouched, c => Assert.Null(c.Cover1));
+        Assert.All(untouched, c => Assert.Null(c.Cover2));
+    }
+
+    [Fact]
+    public async Task WallReloadDuringDrillDown_KeepsDrillDownCardsInRecycleTracking()
+    {
+        EnsureAvaloniaSkiaBackend();
+        const string key = "5555555555555555555555555555555555555555";
+        await WriteThumbAsync(key);
+        var authorId = _store.UpsertAuthor("TrackAuthor");
+        SeedWork("track_0.zip", "Track 0", authorId, key);
+
+        Func<Action, Task> inline = static action => { action(); return Task.CompletedTask; };
+        using var vm = new ExplorePageViewModel(new ExploreWallService(_store), _coverService, autoLoad: false, runOnUiAsync: inline);
+
+        // 鑽取頁的作品卡：建立後被捲走回收，留在回收保留佇列（封面暫時保留）
+        var drillCard = new ExploreWorkCardVm(CreateWorkItem(9001, key), _ => { }, _ => { }, inline);
+        await vm.NotifyCardRealized(drillCard);
+        Assert.True(drillCard.HasCover1);
+        vm.NotifyCardRecycled(drillCard);
+        Assert.True(drillCard.HasCover1);
+
+        // 牆面查詢此時才回來（例如進入鑽取前打的搜尋）：只能清牆面卡片的追蹤，鑽取卡片要留在佇列
+        await vm.LoadWallAsync();
+
+        // 再回收超過保留上限的牆面卡片：最早回收的鑽取卡片仍在佇列中，因此照常被放掉封面
+        var wallCards = Enumerable.Range(0, ExplorePageViewModel.RecycledCoverRetention)
+            .Select(i => new ExploreAuthorCardVm(
+                new ExploreAuthorCard(
+                    i + 1,
+                    $"Wall_{i}",
+                    Array.Empty<string>(),
+                    null,
+                    1,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0,
+                    Array.Empty<ExploreTagBadge>(),
+                    new[] { CreateWorkItem(i + 1, key) }),
+                _ => { },
+                inline))
+            .ToList();
+        foreach (var card in wallCards)
+        {
+            await vm.NotifyCardRealized(card);
+            vm.NotifyCardRecycled(card);
+        }
+
+        Assert.False(drillCard.HasCover1);
+        Assert.All(wallCards, c => Assert.True(c.HasCover1));
+    }
+
+    [Fact]
     public async Task PickRandomCombo_PopulatesBanner_SupportsBrowseAndApplyFiltersAndDismiss()
     {
         var a1 = _store.UpsertAuthor("Artist1");

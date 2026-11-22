@@ -27,9 +27,15 @@ public partial class GalleryCardControl : UserControl
     private bool _subscribed;
     private string? _appliedAccentHex;
 
+    // 卡片內部視覺樹固定使用的 DataContext（本地值）。卡片完全不使用 XAML 繫結，
+    // 內部元件不需要知道目前項目；固定成本地值後，外層 DataContext 的變更（ItemsRepeater 回收時設 null、
+    // 重用時設新項目）只會通知卡片本身，不會再沿著約 60 個子元件逐一傳遞（本機取樣回收時約 141 ms / 8 秒拖動）。
+    private static readonly object IsolatedDataContext = new();
+
     public GalleryCardControl()
     {
         InitializeComponent();
+        RootCard.DataContext = IsolatedDataContext;
     }
 
     /// <summary>供測試與診斷查詢目前卡片繫結的項目。</summary>

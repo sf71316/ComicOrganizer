@@ -146,4 +146,49 @@ public class GalleryCardTransitionTests
             Assert.Contains("selected", rootCard.Classes);
         });
     }
+
+    [Fact]
+    public void GalleryCardControl_OuterDataContextChanges_DoNotPropagateIntoCardTree()
+    {
+        AvaloniaTestThread.Run(() =>
+        {
+            var card = new ComicOrganizer.Avalonia.Views.Controls.GalleryCardControl();
+            var item1 = new GalleryItemVm(
+                new GalleryItemSortMetadata(@"E:\Comics\a.zip", "a.zip", "作品 A", false, 1024, 1700000000000, ReadStatus.Unread, 0, null),
+                authorName: "作者甲",
+                coverThumbKey: null,
+                pageCount: 10,
+                language: null,
+                isAuthorFolder: false,
+                onActivate: _ => { },
+                onRevealInExplorer: _ => { });
+            var item2 = new GalleryItemVm(
+                new GalleryItemSortMetadata(@"E:\Comics\b.zip", "b.zip", "作品 B", false, 2048, 1710000000000, ReadStatus.Unread, 0, null),
+                authorName: "作者乙",
+                coverThumbKey: null,
+                pageCount: 20,
+                language: null,
+                isAuthorFolder: false,
+                onActivate: _ => { },
+                onRevealInExplorer: _ => { });
+
+            var titleTb = card.FindControl<TextBlock>("TitleText")!;
+            var rootCard = card.FindControl<GlassCard>("RootCard")!;
+            object? innerContext = rootCard.DataContext;
+            int innerChanges = 0;
+            titleTb.DataContextChanged += (_, _) => innerChanges++;
+
+            // 模擬 ItemsRepeater：設項目 → 回收設 null → 重用設新項目
+            card.DataContext = item1;
+            card.DataContext = null;
+            card.DataContext = item2;
+
+            // 卡片內容照常更新，但內部元件的 DataContext 從未改變（變更沒有傳進卡片內部）
+            Assert.Equal("作品 B", titleTb.Text);
+            Assert.NotNull(innerContext);
+            Assert.Same(innerContext, rootCard.DataContext);
+            Assert.Same(innerContext, titleTb.DataContext);
+            Assert.Equal(0, innerChanges);
+        });
+    }
 }

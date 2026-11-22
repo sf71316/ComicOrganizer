@@ -60,6 +60,9 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
     private CancellationTokenSource? _pickerDebounceCts;
     private CancellationTokenSource? _pickerCts;
     private CancellationTokenSource? _coverLoadCts;
+
+    // 鑽取頁的封面預載另用一個取消來源：牆面查詢晚到時重新預載牆面，不可取消鑽取頁的預載
+    private CancellationTokenSource? _drillDownCoverLoadCts;
     private CancellationTokenSource? _comboCoverCts;
 
     // 虛擬化清單回收的卡片封面保留佇列與進行中封面取消權杖（只在 UI 執行緒存取）
@@ -522,16 +525,15 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
             return;
         }
 
-        IReadOnlyList<ExploreCardVmBase> activeCards = SelectedMainTab switch
+        // 虛擬化後清單裝的是整面牆全部卡片：只替「目前已建立（畫面附近）」的卡片補載疊牌副封面，
+        // 並沿用各卡片自己的取消權杖，卡片捲走被回收時一併取消。其餘卡片之後被建立時，
+        // NotifyCardRealized 會依疊牌樣式自行載入副封面。
+        foreach (var (card, cts) in _realizedCoverLoads.ToArray())
         {
-            ExploreMainTab.AuthorExplore => AuthorCards.ToArray(),
-            _ when SelectedThemeSubTab == ExploreThemeCategory.HotCombos => ComboCards.ToArray(),
-            _ => ThemeCards.ToArray(),
-        };
-
-        if (activeCards.Count > 0)
-        {
-            StartCoverPreload(activeCards, activeCards.Count, cancelPrevious: false);
+            if (card.RepresentativeCount > 1 && !cts.IsCancellationRequested)
+            {
+                _ = card.EnsureSecondaryCoversLoadedAsync(_coverService, _coverLoadSemaphore, cts.Token);
+            }
         }
     }
 
@@ -1256,10 +1258,21 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private void ClearRecycledAndRealizedCoverTracking()
+    /// <summary>
+    /// 清除封面追蹤（取消已建立卡片的載入、移出回收佇列）。
+    /// <paramref name="belongsToReplacedList"/> 為 <c>null</c> 時全部清除（Dispose 用）；
+    /// 否則只清除被替換的那個清單的卡片，避免牆面查詢晚到時誤取消鑽取頁卡片的載入（反之亦然）。
+    /// </summary>
+    private void ClearRecycledAndRealizedCoverTracking(Func<ExploreCardVmBase, bool>? belongsToReplacedList = null)
     {
-        foreach (var cts in _realizedCoverLoads.Values)
+        foreach (var (card, cts) in _realizedCoverLoads.ToArray())
         {
+            if (belongsToReplacedList != null && !belongsToReplacedList(card))
+            {
+                continue;
+            }
+
+            _realizedCoverLoads.Remove(card);
             try
             {
                 cts.Cancel();
@@ -1270,10 +1283,24 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
             cts.Dispose();
         }
 
-        _realizedCoverLoads.Clear();
-        _recycledCoverQueue.Clear();
-        _recycledCoverNodes.Clear();
+        var node = _recycledCoverQueue.First;
+        while (node != null)
+        {
+            var next = node.Next;
+            if (belongsToReplacedList == null || belongsToReplacedList(node.Value))
+            {
+                _recycledCoverNodes.Remove(node.Value);
+                _recycledCoverQueue.Remove(node);
+            }
+
+            node = next;
+        }
     }
+
+    /// <summary>牆面卡片（作者 / 主題 / 雙組合）；鑽取頁的作品卡為 <see cref="ExploreWorkCardVm"/>。</summary>
+    private static bool IsWallCard(ExploreCardVmBase card) => card is not ExploreWorkCardVm;
+
+    private static bool IsDrillDownCard(ExploreCardVmBase card) => card is ExploreWorkCardVm;
 
     /// <summary>由 View 根據目前捲動視口實際可見卡片範圍同步位置膠囊與百分比進度。</summary>
     public void UpdateViewportRange(int firstVisibleOneBased, int lastVisibleOneBased, double offsetY)
@@ -1544,7 +1571,8 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
 
     private IReadOnlyList<ExploreCardVmBase> ApplyWallCardsOnUi(WallSnapshotPayload payload)
     {
-        ClearRecycledAndRealizedCoverTracking();
+        // 只清牆面卡片：牆面查詢可能在使用者已進入鑽取頁後才回來，不可取消鑽取頁卡片的封面載入
+        ClearRecycledAndRealizedCoverTracking(IsWallCard);
         IReadOnlyList<ExploreCardVmBase> preloadSlice = Array.Empty<ExploreCardVmBase>();
 
         if (payload.AuthorCards != null)
@@ -1670,11 +1698,26 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(LoadMorePickerTagsButtonText));
     }
 
-    private void StartCoverPreload(IReadOnlyList<ExploreCardVmBase> cards, int maxPreloadCount, bool cancelPrevious = true)
+    private void StartCoverPreload(
+        IReadOnlyList<ExploreCardVmBase> cards,
+        int maxPreloadCount,
+        bool cancelPrevious = true,
+        bool forDrillDown = false)
     {
-        var cts = cancelPrevious
-            ? ReplaceCancellationSource(ref _coverLoadCts)
-            : new CancellationTokenSource();
+        CancellationTokenSource cts;
+        if (!cancelPrevious)
+        {
+            cts = new CancellationTokenSource();
+        }
+        else if (forDrillDown)
+        {
+            cts = ReplaceCancellationSource(ref _drillDownCoverLoadCts);
+        }
+        else
+        {
+            cts = ReplaceCancellationSource(ref _coverLoadCts);
+        }
+
         var ct = cts.Token;
         int limit = Math.Min(cards.Count, maxPreloadCount);
         bool loadSecondaryDeckCovers = IsDeckCoverStyle;
@@ -1894,7 +1937,8 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
             .Select(w => new ExploreWorkCardVm(w, OpenWork, RevealWorkInExplorer, _runOnUiAsync, OpenWorkExternal))
             .ToList();
 
-        ClearRecycledAndRealizedCoverTracking();
+        // 只清鑽取頁卡片：進入鑽取時被回收的牆面卡片留在回收佇列，照常依保留上限放掉封面
+        ClearRecycledAndRealizedCoverTracking(IsDrillDownCard);
         _allFilteredDrillDownWorkVms = vms;
         _visibleDrillDownWorkLimit = vms.Count;
         DrillDownWorks.ReplaceAll(vms);
@@ -1907,7 +1951,7 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
 
         if (vms.Count > 0)
         {
-            StartCoverPreload(vms, CoverPreloadCount);
+            StartCoverPreload(vms, CoverPreloadCount, forDrillDown: true);
         }
     }
 
@@ -1926,6 +1970,7 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
     private void ClearDrillDownState()
     {
         CancelCts(ref _drillDownCts);
+        CancelCts(ref _drillDownCoverLoadCts);
         _currentDrillDownSelection = null;
         _allDrillDownRawWorks = Array.Empty<ExploreWorkItem>();
         _allFilteredDrillDownWorkVms = Array.Empty<ExploreWorkCardVm>();
@@ -2166,6 +2211,7 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
         CancelCts(ref _pickerDebounceCts);
         CancelCts(ref _pickerCts);
         CancelCts(ref _coverLoadCts);
+        CancelCts(ref _drillDownCoverLoadCts);
         CancelCts(ref _comboCoverCts);
         ClearRecycledAndRealizedCoverTracking();
 
