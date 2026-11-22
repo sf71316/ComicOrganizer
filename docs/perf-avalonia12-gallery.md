@@ -121,13 +121,16 @@
 
    要確認：封面約 1 ms 就能載入時，背景 GC 有沒有把拖動後的原生記憶體壓下來，以及 GC 暫停是否可以接受。
 
-2. **卡片切換時的轉場動畫成本**
+2. **卡片切換時的轉場動畫成本（已實作，待 4K / 本機取樣驗證）**
    - 修正 1 之後，`Animatable` 的轉場在本機取樣仍約 360 ms（拖動 8 秒）。
-   - 方向：回收重用卡片時停用或略過轉場。
+   - 已處理：對 `suki|GlassCard.gallery-item-card` 及其模板 `Border`、內部 `Button`（與按鈕模板 `Border`/`ContentPresenter`）顯式設 `Transitions="{x:Null}"`；移除畫廊封面 `Image.gallery-cover-fade` 的 0.18s `Opacity DoubleTransition`，改以 `IsVisible="{Binding HasCover1}"` 直接顯示。
 
-3. **文字排版成本**
+3. **文字排版成本（已實作，待 4K / 本機取樣驗證）**
    - `TextBlock.CreateTextLayout` 在修正 1 之後仍約 208 ms（拖動 8 秒）。
-   - 方向：減少卡片上的文字元件數量，或快取排版結果。
+   - 已處理：
+     - 封面載入後隱藏佔位底色與 `FallbackGlyph`（`IsVisible="{Binding !HasCover1}"`），有縮圖時直接跳過 `FontSize=36` 佔位字元排版；
+     - 標題 `StackPanel` 顯式綁定 `Width="{DynamicResource GalleryCardCoverWidth}"`，避免 `TextWrapping`/`TextTrimming` 在 Measure 與 Arrange 階段以不同寬度重算兩次 `TextLayout`；
+     - `GalleryItemVm` 顯示字串（`PageCountText`、`SizeDisplay`、`ModifiedDisplay`、`SubtitleText`、`PrimaryActionTooltip`、`TypeBadgeText`）改為建構時快取，消除回收重用時的重複格式化與字串配置。
 
 4. **快速拖到底的每幀成本**
    - 這種拖法每幀都跳過超過一個畫面，所以每幀要重建約 42 張卡片（約每張 60 個視覺節點）。

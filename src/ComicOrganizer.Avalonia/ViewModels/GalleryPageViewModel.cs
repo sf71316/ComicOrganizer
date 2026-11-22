@@ -171,6 +171,28 @@ public sealed partial class GalleryItemVm : ViewModelBase
             ? (IsAuthorFolder ? "👤" : "📁")
             : ExploreVisualFormatting.ExtractFallbackGlyph(DisplayTitle);
 
+        // 預先計算顯示字串並快取，避免虛擬化卡片回收重用時反覆格式化日期、配置 List 與字串插值
+        HasAuthor = !string.IsNullOrWhiteSpace(AuthorName);
+        TypeBadgeText = IsFolder
+            ? (IsAuthorFolder ? "👤 作者目錄" : "📁 資料夾")
+            : ReadStatus switch
+            {
+                ReadStatus.Reading => "📖 閱讀中",
+                ReadStatus.Completed => "✓ 已完成",
+                ReadStatus.Dropped => "✕ 放棄",
+                _ => "● 未讀",
+            };
+        HasPageCount = !IsFolder && PageCount is > 0;
+        PageCountText = HasPageCount ? $"{PageCount}P" : string.Empty;
+        SizeDisplay = IsFolder ? "資料夾" : FormatSize(SizeBytes);
+        ModifiedDisplay = ModifiedTicks > 0
+            ? DateTimeOffset.FromUnixTimeMilliseconds(ModifiedTicks).ToLocalTime().ToString("yyyy-MM-dd")
+            : string.Empty;
+        SubtitleText = BuildSubtitleText();
+        PrimaryActionTooltip = IsFolder
+            ? $"進入資料夾：{DisplayTitle}"
+            : $"以內建閱讀器開啟：{DisplayTitle}";
+
         var dummyWork = new ExploreWorkItem(
             AssetId: 0,
             Path: Path,
@@ -214,7 +236,7 @@ public sealed partial class GalleryItemVm : ViewModelBase
 
     public string AuthorName { get; }
 
-    public bool HasAuthor => !string.IsNullOrWhiteSpace(AuthorName);
+    public bool HasAuthor { get; }
 
     public bool IsFolder { get; }
 
@@ -244,56 +266,43 @@ public sealed partial class GalleryItemVm : ViewModelBase
 
     public string AccentColorHex { get; }
 
-    public string TypeBadgeText => IsFolder
-        ? (IsAuthorFolder ? "👤 作者目錄" : "📁 資料夾")
-        : ReadStatus switch
-        {
-            ReadStatus.Reading => "📖 閱讀中",
-            ReadStatus.Completed => "✓ 已完成",
-            ReadStatus.Dropped => "✕ 放棄",
-            _ => "● 未讀",
-        };
+    public string TypeBadgeText { get; }
 
-    public bool HasPageCount => !IsFolder && PageCount is > 0;
+    public bool HasPageCount { get; }
 
-    public string PageCountText => HasPageCount ? $"{PageCount}P" : string.Empty;
+    public string PageCountText { get; }
 
-    public string SizeDisplay => IsFolder ? "資料夾" : FormatSize(SizeBytes);
+    public string SizeDisplay { get; }
 
-    public string ModifiedDisplay => ModifiedTicks > 0
-        ? DateTimeOffset.FromUnixTimeMilliseconds(ModifiedTicks).ToLocalTime().ToString("yyyy-MM-dd")
-        : string.Empty;
+    public string ModifiedDisplay { get; }
 
-    public string SubtitleText
+    public string SubtitleText { get; }
+
+    public string PrimaryActionTooltip { get; }
+
+    private string BuildSubtitleText()
     {
-        get
+        if (IsFolder)
         {
-            if (IsFolder)
-            {
-                return IsAuthorFolder ? "點擊進入作者作品目錄" : "點擊進入子資料夾";
-            }
-
-            var parts = new List<string>(3);
-            if (HasAuthor)
-            {
-                parts.Add(AuthorName);
-            }
-            if (!string.IsNullOrWhiteSpace(Language))
-            {
-                parts.Add(Language!);
-            }
-            if (SizeBytes > 0)
-            {
-                parts.Add(SizeDisplay);
-            }
-
-            return parts.Count > 0 ? string.Join(" · ", parts) : Name;
+            return IsAuthorFolder ? "點擊進入作者作品目錄" : "點擊進入子資料夾";
         }
-    }
 
-    public string PrimaryActionTooltip => IsFolder
-        ? $"進入資料夾：{DisplayTitle}"
-        : $"以內建閱讀器開啟：{DisplayTitle}";
+        var parts = new List<string>(3);
+        if (HasAuthor)
+        {
+            parts.Add(AuthorName);
+        }
+        if (!string.IsNullOrWhiteSpace(Language))
+        {
+            parts.Add(Language!);
+        }
+        if (SizeBytes > 0)
+        {
+            parts.Add(SizeDisplay);
+        }
+
+        return parts.Count > 0 ? string.Join(" · ", parts) : Name;
+    }
 
     [RelayCommand]
     private void Activate() => _onActivate(this);

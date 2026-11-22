@@ -62,7 +62,25 @@
       <Setter Property="BorderThickness" Value="1" />
     </Style>
 
-    <!-- 畫廊項目選取外框 -->
+    <!-- 畫廊項目選取外框（停用卡片與內部按鈕的 SukiUI 轉場，避免 ItemsRepeater 回收重用時反覆建立動畫） -->
+    <Style Selector="suki|GlassCard.gallery-item-card">
+      <Setter Property="Transitions" Value="{x:Null}" />
+    </Style>
+    <Style Selector="suki|GlassCard.gallery-item-card /template/ Border">
+      <Setter Property="Transitions" Value="{x:Null}" />
+    </Style>
+    <Style Selector="suki|GlassCard.gallery-item-card Button">
+      <Setter Property="Transitions" Value="{x:Null}" />
+    </Style>
+    <Style Selector="suki|GlassCard.gallery-item-card Button /template/ Border">
+      <Setter Property="Transitions" Value="{x:Null}" />
+    </Style>
+    <Style Selector="suki|GlassCard.gallery-item-card Button /template/ ContentPresenter">
+      <Setter Property="Transitions" Value="{x:Null}" />
+    </Style>
+    <Style Selector="suki|GlassCard.gallery-item-card Button /template/ Viewbox">
+      <Setter Property="Transitions" Value="{x:Null}" />
+    </Style>
     <Style Selector="suki|GlassCard.gallery-item-card.selected">
       <Setter Property="BorderBrush" Value="{DynamicResource SukiPrimaryColor}" />
       <Setter Property="BorderThickness" Value="1.5" />
@@ -85,19 +103,12 @@
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
 
-    <!-- 封面載入平滑淡入 -->
+    <!-- 封面圖直接顯示（不掛 Opacity DoubleTransition，避免虛擬化回收重用時每秒觸發數百次淡入淡出） -->
     <Style Selector="Image.gallery-cover-fade">
-      <Setter Property="Opacity" Value="0" />
       <Setter Property="IsHitTestVisible" Value="False" />
-      <Setter Property="Transitions">
-        <Transitions>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.18" Easing="CubicEaseOut" />
-        </Transitions>
-      </Setter>
+      <Setter Property="Transitions" Value="{x:Null}" />
     </Style>
-    <Style Selector="Image.gallery-cover-fade.loaded">
-      <Setter Property="Opacity" Value="1" />
-    </Style>  </UserControl.Styles>
+  </UserControl.Styles>
 
   <Grid RowDefinitions="Auto,*" Margin="18,12,18,0">
 
@@ -572,16 +583,18 @@
                                     ClipToBounds="True"
                                     Background="#18808080">
                               <Grid>
-                                <Border Background="{Binding AccentColorHex, Converter={StaticResource HexToBrushConverter}}"
+                                <Border IsVisible="{Binding !HasCover1}"
+                                        Background="{Binding AccentColorHex, Converter={StaticResource HexToBrushConverter}}"
                                         Opacity="0.22" />
-                                <TextBlock Text="{Binding FallbackGlyph}"
+                                <TextBlock IsVisible="{Binding !HasCover1}"
+                                           Text="{Binding FallbackGlyph}"
                                            FontSize="36"
                                            FontWeight="Bold"
                                            Opacity="0.68"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center" />
                                 <Image Classes="gallery-cover-fade"
-                                       Classes.loaded="{Binding HasCover1}"
+                                       IsVisible="{Binding HasCover1}"
                                        Source="{Binding Cover1}"
                                        Stretch="UniformToFill" />
 
@@ -614,7 +627,10 @@
                               </Grid>
                             </Border>
 
-                            <StackPanel Spacing="2">
+                            <!-- 明確給定與封面相同的固定寬度，避免 TextWrapping/TextTrimming 在 Measure 與 Arrange 階段以不同寬度重算兩次 TextLayout -->
+                            <StackPanel Spacing="2"
+                                        Width="{DynamicResource GalleryCardCoverWidth}"
+                                        HorizontalAlignment="Left">
                               <TextBlock Text="{Binding DisplayTitle}"
                                          FontSize="13"
                                          FontWeight="SemiBold"
@@ -698,14 +714,16 @@
                                 ClipToBounds="True"
                                 Background="#18808080">
                           <Grid>
-                            <Border Background="{Binding AccentColorHex, Converter={StaticResource HexToBrushConverter}}"
+                            <Border IsVisible="{Binding !HasCover1}"
+                                    Background="{Binding AccentColorHex, Converter={StaticResource HexToBrushConverter}}"
                                     Opacity="0.22" />
-                            <TextBlock Text="{Binding FallbackGlyph}"
+                            <TextBlock IsVisible="{Binding !HasCover1}"
+                                       Text="{Binding FallbackGlyph}"
                                        FontSize="18"
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center" />
                             <Image Classes="gallery-cover-fade"
-                                   Classes.loaded="{Binding HasCover1}"
+                                   IsVisible="{Binding HasCover1}"
                                    Source="{Binding Cover1}"
                                    Stretch="UniformToFill" />
                           </Grid>

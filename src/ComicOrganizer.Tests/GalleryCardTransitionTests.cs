@@ -1,0 +1,91 @@
+using Avalonia.Controls;
+using ComicOrganizer.App.Core;
+using ComicOrganizer.App.Models;
+using ComicOrganizer.Avalonia.ViewModels;
+using ComicOrganizer.Avalonia.Views;
+using SukiUI.Controls;
+using Xunit;
+
+namespace ComicOrganizer.Tests;
+
+public class GalleryCardTransitionTests
+{
+    [Fact]
+    public void GalleryItemCard_DisablesTransitions_OnCardButtonsAndCoverImage()
+    {
+        AvaloniaTestThread.Run(() =>
+        {
+            var view = new GalleryPageView();
+
+            var coverImage = new Image();
+            coverImage.Classes.Add("gallery-cover-fade");
+
+            var basicButton = new Button { Content = coverImage };
+            basicButton.Classes.Add("Basic");
+
+            var outlinedButton = new Button { Content = new TextBlock { Text = "ℹ" } };
+            outlinedButton.Classes.Add("Outlined");
+
+            var card = new GlassCard
+            {
+                Content = new StackPanel
+                {
+                    Children = { basicButton, outlinedButton }
+                }
+            };
+            card.Classes.Add("gallery-item-card");
+
+            // 將卡片掛到 GalleryPageView 的樣式作用域下套用樣式
+            view.Content = card;
+            view.ApplyStyling();
+            card.ApplyStyling();
+            basicButton.ApplyStyling();
+            outlinedButton.ApplyStyling();
+            coverImage.ApplyStyling();
+
+            Assert.True(card.Transitions is null || card.Transitions.Count == 0);
+            Assert.True(basicButton.Transitions is null || basicButton.Transitions.Count == 0);
+            Assert.True(outlinedButton.Transitions is null || outlinedButton.Transitions.Count == 0);
+            Assert.True(coverImage.Transitions is null || coverImage.Transitions.Count == 0);
+            Assert.False(coverImage.IsHitTestVisible);
+        });
+    }
+
+    [Fact]
+    public void GalleryItemVm_CachesFormattedDisplayStrings_WithoutReallocation()
+    {
+        var meta = new GalleryItemSortMetadata(
+            Path: @"E:\Comics\test.zip",
+            Name: "test.zip",
+            DisplayTitle: "測試作品",
+            IsFolder: false,
+            SizeBytes: 5 * 1024 * 1024,
+            ModifiedTicks: new DateTimeOffset(2026, 11, 22, 12, 0, 0, TimeSpan.Zero).ToUnixTimeMilliseconds(),
+            ReadStatus: ReadStatus.Reading,
+            ReadCount: 2,
+            LastRead: null);
+
+        var vm = new GalleryItemVm(
+            meta,
+            authorName: "作者A",
+            coverThumbKey: null,
+            pageCount: 120,
+            language: "繁體中文",
+            isAuthorFolder: false,
+            onActivate: _ => { },
+            onRevealInExplorer: _ => { });
+
+        Assert.Equal("📖 閱讀中", vm.TypeBadgeText);
+        Assert.Equal("120P", vm.PageCountText);
+        Assert.Equal("5.0 MB", vm.SizeDisplay);
+        Assert.Equal("作者A · 繁體中文 · 5.0 MB", vm.SubtitleText);
+        Assert.Equal("以內建閱讀器開啟：測試作品", vm.PrimaryActionTooltip);
+
+        // 多次讀取必須回傳同一個字串參考（零重複配置）
+        Assert.Same(vm.PageCountText, vm.PageCountText);
+        Assert.Same(vm.SizeDisplay, vm.SizeDisplay);
+        Assert.Same(vm.ModifiedDisplay, vm.ModifiedDisplay);
+        Assert.Same(vm.SubtitleText, vm.SubtitleText);
+        Assert.Same(vm.PrimaryActionTooltip, vm.PrimaryActionTooltip);
+    }
+}
