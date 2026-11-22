@@ -208,6 +208,19 @@
    - 細節見「二、已完成 → 重整不再從上往下重繪」。
    - 其餘頁面已盤點：`AutoArchivePageView.axaml`（`VisibleCandidates` 為非虛擬化 `ItemsControl` 但純文字無封面，僅大量掃描時影響低）、`DataManagementPageView.axaml`（主清單已用虛擬化 `ListBox`）、`VisualSearchPageView.axaml`（僅 Top-K 結果）皆無明顯重整閃爍問題。
 
-8. **合併前清理**
+8. **畫廊跨目錄切換（進入子目錄／點選「🏠 漫畫庫根目錄」）仍觸發由上往下重繪（待修正）**
+   - 實機驗證（`55a0c27`）：同目錄「↻ 重整」已不再重繪，但**點擊畫廊中的子目錄**或**點擊左側「🏠 漫畫庫根目錄」**切換目錄時，畫面依然會出現明顯由上往下補圖／重繪波浪。
+   - **根因盤點**：
+     1. **`sameScope == false` 時新項目一律以 `Cover1 = null` 開始**：在 `GalleryPageViewModel.LoadCurrentScopeItemsCoreAsync`（約 L1282–L1290），跨目錄切換因 `scopeKey != _loadedScopeKey` 使 `sameScope = false`，建立全新一批 `GalleryItemVm` 並執行 `Items.SyncTo(filtered)`（觸發 `ReplaceAll` / `Reset`）。新項目建構時未同步查詢 `SkiaCoverService` 記憶體 LRU 快取（`_cacheMap`），導致第一幀所有卡片一律先畫成彩色佔位底圖＋`FallbackGlyph`。
+     2. **已命中 RAM 快取的封面仍走背景排隊＋逐張回拋 UI 執行緒**：`ApplyFilterAndSortOnUi` 尾端呼叫 `StartCoverPreload(filtered, 24, cancelPrevious: true)`（L1975），在 `Task.Run` 背景執行緒逐張呼叫 `EnsureCoverLoadedAsync`；而 `CoverSlotVm.LoadCoreAsync`（`ExploreCardViewModels.cs` L430–L475）未在進 `concurrencyLimiter.WaitAsync` 前先同步檢查 `SkiaCoverService` 記憶體快取，導致即使是 RAM 內 0 ms 可取的 `Bitmap` 仍先等背景排程、再分批 `runOnUiAsync` 回 UI 執行緒逐張替換佔位圖，形成肉眼可見的由上往下重刷。
+     3. **`ScrollResetRequested` 順序晚於 `Items.SyncTo(filtered)`**：在 `ApplyFilterAndSortOnUi`（L1963–L1970）先執行 `Items.SyncTo(filtered)` 觸發集合 `Reset`（此時 `ScrollViewer.Offset` 仍停在舊目錄的捲動位置），之後才觸發 `ScrollResetRequested?.Invoke()` 將捲動歸零，使 `ItemsRepeater` 在單次切目錄內產生兩次排版與實現範圍變動。
+     4. **`ReloadSidebarAndItemsAsync` 拆成兩段獨立 Background → UI 更新**：在 `GalleryPageViewModel.ReloadSidebarAndItemsAsync`（L1159–L1216），先 `Task.Run(BuildSidebarNodes)` 並切回 UI 更新側欄與麵包屑，再啟動第二次 `Task.Run(ResolveScopePayload)` 並再次切回 UI 更新 `Items`，讓視覺切換被拆成兩拍。
+   - **建議修正方向**：
+     1. 在 `SkiaCoverService` 公開純記憶體 O(1) 查詢方法 `TryGetMemoryCachedCover(sourcePath, thumbKey, decodeSize)`（僅查 `_cacheMap`，不做任何磁碟 I/O；先查 `BuildThumbCacheKey` 再查 `BuildSourceCacheKey`），並評估將 `maxMemoryCacheItems` 由 `512` 適度提高（例如 `1024`），避免根目錄（約 380+ 個作者目錄）與子目錄往返切換時將根目錄封面擠出 LRU。
+     2. 在 `CoverSlotVm.EnsureLoadedAsync` 進鎖／背景前（以及 `ApplyFilterAndSortOnUi` 將新項目送入 `Items.SyncTo` 之前），若 `TryGetMemoryCachedCover` 命中，直接於 UI 執行緒同步設定 `Image` 與 `_completed = true`，讓卡片在 `ElementPrepared` 第一幀即具備封面，消除佔位閃爍與逐張補圖波浪。
+     3. `ApplyFilterAndSortOnUi` 中若 `resetScroll == true`，改為**先觸發 `ScrollResetRequested?.Invoke()`** 再執行 `Items.SyncTo(filtered)`。
+     4. `ReloadSidebarAndItemsAsync` 合併成單次 `Task.Run` 同時計算側欄／麵包屑與目標清單，再於同一次 `_runOnUiAsync` 批次套用至 UI。
+
+9. **合併前清理**
    - 移除暫時量測程式（見「一、量測方式」）。
    - 決定 Avalonia 12 升級評估的結論，以及是否合併回 `master`。
