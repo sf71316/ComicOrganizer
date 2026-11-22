@@ -3,6 +3,7 @@
              xmlns:suki="https://github.com/kikipoulet/SukiUI"
              xmlns:vm="using:ComicOrganizer.Avalonia.ViewModels"
              xmlns:views="using:ComicOrganizer.Avalonia.Views"
+             xmlns:controls="using:ComicOrganizer.Avalonia.Views.Controls"
              x:Class="ComicOrganizer.Avalonia.Views.ReadingTrackPageView"
              x:DataType="vm:ReadingTrackPageViewModel">
 
@@ -437,20 +438,26 @@
                      Opacity="0.68"
                      Margin="4,6" />
 
-          <ItemsControl IsVisible="{Binding HasActiveRecordWorks}"
-                        ItemsSource="{Binding ActiveRecordWorks}">
-            <ItemsControl.ItemsPanel>
-              <ItemsPanelTemplate>
-                <WrapPanel Orientation="Horizontal" />
-              </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
+          <!-- 虛擬化：ItemsRepeater + UniformGridLayout 只建立畫面附近的卡片（「載入更多」展開很多筆時不會全部建立）。
+               每張卡片高度固定（封面 250、標題固定兩行高、時間列固定一行高），格子大小取第一張卡片即可。
+               外層 StableDataContextHost 擋掉回收時設的 null DataContext；卡片建立時由 ElementPrepared 載入封面。 -->
+          <ItemsRepeater x:Name="RecordWorksRepeater"
+                         IsVisible="{Binding HasActiveRecordWorks}"
+                         ItemsSource="{Binding ActiveRecordWorks}"
+                         VerticalCacheLength="1"
+                         ElementPrepared="OnRecordElementPrepared">
+            <ItemsRepeater.Layout>
+              <UniformGridLayout Orientation="Horizontal"
+                                 ItemsJustification="Start"
+                                 ItemsStretch="None" />
+            </ItemsRepeater.Layout>
+            <ItemsRepeater.ItemTemplate>
               <DataTemplate x:DataType="vm:ReadingWorkItemVm">
+                <controls:StableDataContextHost>
                 <suki:GlassCard Width="222"
                                 CornerRadius="13"
                                 Padding="10"
-                                Margin="0,0,12,12"
-                                EffectiveViewportChanged="OnWorkItemEffectiveViewportChanged">
+                                Margin="0,0,12,12">
                   <suki:GlassCard.ContextMenu>
                     <ContextMenu>
                       <MenuItem Header="📖 以內建閱讀器開啟" Command="{Binding OpenCommand}" />
@@ -500,8 +507,9 @@
                                      FontSize="11"
                                      Opacity="0.68"
                                      TextTrimming="CharacterEllipsis" />
+                          <!-- 沒有時間時仍保留一行高度，讓每張卡片等高（UniformGridLayout 以第一張卡片決定格子大小） -->
                           <TextBlock Text="{Binding TimestampText}"
-                                     IsVisible="{Binding HasTimestamp}"
+                                     MinHeight="14"
                                      FontSize="10.5"
                                      Opacity="0.56" />
                         </StackPanel>
@@ -535,9 +543,10 @@
                     </Grid>
                   </StackPanel>
                 </suki:GlassCard>
+                </controls:StableDataContextHost>
               </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
+            </ItemsRepeater.ItemTemplate>
+          </ItemsRepeater>
 
           <Button Classes="Outlined"
                   IsVisible="{Binding HasMoreActiveRecords}"

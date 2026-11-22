@@ -78,6 +78,17 @@ public sealed partial class GalleryNavNodeVm : ObservableObject
 
     [RelayCommand]
     private void Select() => _onSelect(this);
+
+    /// <summary>顯示內容（key、圖示、名稱、副標、資料夾路徑）是否相同；重整時相同的節點直接沿用舊的。</summary>
+    public bool HasSameContent(GalleryNavNodeVm other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        return string.Equals(Key, other.Key, StringComparison.Ordinal)
+            && string.Equals(Icon, other.Icon, StringComparison.Ordinal)
+            && string.Equals(DisplayName, other.DisplayName, StringComparison.Ordinal)
+            && string.Equals(SubText, other.SubText, StringComparison.Ordinal)
+            && string.Equals(FolderPath, other.FolderPath, StringComparison.OrdinalIgnoreCase);
+    }
 }
 
 public sealed class GalleryBreadcrumbItemVm
@@ -328,6 +339,21 @@ public sealed partial class GalleryItemVm : ViewModelBase
     /// <summary>放掉封面參考（需在 UI 執行緒呼叫）；再次顯示時會重新載入。</summary>
     public void ReleaseCover() => CoverSlot.ReleaseImage();
 
+    /// <summary>
+    /// 是否與另一個項目顯示內容完全相同（排序 / 過濾用中繼資料、作者、縮圖 key、頁數、語言、作者目錄旗標）。
+    /// 重整時相同的項目直接沿用舊的，保留已載入的封面與選取狀態。
+    /// </summary>
+    public bool HasSameContent(GalleryItemVm other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        return SortMetadata == other.SortMetadata
+            && string.Equals(AuthorName, other.AuthorName, StringComparison.Ordinal)
+            && string.Equals(CoverSlot.ThumbKey, other.CoverSlot.ThumbKey, StringComparison.Ordinal)
+            && PageCount == other.PageCount
+            && string.Equals(Language, other.Language, StringComparison.Ordinal)
+            && IsAuthorFolder == other.IsAuthorFolder;
+    }
+
     private static string FormatSize(long bytes)
     {
         if (bytes <= 0) return string.Empty;
@@ -374,6 +400,9 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
     private IReadOnlyList<GalleryItemVm> _allRawItems = Array.Empty<GalleryItemVm>();
     private IReadOnlyList<GalleryItemVm> _allFilteredSortedItems = Array.Empty<GalleryItemVm>();
     private GalleryItemVm? _selectedGalleryItem;
+
+    // 目前清單對應的範圍（見 BuildScopeKey）；同一範圍重新載入時沿用沒變的項目、不捲回頂端
+    private string? _loadedScopeKey;
     private ExploreCorpusSnapshot? _cachedSnapshot;
     private CancellationTokenSource? _loadCts;
     private CancellationTokenSource? _coverCts;
@@ -1149,7 +1178,9 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
 
             await _runOnUiAsync(() =>
             {
-                _allSidebarNodes = sidebarNodes;
+                // 沿用內容沒變的節點，側欄清單用差量同步：重整後節點沒變時，側欄上的按鈕完全不重建
+                var nodes = MergeSidebarNodes(_allSidebarNodes, sidebarNodes);
+                _allSidebarNodes = nodes;
                 ApplySidebarFilterOnUi();
 
                 if (mode == GallerySidebarMode.Folders)
@@ -1158,17 +1189,26 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
                     {
                         CurrentFolderPath = curFolder;
                     }
-                    else if (sidebarNodes.Count > 0 && !string.IsNullOrWhiteSpace(sidebarNodes[0].FolderPath))
+                    else if (nodes.Count > 0 && !string.IsNullOrWhiteSpace(nodes[0].FolderPath))
                     {
-                        CurrentFolderPath = sidebarNodes[0].FolderPath!;
+                        CurrentFolderPath = nodes[0].FolderPath!;
                     }
                     RebuildBreadcrumbsOnUi();
                 }
                 else
                 {
-                    if (SelectedSidebarNode == null || !sidebarNodes.Any(n => n.Key == SelectedSidebarNode.Key))
+                    var selectedKey = SelectedSidebarNode?.Key;
+                    var match = selectedKey == null
+                        ? null
+                        : nodes.FirstOrDefault(n => string.Equals(n.Key, selectedKey, StringComparison.Ordinal));
+                    if (match == null)
                     {
-                        SelectSidebarNodeInternal(sidebarNodes.FirstOrDefault(), reloadItems: false);
+                        SelectSidebarNodeInternal(nodes.FirstOrDefault(), reloadItems: false);
+                    }
+                    else
+                    {
+                        // 原本選取的節點還在：改指向清單中的節點並恢復高亮（重建的節點預設未選取）
+                        ApplySidebarSelection(match);
                     }
                 }
             }).ConfigureAwait(false);
@@ -1238,9 +1278,16 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
                 return;
             }
 
+            // 同一個範圍（同資料夾 / 同側欄節點 / 同搜尋）重新載入：沿用沒變的項目、保留捲動位置
+            string scopeKey = BuildScopeKey(dsl, mode, curFolder, selectedNode);
+            bool sameScope = string.Equals(scopeKey, _loadedScopeKey, StringComparison.OrdinalIgnoreCase);
+            _loadedScopeKey = scopeKey;
+
             ScopeTitle = payload.Title;
             ScopeSubtitle = payload.Subtitle;
-            _allRawItems = payload.Items;
+            _allRawItems = sameScope
+                ? MergeWithExistingItems(_allRawItems, payload.Items)
+                : payload.Items;
 
             var recVms = payload.Recommendations
                 .Select(r => new GalleryFuzzyRecommendationVm(r, OnApplyFuzzyRecommendation))
@@ -1252,9 +1299,74 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
             OnPropertyChanged(nameof(CanNavigateUpFolder));
 
             RebuildBreadcrumbsOnUi();
-            ApplyFilterAndSortOnUi(resetScroll: true);
+            ApplyFilterAndSortOnUi(resetScroll: !sameScope);
             IsLoading = false;
         }).ConfigureAwait(false);
+    }
+
+    /// <summary>目前範圍的識別字串：搜尋優先，其次資料夾模式的目前資料夾，或側欄選取的節點。</summary>
+    private static string BuildScopeKey(string dsl, GallerySidebarMode mode, string? curFolder, GalleryNavNodeVm? selectedNode)
+    {
+        if (!string.IsNullOrWhiteSpace(dsl))
+        {
+            return $"dsl|{dsl}";
+        }
+
+        return mode == GallerySidebarMode.Folders
+            ? $"folder|{NormalizePathOrEmpty(curFolder)}"
+            : $"{mode}|{selectedNode?.Key}";
+    }
+
+    /// <summary>
+    /// 同一範圍重新載入時，把新查到的項目與畫面上的舊項目依路徑比對（需在 UI 執行緒呼叫）：
+    /// <list type="bullet">
+    /// <item>內容完全相同：直接沿用舊項目（封面、選取狀態、清單上的卡片都不動）。</item>
+    /// <item>內容有變（例如讀完、改了標題）：用新項目，但縮圖相同時先沿用舊封面，並接手選取狀態與詳情抽屜。</item>
+    /// </list>
+    /// </summary>
+    private IReadOnlyList<GalleryItemVm> MergeWithExistingItems(
+        IReadOnlyList<GalleryItemVm> existingItems,
+        IReadOnlyList<GalleryItemVm> freshItems)
+    {
+        if (existingItems.Count == 0 || freshItems.Count == 0)
+        {
+            return freshItems;
+        }
+
+        var existingByPath = new Dictionary<string, GalleryItemVm>(existingItems.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var item in existingItems)
+        {
+            existingByPath.TryAdd(item.Path, item);
+        }
+
+        var merged = new List<GalleryItemVm>(freshItems.Count);
+        foreach (var fresh in freshItems)
+        {
+            if (!existingByPath.TryGetValue(fresh.Path, out var existing))
+            {
+                merged.Add(fresh);
+                continue;
+            }
+
+            if (existing.HasSameContent(fresh))
+            {
+                merged.Add(existing);
+                continue;
+            }
+
+            fresh.CoverSlot.TryAdoptImageFrom(existing.CoverSlot);
+            if (ReferenceEquals(_selectedGalleryItem, existing))
+            {
+                existing.IsSelected = false;
+                fresh.IsSelected = true;
+                _selectedGalleryItem = fresh;
+            }
+
+            DetailDrawer.RetargetItem(existing, fresh);
+            merged.Add(fresh);
+        }
+
+        return merged;
     }
 
     private (string Title, string Subtitle, IReadOnlyList<GalleryItemVm> Items, IReadOnlyList<SearchRecommendation> Recommendations)
@@ -1682,7 +1794,7 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
         var kw = SidebarFilterText?.Trim();
         if (string.IsNullOrEmpty(kw))
         {
-            SidebarNodes.ReplaceAll(_allSidebarNodes);
+            SidebarNodes.SyncTo(_allSidebarNodes);
             return;
         }
 
@@ -1690,7 +1802,58 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
             .Where(n => n.DisplayName.Contains(kw, StringComparison.OrdinalIgnoreCase)
                         || n.SubText.Contains(kw, StringComparison.OrdinalIgnoreCase))
             .ToList();
-        SidebarNodes.ReplaceAll(filtered);
+        SidebarNodes.SyncTo(filtered);
+    }
+
+    /// <summary>
+    /// 重建側欄節點時沿用內容相同的舊節點（需在 UI 執行緒呼叫）。
+    /// 沿用的節點接手新節點的選取狀態（資料夾模式依目前資料夾決定）；其他模式的選取之後再補。
+    /// </summary>
+    private static IReadOnlyList<GalleryNavNodeVm> MergeSidebarNodes(
+        IReadOnlyList<GalleryNavNodeVm> existingNodes,
+        IReadOnlyList<GalleryNavNodeVm> freshNodes)
+    {
+        if (existingNodes.Count == 0 || freshNodes.Count == 0)
+        {
+            return freshNodes;
+        }
+
+        var existingByKey = new Dictionary<string, GalleryNavNodeVm>(existingNodes.Count, StringComparer.Ordinal);
+        foreach (var node in existingNodes)
+        {
+            existingByKey.TryAdd(node.Key, node);
+        }
+
+        var merged = new List<GalleryNavNodeVm>(freshNodes.Count);
+        foreach (var fresh in freshNodes)
+        {
+            if (existingByKey.TryGetValue(fresh.Key, out var existing) && existing.HasSameContent(fresh))
+            {
+                existing.IsSelected = fresh.IsSelected;
+                merged.Add(existing);
+            }
+            else
+            {
+                merged.Add(fresh);
+            }
+        }
+
+        return merged;
+    }
+
+    /// <summary>只更新側欄選取與高亮，不觸發重新載入或詳情抽屜。</summary>
+    private void ApplySidebarSelection(GalleryNavNodeVm node)
+    {
+        if (!ReferenceEquals(SelectedSidebarNode, node))
+        {
+            SelectedSidebarNode = node;
+            OnPropertyChanged(nameof(CanDeleteSelectedVirtualLibrary));
+        }
+
+        foreach (var item in _allSidebarNodes)
+        {
+            item.IsSelected = ReferenceEquals(item, node);
+        }
     }
 
     private void OnSidebarNodeClicked(GalleryNavNodeVm node)
@@ -1794,20 +1957,23 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
 
         filtered.Sort((a, b) => GallerySortFilterHelper.Compare(a.SortMetadata, b.SortMetadata, sortField, desc));
 
-        // 清單已虛擬化（只建立畫面附近的卡片），所以一次把全部結果放進去，不再分批載入
+        // 清單已虛擬化（只建立畫面附近的卡片），所以一次把全部結果放進去，不再分批載入。
+        // 用差量同步：內容沒變時不發通知、少量變動逐筆更新，清單上其他卡片不會被拆掉重建
         _allFilteredSortedItems = filtered;
-        Items.ReplaceAll(filtered);
+        Items.SyncTo(filtered);
 
         NotifyGalleryMetricsChanged();
 
         if (resetScroll)
         {
             ScrollResetRequested?.Invoke();
-        }
 
-        if (filtered.Count > 0)
-        {
-            StartCoverPreload(filtered, Math.Min(filtered.Count, CoverPreloadBatchSize), cancelPrevious: true);
+            // 只有回到頂端時才預載最前面的封面；保留捲動位置時，畫面上的卡片由虛擬化清單自行載入，
+            // 預載畫面外的項目反而會留下不會被回收佇列管理的封面
+            if (filtered.Count > 0)
+            {
+                StartCoverPreload(filtered, Math.Min(filtered.Count, CoverPreloadBatchSize), cancelPrevious: true);
+            }
         }
     }
 

@@ -187,6 +187,21 @@ public sealed partial class ReadingWorkItemVm : ViewModelBase
         CancellationToken ct = default)
         => CoverSlot.EnsureLoadedAsync(coverService, limiter, _runOnUiAsync, ct);
 
+    /// <summary>顯示內容是否完全相同；重整時相同的項目直接沿用舊的（保留封面、清單上的卡片不重建）。</summary>
+    public bool HasSameContent(ReadingWorkItemVm other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        return string.Equals(Path, other.Path, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(Title, other.Title, StringComparison.Ordinal)
+            && string.Equals(AuthorName, other.AuthorName, StringComparison.Ordinal)
+            && string.Equals(CoverSlot.ThumbKey, other.CoverSlot.ThumbKey, StringComparison.Ordinal)
+            && PageCount == other.PageCount
+            && LastPage == other.LastPage
+            && ReadStatus == other.ReadStatus
+            && ReadCount == other.ReadCount
+            && string.Equals(TimestampText, other.TimestampText, StringComparison.Ordinal);
+    }
+
     private static string FormatDate(long? rawTs)
     {
         if (rawTs is not > 0)
@@ -244,6 +259,19 @@ public sealed class ReadingRankEntryVm
     public string DslQuery { get; }
 
     public IRelayCommand OpenInGalleryCommand { get; }
+
+    /// <summary>顯示內容是否完全相同；重整時相同的排行列直接沿用舊的。</summary>
+    public bool HasSameContent(ReadingRankEntryVm other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        return Rank == other.Rank
+            && string.Equals(Icon, other.Icon, StringComparison.Ordinal)
+            && string.Equals(Title, other.Title, StringComparison.Ordinal)
+            && string.Equals(SubText, other.SubText, StringComparison.Ordinal)
+            && TotalReads == other.TotalReads
+            && RatioPercent.Equals(other.RatioPercent)
+            && string.Equals(DslQuery, other.DslQuery, StringComparison.Ordinal);
+    }
 }
 
 /// <summary>
@@ -463,26 +491,31 @@ public sealed partial class ReadingTrackPageViewModel : ViewModelBase, IDisposab
                     return;
                 }
 
-                InProgressWorks.ReplaceAll(payload.InProgress);
-                _recentlyReadItems = payload.RecentlyRead;
-                _recentlyAddedItems = payload.RecentlyAdded;
-                _completedItems = payload.Completed;
+                // 沿用內容沒變的項目（保留封面），各清單用差量同步，畫面上的卡片不會被拆掉重建；
+                // 內容有變的項目（例如剛讀完而換清單）先沿用同一作品已載入的封面
+                var coverSources = BuildCoverSourceMap();
+                var inProgress = MergeWorkItems(InProgressWorks.ToList(), payload.InProgress, coverSources);
+                _recentlyReadItems = MergeWorkItems(_recentlyReadItems, payload.RecentlyRead, coverSources);
+                _recentlyAddedItems = MergeWorkItems(_recentlyAddedItems, payload.RecentlyAdded, coverSources);
+                _completedItems = MergeWorkItems(_completedItems, payload.Completed, coverSources);
+                InProgressWorks.SyncTo(inProgress);
 
-                InProgressCount = payload.InProgress.Count;
-                RecentlyReadCount = payload.RecentlyRead.Count;
-                RecentlyAddedCount = payload.RecentlyAdded.Count;
-                CompletedCount = payload.Completed.Count;
+                InProgressCount = inProgress.Count;
+                RecentlyReadCount = _recentlyReadItems.Count;
+                RecentlyAddedCount = _recentlyAddedItems.Count;
+                CompletedCount = _completedItems.Count;
 
-                TopAuthors.ReplaceAll(payload.TopAuthors);
-                TopTags.ReplaceAll(payload.TopTags);
+                TopAuthors.SyncTo(MergeRankEntries(TopAuthors.ToList(), payload.TopAuthors));
+                TopTags.SyncTo(MergeRankEntries(TopTags.ToList(), payload.TopTags));
 
-                ApplyActiveTabSliceOnUi();
+                // 重整時保留已按「載入更多」展開的筆數
+                ApplyActiveTabSliceOnUi(keepExpandedCount: true);
                 OnPropertyChanged(nameof(HasInProgressWorks));
                 OnPropertyChanged(nameof(HasTopAuthors));
                 OnPropertyChanged(nameof(HasTopTags));
                 IsLoading = false;
 
-                var toWarm = payload.InProgress.Take(12).Concat(ActiveRecordWorks.Take(12)).ToList();
+                var toWarm = inProgress.Take(12).Concat(ActiveRecordWorks.Take(12)).ToList();
                 if (toWarm.Count > 0)
                 {
                     StartCoverPreload(toWarm, toWarm.Count, cancelPrevious: true);
@@ -647,18 +680,94 @@ public sealed partial class ReadingTrackPageViewModel : ViewModelBase, IDisposab
         _ => _recentlyReadItems,
     };
 
-    private void ApplyActiveTabSliceOnUi()
+    /// <param name="keepExpandedCount">
+    /// <c>true</c>：保留目前展開的筆數（重整用）；<c>false</c>：收回初始筆數（切換分頁用）。
+    /// </param>
+    private void ApplyActiveTabSliceOnUi(bool keepExpandedCount = false)
     {
-        _visibleRecordLimit = InitialTabSliceSize;
+        if (!keepExpandedCount)
+        {
+            _visibleRecordLimit = InitialTabSliceSize;
+        }
+
         var source = GetActiveTabSourceList();
         var slice = source.Take(_visibleRecordLimit).ToList();
-        ActiveRecordWorks.ReplaceAll(slice);
+        ActiveRecordWorks.SyncTo(slice);
         NotifyRecordTabMetrics();
 
         if (slice.Count > 0)
         {
             StartCoverPreload(slice, Math.Min(slice.Count, 18), cancelPrevious: false);
         }
+    }
+
+    /// <summary>目前所有清單中已載入封面的項目，依路徑索引（供內容有變的新項目沿用封面）。</summary>
+    private Dictionary<string, ReadingWorkItemVm> BuildCoverSourceMap()
+    {
+        var map = new Dictionary<string, ReadingWorkItemVm>(StringComparer.OrdinalIgnoreCase);
+        foreach (var list in new IEnumerable<ReadingWorkItemVm>[] { InProgressWorks, _recentlyReadItems, _recentlyAddedItems, _completedItems })
+        {
+            foreach (var item in list)
+            {
+                if (item.HasCover1)
+                {
+                    map.TryAdd(item.Path, item);
+                }
+            }
+        }
+
+        return map;
+    }
+
+    /// <summary>
+    /// 依路徑比對同一清單的新舊項目：內容相同的沿用舊項目；其餘用新項目，並沿用同一作品已載入的封面。
+    /// </summary>
+    private static List<ReadingWorkItemVm> MergeWorkItems(
+        IReadOnlyList<ReadingWorkItemVm> existingItems,
+        IReadOnlyList<ReadingWorkItemVm> freshItems,
+        IReadOnlyDictionary<string, ReadingWorkItemVm> coverSources)
+    {
+        var existingByPath = new Dictionary<string, ReadingWorkItemVm>(existingItems.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var item in existingItems)
+        {
+            existingByPath.TryAdd(item.Path, item);
+        }
+
+        var merged = new List<ReadingWorkItemVm>(freshItems.Count);
+        foreach (var fresh in freshItems)
+        {
+            if (existingByPath.Remove(fresh.Path, out var existing) && existing.HasSameContent(fresh))
+            {
+                merged.Add(existing);
+                continue;
+            }
+
+            if (coverSources.TryGetValue(fresh.Path, out var source))
+            {
+                fresh.CoverSlot.TryAdoptImageFrom(source.CoverSlot);
+            }
+
+            merged.Add(fresh);
+        }
+
+        return merged;
+    }
+
+    /// <summary>依名次比對排行列：內容相同的沿用舊列。</summary>
+    private static List<ReadingRankEntryVm> MergeRankEntries(
+        IReadOnlyList<ReadingRankEntryVm> existingEntries,
+        IReadOnlyList<ReadingRankEntryVm> freshEntries)
+    {
+        var merged = new List<ReadingRankEntryVm>(freshEntries.Count);
+        for (int i = 0; i < freshEntries.Count; i++)
+        {
+            var fresh = freshEntries[i];
+            merged.Add(i < existingEntries.Count && existingEntries[i].HasSameContent(fresh)
+                ? existingEntries[i]
+                : fresh);
+        }
+
+        return merged;
     }
 
     private void NotifyRecordTabMetrics()

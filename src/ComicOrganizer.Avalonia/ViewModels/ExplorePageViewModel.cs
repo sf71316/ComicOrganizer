@@ -50,6 +50,9 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
     private IReadOnlyList<ExploreWorkItem> _allDrillDownRawWorks = Array.Empty<ExploreWorkItem>();
     private IReadOnlyList<ExploreWorkCardVm> _allFilteredDrillDownWorkVms = Array.Empty<ExploreWorkCardVm>();
     private ExploreCardSelection? _currentDrillDownSelection;
+
+    // 目前牆面對應的查詢範圍（頁籤 + 篩選條件，見 BuildWallScopeKey）；同一範圍重新載入時不捲回頂端
+    private string? _loadedWallScopeKey;
     private int _visibleWallCardLimit = InitialWallCardPageSize;
     private int _visibleDrillDownWorkLimit = InitialWallCardPageSize;
     private int _visiblePickerTagLimit = InitialPickerTagPageSize;
@@ -1392,6 +1395,7 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
             var options = BuildQueryOptions(selectedIdsSnapshot);
             var mainTab = SelectedMainTab;
             var subTab = SelectedThemeSubTab;
+            string scopeKey = BuildWallScopeKey(mainTab, subTab, options);
             var pickerOpen = IsTagPickerOpen;
             var needPickerTags = pickerOpen || (refreshPickerTags && selectedIdsSnapshot.Length > 0);
             var pickerKeyword = TagPickerSearchText;
@@ -1464,9 +1468,16 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
                     ApplyPickerTagsOnUi(payload.PickerTags);
                 }
 
-                initialVisibleCards = ApplyWallCardsOnUi(payload);
+                // 同一範圍重新載入（例如按重整）：沿用沒變的卡片、保留捲動位置；畫面上的卡片由虛擬化清單自行補封面
+                bool sameScope = string.Equals(scopeKey, _loadedWallScopeKey, StringComparison.Ordinal);
+                _loadedWallScopeKey = scopeKey;
+                var appliedCards = ApplyWallCardsOnUi(payload);
                 IsLoading = false;
-                ScrollResetRequested?.Invoke();
+                if (!sameScope)
+                {
+                    initialVisibleCards = appliedCards;
+                    ScrollResetRequested?.Invoke();
+                }
             }).ConfigureAwait(false);
 
             if (!ct.IsCancellationRequested && !_disposed && initialVisibleCards.Count > 0)
@@ -1571,58 +1582,154 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
 
     private IReadOnlyList<ExploreCardVmBase> ApplyWallCardsOnUi(WallSnapshotPayload payload)
     {
-        // 只清牆面卡片：牆面查詢可能在使用者已進入鑽取頁後才回來，不可取消鑽取頁卡片的封面載入
-        ClearRecycledAndRealizedCoverTracking(IsWallCard);
         IReadOnlyList<ExploreCardVmBase> preloadSlice = Array.Empty<ExploreCardVmBase>();
+
+        // 依卡片識別沿用內容沒變的卡片（保留封面、清單上的卡片不重建），清單用差量同步。
+        // 只清牆面上被丟掉的卡片的封面追蹤：牆面查詢可能在使用者已進入鑽取頁後才回來，不可取消鑽取頁卡片的封面載入；
+        // 沿用的卡片可能還在畫面上（差量同步不會重新建立它），也不可取消它的封面載入
+        var kept = new HashSet<ExploreCardVmBase>(ReferenceEqualityComparer.Instance);
 
         if (payload.AuthorCards != null)
         {
+            var all = MergeCardVms(
+                payload.AuthorCards,
+                _allAuthorCardVms,
+                kept,
+                static card => card.AuthorId,
+                static vm => vm.SourceCard,
+                ExploreContentEquality.SameAuthorCard,
+                card => new ExploreAuthorCardVm(card, OnCardSelected, _runOnUiAsync));
+
+            ClearRecycledAndRealizedCoverTracking(card => IsWallCard(card) && !kept.Contains(card));
             _allThemeCardVms = Array.Empty<ExploreThemeCardVm>();
             _allComboCardVms = Array.Empty<ExploreComboCardVm>();
             ThemeCards.Clear();
             ComboCards.Clear();
-
-            var all = payload.AuthorCards
-                .Select(card => new ExploreAuthorCardVm(card, OnCardSelected, _runOnUiAsync))
-                .ToList();
             _allAuthorCardVms = all;
             _visibleWallCardLimit = all.Count;
-            AuthorCards.ReplaceAll(all);
+            AuthorCards.SyncTo(all);
             preloadSlice = all.Take(CoverPreloadCount).ToList();
         }
         else if (payload.ThemeCards != null)
         {
+            var all = MergeCardVms(
+                payload.ThemeCards,
+                _allThemeCardVms,
+                kept,
+                static card => card.TagId,
+                static vm => vm.SourceCard,
+                ExploreContentEquality.SameThemeCard,
+                card => new ExploreThemeCardVm(card, OnCardSelected, _runOnUiAsync));
+
+            ClearRecycledAndRealizedCoverTracking(card => IsWallCard(card) && !kept.Contains(card));
             _allAuthorCardVms = Array.Empty<ExploreAuthorCardVm>();
             _allComboCardVms = Array.Empty<ExploreComboCardVm>();
             AuthorCards.Clear();
             ComboCards.Clear();
-
-            var all = payload.ThemeCards
-                .Select(card => new ExploreThemeCardVm(card, OnCardSelected, _runOnUiAsync))
-                .ToList();
             _allThemeCardVms = all;
             _visibleWallCardLimit = all.Count;
-            ThemeCards.ReplaceAll(all);
+            ThemeCards.SyncTo(all);
             preloadSlice = all.Take(CoverPreloadCount).ToList();
         }
         else if (payload.ComboCards != null)
         {
+            var all = MergeCardVms(
+                payload.ComboCards,
+                _allComboCardVms,
+                kept,
+                static card => (card.FirstTag.TagId, card.SecondTag.TagId),
+                static vm => vm.SourceCard,
+                ExploreContentEquality.SameComboCard,
+                card => new ExploreComboCardVm(card, OnCardSelected, _runOnUiAsync));
+
+            ClearRecycledAndRealizedCoverTracking(card => IsWallCard(card) && !kept.Contains(card));
             _allAuthorCardVms = Array.Empty<ExploreAuthorCardVm>();
             _allThemeCardVms = Array.Empty<ExploreThemeCardVm>();
             AuthorCards.Clear();
             ThemeCards.Clear();
-
-            var all = payload.ComboCards
-                .Select(card => new ExploreComboCardVm(card, OnCardSelected, _runOnUiAsync))
-                .ToList();
             _allComboCardVms = all;
             _visibleWallCardLimit = all.Count;
-            ComboCards.ReplaceAll(all);
+            ComboCards.SyncTo(all);
             preloadSlice = all.Take(CoverPreloadCount).ToList();
+        }
+        else
+        {
+            ClearRecycledAndRealizedCoverTracking(IsWallCard);
         }
 
         NotifyCardMetricsChanged();
         return preloadSlice;
+    }
+
+    /// <summary>
+    /// 依卡片識別（作者 / 標籤 / 標籤組合 / 作品路徑）比對新查到的資料與目前清單：
+    /// 內容完全相同的直接沿用舊卡片（保留封面）；內容有變的建立新卡片，但代表作相同的封面先沿用，畫面不會先退回佔位圖。
+    /// 沿用的卡片加入 <paramref name="kept"/>。
+    /// </summary>
+    private static List<TVm> MergeCardVms<TVm, TCard, TKey>(
+        IReadOnlyList<TCard> cards,
+        IReadOnlyList<TVm> existingVms,
+        HashSet<ExploreCardVmBase> kept,
+        Func<TCard, TKey> keyOf,
+        Func<TVm, TCard> sourceOf,
+        Func<TCard?, TCard?, bool> sameContent,
+        Func<TCard, TVm> create)
+        where TVm : ExploreCardVmBase
+        where TKey : notnull
+    {
+        var existingByKey = new Dictionary<TKey, TVm>(existingVms.Count);
+        foreach (var vm in existingVms)
+        {
+            existingByKey.TryAdd(keyOf(sourceOf(vm)), vm);
+        }
+
+        var result = new List<TVm>(cards.Count);
+        foreach (var card in cards)
+        {
+            if (!existingByKey.Remove(keyOf(card), out var existing))
+            {
+                result.Add(create(card));
+                continue;
+            }
+
+            if (sameContent(sourceOf(existing), card))
+            {
+                kept.Add(existing);
+                result.Add(existing);
+                continue;
+            }
+
+            var fresh = create(card);
+            AdoptCovers(fresh, existing);
+            result.Add(fresh);
+        }
+
+        return result;
+    }
+
+    /// <summary>新卡片沿用舊卡片已載入、且來源作品與縮圖相同的封面（依來源路徑配對）。</summary>
+    private static void AdoptCovers(ExploreCardVmBase fresh, ExploreCardVmBase existing)
+    {
+        foreach (var slot in fresh.CoverSlots)
+        {
+            foreach (var oldSlot in existing.CoverSlots)
+            {
+                if (string.Equals(slot.SourcePath, oldSlot.SourcePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    slot.TryAdoptImageFrom(oldSlot);
+                    break;
+                }
+            }
+        }
+    }
+
+    /// <summary>牆面查詢範圍的識別字串（頁籤 + 篩選條件 + 排序與亂數種子）。</summary>
+    private static string BuildWallScopeKey(ExploreMainTab mainTab, ExploreThemeCategory subTab, ExploreQueryOptions options)
+    {
+        string tagIds = options.SelectedTagIds is { Count: > 0 } ids
+            ? string.Join(",", ids.OrderBy(id => id))
+            : string.Empty;
+        return $"{mainTab}|{subTab}|{options.SearchText}|{tagIds}|{options.UnreadOnly}|{options.SortMode}|{options.RandomSeed}|{options.MaxCards}";
     }
 
     private List<ExploreCardVmBase> AppendSlice<T>(
@@ -1847,6 +1954,8 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
                     return;
                 }
 
+                // 重整同一個鑽取對象（RefreshAsync 傳入目前的選取）：沿用沒變的作品卡、保留捲動位置
+                bool sameDrillDown = IsDrillDownMode && ReferenceEquals(_currentDrillDownSelection, selection);
                 _currentDrillDownSelection = selection;
                 _allDrillDownRawWorks = works;
 
@@ -1863,7 +1972,7 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
                                           && selection.TagIds is { Count: > 0 };
                 DrillDownSubtitle = BuildDrillDownSubtitle(selection, works.Count);
                 IsDrillDownMode = true;
-                RebuildDrillDownWorksOnUi(resetScroll: true);
+                RebuildDrillDownWorksOnUi(resetScroll: !sameDrillDown);
                 IsLoading = false;
             }).ConfigureAwait(false);
         }
@@ -1933,25 +2042,33 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
             _ => filteredList,
         };
 
-        var vms = ordered
-            .Select(w => new ExploreWorkCardVm(w, OpenWork, RevealWorkInExplorer, _runOnUiAsync, OpenWorkExternal))
-            .ToList();
+        // 依路徑沿用內容沒變的作品卡（篩選、排序、重整時都保留已載入的封面），清單用差量同步
+        var kept = new HashSet<ExploreCardVmBase>(ReferenceEqualityComparer.Instance);
+        var vms = MergeCardVms(
+            ordered.ToList(),
+            _allFilteredDrillDownWorkVms,
+            kept,
+            static work => work.Path.ToUpperInvariant(),
+            static vm => vm.SourceWork,
+            ExploreContentEquality.SameWork,
+            w => new ExploreWorkCardVm(w, OpenWork, RevealWorkInExplorer, _runOnUiAsync, OpenWorkExternal));
 
-        // 只清鑽取頁卡片：進入鑽取時被回收的牆面卡片留在回收佇列，照常依保留上限放掉封面
-        ClearRecycledAndRealizedCoverTracking(IsDrillDownCard);
+        // 只清鑽取頁上被丟掉的卡片：進入鑽取時被回收的牆面卡片留在回收佇列，照常依保留上限放掉封面
+        ClearRecycledAndRealizedCoverTracking(card => IsDrillDownCard(card) && !kept.Contains(card));
         _allFilteredDrillDownWorkVms = vms;
         _visibleDrillDownWorkLimit = vms.Count;
-        DrillDownWorks.ReplaceAll(vms);
+        DrillDownWorks.SyncTo(vms);
         NotifyCardMetricsChanged();
 
         if (resetScroll)
         {
             ScrollResetRequested?.Invoke();
-        }
 
-        if (vms.Count > 0)
-        {
-            StartCoverPreload(vms, CoverPreloadCount, forDrillDown: true);
+            // 只有回到頂端時才預載最前面的封面（保留捲動位置時，預載畫面外的卡片會留下不受回收佇列管理的封面）
+            if (vms.Count > 0)
+            {
+                StartCoverPreload(vms, CoverPreloadCount, forDrillDown: true);
+            }
         }
     }
 

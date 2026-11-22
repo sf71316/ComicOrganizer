@@ -1,0 +1,114 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:suki="https://github.com/kikipoulet/SukiUI"
+             x:Class="ComicOrganizer.Avalonia.Views.Controls.GalleryListRowControl">
+
+  <!-- 畫廊詳細列表的一列：外觀與原本的列表範本相同，但完全不使用 XAML 繫結（值由程式碼設定，見 GalleryItemControlBase） -->
+  <suki:GlassCard x:Name="RootCard"
+                  Classes="gallery-item-card"
+                  CornerRadius="11"
+                  Padding="10,7"
+                  Margin="0,0,0,6">
+    <suki:GlassCard.ContextMenu>
+      <ContextMenu>
+        <MenuItem Header="📖 以內建閱讀器開啟" Click="OnOpenInReaderClick" />
+        <MenuItem Header="↗ 以外部預設程式開啟" Click="OnOpenExternalClick" />
+        <MenuItem Header="ℹ 查看 / 編輯詳細資訊" Click="OnInspectDetailClick" />
+        <MenuItem Header="📂 在檔案總管中顯示" Click="OnRevealInExplorerClick" />
+      </ContextMenu>
+    </suki:GlassCard.ContextMenu>
+    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10">
+
+      <!-- 迷你縮圖 -->
+      <Border Grid.Column="0"
+              Width="44"
+              Height="58"
+              CornerRadius="6"
+              ClipToBounds="True"
+              Background="#18808080">
+        <Grid>
+          <Border x:Name="AccentBorder"
+                  Opacity="0.22" />
+          <TextBlock x:Name="FallbackGlyphText"
+                     FontSize="18"
+                     HorizontalAlignment="Center"
+                     VerticalAlignment="Center" />
+          <Image x:Name="CoverImage"
+                 Classes="gallery-cover-fade"
+                 IsVisible="False"
+                 Stretch="UniformToFill" />
+        </Grid>
+      </Border>
+
+      <!-- 標題與作者副標 -->
+      <Button x:Name="ActivateButton"
+              Grid.Column="1"
+              Classes="Basic"
+              Padding="0"
+              HorizontalAlignment="Stretch"
+              HorizontalContentAlignment="Left"
+              Click="OnActivateClick">
+        <StackPanel Spacing="2" VerticalAlignment="Center">
+          <TextBlock x:Name="TitleText"
+                     FontSize="13.5"
+                     FontWeight="SemiBold"
+                     TextTrimming="CharacterEllipsis" />
+          <TextBlock x:Name="SubtitleText"
+                     FontSize="11.5"
+                     Opacity="0.65"
+                     TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+      </Button>
+
+      <!-- 狀態徽章 -->
+      <Border Grid.Column="2"
+              CornerRadius="6"
+              Background="#1A808080"
+              Padding="8,3"
+              VerticalAlignment="Center">
+        <TextBlock x:Name="TypeBadgeText"
+                   FontSize="11"
+                   FontWeight="Medium" />
+      </Border>
+
+      <!-- 大小 -->
+      <TextBlock x:Name="SizeText"
+                 Grid.Column="3"
+                 Width="72"
+                 FontSize="11.5"
+                 Opacity="0.7"
+                 TextAlignment="Right"
+                 VerticalAlignment="Center" />
+
+      <!-- 修改日期 -->
+      <TextBlock x:Name="ModifiedText"
+                 Grid.Column="4"
+                 Width="82"
+                 FontSize="11.5"
+                 Opacity="0.62"
+                 TextAlignment="Right"
+                 VerticalAlignment="Center" />
+
+      <!-- 詳情抽屜按鈕 -->
+      <Button Grid.Column="5"
+              Classes="Outlined"
+              Padding="8,4"
+              Click="OnInspectDetailClick"
+              VerticalAlignment="Center"
+              ToolTip.Tip="在右側抽屜查看或編輯詳細資訊">
+        <TextBlock Text="ℹ" FontSize="12" FontWeight="SemiBold" />
+      </Button>
+
+      <!-- 檔案總管定位 -->
+      <Button Grid.Column="6"
+              Classes="Outlined"
+              Padding="8,4"
+              Click="OnRevealInExplorerClick"
+              VerticalAlignment="Center"
+              ToolTip.Tip="在檔案總管中顯示">
+        <TextBlock Text="📂" FontSize="12" />
+      </Button>
+
+    </Grid>
+  </suki:GlassCard>
+</UserControl>

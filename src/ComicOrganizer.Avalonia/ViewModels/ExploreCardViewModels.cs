@@ -55,6 +55,141 @@ public sealed class BatchObservableCollection<T> : ObservableCollection<T>
             startIndex));
     }
 
+    /// <summary>
+    /// 把清單內容同步成 <paramref name="target"/>（以參考相等比對項目），盡量只發出逐筆通知：
+    /// <list type="bullet">
+    /// <item>內容與順序完全相同：不發任何通知（重整後資料沒變時，清單上的卡片完全不動）。</item>
+    /// <item>少量增刪或移動：逐筆 Remove / Insert / Move，虛擬化清單只處理受影響的卡片。</item>
+    /// <item>變動很多（例如換排序）：改發一次 Reset，比逐筆通知便宜。</item>
+    /// </list>
+    /// 目標清單不可有重複項目。
+    /// </summary>
+    /// <returns>是否改用 Reset（整批替換）。</returns>
+    public bool SyncTo(IReadOnlyList<T> target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        CheckReentrancy();
+
+        if (IsSameSequence(target))
+        {
+            return false;
+        }
+
+        var comparer = ReferenceEqualityComparer.Instance;
+        var targetSet = new HashSet<object?>(target.Count, comparer);
+        foreach (var item in target)
+        {
+            targetSet.Add(item);
+        }
+
+        int removeCount = 0;
+        var currentSet = new HashSet<object?>(Items.Count, comparer);
+        foreach (var item in Items)
+        {
+            currentSet.Add(item);
+            if (!targetSet.Contains(item))
+            {
+                removeCount++;
+            }
+        }
+
+        int insertCount = 0;
+        foreach (var item in target)
+        {
+            if (!currentSet.Contains(item))
+            {
+                insertCount++;
+            }
+        }
+
+        int budget = Math.Max(SyncMinOperationBudget, Math.Max(Items.Count, target.Count) / 8);
+        if (removeCount + insertCount > budget)
+        {
+            ReplaceAll(target);
+            return true;
+        }
+
+        // 1. 移除不在目標中的項目（由後往前，索引不受影響）
+        for (int i = Items.Count - 1; i >= 0 && removeCount > 0; i--)
+        {
+            if (!targetSet.Contains(Items[i]))
+            {
+                RemoveAt(i);
+                removeCount--;
+            }
+        }
+
+        // 2. 依目標順序逐位置對齊：已存在的移過來，新項目插入
+        int operations = 0;
+        for (int i = 0; i < target.Count; i++)
+        {
+            var wanted = target[i];
+            if (i < Count && ReferenceEquals(Items[i], wanted))
+            {
+                continue;
+            }
+
+            if (++operations > budget)
+            {
+                // 順序差異太大（例如換排序）：剩下的改一次 Reset
+                ReplaceAll(target);
+                return true;
+            }
+
+            int existing = currentSet.Contains(wanted) ? IndexOfReference(wanted, i + 1) : -1;
+            if (existing >= 0)
+            {
+                Move(existing, i);
+            }
+            else
+            {
+                Insert(i, wanted);
+            }
+        }
+
+        // 3. 理論上不會有多出來的尾端項目；保險起見截掉
+        while (Count > target.Count)
+        {
+            RemoveAt(Count - 1);
+        }
+
+        return false;
+    }
+
+    // 逐筆通知的最低次數上限；超過「上限與總數 1/8 取大者」就改用一次 Reset
+    private const int SyncMinOperationBudget = 64;
+
+    private bool IsSameSequence(IReadOnlyList<T> target)
+    {
+        if (Items.Count != target.Count)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < target.Count; i++)
+        {
+            if (!ReferenceEquals(Items[i], target[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private int IndexOfReference(T item, int startIndex)
+    {
+        for (int i = startIndex; i < Items.Count; i++)
+        {
+            if (ReferenceEquals(Items[i], item))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
     private void RaiseResetNotifications()
     {
         OnPropertyChanged(new PropertyChangedEventArgs("Count"));
@@ -253,6 +388,29 @@ public sealed partial class CoverSlotVm : ObservableObject
             _inflightTask = LoadCoreAsync(coverService, concurrencyLimiter, runOnUiAsync, ct);
             return _inflightTask;
         }
+    }
+
+    /// <summary>
+    /// 重整時沿用舊項目已載入的封面（需在 UI 執行緒呼叫）：來源路徑、縮圖 key 與解碼尺寸都相同才沿用，
+    /// 新項目一建立就有封面，畫面不會先退回佔位圖再重新補圖。點陣圖由 <see cref="SkiaCoverService"/> 管理生命週期，
+    /// 兩個項目共用同一個參考是安全的（放掉封面只清參考、不 Dispose）。
+    /// </summary>
+    /// <returns>是否已沿用。</returns>
+    public bool TryAdoptImageFrom(CoverSlotVm? other)
+    {
+        if (other?.Image is not { } image
+            || Image != null
+            || !string.Equals(SourcePath, other.SourcePath, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(ThumbKey, other.ThumbKey, StringComparison.Ordinal)
+            || !Equals(DecodeDipSize, other.DecodeDipSize))
+        {
+            return false;
+        }
+
+        _imageWanted = true;
+        _completed = true;
+        Image = image;
+        return true;
     }
 
     /// <summary>

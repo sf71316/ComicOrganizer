@@ -344,6 +344,26 @@ public sealed partial class GalleryDetailDrawerViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// 畫廊重整時，抽屜正在看的項目被換成同一路徑的新項目：只換參考讓封面同步跟著新項目，
+    /// 不重新載入抽屜內容（避免蓋掉使用者正在編輯的欄位）。
+    /// </summary>
+    public void RetargetItem(GalleryItemVm previous, GalleryItemVm replacement)
+    {
+        ArgumentNullException.ThrowIfNull(previous);
+        ArgumentNullException.ThrowIfNull(replacement);
+        if (!ReferenceEquals(_currentItem, previous))
+        {
+            return;
+        }
+
+        _currentItem = replacement;
+        if (replacement.Cover1 != null)
+        {
+            PreviewCover = replacement.Cover1;
+        }
+    }
+
     public void SyncCoverFromCurrentItem()
     {
         if (_currentItem != null)

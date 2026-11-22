@@ -289,13 +289,17 @@
                    FontSize="12"
                    Margin="0,0,0,8" />
 
-          <!-- 節點清單 -->
+          <!-- 節點清單（虛擬化：標籤模式近兩千個節點，只建立畫面附近的按鈕並回收重用）
+               外層 StableDataContextHost 擋掉 ItemsRepeater 回收時設的 null DataContext（見該控制項說明）。 -->
           <ScrollViewer Grid.Row="3"
                         HorizontalScrollBarVisibility="Disabled"
                         VerticalScrollBarVisibility="Auto">
-            <ItemsControl ItemsSource="{Binding SidebarNodes}">
-              <ItemsControl.ItemTemplate>
+            <ItemsRepeater x:Name="SidebarNodesRepeater"
+                           ItemsSource="{Binding SidebarNodes}"
+                           VerticalCacheLength="1">
+              <ItemsRepeater.ItemTemplate>
                 <DataTemplate x:DataType="vm:GalleryNavNodeVm">
+                  <controls:StableDataContextHost>
                   <Button Classes="Basic"
                           HorizontalAlignment="Stretch"
                           HorizontalContentAlignment="Stretch"
@@ -331,9 +335,10 @@
                       </Grid>
                     </Border>
                   </Button>
+                  </controls:StableDataContextHost>
                 </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
+              </ItemsRepeater.ItemTemplate>
+            </ItemsRepeater>
           </ScrollViewer>
 
         </Grid>
@@ -564,119 +569,8 @@
                 </ItemsRepeater.Layout>
                 <ItemsRepeater.ItemTemplate>
                   <DataTemplate x:DataType="vm:GalleryItemVm">
-                    <!-- 外層容器擋掉 ItemsRepeater 回收時設的 null DataContext，卡片直接換成新項目（見 StableDataContextHost） -->
-                    <controls:StableDataContextHost>
-                    <suki:GlassCard Classes="gallery-item-card"
-                                    Classes.selected="{Binding IsSelected}"
-                                    CornerRadius="11"
-                                    Padding="10,7"
-                                    Margin="0,0,0,6">
-                      <suki:GlassCard.ContextMenu>
-                        <ContextMenu>
-                          <MenuItem Header="📖 以內建閱讀器開啟" Command="{Binding OpenInReaderCommand}" />
-                          <MenuItem Header="↗ 以外部預設程式開啟" Command="{Binding OpenExternalCommand}" />
-                          <MenuItem Header="ℹ 查看 / 編輯詳細資訊" Command="{Binding InspectDetailCommand}" />
-                          <MenuItem Header="📂 在檔案總管中顯示" Command="{Binding RevealInExplorerCommand}" />
-                        </ContextMenu>
-                      </suki:GlassCard.ContextMenu>
-                      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10">
-
-                        <!-- 迷你縮圖 -->
-                        <Border Grid.Column="0"
-                                Width="44"
-                                Height="58"
-                                CornerRadius="6"
-                                ClipToBounds="True"
-                                Background="#18808080">
-                          <Grid>
-                            <Border IsVisible="{Binding !HasCover1}"
-                                    Background="{Binding AccentColorHex, Converter={StaticResource HexToBrushConverter}}"
-                                    Opacity="0.22" />
-                            <TextBlock IsVisible="{Binding !HasCover1}"
-                                       Text="{Binding FallbackGlyph}"
-                                       FontSize="18"
-                                       HorizontalAlignment="Center"
-                                       VerticalAlignment="Center" />
-                            <Image Classes="gallery-cover-fade"
-                                   IsVisible="{Binding HasCover1}"
-                                   Source="{Binding Cover1}"
-                                   Stretch="UniformToFill" />
-                          </Grid>
-                        </Border>
-
-                        <!-- 標題與作者副標 -->
-                        <Button Grid.Column="1"
-                                Classes="Basic"
-                                Padding="0"
-                                HorizontalAlignment="Stretch"
-                                HorizontalContentAlignment="Left"
-                                Command="{Binding ActivateCommand}"
-                                Cursor="Hand"
-                                ToolTip.Tip="{Binding PrimaryActionTooltip}">
-                          <StackPanel Spacing="2" VerticalAlignment="Center">
-                            <TextBlock Text="{Binding DisplayTitle}"
-                                       FontSize="13.5"
-                                       FontWeight="SemiBold"
-                                       TextTrimming="CharacterEllipsis" />
-                            <TextBlock Text="{Binding SubtitleText}"
-                                       FontSize="11.5"
-                                       Opacity="0.65"
-                                       TextTrimming="CharacterEllipsis" />
-                          </StackPanel>
-                        </Button>
-
-                        <!-- 狀態徽章 -->
-                        <Border Grid.Column="2"
-                                CornerRadius="6"
-                                Background="#1A808080"
-                                Padding="8,3"
-                                VerticalAlignment="Center">
-                          <TextBlock Text="{Binding TypeBadgeText}"
-                                     FontSize="11"
-                                     FontWeight="Medium" />
-                        </Border>
-
-                        <!-- 大小 -->
-                        <TextBlock Grid.Column="3"
-                                   Text="{Binding SizeDisplay}"
-                                   Width="72"
-                                   FontSize="11.5"
-                                   Opacity="0.7"
-                                   TextAlignment="Right"
-                                   VerticalAlignment="Center" />
-
-                        <!-- 修改日期 -->
-                        <TextBlock Grid.Column="4"
-                                   Text="{Binding ModifiedDisplay}"
-                                   Width="82"
-                                   FontSize="11.5"
-                                   Opacity="0.62"
-                                   TextAlignment="Right"
-                                   VerticalAlignment="Center" />
-
-                        <!-- 詳情抽屜按鈕 -->
-                        <Button Grid.Column="5"
-                                Classes="Outlined"
-                                Padding="8,4"
-                                Command="{Binding InspectDetailCommand}"
-                                VerticalAlignment="Center"
-                                ToolTip.Tip="在右側抽屜查看或編輯詳細資訊">
-                          <TextBlock Text="ℹ" FontSize="12" FontWeight="SemiBold" />
-                        </Button>
-
-                        <!-- 檔案總管定位 -->
-                        <Button Grid.Column="6"
-                                Classes="Outlined"
-                                Padding="8,4"
-                                Command="{Binding RevealInExplorerCommand}"
-                                VerticalAlignment="Center"
-                                ToolTip.Tip="在檔案總管中顯示">
-                          <TextBlock Text="📂" FontSize="12" />
-                        </Button>
-
-                      </Grid>
-                    </suki:GlassCard>
-                    </controls:StableDataContextHost>
+                    <!-- 零 XAML 繫結＋單一 PropertyChanged 訂閱的輕量列，直接填值並略過回收時的 null DataContext -->
+                    <controls:GalleryListRowControl />
                   </DataTemplate>
                 </ItemsRepeater.ItemTemplate>
               </ItemsRepeater>

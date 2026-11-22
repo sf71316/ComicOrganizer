@@ -148,6 +148,70 @@ public class GalleryCardTransitionTests
     }
 
     [Fact]
+    public void GalleryListRowControl_ShowsItem_RecyclesWithoutNullChurn_IsolatesInnerTree_AndReappliesOnReattach()
+    {
+        AvaloniaTestThread.Run(() =>
+        {
+            var row = new ComicOrganizer.Avalonia.Views.Controls.GalleryListRowControl();
+            var item1 = new GalleryItemVm(
+                new GalleryItemSortMetadata(@"E:\Comics\a.zip", "a.zip", "列表作品 A", false, 3 * 1024 * 1024, 1700000000000, ReadStatus.Reading, 1, null),
+                authorName: "作者甲",
+                coverThumbKey: null,
+                pageCount: 30,
+                language: "日文",
+                isAuthorFolder: false,
+                onActivate: _ => { },
+                onRevealInExplorer: _ => { });
+            var item2 = new GalleryItemVm(
+                new GalleryItemSortMetadata(@"E:\Comics\b.zip", "b.zip", "列表作品 B", false, 1024, 1710000000000, ReadStatus.Completed, 2, null),
+                authorName: null,
+                coverThumbKey: null,
+                pageCount: null,
+                language: null,
+                isAuthorFolder: false,
+                onActivate: _ => { },
+                onRevealInExplorer: _ => { });
+
+            var title = row.FindControl<TextBlock>("TitleText")!;
+            var badge = row.FindControl<TextBlock>("TypeBadgeText")!;
+            var size = row.FindControl<TextBlock>("SizeText")!;
+            var glyph = row.FindControl<TextBlock>("FallbackGlyphText")!;
+            var rootCard = row.FindControl<GlassCard>("RootCard")!;
+            object? innerContext = rootCard.DataContext;
+            int innerChanges = 0;
+            title.DataContextChanged += (_, _) => innerChanges++;
+
+            row.DataContext = item1;
+            Assert.Equal("列表作品 A", title.Text);
+            Assert.Equal(item1.TypeBadgeText, badge.Text);
+            Assert.Equal(item1.SizeDisplay, size.Text);
+            Assert.True(glyph.IsVisible);
+
+            // 回收設 null 不清空；重用換成 item2 直接覆蓋
+            row.DataContext = null;
+            Assert.Equal("列表作品 A", title.Text);
+            row.DataContext = item2;
+            Assert.Equal("列表作品 B", title.Text);
+            Assert.Equal(item2.TypeBadgeText, badge.Text);
+            Assert.Same(item2, row.BoundItem);
+
+            // 內部視覺樹固定使用本地 DataContext，外層變更沒有傳進去
+            Assert.NotNull(innerContext);
+            Assert.Same(innerContext, title.DataContext);
+            Assert.Equal(0, innerChanges);
+
+            // 選取外框即時更新；卸下期間的變更在掛回時補上
+            item2.IsSelected = true;
+            Assert.Contains("selected", rootCard.Classes);
+            row.HandleDetached();
+            item2.IsSelected = false;
+            Assert.Contains("selected", rootCard.Classes);
+            row.HandleAttached();
+            Assert.DoesNotContain("selected", rootCard.Classes);
+        });
+    }
+
+    [Fact]
     public void GalleryCardControl_Reattach_AppliesChangesMadeWhileDetached()
     {
         AvaloniaTestThread.Run(() =>
