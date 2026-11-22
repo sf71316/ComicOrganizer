@@ -178,6 +178,22 @@
    - 實測 `D:\ComicOrganizer` 拆解確認：1.4 GB .NET 垃圾主要來自無縮圖環境下 `SkiaCoverService` 現場解壓縮封面的 LOH `byte[]` 倍增配置（55 張即配置 230.87 MB）。
    - 已將 `.zip/.cbz` 優先改走 `System.IO.Compression.ZipFile` 並以 `ArrayPool<byte>.Shared` + `SKData.CreateCopy` 消除 `MemoryStream` 倍增與二次複製，同條件實測 .NET 配置量 `230.87 MB → 101.88 MB`（`-55.9%`）。
 
-7. **合併前清理**
+7. **重整／局部修改後「從上往下閃爍重繪」（畫廊、探索牆、閱讀軌跡共性問題）**
+   - 現象：在「漫畫庫畫廊」進入作品列表後點擊「↻ 重整」（或從內建閱讀器關閉、詳情抽屜儲存修改後自動刷新），畫面會清空重繪並由上往下逐張／逐列補回，且捲軸被強行拉回頂部。
+   - 根因（跨 3 頁共用同一問題）：
+     1. `GalleryPageViewModel.RefreshAsync()` → `ReloadAllAsync()` 與 `OnReaderClosedRefreshIfWritable()` / `OnDetailDrawerMutated()`（`GalleryPageViewModel.cs`）、`ExplorePageViewModel.RefreshAsync()`（`ExplorePageViewModel.cs`）、`ReadingTrackPageViewModel.RefreshAsync()`（`ReadingTrackPageViewModel.cs`）每次重整都建立整批全新項目 VM，**把畫面上已載入的封面 `Cover1`（或探索牆 `Cover1`–`Cover3`）全部歸空**，退回佔位圖後再靠背景 `SemaphoreSlim(4)` 由上往下逐張非同步補圖。
+     2. 一律呼叫 `BatchObservableCollection.ReplaceAll(...)`（`Clear` + `Add` × N + 發出 `NotifyCollectionChangedAction.Reset`），導致 `ItemsRepeater`（或 `ItemsControl`）拆掉所有已建立卡片／列再從 index 0 重新 `ElementPrepared` 與排版。
+     3. 同範圍刷新時仍觸發 `ScrollResetRequested`（`GalleryPageViewModel.cs` `ApplyFilterAndSortOnUi(resetScroll: true)`、`ExplorePageViewModel.cs`）跳回最上方；`ReadingTrackPageViewModel` 還會把已按「載入更多」展開的分頁收合回 `InitialTabSliceSize`。
+   - 改善方向（依優先順序）：
+     1. **畫廊（最高優先，已可作為範例推廣到探索牆與閱讀軌跡）**：重載時依 `Path` 比對既有 `_allRawItems`——所有顯示欄位與中繼資料未變者直接重用原 `GalleryItemVm`（保留 `Cover1` 與 `IsSelected`），有變動但 `ThumbKey` 未變者亦直接沿用原 `Bitmap` 作為初始預覽圖；更新 `Items` 時改用有序差量比對（完全相同則零通知、少數異動走單筆 `Replace`/增刪），且同檢視範圍重整時傳 `resetScroll: false` 保留捲動位置。另在非目錄模式下，`BuildSidebarNodes` 應保留 `SelectedSidebarNode` 的高亮狀態（現況重整會把所有新節點 `IsSelected` 設為 `false`）。
+     2. **探索牆（中高優先）**：`ExplorePageViewModel` 重整時對牆面卡片與鑽取作品重用未變動卡片 VM、沿用既有 `Bitmap`，差量同步 `AuthorCards` / `ThemeCards` / `ComboCards` / `DrillDownWorks`，同範圍不重設捲動位置。
+     3. **閱讀軌跡（中優先）**：`ReadingTrackPageViewModel`（`InProgressWorks`、`ActiveRecordWorks`、`TopAuthors`、`TopTags`）改以路徑重用未變動項目、保留封面與當前展開筆數，並考慮將 `ReadingTrackPageView.axaml` 作品清單改為虛擬化（`ItemsRepeater`）。
+
+8. **畫廊左側欄與詳細列表模式（`DetailListRepeater`）尚未跟進零繫結／虛擬化**
+   - `GalleryPageView.axaml` 中左側 `SidebarNodes`（作者數百筆／標籤近兩千筆）目前仍為**非虛擬化 `ItemsControl`**，重整呼叫 `SidebarNodes.ReplaceAll` 時會在 UI 執行緒同步銷毀重建大量按鈕。建議內容未變時跳過 `SidebarNodes.ReplaceAll`，並改用 `ItemsRepeater` + `StackLayout` 虛擬化。
+   - `DetailListRepeater`（`GalleryPageView.axaml`）仍使用 `StableDataContextHost` ＋ 約 18 個 XAML `{Binding}`（`CardGridRepeater` 已抽成零繫結＋隔離 `DataContext` 的 `GalleryCardControl`），切到列表模式捲動與重整時仍有完整重新繫結與 `ICommand` 訂閱成本，建議比照抽成零繫結 `GalleryListRowControl`。
+   - 備註：已一併盤點其餘頁面：`AutoArchivePageView.axaml`（`VisibleCandidates` 為非虛擬化 `ItemsControl` 但純文字無封面，僅大量掃描時影響低）、`DataManagementPageView.axaml`（主清單已用虛擬化 `ListBox`）、`VisualSearchPageView.axaml`（僅 Top-K 結果）皆無明顯重整閃爍問題。
+
+9. **合併前清理**
    - 移除暫時量測程式（見「一、量測方式」）。
    - 決定 Avalonia 12 升級評估的結論，以及是否合併回 `master`。
