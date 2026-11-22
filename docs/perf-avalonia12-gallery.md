@@ -108,6 +108,32 @@
 **已確認不是問題**
 - 4K「快速拖到底」後有 5 張卡片一直沒有封面：已確認是這 5 本的原始檔解不出封面，不是程式錯誤。
 
+### 審查後修正（2026-11-22）
+
+審查 `d6370d2`、`83fd816`（零繫結卡片、探索牆虛擬化、封面讀取降配置）時找到 5 個問題，已全部修正。每項都有測試，且確認修正前測試會失敗。
+
+| Commit | 問題 | 修法 |
+|---|---|---|
+| `4aeac70` | 探索牆從「單張」切回「疊牌」時，對整面牆全部卡片預載副封面，且無法取消（虛擬化後清單裝的是全部卡片） | 只替已建立的卡片補載，並沿用各卡片自己的取消權杖 |
+| `4aeac70` | 牆面查詢在進入鑽取頁後才回來時，會取消鑽取頁卡片的封面載入；進入鑽取頁時被回收的牆面卡片也會被遺忘、封面一直不放 | 封面追蹤只清被替換的那個清單（牆面 / 鑽取）；鑽取頁預載改用獨立取消來源 |
+| `4aeac70` | 卡片改成不包 `StableDataContextHost` 後，回收時的 null / 新項目 DataContext 會傳遍卡片內約 60 個子元件 | 卡片內部視覺樹固定使用一個本地 DataContext，外層變更只通知卡片本身 |
+| `6332af8` | 超過 64 MB 的單張圖片拿不到封面（改版前的 `SKData.Create(stream)` 沒有上限） | 只受單一陣列長度上限（約 2 GB）限制；緩衝區剛好讀滿時先試讀 1 byte，避免多配置兩倍緩衝區 |
+| `6332af8` | .NET `ZipFile` 不讀 Unicode 路徑附加欄位（0x7075），舊工具以 Shift-JIS / Big5 存的檔名會變成亂碼，可能選到和改版前不同的封面 | 條目名含亂碼（U+FFFD）時整檔交給 SharpCompress，結果與改版前一致 |
+| `19459b7` | 卡片卸下視覺樹期間退訂作品變更，掛回時沒重新套用，可能一直顯示舊封面或舊選取外框 | 掛回時重新訂閱並重新套用封面與選取狀態 |
+
+本機取樣（3,600 本、有縮圖、拖捲軸同一段約 8 秒）：
+
+| 項目 | `05e0339` | 同事版（`83fd816`） | `4aeac70` 之後 |
+|---|---|---|---|
+| UI 執行緒忙碌時間 | 910 ms | 735 ms | 524 ms |
+| 卡片換資料（重新繫結） | 307 ms | 67 ms | 96 ms |
+| 回收清空（`ClearElement`） | 11 ms | 141 ms | 22 ms |
+| 版面配置（`ItemsRepeater.MeasureOverride`） | 386 ms | 391 ms | 181 ms |
+
+- 每幀 UI 工作量（只跑 1 次，遠端桌面雜訊大，僅供參考）：快速拖 7.4 ms、極快往回 5.3 ms、慢速拖 4.1 ms。
+- 文字排版（`TextBlock.CreateTextLayout`）前後沒有明顯差異（約 86–90 ms）。
+- 已截圖確認：畫廊剛開時卡片內容正常；捲動後每張卡片的標題與封面一致。
+
 ---
 
 ## 三、待完成
@@ -121,7 +147,7 @@
 
    要確認：封面約 1 ms 就能載入時，背景 GC 有沒有把拖動後的原生記憶體壓下來，以及 GC 暫停是否可以接受。
 
-2. **卡片換資料（重新繫結）的成本（已實作，待 4K / 本機取樣驗證）**
+2. **卡片換資料（重新繫結）的成本（已實作，本機已驗證，待 4K 驗證）**
    - 修正 1 之後，回收的卡片換成另一本作品時，整張卡片重新繫結：本機取樣約 301 ms（拖動 8 秒），約佔 UI 執行緒忙碌時間（1,184 ms）的 25%，是目前拖動時最大的一塊。
    - 組成：每個繫結換來源並重新取值約 150 ms、退訂舊作品變更通知約 43 ms、訂閱新作品約 31 ms、文字排版失效。
    - 更正：先前把 `Animatable.OnPropertyChangedCore` 誤判為「轉場動畫約 360 ms」；真正的轉場動畫（`ClockBase.Pulse` + `TransitionInstance`）約 50–90 ms。
@@ -129,13 +155,15 @@
      - 卡片格網改為零 XAML 繫結的 `GalleryCardControl`：每張卡片由 24 個獨立 `{Binding}` 降為 0 個、24 次 `INotifyPropertyChanged` 退訂／訂閱降為 1 次（僅監聽 `Cover1`、`HasCover1`、`IsSelected`），7 顆按鈕／選單改由 Click 事件直連，並忽略回收時的 `null` `DataContext`。
      - 順手將每張卡片上 SukiUI 與封面的 39 條 `Transitions` 清零（`GlassCard` / `Button` / 模板 `Border`/`ContentPresenter`/`Viewbox` / 封面 `Image`）。
      - 修正 `StableDataContextHost` 在 `OnPropertyChanged` 搶先寫入 `child.DataContext` 導致 Avalonia 12 首次載入截斷 `EndUpdate`、未捲動前繫結不取值的問題（改於 `OnDataContextEndUpdate()` 之後鎖定）。
+   - 本機取樣：重新繫結 307 → 96 ms，UI 執行緒忙碌 910 → 524 ms（見「審查後修正」）。
 
-3. **文字排版成本（已實作，待 4K / 本機取樣驗證）**
+3. **文字排版成本（已實作；本機取樣看不出改善，待 4K 驗證）**
    - `TextBlock.CreateTextLayout` 在修正 1 之後仍約 208 ms（拖動 8 秒）。
    - 已處理：
      - 封面載入後隱藏佔位底色與 `FallbackGlyph`（`IsVisible="{Binding !HasCover1}"`），有縮圖時直接跳過 `FontSize=36` 佔位字元排版；
      - 標題 `StackPanel` 顯式綁定 `Width="{DynamicResource GalleryCardCoverWidth}"`，避免 `TextWrapping`/`TextTrimming` 在 Measure 與 Arrange 階段以不同寬度重算兩次 `TextLayout`；
      - `GalleryItemVm` 顯示字串（`PageCountText`、`SizeDisplay`、`ModifiedDisplay`、`SubtitleText`、`PrimaryActionTooltip`、`TypeBadgeText`）改為建構時快取，消除回收重用時的重複格式化與字串配置。
+   - 本機取樣（有縮圖）：`TextBlock.CreateTextLayout` 整段約 226 → 231 ms，沒有明顯差異。
 
 4. **快速拖到底的每幀成本**
    - 這種拖法每幀都跳過超過一個畫面，所以每幀要重建約 42 張卡片（約每張 60 個視覺節點）。
