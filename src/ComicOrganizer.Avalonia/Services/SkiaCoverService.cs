@@ -297,6 +297,64 @@ public sealed class SkiaCoverService : IDisposable
         }).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// 只查記憶體 LRU 快取（不讀磁碟、不解碼、不排隊），可在 UI 執行緒同步呼叫。
+    /// 查詢的 key 與 <see cref="LoadOrExtractCoverAsync"/> 存放的規則一致：有效縮圖 key 用 <c>thumb:</c>，否則用 <c>src:</c>；
+    /// 指定框大小時先查該大小，再查原尺寸（原圖比目標窄時會以原尺寸 key 存放）。
+    /// </summary>
+    public bool TryGetMemoryCachedCover(
+        string? sourcePath,
+        string? thumbKey,
+        CoverDecodeSize decodeSize,
+        out Bitmap? bitmap)
+    {
+        bitmap = null;
+        if (_disposed)
+        {
+            return false;
+        }
+
+        bool useThumbKey = IsValidThumbKey(thumbKey);
+        if (!useThumbKey && string.IsNullOrWhiteSpace(sourcePath))
+        {
+            return false;
+        }
+
+        string sizedKey = useThumbKey
+            ? BuildThumbCacheKey(thumbKey!, decodeSize)
+            : BuildSourceCacheKey(sourcePath!, decodeSize);
+        if (TryGetFromMemoryCache(sizedKey, out bitmap))
+        {
+            return bitmap != null;
+        }
+
+        if (!decodeSize.IsSpecified)
+        {
+            return false;
+        }
+
+        string originalKey = useThumbKey
+            ? BuildThumbCacheKey(thumbKey!, CoverDecodeSize.Original)
+            : BuildSourceCacheKey(sourcePath!, CoverDecodeSize.Original);
+        if (!TryGetFromMemoryCache(originalKey, out var original) || original == null)
+        {
+            bitmap = null;
+            return false;
+        }
+
+        // 只在「原圖不比所需寬」時沿用原尺寸那張（與非同步載入的存放規則一致）；
+        // 原尺寸那張比所需寬時，非同步載入會另外縮小解碼一張，這裡不拿大張的代替
+        var pixelSize = original.PixelSize;
+        if (ComputeEffectiveDecodeWidth(pixelSize.Width, pixelSize.Height, decodeSize) != 0)
+        {
+            bitmap = null;
+            return false;
+        }
+
+        bitmap = original;
+        return true;
+    }
+
     /// <summary>清空記憶體 LRU 快取強參考（不強制 Dispose，避免畫面上仍在顯示中的 Bitmap 失效拋例外）。</summary>
     public void ClearMemoryCache()
     {
@@ -1039,7 +1097,13 @@ public sealed class SkiaCoverService : IDisposable
         }
 
         var (originalWidth, originalHeight) = ReadImageSize(imageBytes);
-        if (originalWidth <= 0 || originalHeight <= 0)
+        return ComputeEffectiveDecodeWidth(originalWidth, originalHeight, decodeSize);
+    }
+
+    /// <summary>依原圖尺寸計算縮小解碼寬度；不需縮小（原圖不比所需寬）時回傳 0。</summary>
+    private static int ComputeEffectiveDecodeWidth(int originalWidth, int originalHeight, CoverDecodeSize decodeSize)
+    {
+        if (!decodeSize.IsSpecified || originalWidth <= 0 || originalHeight <= 0)
         {
             return 0;
         }

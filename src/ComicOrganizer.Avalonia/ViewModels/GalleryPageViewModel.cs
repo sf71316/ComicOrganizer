@@ -1,4 +1,5 @@
 ﻿using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using ComicOrganizer.App.Core;
 using ComicOrganizer.App.Models;
 using ComicOrganizer.Avalonia.Services;
@@ -1169,8 +1170,44 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
             var mode = SidebarMode;
             var rootDir = RootDirectory;
             var curFolder = string.IsNullOrWhiteSpace(CurrentFolderPath) ? rootDir : CurrentFolderPath;
+            string dsl = SearchBox.QueryText?.Trim() ?? string.Empty;
+            string? previousSelectedKey = SelectedSidebarNode?.Key;
 
-            var sidebarNodes = await Task.Run(() => BuildSidebarNodes(mode, rootDir, curFolder, ct), ct).ConfigureAwait(false);
+            // 背景一次算好側欄、要顯示的範圍與作品清單，UI 只套用一次：
+            // 側欄、麵包屑與作品清單在同一次更新完成，切換目錄時不會先換側欄、下一拍才換作品
+            var resolved = await Task.Run(() =>
+            {
+                var sidebarNodes = BuildSidebarNodes(mode, rootDir, curFolder, ct);
+                ct.ThrowIfCancellationRequested();
+
+                string scopeFolder = curFolder ?? string.Empty;
+                string? scopeNodeKey = null;
+                bool keepPreviousSelection = false;
+                GalleryNavNodeVm? scopeNode = null;
+                if (mode == GallerySidebarMode.Folders)
+                {
+                    if (string.IsNullOrWhiteSpace(scopeFolder)
+                        && sidebarNodes.Count > 0
+                        && !string.IsNullOrWhiteSpace(sidebarNodes[0].FolderPath))
+                    {
+                        scopeFolder = sidebarNodes[0].FolderPath!;
+                    }
+                }
+                else
+                {
+                    var match = previousSelectedKey == null
+                        ? null
+                        : sidebarNodes.FirstOrDefault(n => string.Equals(n.Key, previousSelectedKey, StringComparison.Ordinal));
+                    keepPreviousSelection = match != null;
+                    scopeNode = match ?? sidebarNodes.FirstOrDefault();
+                    scopeNodeKey = scopeNode?.Key;
+                }
+
+                var payload = ResolveScopePayload(dsl, mode, scopeFolder, scopeNode, ct);
+                return (SidebarNodes: sidebarNodes, ScopeFolder: scopeFolder, ScopeNodeKey: scopeNodeKey,
+                    KeepPreviousSelection: keepPreviousSelection, Payload: payload);
+            }, ct).ConfigureAwait(false);
+
             if (ct.IsCancellationRequested || version != Volatile.Read(ref _loadVersion) || _disposed)
             {
                 return;
@@ -1178,42 +1215,42 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
 
             await _runOnUiAsync(() =>
             {
+                if (ct.IsCancellationRequested || version != Volatile.Read(ref _loadVersion) || _disposed)
+                {
+                    return;
+                }
+
                 // 沿用內容沒變的節點，側欄清單用差量同步：重整後節點沒變時，側欄上的按鈕完全不重建
-                var nodes = MergeSidebarNodes(_allSidebarNodes, sidebarNodes);
+                var nodes = MergeSidebarNodes(_allSidebarNodes, resolved.SidebarNodes);
                 _allSidebarNodes = nodes;
                 ApplySidebarFilterOnUi();
 
                 if (mode == GallerySidebarMode.Folders)
                 {
-                    if (!string.IsNullOrWhiteSpace(curFolder))
+                    if (!string.IsNullOrWhiteSpace(resolved.ScopeFolder))
                     {
-                        CurrentFolderPath = curFolder;
+                        CurrentFolderPath = resolved.ScopeFolder;
                     }
-                    else if (nodes.Count > 0 && !string.IsNullOrWhiteSpace(nodes[0].FolderPath))
-                    {
-                        CurrentFolderPath = nodes[0].FolderPath!;
-                    }
-                    RebuildBreadcrumbsOnUi();
                 }
                 else
                 {
-                    var selectedKey = SelectedSidebarNode?.Key;
-                    var match = selectedKey == null
+                    // 合併後的清單可能沿用舊節點實例，依 key 找回清單中的節點
+                    var match = resolved.ScopeNodeKey == null
                         ? null
-                        : nodes.FirstOrDefault(n => string.Equals(n.Key, selectedKey, StringComparison.Ordinal));
-                    if (match == null)
-                    {
-                        SelectSidebarNodeInternal(nodes.FirstOrDefault(), reloadItems: false);
-                    }
-                    else
+                        : nodes.FirstOrDefault(n => string.Equals(n.Key, resolved.ScopeNodeKey, StringComparison.Ordinal));
+                    if (resolved.KeepPreviousSelection && match != null)
                     {
                         // 原本選取的節點還在：改指向清單中的節點並恢復高亮（重建的節點預設未選取）
                         ApplySidebarSelection(match);
                     }
+                    else
+                    {
+                        SelectSidebarNodeInternal(match ?? nodes.FirstOrDefault(), reloadItems: false);
+                    }
                 }
-            }).ConfigureAwait(false);
 
-            await LoadCurrentScopeItemsCoreAsync(version, ct).ConfigureAwait(false);
+                ApplyScopePayloadOnUi(dsl, mode, CurrentFolderPath, SelectedSidebarNode, resolved.Payload);
+            }).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -1278,30 +1315,41 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
                 return;
             }
 
-            // 同一個範圍（同資料夾 / 同側欄節點 / 同搜尋）重新載入：沿用沒變的項目、保留捲動位置
-            string scopeKey = BuildScopeKey(dsl, mode, curFolder, selectedNode);
-            bool sameScope = string.Equals(scopeKey, _loadedScopeKey, StringComparison.OrdinalIgnoreCase);
-            _loadedScopeKey = scopeKey;
-
-            ScopeTitle = payload.Title;
-            ScopeSubtitle = payload.Subtitle;
-            _allRawItems = sameScope
-                ? MergeWithExistingItems(_allRawItems, payload.Items)
-                : payload.Items;
-
-            var recVms = payload.Recommendations
-                .Select(r => new GalleryFuzzyRecommendationVm(r, OnApplyFuzzyRecommendation))
-                .ToList();
-            FuzzyRecommendations.ReplaceAll(recVms);
-            OnPropertyChanged(nameof(HasFuzzyRecommendations));
-            OnPropertyChanged(nameof(IsDslSearchActive));
-            OnPropertyChanged(nameof(HasBreadcrumbs));
-            OnPropertyChanged(nameof(CanNavigateUpFolder));
-
-            RebuildBreadcrumbsOnUi();
-            ApplyFilterAndSortOnUi(resetScroll: !sameScope);
-            IsLoading = false;
+            ApplyScopePayloadOnUi(dsl, mode, curFolder, selectedNode, payload);
         }).ConfigureAwait(false);
+    }
+
+    /// <summary>把背景算好的範圍內容套用到畫面（需在 UI 執行緒呼叫）：標題、作品清單、推薦、麵包屑與捲動位置。</summary>
+    private void ApplyScopePayloadOnUi(
+        string dsl,
+        GallerySidebarMode mode,
+        string? curFolder,
+        GalleryNavNodeVm? selectedNode,
+        (string Title, string Subtitle, IReadOnlyList<GalleryItemVm> Items, IReadOnlyList<SearchRecommendation> Recommendations) payload)
+    {
+        // 同一個範圍（同資料夾 / 同側欄節點 / 同搜尋）重新載入：沿用沒變的項目、保留捲動位置
+        string scopeKey = BuildScopeKey(dsl, mode, curFolder, selectedNode);
+        bool sameScope = string.Equals(scopeKey, _loadedScopeKey, StringComparison.OrdinalIgnoreCase);
+        _loadedScopeKey = scopeKey;
+
+        ScopeTitle = payload.Title;
+        ScopeSubtitle = payload.Subtitle;
+        _allRawItems = sameScope
+            ? MergeWithExistingItems(_allRawItems, payload.Items)
+            : payload.Items;
+
+        var recVms = payload.Recommendations
+            .Select(r => new GalleryFuzzyRecommendationVm(r, OnApplyFuzzyRecommendation))
+            .ToList();
+        FuzzyRecommendations.ReplaceAll(recVms);
+        OnPropertyChanged(nameof(HasFuzzyRecommendations));
+        OnPropertyChanged(nameof(IsDslSearchActive));
+        OnPropertyChanged(nameof(HasBreadcrumbs));
+        OnPropertyChanged(nameof(CanNavigateUpFolder));
+
+        RebuildBreadcrumbsOnUi();
+        ApplyFilterAndSortOnUi(resetScroll: !sameScope);
+        IsLoading = false;
     }
 
     /// <summary>目前範圍的識別字串：搜尋優先，其次資料夾模式的目前資料夾，或側欄選取的節點。</summary>
@@ -1982,6 +2030,16 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
         var cts = cancelPrevious ? ReplaceCts(ref _coverCts) : new CancellationTokenSource();
         var ct = cts.Token;
         int limit = Math.Min(items.Count, count);
+
+        // 切換範圍後卡片還沒建立前，先在 UI 執行緒把記憶體快取裡已有的封面直接設好（只查字典，很快）；
+        // 背景預載只剩真的要讀檔的項目，不會搶走卡片建立後要用的載入名額
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            for (int i = 0; i < limit; i++)
+            {
+                items[i].CoverSlot.TryApplyFromMemoryCache(_coverService);
+            }
+        }
 
         _ = Task.Run(async () =>
         {

@@ -372,6 +372,13 @@ public sealed partial class CoverSlotVm : ObservableObject
             return Task.CompletedTask;
         }
 
+        // 在 UI 執行緒上（例如卡片剛建立時）先同步查記憶體快取：命中就直接設定封面，
+        // 卡片第一次繪製就有圖，不必排隊等名額、也不必再繞一趟 UI 執行緒（切換目錄時避免由上往下補圖）
+        if (Dispatcher.UIThread.CheckAccess() && TryApplyFromMemoryCache(coverService))
+        {
+            return Task.CompletedTask;
+        }
+
         lock (_loadLock)
         {
             if (_completed || _unavailable || ct.IsCancellationRequested)
@@ -388,6 +395,36 @@ public sealed partial class CoverSlotVm : ObservableObject
             _inflightTask = LoadCoreAsync(coverService, concurrencyLimiter, runOnUiAsync, ct);
             return _inflightTask;
         }
+    }
+
+    /// <summary>
+    /// 只查 <see cref="SkiaCoverService"/> 的記憶體快取，命中就直接設定封面（需在 UI 執行緒呼叫）。
+    /// 不讀磁碟、不解碼、不佔載入名額；沒命中時不做任何事，由 <see cref="EnsureLoadedAsync"/> 照常非同步載入。
+    /// </summary>
+    /// <returns>是否已設定封面（或本來就有）。</returns>
+    public bool TryApplyFromMemoryCache(SkiaCoverService coverService)
+    {
+        ArgumentNullException.ThrowIfNull(coverService);
+        if (_completed && Image != null)
+        {
+            return true;
+        }
+
+        if (_unavailable || (string.IsNullOrWhiteSpace(SourcePath) && string.IsNullOrWhiteSpace(ThumbKey)))
+        {
+            return false;
+        }
+
+        if (!coverService.TryGetMemoryCachedCover(SourcePath, ThumbKey, GetDecodeSize(coverService), out var bitmap)
+            || bitmap == null)
+        {
+            return false;
+        }
+
+        _imageWanted = true;
+        _completed = true;
+        Image = bitmap;
+        return true;
     }
 
     /// <summary>
@@ -445,17 +482,19 @@ public sealed partial class CoverSlotVm : ObservableObject
             await concurrencyLimiter.WaitAsync(ct).ConfigureAwait(false);
             acquired = true;
 
-            if (ct.IsCancellationRequested)
+            // 排隊期間已由 UI 執行緒從記憶體快取補上封面：不必再載一次
+            if (ct.IsCancellationRequested || (_completed && _imageWanted))
             {
                 return;
             }
 
-            var decodeSize = DecodeDipSize is { } dip
-                ? coverService.ToDecodeSize(dip.Width, dip.Height)
-                : CoverDecodeSize.Original;
             var bitmap = await coverService
-                .LoadOrExtractCoverAsync(SourcePath, ThumbKey, ct, decodeSize)
+                .LoadOrExtractCoverAsync(SourcePath, ThumbKey, ct, GetDecodeSize(coverService))
                 .ConfigureAwait(false);
+
+            // 解碼完就交還名額，不等跳回 UI 執行緒設定封面：UI 忙著排版時，名額不會被「等著設定封面」的工作卡住，
+            // 後面排隊的卡片可以先開始讀檔解碼
+            ReleaseSlot(concurrencyLimiter, ref acquired);
 
             if (ct.IsCancellationRequested)
             {
@@ -493,17 +532,31 @@ public sealed partial class CoverSlotVm : ObservableObject
         }
         finally
         {
-            if (acquired)
-            {
-                try
-                {
-                    concurrencyLimiter.Release();
-                }
-                catch (ObjectDisposedException)
-                {
-                    // ViewModel 已釋放時安全忽略
-                }
-            }
+            ReleaseSlot(concurrencyLimiter, ref acquired);
+        }
+    }
+
+    private CoverDecodeSize GetDecodeSize(SkiaCoverService coverService)
+        => DecodeDipSize is { } dip
+            ? coverService.ToDecodeSize(dip.Width, dip.Height)
+            : CoverDecodeSize.Original;
+
+    /// <summary>交還載入名額（只交還一次）。</summary>
+    private static void ReleaseSlot(SemaphoreSlim concurrencyLimiter, ref bool acquired)
+    {
+        if (!acquired)
+        {
+            return;
+        }
+
+        acquired = false;
+        try
+        {
+            concurrencyLimiter.Release();
+        }
+        catch (ObjectDisposedException)
+        {
+            // ViewModel 已釋放時安全忽略
         }
     }
 }
