@@ -21,6 +21,12 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
     private const int InitialPickerTagPageSize = 100;
     private const int PickerTagPageStep = 120;
     private const int CoverPreloadCount = 18;
+
+    /// <summary>
+    /// 探索牆虛擬化回收的卡片，最近的這麼多張先保留封面（每張最多 3 封面），超過才放掉最舊的。
+    /// </summary>
+    public const int RecycledCoverRetention = 60;
+
     private static readonly TimeSpan DefaultSearchDebounce = TimeSpan.FromMilliseconds(150);
 
     private readonly ExploreWallService _wallService;
@@ -55,6 +61,13 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
     private CancellationTokenSource? _pickerCts;
     private CancellationTokenSource? _coverLoadCts;
     private CancellationTokenSource? _comboCoverCts;
+
+    // 虛擬化清單回收的卡片封面保留佇列與進行中封面取消權杖（只在 UI 執行緒存取）
+    private readonly LinkedList<ExploreCardVmBase> _recycledCoverQueue = new();
+    private readonly Dictionary<ExploreCardVmBase, LinkedListNode<ExploreCardVmBase>> _recycledCoverNodes =
+        new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<ExploreCardVmBase, CancellationTokenSource> _realizedCoverLoads =
+        new(ReferenceEqualityComparer.Instance);
     private int _wallRequestVersion;
     private int _drillDownRequestVersion;
     private int _pickerRequestVersion;
@@ -1159,6 +1172,109 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
         }
     }
 
+    /// <summary>
+    /// 虛擬化清單（ItemsRepeater）建立或回收重用一張探索卡片時呼叫（UI 執行緒）：
+    /// 將卡片移出回收佇列並啟動封面載入（附獨立取消權杖，捲走時即刻取消避免白做工）。
+    /// </summary>
+    public Task NotifyCardRealized(ExploreCardVmBase? card)
+    {
+        if (_disposed || card == null)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (_recycledCoverNodes.Remove(card, out var node))
+        {
+            _recycledCoverQueue.Remove(node);
+        }
+
+        CancelAndRemoveRealizedCoverLoad(card);
+
+        var cts = new CancellationTokenSource();
+        _realizedCoverLoads[card] = cts;
+        var ct = cts.Token;
+        bool loadSecondary = IsDeckCoverStyle && card.RepresentativeCount > 1;
+
+        return LoadRealizedCardCoversAsync(card, loadSecondary, ct);
+    }
+
+    private async Task LoadRealizedCardCoversAsync(ExploreCardVmBase card, bool loadSecondary, CancellationToken ct)
+    {
+        await card.EnsurePrimaryCoverLoadedAsync(_coverService, _coverLoadSemaphore, ct).ConfigureAwait(false);
+
+        if (!_disposed && !ct.IsCancellationRequested && loadSecondary)
+        {
+            await card.EnsureSecondaryCoversLoadedAsync(_coverService, _coverLoadSemaphore, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// 虛擬化清單回收一張探索卡片時呼叫（UI 執行緒）：
+    /// 立即取消該卡片尚未完成的封面載入，並排入回收保留佇列；超出 <see cref="RecycledCoverRetention"/> 時放掉最舊卡片的封面參考。
+    /// </summary>
+    public void NotifyCardRecycled(ExploreCardVmBase? card)
+    {
+        if (_disposed || card == null)
+        {
+            return;
+        }
+
+        CancelAndRemoveRealizedCoverLoad(card);
+
+        if (_recycledCoverNodes.TryGetValue(card, out var existing))
+        {
+            _recycledCoverQueue.Remove(existing);
+            _recycledCoverQueue.AddLast(existing);
+        }
+        else
+        {
+            var node = _recycledCoverQueue.AddLast(card);
+            _recycledCoverNodes[card] = node;
+        }
+
+        while (_recycledCoverQueue.Count > RecycledCoverRetention)
+        {
+            var oldest = _recycledCoverQueue.First!.Value;
+            _recycledCoverQueue.RemoveFirst();
+            _recycledCoverNodes.Remove(oldest);
+            oldest.ReleaseCovers();
+        }
+    }
+
+    private void CancelAndRemoveRealizedCoverLoad(ExploreCardVmBase card)
+    {
+        if (_realizedCoverLoads.Remove(card, out var cts))
+        {
+            try
+            {
+                cts.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+            cts.Dispose();
+        }
+    }
+
+    private void ClearRecycledAndRealizedCoverTracking()
+    {
+        foreach (var cts in _realizedCoverLoads.Values)
+        {
+            try
+            {
+                cts.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+            cts.Dispose();
+        }
+
+        _realizedCoverLoads.Clear();
+        _recycledCoverQueue.Clear();
+        _recycledCoverNodes.Clear();
+    }
+
     /// <summary>由 View 根據目前捲動視口實際可見卡片範圍同步位置膠囊與百分比進度。</summary>
     public void UpdateViewportRange(int firstVisibleOneBased, int lastVisibleOneBased, double offsetY)
     {
@@ -1428,8 +1544,8 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
 
     private IReadOnlyList<ExploreCardVmBase> ApplyWallCardsOnUi(WallSnapshotPayload payload)
     {
-        _visibleWallCardLimit = InitialWallCardPageSize;
-        IReadOnlyList<ExploreCardVmBase> visibleSlice = Array.Empty<ExploreCardVmBase>();
+        ClearRecycledAndRealizedCoverTracking();
+        IReadOnlyList<ExploreCardVmBase> preloadSlice = Array.Empty<ExploreCardVmBase>();
 
         if (payload.AuthorCards != null)
         {
@@ -1442,9 +1558,9 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
                 .Select(card => new ExploreAuthorCardVm(card, OnCardSelected, _runOnUiAsync))
                 .ToList();
             _allAuthorCardVms = all;
-            var slice = all.Take(_visibleWallCardLimit).ToList();
-            AuthorCards.ReplaceAll(slice);
-            visibleSlice = slice;
+            _visibleWallCardLimit = all.Count;
+            AuthorCards.ReplaceAll(all);
+            preloadSlice = all.Take(CoverPreloadCount).ToList();
         }
         else if (payload.ThemeCards != null)
         {
@@ -1457,9 +1573,9 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
                 .Select(card => new ExploreThemeCardVm(card, OnCardSelected, _runOnUiAsync))
                 .ToList();
             _allThemeCardVms = all;
-            var slice = all.Take(_visibleWallCardLimit).ToList();
-            ThemeCards.ReplaceAll(slice);
-            visibleSlice = slice;
+            _visibleWallCardLimit = all.Count;
+            ThemeCards.ReplaceAll(all);
+            preloadSlice = all.Take(CoverPreloadCount).ToList();
         }
         else if (payload.ComboCards != null)
         {
@@ -1472,13 +1588,13 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
                 .Select(card => new ExploreComboCardVm(card, OnCardSelected, _runOnUiAsync))
                 .ToList();
             _allComboCardVms = all;
-            var slice = all.Take(_visibleWallCardLimit).ToList();
-            ComboCards.ReplaceAll(slice);
-            visibleSlice = slice;
+            _visibleWallCardLimit = all.Count;
+            ComboCards.ReplaceAll(all);
+            preloadSlice = all.Take(CoverPreloadCount).ToList();
         }
 
         NotifyCardMetricsChanged();
-        return visibleSlice;
+        return preloadSlice;
     }
 
     private List<ExploreCardVmBase> AppendSlice<T>(
@@ -1778,10 +1894,10 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
             .Select(w => new ExploreWorkCardVm(w, OpenWork, RevealWorkInExplorer, _runOnUiAsync, OpenWorkExternal))
             .ToList();
 
+        ClearRecycledAndRealizedCoverTracking();
         _allFilteredDrillDownWorkVms = vms;
-        _visibleDrillDownWorkLimit = InitialWallCardPageSize;
-        var initialSlice = vms.Take(_visibleDrillDownWorkLimit).ToList();
-        DrillDownWorks.ReplaceAll(initialSlice);
+        _visibleDrillDownWorkLimit = vms.Count;
+        DrillDownWorks.ReplaceAll(vms);
         NotifyCardMetricsChanged();
 
         if (resetScroll)
@@ -1789,9 +1905,9 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
             ScrollResetRequested?.Invoke();
         }
 
-        if (initialSlice.Count > 0)
+        if (vms.Count > 0)
         {
-            StartCoverPreload(initialSlice, CoverPreloadCount);
+            StartCoverPreload(vms, CoverPreloadCount);
         }
     }
 
@@ -2051,6 +2167,7 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
         CancelCts(ref _pickerCts);
         CancelCts(ref _coverLoadCts);
         CancelCts(ref _comboCoverCts);
+        ClearRecycledAndRealizedCoverTracking();
 
         _coverLoadSemaphore.Dispose();
     }

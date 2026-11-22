@@ -735,30 +735,24 @@ public class ExplorePageViewModelTests : IDisposable
         using var vm = CreateVm(autoLoad: true);
         await vm.InitializationTask;
 
-        // 首屏限制 30 張，總命中 45 張
+        // 探索牆虛擬化：一次放入全部 45 位作者，無需再按「載入更多」
         Assert.Equal(45, vm.TotalMatchingWallCards);
-        Assert.Equal(30, vm.AuthorCards.Count);
-        Assert.True(vm.HasMoreWallCards);
-        Assert.Equal(15, vm.RemainingWallCardsCount);
-
-        // 載入下一批應補齊至 45 張
-        vm.LoadMoreWallCardsCommand.Execute(null);
         Assert.Equal(45, vm.AuthorCards.Count);
         Assert.False(vm.HasMoreWallCards);
+        Assert.Equal(0, vm.RemainingWallCardsCount);
 
-        // 切至主題・原作牆 → 內容主題，應清空不再顯示的 AuthorCards 且首屏載入 30 個（全庫共 135 個，不再於 120 截斷）
+        // 切至主題・原作牆 → 內容主題，應清空不再顯示的 AuthorCards 且一次放入全部 135 個主題
         vm.SelectThemeWallModeCommand.Execute(null);
-        await WaitUntilAsync(() => vm.IsThemeWallMode && !vm.IsLoading && vm.ThemeCards.Count == 30);
+        await WaitUntilAsync(() => vm.IsThemeWallMode && !vm.IsLoading && vm.ThemeCards.Count == 135);
         Assert.Empty(vm.AuthorCards);
         Assert.Equal(135, vm.TotalMatchingWallCards);
-        Assert.True(vm.HasMoreWallCards);
+        Assert.False(vm.HasMoreWallCards);
         Assert.True(vm.HasPositionBadge);
 
         // 驗證可視區間與位置膠囊文字更新
         vm.UpdateViewportRange(13, 24, offsetY: 400);
         Assert.Equal("第 13–24 筆 / 共 135 筆", vm.PositionBadgeTitle);
-        Assert.Contains("已載入 30 筆", vm.PositionBadgeDetail);
-        Assert.Equal("+18", vm.LoadMoreWallCardsShortText);
+        Assert.Contains("已全數載入", vm.PositionBadgeDetail);
         Assert.True(vm.ShowBackToTopButton);
 
         // 開啟全部標籤挑選器：首屏顯示 100 顆，按顯示更多補齊 135 顆
@@ -771,6 +765,56 @@ public class ExplorePageViewModelTests : IDisposable
         vm.LoadMorePickerTagsCommand.Execute(null);
         Assert.Equal(135, vm.PickerTags.Count);
         Assert.False(vm.HasMorePickerTags);
+    }
+
+    [Fact]
+    public async Task Explore_RecycledCoverQueue_ReleasesOnlyOldestBeyondRetention()
+    {
+        EnsureAvaloniaSkiaBackend();
+        const string key = "3333333333333333333333333333333333333333";
+        await WriteThumbAsync(key);
+
+        Func<Action, Task> inline = static action => { action(); return Task.CompletedTask; };
+        var svc = new ExploreWallService(_store);
+        using var explore = new ExplorePageViewModel(svc, _coverService, autoLoad: false, runOnUiAsync: inline);
+
+        int total = ExplorePageViewModel.RecycledCoverRetention + 4;
+        var cards = Enumerable.Range(0, total)
+            .Select(i => new ExploreAuthorCardVm(
+                new ExploreAuthorCard(
+                    i + 1,
+                    $"Author_{i}",
+                    Array.Empty<string>(),
+                    null,
+                    1,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0,
+                    Array.Empty<ExploreTagBadge>(),
+                    new[] { CreateWorkItem(i + 1, key) }),
+                _ => { },
+                inline))
+            .ToList();
+
+        foreach (var card in cards)
+        {
+            await explore.NotifyCardRealized(card);
+        }
+        Assert.All(cards, c => Assert.True(c.HasCover1));
+
+        // 全部回收：僅最早回收的 4 張超出保留上限而放掉封面
+        foreach (var card in cards)
+        {
+            explore.NotifyCardRecycled(card);
+        }
+        Assert.All(cards.Take(4), c => Assert.False(c.HasCover1));
+        Assert.All(cards.Skip(4), c => Assert.True(c.HasCover1));
+
+        // 重新顯示的卡片應移出回收佇列並恢復封面
+        await explore.NotifyCardRealized(cards[0]);
+        Assert.True(cards[0].HasCover1);
     }
 
     [Fact]
@@ -853,11 +897,6 @@ public class ExplorePageViewModelTests : IDisposable
         await vm.ShowAllForDrillDownAuthorCommand.ExecuteAsync(null);
         Assert.False(vm.HasDrillDownAppliedTags);
         Assert.Equal(36, vm.TotalDrillDownWorks);
-        Assert.Equal(30, vm.DrillDownWorks.Count);
-        Assert.True(vm.HasMoreWallCards);
-
-        // 補載剩餘 6 本
-        vm.LoadMoreWallCardsCommand.Execute(null);
         Assert.Equal(36, vm.DrillDownWorks.Count);
         Assert.False(vm.HasMoreWallCards);
 

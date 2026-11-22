@@ -457,6 +457,15 @@ public abstract partial class ExploreCardVmBase : ViewModelBase
             : EnsureCoverSlotRangeLoadedAsync(coverService, concurrencyLimiter, 1, CoverSlots.Count - 1, ct);
     }
 
+    /// <summary>放掉此卡片所有封面槽位的 Bitmap 參考（需在 UI 執行緒呼叫）；再次顯示時會重新載入。</summary>
+    public void ReleaseCovers()
+    {
+        for (int i = 0; i < CoverSlots.Count; i++)
+        {
+            CoverSlots[i].ReleaseImage();
+        }
+    }
+
     private Task EnsureCoversLoadedCoreAsync(
         SkiaCoverService coverService,
         SemaphoreSlim concurrencyLimiter,

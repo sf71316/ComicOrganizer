@@ -85,18 +85,30 @@
       <Setter Property="Padding" Value="7,2" />
     </Style>
 
-    <!-- 鑽取作品封面載入平滑淡入 -->
-    <Style Selector="Image.work-cover-fade">
-      <Setter Property="Opacity" Value="0" />
-      <Setter Property="IsHitTestVisible" Value="False" />
-      <Setter Property="Transitions">
-        <Transitions>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.18" Easing="CubicEaseOut" />
-        </Transitions>
-      </Setter>
+    <!-- 探索牆卡片停用 SukiUI 轉場（避免 ItemsRepeater 回收重用時建立大量轉場） -->
+    <Style Selector="suki|GlassCard.explore-item-card">
+      <Setter Property="Transitions" Value="{x:Null}" />
     </Style>
-    <Style Selector="Image.work-cover-fade.loaded">
-      <Setter Property="Opacity" Value="1" />
+    <Style Selector="suki|GlassCard.explore-item-card /template/ Border">
+      <Setter Property="Transitions" Value="{x:Null}" />
+    </Style>
+    <Style Selector="suki|GlassCard.explore-item-card Button">
+      <Setter Property="Transitions" Value="{x:Null}" />
+    </Style>
+    <Style Selector="suki|GlassCard.explore-item-card Button /template/ Border">
+      <Setter Property="Transitions" Value="{x:Null}" />
+    </Style>
+    <Style Selector="suki|GlassCard.explore-item-card Button /template/ ContentPresenter">
+      <Setter Property="Transitions" Value="{x:Null}" />
+    </Style>
+    <Style Selector="suki|GlassCard.explore-item-card Button /template/ Viewbox">
+      <Setter Property="Transitions" Value="{x:Null}" />
+    </Style>
+
+    <!-- 鑽取作品封面直接顯示（不掛 Opacity DoubleTransition，避免虛擬化回收重用時反覆觸發動畫） -->
+    <Style Selector="Image.work-cover-fade">
+      <Setter Property="IsHitTestVisible" Value="False" />
+      <Setter Property="Transitions" Value="{x:Null}" />
     </Style>
   </UserControl.Styles>
 
@@ -615,24 +627,28 @@
               </StackPanel>
             </suki:GlassCard>
 
-            <!-- A. 作者探索卡片牆 -->
-            <ItemsControl x:Name="AuthorItemsControl"
-                          ItemsSource="{Binding AuthorCards}"
-                          IsVisible="{Binding IsAuthorMode}">
-              <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate>
-                  <WrapPanel Orientation="Horizontal" />
-                </ItemsPanelTemplate>
-              </ItemsControl.ItemsPanel>
-              <ItemsControl.ItemTemplate>
+            <!-- A. 作者探索卡片牆（虛擬化：ItemsRepeater + UniformGridLayout + StableDataContextHost） -->
+            <ItemsRepeater x:Name="AuthorItemsRepeater"
+                           VerticalCacheLength="0.5"
+                           IsVisible="{Binding IsAuthorMode}"
+                           ElementPrepared="OnRepeaterElementPrepared"
+                           ElementClearing="OnRepeaterElementClearing">
+              <ItemsRepeater.Layout>
+                <UniformGridLayout Orientation="Horizontal"
+                                   ItemsJustification="Start"
+                                   ItemsStretch="None" />
+              </ItemsRepeater.Layout>
+              <ItemsRepeater.ItemTemplate>
                 <DataTemplate x:DataType="vm:ExploreAuthorCardVm">
-                  <suki:GlassCard Width="236"
+                  <controls:StableDataContextHost>
+                  <suki:GlassCard Classes="explore-item-card"
+                                  Width="236"
+                                  Height="366"
                                   CornerRadius="14"
                                   Padding="12"
                                   Margin="0,0,14,14"
                                   IsInteractive="True"
                                   Command="{Binding SelectCardCommand}"
-                                  EffectiveViewportChanged="OnCardEffectiveViewportChanged"
                                   PointerEntered="OnExploreCardPointerEntered"
                                   PointerExited="OnExploreCardPointerExited"
                                   Cursor="Hand">
@@ -650,7 +666,7 @@
                                                  CountBadgeText="{Binding CountBadgeText}" />
 
                       <!-- 作者主名與別名 -->
-                      <StackPanel Spacing="2">
+                      <StackPanel Spacing="2" Width="212" HorizontalAlignment="Left">
                         <TextBlock Text="{Binding MainName}"
                                    FontSize="15"
                                    FontWeight="SemiBold"
@@ -678,7 +694,7 @@
                       </StackPanel>
 
                       <!-- 底部最多 3 顆標籤 pill + +N 溢出徽章 -->
-                      <WrapPanel Orientation="Horizontal">
+                      <WrapPanel Orientation="Horizontal" MaxHeight="48" ClipToBounds="True">
                         <ItemsControl ItemsSource="{Binding TopDisplayTags}">
                           <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
@@ -712,29 +728,34 @@
 
                     </StackPanel>
                   </suki:GlassCard>
+                  </controls:StableDataContextHost>
                 </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
+              </ItemsRepeater.ItemTemplate>
+            </ItemsRepeater>
 
-            <!-- B. 主題・原作牆（內容主題 / 原作・角色） -->
+            <!-- B. 主題・原作牆（內容主題 / 原作・角色，虛擬化） -->
             <Panel IsVisible="{Binding IsThemeWallMode}">
-              <ItemsControl x:Name="ThemeItemsControl"
-                            ItemsSource="{Binding ThemeCards}"
-                            IsVisible="{Binding !IsHotComboSubTabActive}">
-                <ItemsControl.ItemsPanel>
-                  <ItemsPanelTemplate>
-                    <WrapPanel Orientation="Horizontal" />
-                  </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemTemplate>
+              <ItemsRepeater x:Name="ThemeItemsRepeater"
+                             VerticalCacheLength="0.5"
+                             IsVisible="{Binding !IsHotComboSubTabActive}"
+                             ElementPrepared="OnRepeaterElementPrepared"
+                             ElementClearing="OnRepeaterElementClearing">
+                <ItemsRepeater.Layout>
+                  <UniformGridLayout Orientation="Horizontal"
+                                     ItemsJustification="Start"
+                                     ItemsStretch="None" />
+                </ItemsRepeater.Layout>
+                <ItemsRepeater.ItemTemplate>
                   <DataTemplate x:DataType="vm:ExploreThemeCardVm">
-                    <suki:GlassCard Width="236"
+                    <controls:StableDataContextHost>
+                    <suki:GlassCard Classes="explore-item-card"
+                                    Width="236"
+                                    Height="336"
                                     CornerRadius="14"
                                     Padding="12"
                                     Margin="0,0,14,14"
                                     IsInteractive="True"
                                     Command="{Binding SelectCardCommand}"
-                                    EffectiveViewportChanged="OnCardEffectiveViewportChanged"
                                     PointerEntered="OnExploreCardPointerEntered"
                                     PointerExited="OnExploreCardPointerExited"
                                     Cursor="Hand">
@@ -757,7 +778,7 @@
                                                    CountBadgeText="{Binding CountBadgeText}" />
 
                         <!-- 分類徽章 ＋ 譯名 ／ 原文 -->
-                        <StackPanel Spacing="3">
+                        <StackPanel Spacing="3" Width="212" HorizontalAlignment="Left">
                           <Border HorizontalAlignment="Left"
                                   Background="#18808080"
                                   CornerRadius="5"
@@ -792,28 +813,33 @@
 
                       </StackPanel>
                     </suki:GlassCard>
+                    </controls:StableDataContextHost>
                   </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
+                </ItemsRepeater.ItemTemplate>
+              </ItemsRepeater>
 
-              <!-- C. 熱門雙組合卡片牆 -->
-              <ItemsControl x:Name="ComboItemsControl"
-                            ItemsSource="{Binding ComboCards}"
-                            IsVisible="{Binding IsHotComboSubTabActive}">
-                <ItemsControl.ItemsPanel>
-                  <ItemsPanelTemplate>
-                    <WrapPanel Orientation="Horizontal" />
-                  </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemTemplate>
+              <!-- C. 熱門雙組合卡片牆（虛擬化） -->
+              <ItemsRepeater x:Name="ComboItemsRepeater"
+                             VerticalCacheLength="0.5"
+                             IsVisible="{Binding IsHotComboSubTabActive}"
+                             ElementPrepared="OnRepeaterElementPrepared"
+                             ElementClearing="OnRepeaterElementClearing">
+                <ItemsRepeater.Layout>
+                  <UniformGridLayout Orientation="Horizontal"
+                                     ItemsJustification="Start"
+                                     ItemsStretch="None" />
+                </ItemsRepeater.Layout>
+                <ItemsRepeater.ItemTemplate>
                   <DataTemplate x:DataType="vm:ExploreComboCardVm">
-                    <suki:GlassCard Width="248"
+                    <controls:StableDataContextHost>
+                    <suki:GlassCard Classes="explore-item-card"
+                                    Width="248"
+                                    Height="362"
                                     CornerRadius="14"
                                     Padding="12"
                                     Margin="0,0,14,14"
                                     IsInteractive="True"
                                     Command="{Binding SelectCardCommand}"
-                                    EffectiveViewportChanged="OnCardEffectiveViewportChanged"
                                     PointerEntered="OnExploreCardPointerEntered"
                                     PointerExited="OnExploreCardPointerExited"
                                     Cursor="Hand">
@@ -836,12 +862,13 @@
                                                    CountBadgeText="{Binding CountBadgeText}" />
 
                         <!-- TagA × TagB -->
-                        <StackPanel Spacing="4">
+                        <StackPanel Spacing="4" Width="224" HorizontalAlignment="Left">
                           <TextBlock Text="{Binding PairTitle}"
                                      FontSize="14.5"
                                      FontWeight="SemiBold"
                                      TextWrapping="Wrap"
                                      MaxLines="2"
+                                     MinHeight="38"
                                      TextTrimming="CharacterEllipsis"
                                      ToolTip.Tip="{Binding PairTitle}" />
                           <WrapPanel Orientation="Horizontal">
@@ -866,9 +893,10 @@
 
                       </StackPanel>
                     </suki:GlassCard>
+                    </controls:StableDataContextHost>
                   </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
+                </ItemsRepeater.ItemTemplate>
+              </ItemsRepeater>
             </Panel>
             </StackPanel>
 
@@ -949,21 +977,25 @@
                 </StackPanel>
               </suki:GlassCard>
 
-              <!-- 作品卡片格網 -->
-              <ItemsControl x:Name="DrillDownItemsControl"
-                            ItemsSource="{Binding DrillDownWorks}">
-                <ItemsControl.ItemsPanel>
-                  <ItemsPanelTemplate>
-                    <WrapPanel Orientation="Horizontal" />
-                  </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemTemplate>
+              <!-- 作品卡片格網（虛擬化） -->
+              <ItemsRepeater x:Name="DrillDownItemsRepeater"
+                             VerticalCacheLength="0.5"
+                             ElementPrepared="OnRepeaterElementPrepared"
+                             ElementClearing="OnRepeaterElementClearing">
+                <ItemsRepeater.Layout>
+                  <UniformGridLayout Orientation="Horizontal"
+                                     ItemsJustification="Start"
+                                     ItemsStretch="None" />
+                </ItemsRepeater.Layout>
+                <ItemsRepeater.ItemTemplate>
                   <DataTemplate x:DataType="vm:ExploreWorkCardVm">
-                    <suki:GlassCard Width="222"
+                    <controls:StableDataContextHost>
+                    <suki:GlassCard Classes="explore-item-card"
+                                    Width="222"
+                                    Height="396"
                                     CornerRadius="14"
                                     Padding="10"
-                                    Margin="0,0,14,14"
-                                    EffectiveViewportChanged="OnCardEffectiveViewportChanged">
+                                    Margin="0,0,14,14">
                       <suki:GlassCard.ContextMenu>
                         <ContextMenu>
                           <MenuItem Header="📖 以內建閱讀器開啟" Command="{Binding SelectCardCommand}" />
@@ -982,7 +1014,9 @@
                                 Cursor="Hand"
                                 ToolTip.Tip="點擊以內建閱讀器開啟閱讀">
                           <StackPanel Spacing="8">
-                            <Border Height="260"
+                            <Border Width="202"
+                                    HorizontalAlignment="Left"
+                                    Height="260"
                                     CornerRadius="10"
                                     ClipToBounds="True"
                                     Background="#18808080">
@@ -998,7 +1032,7 @@
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center" />
                                 <Image Classes="work-cover-fade"
-                                       Classes.loaded="{Binding HasCover1}"
+                                       IsVisible="{Binding HasCover1}"
                                        Source="{Binding Cover1}"
                                        Stretch="UniformToFill" />
 
@@ -1031,7 +1065,7 @@
                               </Grid>
                             </Border>
 
-                            <StackPanel Spacing="2">
+                            <StackPanel Spacing="2" Width="202" HorizontalAlignment="Left">
                               <TextBlock Text="{Binding Title}"
                                          FontSize="13.5"
                                          FontWeight="SemiBold"
@@ -1051,7 +1085,7 @@
 
                         <!-- 標籤與底部動作列（獨立於開啟按鈕之外，避免雙重觸發） -->
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                          <WrapPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                          <WrapPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" MaxHeight="44" ClipToBounds="True">
                             <ItemsControl ItemsSource="{Binding TopDisplayTags}">
                               <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
@@ -1095,9 +1129,10 @@
 
                       </StackPanel>
                     </suki:GlassCard>
+                    </controls:StableDataContextHost>
                   </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
+                </ItemsRepeater.ItemTemplate>
+              </ItemsRepeater>
 
             </StackPanel>
 

@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Data;
 using ComicOrganizer.Avalonia.Views.Controls;
 using Xunit;
 
@@ -6,6 +7,8 @@ namespace ComicOrganizer.Tests;
 
 public class StableDataContextHostTests
 {
+    private sealed record DummyItem(string Title);
+
     [Fact]
     public void Host_IgnoresNullDataContext_AndSwapsDirectlyToNewItem()
     {
@@ -47,6 +50,32 @@ public class StableDataContextHostTests
 
             host.DataContext = null;
             Assert.Same(item, child.DataContext);
+        });
+    }
+
+    [Fact]
+    public void Host_EvaluatesChildBindingsOnInitialNonNullDataContext_AndPreservesAcrossNullRecycle()
+    {
+        AvaloniaTestThread.Run(() =>
+        {
+            var tb = new TextBlock
+            {
+                [!TextBlock.TextProperty] = new Binding(nameof(DummyItem.Title)),
+            };
+            var child = new Border { Child = tb };
+            var host = new StableDataContextHost { Child = child };
+
+            // 首次賦予非 null DataContext：子樹繫結必須立刻取值（不可卡在 BeginUpdate 未結束）
+            host.DataContext = new DummyItem("首頁作者");
+            Assert.Equal("首頁作者", tb.Text);
+
+            // 回收時設為 null：維持原顯示值不清空
+            host.DataContext = null;
+            Assert.Equal("首頁作者", tb.Text);
+
+            // 重用時換成新項目：直接更新為新標題
+            host.DataContext = new DummyItem("第二位作者");
+            Assert.Equal("第二位作者", tb.Text);
         });
     }
 }

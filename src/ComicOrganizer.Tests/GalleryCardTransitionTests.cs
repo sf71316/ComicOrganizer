@@ -88,4 +88,62 @@ public class GalleryCardTransitionTests
         Assert.Same(vm.SubtitleText, vm.SubtitleText);
         Assert.Same(vm.PrimaryActionTooltip, vm.PrimaryActionTooltip);
     }
+
+    [Fact]
+    public void GalleryCardControl_RecyclesWithoutNullChurn_AndUpdatesDynamicProperties()
+    {
+        AvaloniaTestThread.Run(() =>
+        {
+            var card = new ComicOrganizer.Avalonia.Views.Controls.GalleryCardControl();
+            var item1 = new GalleryItemVm(
+                new GalleryItemSortMetadata(@"E:\Comics\a.zip", "a.zip", "作品 A", false, 2 * 1024 * 1024, 1700000000000, ReadStatus.Unread, 0, null),
+                authorName: "作者甲",
+                coverThumbKey: null,
+                pageCount: 40,
+                language: "日文",
+                isAuthorFolder: false,
+                onActivate: _ => { },
+                onRevealInExplorer: _ => { });
+            var item2 = new GalleryItemVm(
+                new GalleryItemSortMetadata(@"E:\Comics\b.zip", "b.zip", "作品 B", false, 8 * 1024 * 1024, 1710000000000, ReadStatus.Completed, 1, null),
+                authorName: "作者乙",
+                coverThumbKey: null,
+                pageCount: null,
+                language: "繁體中文",
+                isAuthorFolder: false,
+                onActivate: _ => { },
+                onRevealInExplorer: _ => { });
+
+            card.DataContext = item1;
+            var titleTb = card.FindControl<TextBlock>("TitleText")!;
+            var badgeTb = card.FindControl<TextBlock>("TypeBadgeText")!;
+            var pageBorder = card.FindControl<Border>("PageCountBorder")!;
+            var rootCard = card.FindControl<GlassCard>("RootCard")!;
+
+            Assert.Equal("作品 A", titleTb.Text);
+            Assert.Equal("● 未讀", badgeTb.Text);
+            Assert.True(pageBorder.IsVisible);
+            Assert.DoesNotContain("selected", rootCard.Classes);
+
+            // 動態屬性 IsSelected 變更應即時反映到選取外框
+            item1.IsSelected = true;
+            Assert.Contains("selected", rootCard.Classes);
+
+            // ItemsRepeater 回收設為 null 時不清空 UI（避免無謂重排）
+            card.DataContext = null;
+            Assert.Equal("作品 A", titleTb.Text);
+
+            // 回收重用換成 item2：所有靜態與動態欄位直接覆蓋，且舊 item1 不再影響卡片
+            card.DataContext = item2;
+            Assert.Equal("作品 B", titleTb.Text);
+            Assert.Equal("✓ 已完成", badgeTb.Text);
+            Assert.False(pageBorder.IsVisible);
+            Assert.DoesNotContain("selected", rootCard.Classes);
+
+            // 舊 item1 的屬性變更不可再影響已換成 item2 的卡片
+            item1.IsSelected = false;
+            item2.IsSelected = true;
+            Assert.Contains("selected", rootCard.Classes);
+        });
+    }
 }

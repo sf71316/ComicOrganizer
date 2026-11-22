@@ -49,12 +49,24 @@ public partial class DeckCoverControl : UserControl
 
     private static readonly Color DefaultAccentColor = Color.Parse("#3B82F6");
 
+    // 依色碼快取 4 個佔位 Brush，避免每張疊牌卡片建立／屬性更新／回收重用時反覆 new LinearGradientBrush / SolidColorBrush
+    private sealed record AccentBrushPalette(
+        LinearGradientBrush FrontGradient,
+        LinearGradientBrush BackGradient,
+        SolidColorBrush OrbBrush,
+        SolidColorBrush FrameBorder);
+
+    private static readonly Dictionary<Color, AccentBrushPalette> AccentPaletteCache = new();
+
     private DispatcherTimer? _cycleTimer;
     private bool _hasValidCover1;
     private bool _hasValidCover2;
     private bool _hasValidCover3;
     private int _rotationStep;
     private TopLevel? _topLevel;
+    private Color? _appliedAccentColor;
+    private string? _appliedGlyph;
+    private string? _appliedBadge;
 
     public DeckCoverControl()
     {
@@ -230,19 +242,32 @@ public partial class DeckCoverControl : UserControl
         SinglePlaceholder.Opacity = _hasValidCover1 ? 0.0 : 1.0;
 
         string glyph = string.IsNullOrWhiteSpace(FallbackGlyph) ? "📚" : FallbackGlyph;
-        FrontGlyphText.Text = glyph;
-        BackLeftGlyphText.Text = glyph;
-        BackRightGlyphText.Text = glyph;
-        SingleGlyphText.Text = glyph;
+        if (!string.Equals(_appliedGlyph, glyph, StringComparison.Ordinal))
+        {
+            _appliedGlyph = glyph;
+            FrontGlyphText.Text = glyph;
+            BackLeftGlyphText.Text = glyph;
+            BackRightGlyphText.Text = glyph;
+            SingleGlyphText.Text = glyph;
+        }
 
         var accent = ParseAccentColor(AccentColorHex);
-        ApplyAccentBrushes(accent);
+        if (_appliedAccentColor != accent)
+        {
+            _appliedAccentColor = accent;
+            ApplyAccentBrushes(accent);
+        }
 
         string? badge = string.IsNullOrWhiteSpace(CountBadgeText) ? null : CountBadgeText.Trim();
         bool hasBadge = badge is not null;
-        DeckBadgeText.Text = badge ?? string.Empty;
+        string badgeText = badge ?? string.Empty;
+        if (!string.Equals(_appliedBadge, badgeText, StringComparison.Ordinal))
+        {
+            _appliedBadge = badgeText;
+            DeckBadgeText.Text = badgeText;
+            SingleBadgeText.Text = badgeText;
+        }
         DeckBadgeBorder.IsVisible = hasBadge && IsDeckMode;
-        SingleBadgeText.Text = badge ?? string.Empty;
         SingleBadgeBorder.IsVisible = hasBadge;
 
         UpdateHoverAndCycleState();
@@ -423,39 +448,45 @@ public partial class DeckCoverControl : UserControl
 
     private void ApplyAccentBrushes(Color accent)
     {
-        var frontGradient = new LinearGradientBrush
+        if (!AccentPaletteCache.TryGetValue(accent, out var palette))
         {
-            StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
-            EndPoint = new RelativePoint(1, 1, RelativeUnit.Relative),
-            GradientStops =
-            [
-                new GradientStop(Color.FromArgb(68, accent.R, accent.G, accent.B), 0),
-                new GradientStop(Color.FromArgb(24, accent.R, accent.G, accent.B), 1),
-            ],
-        };
+            var frontGradient = new LinearGradientBrush
+            {
+                StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+                EndPoint = new RelativePoint(1, 1, RelativeUnit.Relative),
+                GradientStops =
+                [
+                    new GradientStop(Color.FromArgb(68, accent.R, accent.G, accent.B), 0),
+                    new GradientStop(Color.FromArgb(24, accent.R, accent.G, accent.B), 1),
+                ],
+            };
 
-        var backGradient = new LinearGradientBrush
-        {
-            StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
-            EndPoint = new RelativePoint(1, 1, RelativeUnit.Relative),
-            GradientStops =
-            [
-                new GradientStop(Color.FromArgb(46, accent.R, accent.G, accent.B), 0),
-                new GradientStop(Color.FromArgb(18, accent.R, accent.G, accent.B), 1),
-            ],
-        };
+            var backGradient = new LinearGradientBrush
+            {
+                StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+                EndPoint = new RelativePoint(1, 1, RelativeUnit.Relative),
+                GradientStops =
+                [
+                    new GradientStop(Color.FromArgb(46, accent.R, accent.G, accent.B), 0),
+                    new GradientStop(Color.FromArgb(18, accent.R, accent.G, accent.B), 1),
+                ],
+            };
 
-        var orbBrush = new SolidColorBrush(Color.FromArgb(56, accent.R, accent.G, accent.B));
-        var frameBorder = new SolidColorBrush(Color.FromArgb(110, accent.R, accent.G, accent.B));
+            var orbBrush = new SolidColorBrush(Color.FromArgb(56, accent.R, accent.G, accent.B));
+            var frameBorder = new SolidColorBrush(Color.FromArgb(110, accent.R, accent.G, accent.B));
 
-        FrontPlaceholder.Background = frontGradient;
-        SinglePlaceholder.Background = frontGradient;
-        BackLeftPlaceholder.Background = backGradient;
-        BackRightPlaceholder.Background = backGradient;
+            palette = new AccentBrushPalette(frontGradient, backGradient, orbBrush, frameBorder);
+            AccentPaletteCache[accent] = palette;
+        }
 
-        FrontAccentOrb.Background = orbBrush;
-        SingleAccentOrb.Background = orbBrush;
-        CardAFrame.BorderBrush = frameBorder;
+        FrontPlaceholder.Background = palette.FrontGradient;
+        SinglePlaceholder.Background = palette.FrontGradient;
+        BackLeftPlaceholder.Background = palette.BackGradient;
+        BackRightPlaceholder.Background = palette.BackGradient;
+
+        FrontAccentOrb.Background = palette.OrbBrush;
+        SingleAccentOrb.Background = palette.OrbBrush;
+        CardAFrame.BorderBrush = palette.FrameBorder;
     }
 
     private static Color ParseAccentColor(string? hex)

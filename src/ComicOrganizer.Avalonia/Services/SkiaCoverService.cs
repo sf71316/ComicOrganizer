@@ -1,3 +1,5 @@
+using System.Buffers;
+using System.IO.Compression;
 using Avalonia.Media.Imaging;
 using ComicOrganizer.App.Core;
 using PDFtoImage;
@@ -357,6 +359,48 @@ public sealed class SkiaCoverService : IDisposable
                 return null;
             }
 
+            if (stream.CanSeek)
+            {
+                long len = stream.Length;
+                if (len <= 0 || len > int.MaxValue || ct.IsCancellationRequested)
+                {
+                    return null;
+                }
+
+                // 直接依檔案精確長度配置單一陣列，省去 MemoryStream 中繼緩衝與 ToArray() 二次複製
+                var buffer = new byte[(int)len];
+                int offset = 0;
+                while (offset < buffer.Length)
+                {
+                    if (ct.IsCancellationRequested)
+                    {
+                        return null;
+                    }
+
+                    int read = stream.Read(buffer, offset, buffer.Length - offset);
+                    if (read == 0)
+                    {
+                        break;
+                    }
+
+                    offset += read;
+                }
+
+                if (offset == 0 || ct.IsCancellationRequested)
+                {
+                    return null;
+                }
+
+                if (offset == buffer.Length)
+                {
+                    return buffer;
+                }
+
+                var trimmed = new byte[offset];
+                Buffer.BlockCopy(buffer, 0, trimmed, 0, offset);
+                return trimmed;
+            }
+
             using var ms = new MemoryStream();
             stream.CopyTo(ms);
             if (ct.IsCancellationRequested || ms.Length == 0)
@@ -544,9 +588,9 @@ public sealed class SkiaCoverService : IDisposable
     {
         try
         {
-            // 使用 FileStream 讀取進記憶體，避免 Windows 下 mmap 鎖住來源檔案
+            // 使用 FileStream 搭配 ArrayPool 讀取進原生 SKData，避免 mmap 鎖檔與 LOH byte[] 配置
             using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            return DecodeAndEncodeImageStream(fs, targetWidth, jpegQuality);
+            return DecodeAndEncodeImageStream(fs, targetWidth, jpegQuality, fs.CanSeek ? fs.Length : -1);
         }
         catch
         {
@@ -556,13 +600,30 @@ public sealed class SkiaCoverService : IDisposable
 
     private byte[]? ExtractArchiveCover(string archivePath, int targetWidth, int jpegQuality, CancellationToken ct)
     {
-        try
+        if (_disposed || ct.IsCancellationRequested)
         {
+            return null;
+        }
+
+        // .zip / .cbz 優先走 .NET 內建 ZipFile（直接讀尾端中央目錄，比 SharpCompress 快且大幅減少 .NET 垃圾）
+        var ext = Path.GetExtension(archivePath);
+        if (string.Equals(ext, ".zip", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(ext, ".cbz", StringComparison.OrdinalIgnoreCase))
+        {
+            var zipResult = TryExtractZipCover(archivePath, targetWidth, jpegQuality, ct);
+            if (zipResult != null)
+            {
+                return zipResult;
+            }
+
             if (_disposed || ct.IsCancellationRequested)
             {
                 return null;
             }
+        }
 
+        try
+        {
             using var archive = ArchiveFactory.OpenArchive(archivePath);
             var imageEntries = archive.Entries
                 .Where(e =>
@@ -584,11 +645,7 @@ public sealed class SkiaCoverService : IDisposable
                 try
                 {
                     using var entryStream = entry.OpenEntryStream();
-                    using var ms = new MemoryStream();
-                    entryStream.CopyTo(ms);
-                    ms.Position = 0;
-
-                    var jpeg = DecodeAndEncodeImageStream(ms, targetWidth, jpegQuality);
+                    var jpeg = DecodeAndEncodeImageStream(entryStream, targetWidth, jpegQuality, entry.Size > 0 ? entry.Size : -1);
                     if (jpeg != null)
                     {
                         return jpeg;
@@ -604,6 +661,54 @@ public sealed class SkiaCoverService : IDisposable
         }
         catch
         {
+            return null;
+        }
+    }
+
+    private byte[]? TryExtractZipCover(string archivePath, int targetWidth, int jpegQuality, CancellationToken ct)
+    {
+        try
+        {
+            using var zip = ZipFile.OpenRead(archivePath);
+            var imageEntries = zip.Entries
+                .Where(e =>
+                    e.Length > 0
+                    && !string.IsNullOrEmpty(e.FullName)
+                    && !e.FullName.EndsWith('/')
+                    && !e.FullName.EndsWith('\\')
+                    && !IsIgnoredArchiveEntry(e.FullName)
+                    && SupportedExtensions.IsImage(e.FullName))
+                .OrderBy(e => e.FullName, NaturalStringComparer.Instance)
+                .Take(MaxCandidateAttemptsPerLevel)
+                .ToList();
+
+            foreach (var entry in imageEntries)
+            {
+                if (_disposed || ct.IsCancellationRequested)
+                {
+                    return null;
+                }
+
+                try
+                {
+                    using var entryStream = entry.Open();
+                    var jpeg = DecodeAndEncodeImageStream(entryStream, targetWidth, jpegQuality, entry.Length);
+                    if (jpeg != null)
+                    {
+                        return jpeg;
+                    }
+                }
+                catch
+                {
+                    // 單一損壞條目忽略，嘗試下一張候選圖
+                }
+            }
+
+            return null;
+        }
+        catch
+        {
+            // 非標準 ZIP（例如副檔名誤標為 .zip 的 RAR/7z）交給 SharpCompress fallback
             return null;
         }
     }
@@ -656,9 +761,9 @@ public sealed class SkiaCoverService : IDisposable
         }
     }
 
-    private static byte[]? DecodeAndEncodeImageStream(Stream stream, int targetWidth, int jpegQuality)
+    private static byte[]? DecodeAndEncodeImageStream(Stream stream, int targetWidth, int jpegQuality, long expectedLength = -1)
     {
-        using var encodedData = SKData.Create(stream);
+        using var encodedData = ReadStreamToSkData(stream, expectedLength);
         if (encodedData == null || encodedData.Size <= 0)
         {
             return null;
@@ -733,6 +838,61 @@ public sealed class SkiaCoverService : IDisposable
         finally
         {
             decoded.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// 透過 <see cref="ArrayPool{T}"/> 將串流讀入共用緩衝區再一次複製為原生 <see cref="SKData"/>，
+    /// 避免 <see cref="MemoryStream"/> 倍增擴容與 <see cref="SKData.Create(Stream)"/> 在 LOH 留下數 MB 暫時 byte[] 垃圾。
+    /// </summary>
+    private static SKData? ReadStreamToSkData(Stream stream, long expectedLength)
+    {
+        const int DefaultInitialCapacity = 64 * 1024;
+        const int MaxAllowedBytes = 64 * 1024 * 1024;
+
+        int initialCapacity = expectedLength > 0 && expectedLength <= MaxAllowedBytes
+            ? (int)expectedLength
+            : DefaultInitialCapacity;
+
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(initialCapacity);
+        try
+        {
+            int totalRead = 0;
+            while (true)
+            {
+                if (totalRead == buffer.Length)
+                {
+                    if (buffer.Length >= MaxAllowedBytes)
+                    {
+                        return null;
+                    }
+
+                    int nextSize = Math.Min(MaxAllowedBytes, buffer.Length * 2);
+                    byte[] grown = ArrayPool<byte>.Shared.Rent(nextSize);
+                    Buffer.BlockCopy(buffer, 0, grown, 0, totalRead);
+                    ArrayPool<byte>.Shared.Return(buffer);
+                    buffer = grown;
+                }
+
+                int read = stream.Read(buffer, totalRead, buffer.Length - totalRead);
+                if (read == 0)
+                {
+                    break;
+                }
+
+                totalRead += read;
+            }
+
+            if (totalRead <= 0)
+            {
+                return null;
+            }
+
+            return SKData.CreateCopy(buffer.AsSpan(0, totalRead));
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 

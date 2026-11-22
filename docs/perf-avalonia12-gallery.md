@@ -121,9 +121,14 @@
 
    要確認：封面約 1 ms 就能載入時，背景 GC 有沒有把拖動後的原生記憶體壓下來，以及 GC 暫停是否可以接受。
 
-2. **卡片切換時的轉場動畫成本（已實作，待 4K / 本機取樣驗證）**
-   - 修正 1 之後，`Animatable` 的轉場在本機取樣仍約 360 ms（拖動 8 秒）。
-   - 已處理：對 `suki|GlassCard.gallery-item-card` 及其模板 `Border`、內部 `Button`（與按鈕模板 `Border`/`ContentPresenter`）顯式設 `Transitions="{x:Null}"`；移除畫廊封面 `Image.gallery-cover-fade` 的 0.18s `Opacity DoubleTransition`，改以 `IsVisible="{Binding HasCover1}"` 直接顯示。
+2. **卡片換資料（重新繫結）的成本（已實作，待 4K / 本機取樣驗證）**
+   - 修正 1 之後，回收的卡片換成另一本作品時，整張卡片重新繫結：本機取樣約 301 ms（拖動 8 秒），約佔 UI 執行緒忙碌時間（1,184 ms）的 25%，是目前拖動時最大的一塊。
+   - 組成：每個繫結換來源並重新取值約 150 ms、退訂舊作品變更通知約 43 ms、訂閱新作品約 31 ms、文字排版失效。
+   - 更正：先前把 `Animatable.OnPropertyChangedCore` 誤判為「轉場動畫約 360 ms」；真正的轉場動畫（`ClockBase.Pulse` + `TransitionInstance`）約 50–90 ms。
+   - 已處理：
+     - 卡片格網改為零 XAML 繫結的 `GalleryCardControl`：每張卡片由 24 個獨立 `{Binding}` 降為 0 個、24 次 `INotifyPropertyChanged` 退訂／訂閱降為 1 次（僅監聽 `Cover1`、`HasCover1`、`IsSelected`），7 顆按鈕／選單改由 Click 事件直連，並忽略回收時的 `null` `DataContext`。
+     - 順手將每張卡片上 SukiUI 與封面的 39 條 `Transitions` 清零（`GlassCard` / `Button` / 模板 `Border`/`ContentPresenter`/`Viewbox` / 封面 `Image`）。
+     - 修正 `StableDataContextHost` 在 `OnPropertyChanged` 搶先寫入 `child.DataContext` 導致 Avalonia 12 首次載入截斷 `EndUpdate`、未捲動前繫結不取值的問題（改於 `OnDataContextEndUpdate()` 之後鎖定）。
 
 3. **文字排版成本（已實作，待 4K / 本機取樣驗證）**
    - `TextBlock.CreateTextLayout` 在修正 1 之後仍約 208 ms（拖動 8 秒）。
@@ -137,11 +142,13 @@
    - 4K 上同一版本有時約 16 ms/幀、有時約 45 ms/幀，呈現兩種結果，原因不明。
    - 需要先找出原因，再考慮捲動很快時延後建立卡片等做法。
 
-5. **探索牆虛擬化**
-   - 探索牆目前沒有虛擬化：封面點陣圖約 335 MB，曾出現 445 ms 的卡頓。
+5. **探索牆虛擬化（已實作，待 4K 實測驗證）**
+   - 探索牆 4 組清單（作者／主題／雙組合／鑽取作品）改用 `ItemsRepeater` + `UniformGridLayout` + `StableDataContextHost`（`VerticalCacheLength=0.5`），切換頁籤時清空隱藏清單以立刻回收卡片與封面。
+   - `ExplorePageViewModel` 加入 `NotifyCardRealized` / `NotifyCardRecycled`（每卡獨立取消權杖 + `RecycledCoverRetention=60` 回收佇列）；`DeckCoverControl` 快取色碼 Brush 組合。
 
-6. **探索牆載入產生的垃圾**
-   - 探索牆載入時產生約 1.4 GB 的 .NET 垃圾，來源還沒找出來。
+6. **探索牆載入產生的垃圾（已定位並大幅削減，待 4K 實測驗證）**
+   - 實測 `D:\ComicOrganizer` 拆解確認：1.4 GB .NET 垃圾主要來自無縮圖環境下 `SkiaCoverService` 現場解壓縮封面的 LOH `byte[]` 倍增配置（55 張即配置 230.87 MB）。
+   - 已將 `.zip/.cbz` 優先改走 `System.IO.Compression.ZipFile` 並以 `ArrayPool<byte>.Shared` + `SKData.CreateCopy` 消除 `MemoryStream` 倍增與二次複製，同條件實測 .NET 配置量 `230.87 MB → 101.88 MB`（`-55.9%`）。
 
 7. **合併前清理**
    - 移除暫時量測程式（見「一、量測方式」）。

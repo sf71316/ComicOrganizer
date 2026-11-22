@@ -19,7 +19,6 @@ public partial class ExplorePageView : UserControl
 {
     private ExplorePageViewModel? _boundViewModel;
     private bool _viewportUpdateScheduled;
-    private double _lastAutoLoadExtentHeight = -1;
 
     public ExplorePageView()
     {
@@ -72,7 +71,7 @@ public partial class ExplorePageView : UserControl
         }
 
         SyncCoverModeResource(vm.IsDeckCoverStyle);
-        _lastAutoLoadExtentHeight = -1;
+        SyncActiveRepeater(vm);
         ScheduleViewportRangeUpdate();
     }
 
@@ -88,7 +87,6 @@ public partial class ExplorePageView : UserControl
 
     private void OnScrollResetRequested()
     {
-        _lastAutoLoadExtentHeight = -1;
         WallScrollViewer?.SetCurrentValue(ScrollViewer.OffsetProperty, Vector.Zero);
         ScheduleViewportRangeUpdate();
     }
@@ -106,27 +104,58 @@ public partial class ExplorePageView : UserControl
 
     private void OnWallScrollChanged(object? sender, ScrollChangedEventArgs e)
     {
-        if (_boundViewModel is null || sender is not ScrollViewer sv)
+        if (_boundViewModel is null)
         {
             return;
         }
 
-        if (_boundViewModel.HasMoreWallCards &&
-            (sv.Offset.Y > 24 || e.OffsetDelta.Y > 0))
+        ScheduleViewportRangeUpdate();
+    }
+
+    private void SyncActiveRepeater(ExplorePageViewModel vm)
+    {
+        ItemsRepeater? active;
+        System.Collections.IEnumerable activeSource;
+
+        if (vm.IsDrillDownMode)
         {
-            double maxOffsetY = Math.Max(0, sv.Extent.Height - sv.Viewport.Height);
-            double preloadThreshold = Math.Max(680, sv.Viewport.Height * 1.5);
-            if (maxOffsetY > 0 &&
-                sv.Offset.Y >= maxOffsetY - preloadThreshold &&
-                Math.Abs(sv.Extent.Height - _lastAutoLoadExtentHeight) > 1.0)
+            active = DrillDownItemsRepeater;
+            activeSource = vm.DrillDownWorks;
+        }
+        else if (vm.IsAuthorMode)
+        {
+            active = AuthorItemsRepeater;
+            activeSource = vm.AuthorCards;
+        }
+        else if (vm.IsHotComboSubTabActive)
+        {
+            active = ComboItemsRepeater;
+            activeSource = vm.ComboCards;
+        }
+        else
+        {
+            active = ThemeItemsRepeater;
+            activeSource = vm.ThemeCards;
+        }
+
+        ItemsRepeater?[] all = [AuthorItemsRepeater, ThemeItemsRepeater, ComboItemsRepeater, DrillDownItemsRepeater];
+        foreach (var repeater in all)
+        {
+            if (repeater is null || ReferenceEquals(repeater, active))
             {
-                // 記錄觸發當下的 Extent 高度，避免版面重排尚未完成前同一幀滾輪事件重複連發
-                _lastAutoLoadExtentHeight = sv.Extent.Height;
-                _boundViewModel.LoadMoreWallCardsCommand.Execute(null);
+                continue;
+            }
+
+            if (repeater.ItemsSource is not null)
+            {
+                repeater.ItemsSource = null;
             }
         }
 
-        ScheduleViewportRangeUpdate();
+        if (active is not null && !ReferenceEquals(active.ItemsSource, activeSource))
+        {
+            active.ItemsSource = activeSource;
+        }
     }
 
     private void ScheduleViewportRangeUpdate()
@@ -159,52 +188,71 @@ public partial class ExplorePageView : UserControl
             return;
         }
 
-        ItemsControl? activeControl = vm.IsDrillDownMode
-            ? DrillDownItemsControl
+        ItemsRepeater? activeRepeater = vm.IsDrillDownMode
+            ? DrillDownItemsRepeater
             : vm.IsAuthorMode
-                ? AuthorItemsControl
+                ? AuthorItemsRepeater
                 : vm.IsHotComboSubTabActive
-                    ? ComboItemsControl
-                    : ThemeItemsControl;
+                    ? ComboItemsRepeater
+                    : ThemeItemsRepeater;
 
         double viewportHeight = WallScrollViewer.Viewport.Height;
         double offsetY = WallScrollViewer.Offset.Y;
 
-        if (activeControl?.ItemsPanelRoot is Panel panel && panel.Children.Count > 0 && viewportHeight > 0)
+        if (TryUpdateViewportRangeFromRepeater(vm, activeRepeater, viewportHeight, offsetY))
         {
-            var origin = panel.TranslatePoint(new Point(0, 0), WallScrollViewer);
-            if (origin.HasValue)
-            {
-                int first = int.MaxValue;
-                int last = 0;
-
-                for (int i = 0; i < panel.Children.Count; i++)
-                {
-                    var bounds = panel.Children[i].Bounds;
-                    if (bounds.Height <= 0)
-                    {
-                        continue;
-                    }
-
-                    double top = origin.Value.Y + bounds.Top;
-                    double bottom = origin.Value.Y + bounds.Bottom;
-                    if (bottom > 4 && top < viewportHeight - 4)
-                    {
-                        int oneBased = i + 1;
-                        if (oneBased < first) first = oneBased;
-                        if (oneBased > last) last = oneBased;
-                    }
-                }
-
-                if (last > 0 && first <= last)
-                {
-                    vm.UpdateViewportRange(first, last, offsetY);
-                    return;
-                }
-            }
+            return;
         }
 
         vm.UpdateViewportRange(1, Math.Min(loadedCount, 12), offsetY);
+    }
+
+    private bool TryUpdateViewportRangeFromRepeater(
+        ExplorePageViewModel vm,
+        ItemsRepeater? repeater,
+        double viewportHeight,
+        double offsetY)
+    {
+        if (repeater is null || viewportHeight <= 0 || repeater.Children.Count == 0)
+        {
+            return false;
+        }
+
+        var origin = repeater.TranslatePoint(new Point(0, 0), WallScrollViewer);
+        if (!origin.HasValue)
+        {
+            return false;
+        }
+
+        int first = int.MaxValue;
+        int last = 0;
+
+        foreach (var child in repeater.Children)
+        {
+            int index = repeater.GetElementIndex(child);
+            var bounds = child.Bounds;
+            if (index < 0 || bounds.Height <= 0)
+            {
+                continue;
+            }
+
+            double top = origin.Value.Y + bounds.Top;
+            double bottom = origin.Value.Y + bounds.Bottom;
+            if (bottom > 4 && top < viewportHeight - 4)
+            {
+                int oneBased = index + 1;
+                if (oneBased < first) first = oneBased;
+                if (oneBased > last) last = oneBased;
+            }
+        }
+
+        if (last > 0 && first <= last)
+        {
+            vm.UpdateViewportRange(first, last, offsetY);
+            return true;
+        }
+
+        return false;
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -223,7 +271,7 @@ public partial class ExplorePageView : UserControl
                  or nameof(ExplorePageViewModel.SelectedMainTab)
                  or nameof(ExplorePageViewModel.SelectedThemeSubTab))
         {
-            _lastAutoLoadExtentHeight = -1;
+            SyncActiveRepeater(vm);
             ScheduleViewportRangeUpdate();
         }
         else if (e.PropertyName == nameof(ExplorePageViewModel.CurrentCardCount) ||
@@ -238,16 +286,26 @@ public partial class ExplorePageView : UserControl
         Resources["IsDeckCoverMode"] = isDeckMode;
     }
 
-    private void OnCardEffectiveViewportChanged(object? sender, EffectiveViewportChangedEventArgs e)
+    /// <summary>虛擬化清單建立（或回收重用）一張探索卡片時，啟動該卡片的封面載入。</summary>
+    private void OnRepeaterElementPrepared(object? sender, ItemsRepeaterElementPreparedEventArgs e)
     {
-        if (e.EffectiveViewport.Width <= 0 || e.EffectiveViewport.Height <= 0)
+        if (_boundViewModel is not null && e.Element.DataContext is ExploreCardVmBase card)
         {
-            return;
+            _ = _boundViewModel.NotifyCardRealized(card);
+        }
+    }
+
+    /// <summary>虛擬化清單回收一張探索卡片時，重設懸停動畫並取消／排入封面回收佇列。</summary>
+    private void OnRepeaterElementClearing(object? sender, ItemsRepeaterElementClearingEventArgs e)
+    {
+        if (e.Element.FindDescendantOfType<DeckCoverControl>() is { } deck)
+        {
+            deck.IsCardHovered = false;
         }
 
-        if (_boundViewModel is not null && sender is Control { DataContext: ExploreCardVmBase card })
+        if (_boundViewModel is not null && e.Element.DataContext is ExploreCardVmBase card)
         {
-            _ = _boundViewModel.RequestCardCoversAsync(card);
+            _boundViewModel.NotifyCardRecycled(card);
         }
     }
 

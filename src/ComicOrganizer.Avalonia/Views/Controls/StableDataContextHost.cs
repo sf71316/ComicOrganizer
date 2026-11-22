@@ -31,10 +31,15 @@ public sealed class StableDataContextHost : Decorator
             _forwarded = null;
             ForwardDataContext();
         }
-        else if (change.Property == DataContextProperty)
-        {
-            ForwardDataContext();
-        }
+    }
+
+    protected override void OnDataContextEndUpdate()
+    {
+        // 必須先讓 Avalonia 完成 host → child 的 EndUpdate 傳遞，再將非 null 值鎖成 child 的 LocalValue；
+        // 若在 OnPropertyChanged(DataContextProperty) 期間搶先寫入 child.DataContext，host 的 EndUpdate 會因 child
+        // 已有 LocalValue 而略過它，導致子樹停留在更新中狀態、首次載入所有繫結都不會取值。
+        base.OnDataContextEndUpdate();
+        ForwardDataContext();
     }
 
     private void ForwardDataContext()
