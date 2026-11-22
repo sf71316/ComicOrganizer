@@ -234,6 +234,41 @@ public sealed class GalleryPageViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task GalleryPage_LoadsAllFilteredItemsAtOnce_WithoutPaging()
+    {
+        // 清單已虛擬化，超過舊的首批 30 筆也要一次全部放進 Items
+        var author = _store.UpsertAuthor("BulkArtist");
+        for (int i = 0; i < 75; i++)
+        {
+            SeedWork(Path.Combine(_rootLibDir, $"bulk_{i:D3}.zip"), $"Bulk Work {i:D3}", author, ReadStatus.Unread, 1000 + i);
+        }
+
+        using var vm = new GalleryPageViewModel(
+            _store,
+            _coverService,
+            rootDirectory: _rootLibDir,
+            externalLauncher: new FakeLauncher(),
+            runOnUiAsync: static action => { action(); return Task.CompletedTask; },
+            autoLoad: false);
+
+        await vm.ReloadAllAsync();
+        await WaitUntilAsync(() => !vm.IsLoading && vm.Items.Count == 75);
+
+        Assert.Equal(75, vm.TotalMatchingItems);
+        Assert.Equal(vm.TotalMatchingItems, vm.CurrentItemCount);
+
+        // 位置膠囊只顯示捲動進度，不再有「已載入 N 筆」
+        vm.UpdateViewportRange(1, 20, offsetY: 0);
+        Assert.Equal("第 1–20 筆 / 共 75 筆", vm.PositionBadgeTitle);
+        Assert.DoesNotContain("已載入", vm.PositionBadgeDetail);
+
+        // 套用過濾後同樣一次全部放入
+        vm.LocalFilterKeyword = "Bulk Work 01";
+        await WaitUntilAsync(() => vm.Items.Count == 10);
+        Assert.Equal(10, vm.TotalMatchingItems);
+    }
+
+    [Fact]
     public async Task GalleryPageView_InstantiatesAndSyncsCardSizeResourcesAcrossViewModes()
     {
         var a1 = _store.UpsertAuthor("TemplateArtist");
@@ -257,14 +292,17 @@ public sealed class GalleryPageViewModelTests : IDisposable
 
             Assert.Equal(226.0, view.Resources["GalleryCardWidth"]);
             Assert.Equal(264.0, view.Resources["GalleryCardCoverHeight"]);
+            Assert.Equal(206.0, view.Resources["GalleryCardCoverWidth"]);
 
             vm.SelectMediumCardViewCommand.Execute(null);
             Assert.Equal(182.0, view.Resources["GalleryCardWidth"]);
             Assert.Equal(212.0, view.Resources["GalleryCardCoverHeight"]);
+            Assert.Equal(162.0, view.Resources["GalleryCardCoverWidth"]);
 
             vm.SelectSmallCardViewCommand.Execute(null);
             Assert.Equal(148.0, view.Resources["GalleryCardWidth"]);
             Assert.Equal(168.0, view.Resources["GalleryCardCoverHeight"]);
+            Assert.Equal(128.0, view.Resources["GalleryCardCoverWidth"]);
         });
     }
 

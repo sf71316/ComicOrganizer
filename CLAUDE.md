@@ -93,6 +93,11 @@ dotnet publish src/ComicOrganizer.App/ComicOrganizer.App.csproj -c Release
   - 實測：Avalonia 11 上隱藏頁仍會拖慢其他頁繪製；12 版無此問題。把隱藏頁移出畫面樹再掛回會重新套用整頁樣式（比重建還慢），不要這樣做。
 - **繪製效能（4K 全螢幕）**：`BoxShadow` 每個都多一次繪製（與模糊半徑無關），搭配旋轉圖片在大量卡片時很貴。`DeckCoverControl` 的疊牌容器用 `BitmapCache`（倍率 = `RenderScaling`）整組快取，徽章 / 輪播圓點刻意放在快取外以保留 ClearType；`Program.cs` 把 Skia GPU 資源快取從預設約 28 MB 調到 256 MB。探索牆 4K 捲動 22.5 → 53.0 FPS（本機 RTX 4080）。代價：顯示卡記憶體多約 360 MB（全來自 GPU 快取；點陣圖快取幾乎不增加）。程式 RAM 主要隨「已載入卡片數」成長（每張卡片持有解碼後封面與整組控制項；3,500 本全部載入約 8 GB）。
 - **封面依顯示大小解碼**：`SkiaCoverService` 接受 `CoverDecodeSize`（實際像素框），以 UniformToFill 需要的寬度縮小解碼、絕不放大，快取 key 加 `@寬x高`；縮放比例由 `MainWindow` 經 `ReportDisplayScale` 回報（只增不減）。探索牆疊牌第 1 張維持完整尺寸（單張精選樣式會放大顯示），第 2、3 張用 `CoverDipSize.DeckCover`，隨機組合預覽全用 `RandomComboPreview`；這些 DIP 值必須與 XAML 一致。畫廊 / 閱讀軌跡仍用完整尺寸。
+- **漫畫庫畫廊虛擬化**：卡片格與列表用 `Avalonia.Controls.ItemsRepeater`（`VerticalCacheLength=0.5`），一次放入全部作品（沒有「載入更多」）。封面格子固定寬度（SukiUI Basic 按鈕不會撐開內容，寬度用 `GalleryCardCoverWidth` 資源）。
+  - **卡片範本外層一定要包 `StableDataContextHost`**：ItemsRepeater 回收卡片時一律先把 DataContext 設成 null（`MustClearDataContext`，關不掉），造成所有繫結報錯、按鈕啟用狀態傳遍子元件、樣式與轉場重套；外層容器擋掉 null、直接換成新項目，拖捲軸時 UI 工作約減半。
+  - 卡片建立時 `NotifyItemRealized` 載入封面，每張卡片一個取消權杖，回收時（`NotifyItemRecycled`）取消還在排隊 / 解壓縮的載入；封面同時最多 4 張在載。回收的卡片保留最近 120 張的封面，更早的放掉。
+- **封面快取與記憶體**：`SkiaCoverService` 記憶體 LRU 512 張；擠出快取的點陣圖**不 Dispose**（可能仍顯示在卡片或詳細資訊抽屜上），改由 `BitmapReleaseGcTrigger` 累計像素量，達 256 MB（間隔至少 2 秒）觸發背景 GC 讓原生記憶體早點回收。
+- **縮圖自動寫回**：一般模式下，現場從原始檔解出的封面由 Core 的 `ThumbWriteBackQueue` 在背景寫回 `thumbs\` 與 cache.db 縮圖索引（key 與「資料管理 → 增量更新縮圖」相同，`cover_origin=skia-lazy`；略過不在 catalog / 單張圖片 / 已有縮圖；達 `ThumbCacheMaxBytes` 停寫不淘汰）。唯讀模式 `AppDataContext.CreateThumbWriteBack()` 回傳 null，完全不寫。Dispose 順序：封面服務 → 寫回佇列 → AppDataContext。
 - **自訂控制項**：`DslSearchBox`（區塊化 DSL 搜尋框）、`DeckCoverControl`（疊牌懸停輪播）、`SkiaComicViewport`。
 - **閱讀器**：`ReaderWindow` + `ReaderViewModel`，經 `IReaderWindowLauncher`（`AvaloniaReaderWindowLauncher`，fallback 外部 viewer）開啟。`SkiaComicViewport` 用 `ICustomDrawOperation` 直接畫 SKCanvas（單頁 / 雙頁跨頁 / 連續捲動）；`Services/ReaderPagePipeline` 負責頁快取、預載、超解析、OCR→翻譯。
 - **唯讀保護**：以 `--read-only` / `COMIC_ORGANIZER_READONLY=1` 啟用，各 VM 寫入動作會被攔截並 toast 提示（共用開發庫 `D:\ComicOrganizer` 常用此模式）。

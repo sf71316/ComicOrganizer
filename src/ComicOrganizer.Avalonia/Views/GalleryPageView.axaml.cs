@@ -12,7 +12,6 @@ public partial class GalleryPageView : UserControl
 {
     private GalleryPageViewModel? _boundViewModel;
     private bool _viewportUpdateScheduled;
-    private double _lastAutoLoadExtentHeight = -1;
 
     public GalleryPageView()
     {
@@ -63,8 +62,8 @@ public partial class GalleryPageView : UserControl
             vm.ScrollResetRequested += OnScrollResetRequested;
         }
 
-        _lastAutoLoadExtentHeight = -1;
         SyncCardSizeResources(vm);
+        SyncActiveRepeater(vm);
         ScheduleViewportRangeUpdate();
     }
 
@@ -80,7 +79,6 @@ public partial class GalleryPageView : UserControl
 
     private void OnScrollResetRequested()
     {
-        _lastAutoLoadExtentHeight = -1;
         GalleryScrollViewer?.SetCurrentValue(ScrollViewer.OffsetProperty, Vector.Zero);
         ScheduleViewportRangeUpdate();
     }
@@ -98,23 +96,9 @@ public partial class GalleryPageView : UserControl
 
     private void OnGalleryScrollChanged(object? sender, ScrollChangedEventArgs e)
     {
-        if (_boundViewModel is null || sender is not ScrollViewer sv)
+        if (_boundViewModel is null)
         {
             return;
-        }
-
-        if (_boundViewModel.HasMoreItems &&
-            (sv.Offset.Y > 24 || e.OffsetDelta.Y > 0))
-        {
-            double maxOffsetY = Math.Max(0, sv.Extent.Height - sv.Viewport.Height);
-            double preloadThreshold = Math.Max(680, sv.Viewport.Height * 1.5);
-            if (maxOffsetY > 0 &&
-                sv.Offset.Y >= maxOffsetY - preloadThreshold &&
-                Math.Abs(sv.Extent.Height - _lastAutoLoadExtentHeight) > 1.0)
-            {
-                _lastAutoLoadExtentHeight = sv.Extent.Height;
-                _boundViewModel.LoadMoreItemsCommand.Execute(null);
-            }
         }
 
         ScheduleViewportRangeUpdate();
@@ -132,13 +116,12 @@ public partial class GalleryPageView : UserControl
             or nameof(GalleryPageViewModel.CardCoverHeight))
         {
             SyncCardSizeResources(vm);
-            _lastAutoLoadExtentHeight = -1;
+            SyncActiveRepeater(vm);
             ScheduleViewportRangeUpdate();
         }
         else if (e.PropertyName is nameof(GalleryPageViewModel.SidebarMode)
                  or nameof(GalleryPageViewModel.CurrentFolderPath))
         {
-            _lastAutoLoadExtentHeight = -1;
             ScheduleViewportRangeUpdate();
         }
         else if (e.PropertyName is nameof(GalleryPageViewModel.CurrentItemCount)
@@ -152,6 +135,43 @@ public partial class GalleryPageView : UserControl
     {
         Resources["GalleryCardWidth"] = vm.CardWidth;
         Resources["GalleryCardCoverHeight"] = vm.CardCoverHeight;
+        Resources["GalleryCardCoverWidth"] = vm.CardCoverWidth;
+
+        // UniformGridLayout 會記住第一張卡片量到的格子大小；卡片尺寸改變時換一個新的版面，強制重新量測
+        if (CardGridRepeater is not null)
+        {
+            CardGridRepeater.Layout = CreateCardGridLayout();
+        }
+    }
+
+    /// <summary>
+    /// 只讓目前模式的清單綁定 Items；隱藏的清單清空 ItemsSource，
+    /// 它建立過的卡片會觸發 ElementClearing 回收，封面也跟著進入回收佇列。
+    /// </summary>
+    private void SyncActiveRepeater(GalleryPageViewModel vm)
+    {
+        ItemsRepeater? active = vm.IsDetailListMode ? DetailListRepeater : CardGridRepeater;
+        ItemsRepeater? inactive = vm.IsDetailListMode ? CardGridRepeater : DetailListRepeater;
+
+        if (inactive is not null && inactive.ItemsSource is not null)
+        {
+            inactive.ItemsSource = null;
+        }
+
+        if (active is not null && !ReferenceEquals(active.ItemsSource, vm.Items))
+        {
+            active.ItemsSource = vm.Items;
+        }
+    }
+
+    private static UniformGridLayout CreateCardGridLayout()
+    {
+        return new UniformGridLayout
+        {
+            Orientation = Orientation.Horizontal,
+            ItemsJustification = UniformGridLayoutItemsJustification.Start,
+            ItemsStretch = UniformGridLayoutItemsStretch.None,
+        };
     }
 
     private void ScheduleViewportRangeUpdate()
@@ -184,60 +204,90 @@ public partial class GalleryPageView : UserControl
             return;
         }
 
-        ItemsControl? activeControl = vm.IsDetailListMode
-            ? DetailListItemsControl
-            : CardGridItemsControl;
-
         double viewportHeight = GalleryScrollViewer.Viewport.Height;
         double offsetY = GalleryScrollViewer.Offset.Y;
 
-        if (activeControl?.ItemsPanelRoot is Panel panel && panel.Children.Count > 0 && viewportHeight > 0)
+        ItemsRepeater? activeRepeater = vm.IsDetailListMode ? DetailListRepeater : CardGridRepeater;
+        if (TryUpdateViewportRangeFromRepeater(vm, activeRepeater, viewportHeight, offsetY))
         {
-            var origin = panel.TranslatePoint(new Point(0, 0), GalleryScrollViewer);
-            if (origin.HasValue)
-            {
-                int first = int.MaxValue;
-                int last = 0;
-
-                for (int i = 0; i < panel.Children.Count; i++)
-                {
-                    var bounds = panel.Children[i].Bounds;
-                    if (bounds.Height <= 0)
-                    {
-                        continue;
-                    }
-
-                    double top = origin.Value.Y + bounds.Top;
-                    double bottom = origin.Value.Y + bounds.Bottom;
-                    if (bottom > 4 && top < viewportHeight - 4)
-                    {
-                        int oneBased = i + 1;
-                        if (oneBased < first) first = oneBased;
-                        if (oneBased > last) last = oneBased;
-                    }
-                }
-
-                if (last > 0 && first <= last)
-                {
-                    vm.UpdateViewportRange(first, last, offsetY);
-                    return;
-                }
-            }
+            return;
         }
 
         vm.UpdateViewportRange(1, Math.Min(loadedCount, 12), offsetY);
     }
 
-    private void OnItemEffectiveViewportChanged(object? sender, EffectiveViewportChangedEventArgs e)
+    /// <summary>
+    /// 虛擬化清單：只掃描 ItemsRepeater 目前建立的卡片，以 <see cref="ItemsRepeater.GetElementIndex"/> 取得實際索引。
+    /// 回收中的卡片索引為 -1，直接略過。
+    /// </summary>
+    private bool TryUpdateViewportRangeFromRepeater(
+        GalleryPageViewModel vm,
+        ItemsRepeater? repeater,
+        double viewportHeight,
+        double offsetY)
     {
-        if (e.EffectiveViewport.Width <= 0 || e.EffectiveViewport.Height <= 0)
+        if (repeater is null || viewportHeight <= 0 || repeater.Children.Count == 0)
         {
-            return;
+            return false;
         }
 
-        if (_boundViewModel is not null && sender is Control { DataContext: GalleryItemVm item })
+        var origin = repeater.TranslatePoint(new Point(0, 0), GalleryScrollViewer);
+        if (!origin.HasValue)
         {
-            _ = _boundViewModel.RequestItemCoverAsync(item);
+            return false;
+        }
+
+        int first = int.MaxValue;
+        int last = 0;
+        foreach (var child in repeater.Children)
+        {
+            int index = repeater.GetElementIndex(child);
+            var bounds = child.Bounds;
+            if (index < 0 || bounds.Height <= 0)
+            {
+                continue;
+            }
+
+            double top = origin.Value.Y + bounds.Top;
+            double bottom = origin.Value.Y + bounds.Bottom;
+            if (bottom > 4 && top < viewportHeight - 4)
+            {
+                int oneBased = index + 1;
+                if (oneBased < first)
+                {
+                    first = oneBased;
+                }
+                if (oneBased > last)
+                {
+                    last = oneBased;
+                }
+            }
+        }
+
+        if (last > 0 && first <= last)
+        {
+            vm.UpdateViewportRange(first, last, offsetY);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>虛擬化清單建立（或回收重用）一張卡片時，載入該卡片的封面。</summary>
+    private void OnRepeaterElementPrepared(object? sender, ItemsRepeaterElementPreparedEventArgs e)
+    {
+        if (_boundViewModel is not null && e.Element.DataContext is GalleryItemVm item)
+        {
+            _ = _boundViewModel.NotifyItemRealized(item);
+        }
+    }
+
+    /// <summary>虛擬化清單回收一張卡片時，交給 ViewModel 的回收佇列決定何時放掉封面。</summary>
+    private void OnRepeaterElementClearing(object? sender, ItemsRepeaterElementClearingEventArgs e)
+    {
+        if (_boundViewModel is not null && e.Element.DataContext is GalleryItemVm item)
+        {
+            _boundViewModel.NotifyItemRecycled(item);
         }
     }
 }

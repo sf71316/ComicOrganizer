@@ -1,4 +1,4 @@
-using Avalonia.Media.Imaging;
+﻿using Avalonia.Media.Imaging;
 using ComicOrganizer.App.Core;
 using ComicOrganizer.App.Models;
 using ComicOrganizer.Avalonia.Services;
@@ -316,6 +316,9 @@ public sealed partial class GalleryItemVm : ViewModelBase
         CancellationToken ct = default)
         => CoverSlot.EnsureLoadedAsync(coverService, concurrencyLimiter, _runOnUiAsync, ct);
 
+    /// <summary>放掉封面參考（需在 UI 執行緒呼叫）；再次顯示時會重新載入。</summary>
+    public void ReleaseCover() => CoverSlot.ReleaseImage();
+
     private static string FormatSize(long bytes)
     {
         if (bytes <= 0) return string.Empty;
@@ -336,13 +339,17 @@ public sealed partial class GalleryItemVm : ViewModelBase
 /// Phase 2 W2.1 漫畫庫畫廊 ViewModel：
 /// 整合左側 4 維度導覽側欄（資料夾樹／依作者／依標籤／我的閱讀清單）、
 /// 支援 @ 觸發與標籤區塊化之 <see cref="DslSearchBoxViewModel"/>、
-/// 5 種排序、閱讀狀態與頁內過濾、4 種檢視尺寸（大／中／小卡片與詳細列表）及增量預載。
+/// 5 種排序、閱讀狀態與頁內過濾、4 種檢視尺寸（大／中／小卡片與詳細列表）；清單虛擬化，封面隨卡片建立 / 回收載入與釋放。
 /// </summary>
 public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
 {
-    private const int InitialPageSize = 30;
-    private const int PageStep = 24;
+    // 套用過濾 / 排序後，先替最前面這幾張預載封面（其餘由虛擬化清單建立卡片時再載入）
     private const int CoverPreloadBatchSize = 24;
+
+    /// <summary>
+    /// 虛擬化清單回收的卡片，最近的這麼多張先保留封面（往回捲一點不必重新載入），超過才放掉最舊的。
+    /// </summary>
+    public const int RecycledCoverRetention = 120;
 
     private readonly AppDataContext? _dataContext;
     private readonly IAssetMetaStore _store;
@@ -359,9 +366,18 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
     private IReadOnlyList<GalleryItemVm> _allFilteredSortedItems = Array.Empty<GalleryItemVm>();
     private GalleryItemVm? _selectedGalleryItem;
     private ExploreCorpusSnapshot? _cachedSnapshot;
-    private int _visibleItemLimit = InitialPageSize;
     private CancellationTokenSource? _loadCts;
     private CancellationTokenSource? _coverCts;
+
+    // 已被虛擬化清單回收、但還保留封面的卡片（最舊的在前面）；只在 UI 執行緒存取
+    private readonly LinkedList<GalleryItemVm> _recycledCoverQueue = new();
+    private readonly Dictionary<GalleryItemVm, LinkedListNode<GalleryItemVm>> _recycledCoverNodes =
+        new(ReferenceEqualityComparer.Instance);
+
+    // 目前已建立卡片各自的封面載入取消權杖；卡片被回收時取消，還在排隊或解碼中的載入就不再做白工，
+    // 封面載入名額讓給畫面上的卡片。只在 UI 執行緒存取
+    private readonly Dictionary<GalleryItemVm, CancellationTokenSource> _realizedCoverLoads =
+        new(ReferenceEqualityComparer.Instance);
     private int _loadVersion;
     private bool _suppressReload;
     private volatile bool _disposed;
@@ -509,6 +525,7 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
     [NotifyPropertyChangedFor(nameof(IsCardGridMode))]
     [NotifyPropertyChangedFor(nameof(CardWidth))]
     [NotifyPropertyChangedFor(nameof(CardCoverHeight))]
+    [NotifyPropertyChangedFor(nameof(CardCoverWidth))]
     private GalleryViewMode _viewMode = GalleryViewMode.LargeCard;
 
     [ObservableProperty]
@@ -591,6 +608,15 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
         _ => 226,
     };
 
+    /// <summary>卡片左右內距（與 XAML 卡片的 Padding 一致）。</summary>
+    public const double CardHorizontalPadding = 10;
+
+    /// <summary>
+    /// 封面格子寬度 = 卡片寬度扣掉左右內距；固定寬度讓每張卡片的封面 / 佔位區塊一樣大
+    /// （不固定時會隨標題長度或封面比例變寬變窄）。
+    /// </summary>
+    public double CardCoverWidth => CardWidth - (CardHorizontalPadding * 2);
+
     public double CardCoverHeight => ViewMode switch
     {
         GalleryViewMode.LargeCard => 264,
@@ -635,10 +661,6 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
 
     public int TotalMatchingItems => _allFilteredSortedItems.Count;
 
-    public bool HasMoreItems => CurrentItemCount < TotalMatchingItems;
-
-    public int RemainingItemsCount => Math.Max(0, TotalMatchingItems - CurrentItemCount);
-
     public bool HasItems => CurrentItemCount > 0;
 
     public bool IsEmptyState => !IsLoading && !HasItems;
@@ -670,24 +692,9 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
             }
 
             int pct = (int)Math.Round(Math.Clamp(ScrollProgressPercent, 0, 100));
-            return HasMoreItems
-                ? $"已載入 {CurrentItemCount:N0} 筆 · {pct}%"
-                : $"已全數載入 · {pct}%";
+            return $"捲動進度 {pct}%";
         }
     }
-
-    public string LoadMoreButtonText
-    {
-        get
-        {
-            int next = Math.Min(PageStep, RemainingItemsCount);
-            return $"載入更多項目（+{next:N0}，還剩 {RemainingItemsCount:N0} 筆）";
-        }
-    }
-
-    public string LoadMoreShortText => $"+{Math.Min(PageStep, RemainingItemsCount):N0}";
-
-    public string LoadMoreShortTooltip => $"再載入下一批 {Math.Min(PageStep, RemainingItemsCount):N0} 筆項目";
 
     public string EmptyStateTitle => IsDslSearchActive
         ? "找不到符合搜尋區塊條件的作品"
@@ -904,33 +911,6 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
     }
 
     [RelayCommand]
-    private void LoadMoreItems()
-    {
-        if (_disposed || !HasMoreItems)
-        {
-            return;
-        }
-
-        int before = Items.Count;
-        _visibleItemLimit += PageStep;
-        int takeCount = Math.Max(0, Math.Min(PageStep, _allFilteredSortedItems.Count - before));
-        if (takeCount == 0)
-        {
-            return;
-        }
-
-        var nextBatch = new List<GalleryItemVm>(takeCount);
-        for (int i = 0; i < takeCount; i++)
-        {
-            nextBatch.Add(_allFilteredSortedItems[before + i]);
-        }
-
-        Items.AddRange(nextBatch);
-        NotifyGalleryMetricsChanged();
-        StartCoverPreload(nextBatch, nextBatch.Count, cancelPrevious: false);
-    }
-
-    [RelayCommand]
     public Task RefreshAsync() => ReloadAllAsync();
 
     public Task ReloadAllAsync()
@@ -1018,6 +998,75 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
         }
 
         return item.EnsureCoverLoadedAsync(_coverService, _coverLoadSemaphore);
+    }
+
+    /// <summary>
+    /// 虛擬化清單建立（或重用）一張卡片時呼叫：移出回收佇列並確保封面已載入。
+    /// 載入綁定這張卡片的取消權杖，卡片被回收時（<see cref="NotifyItemRecycled"/>）會取消。需在 UI 執行緒呼叫。
+    /// </summary>
+    public Task NotifyItemRealized(GalleryItemVm? item)
+    {
+        if (item == null)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (_recycledCoverNodes.Remove(item, out var node))
+        {
+            _recycledCoverQueue.Remove(node);
+        }
+
+        if (_disposed)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (!_realizedCoverLoads.TryGetValue(item, out var cts))
+        {
+            cts = new CancellationTokenSource();
+            _realizedCoverLoads[item] = cts;
+        }
+
+        return item.EnsureCoverLoadedAsync(_coverService, _coverLoadSemaphore, cts.Token);
+    }
+
+    /// <summary>取消這張卡片還沒完成的封面載入（已載入的封面不受影響）。</summary>
+    private void CancelRealizedCoverLoad(GalleryItemVm item)
+    {
+        if (_realizedCoverLoads.Remove(item, out var cts))
+        {
+            cts.Cancel();
+            cts.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// 虛擬化清單回收一張卡片時呼叫：放進回收佇列，佇列超過 <see cref="RecycledCoverRetention"/> 時
+    /// 放掉最舊卡片的封面，讓封面記憶體只跟「畫面附近的卡片數」有關，與作品總數無關。需在 UI 執行緒呼叫。
+    /// </summary>
+    public void NotifyItemRecycled(GalleryItemVm? item)
+    {
+        if (item == null)
+        {
+            return;
+        }
+
+        // 捲走了：還在排隊或解碼中的封面不必再載
+        CancelRealizedCoverLoad(item);
+
+        if (_recycledCoverNodes.Remove(item, out var existing))
+        {
+            _recycledCoverQueue.Remove(existing);
+        }
+
+        _recycledCoverNodes[item] = _recycledCoverQueue.AddLast(item);
+
+        while (_recycledCoverQueue.Count > RecycledCoverRetention && _recycledCoverQueue.First is { } oldest)
+        {
+            _recycledCoverQueue.RemoveFirst();
+            _recycledCoverNodes.Remove(oldest.Value);
+            oldest.Value.ReleaseCover();
+        }
     }
 
     public void UpdateViewportRange(int firstVisibleOneBased, int lastVisibleOneBased, double offsetY)
@@ -1736,10 +1785,9 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
 
         filtered.Sort((a, b) => GallerySortFilterHelper.Compare(a.SortMetadata, b.SortMetadata, sortField, desc));
 
+        // 清單已虛擬化（只建立畫面附近的卡片），所以一次把全部結果放進去，不再分批載入
         _allFilteredSortedItems = filtered;
-        _visibleItemLimit = InitialPageSize;
-        var firstSlice = filtered.Take(_visibleItemLimit).ToList();
-        Items.ReplaceAll(firstSlice);
+        Items.ReplaceAll(filtered);
 
         NotifyGalleryMetricsChanged();
 
@@ -1748,9 +1796,9 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
             ScrollResetRequested?.Invoke();
         }
 
-        if (firstSlice.Count > 0)
+        if (filtered.Count > 0)
         {
-            StartCoverPreload(firstSlice, Math.Min(firstSlice.Count, CoverPreloadBatchSize), cancelPrevious: true);
+            StartCoverPreload(filtered, Math.Min(filtered.Count, CoverPreloadBatchSize), cancelPrevious: true);
         }
     }
 
@@ -1915,16 +1963,11 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
 
         OnPropertyChanged(nameof(CurrentItemCount));
         OnPropertyChanged(nameof(TotalMatchingItems));
-        OnPropertyChanged(nameof(HasMoreItems));
-        OnPropertyChanged(nameof(RemainingItemsCount));
         OnPropertyChanged(nameof(HasItems));
         OnPropertyChanged(nameof(IsEmptyState));
         OnPropertyChanged(nameof(HasPositionBadge));
         OnPropertyChanged(nameof(PositionBadgeTitle));
         OnPropertyChanged(nameof(PositionBadgeDetail));
-        OnPropertyChanged(nameof(LoadMoreButtonText));
-        OnPropertyChanged(nameof(LoadMoreShortText));
-        OnPropertyChanged(nameof(LoadMoreShortTooltip));
         OnPropertyChanged(nameof(EmptyStateTitle));
         OnPropertyChanged(nameof(EmptyStateHint));
     }
@@ -2030,6 +2073,13 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
             _coverCts = null;
         }
 
+        foreach (var cts in _realizedCoverLoads.Values)
+        {
+            cts.Cancel();
+            cts.Dispose();
+        }
+
+        _realizedCoverLoads.Clear();
         _coverLoadSemaphore.Dispose();
     }
 }

@@ -87,6 +87,20 @@ public sealed class AppDataContext : IDisposable
 
     public IThumbStore ThumbStore => _thumbStore.Value;
 
+    /// <summary>
+    /// 建立「現場解出封面後寫回縮圖」的背景佇列；唯讀模式回傳 <c>null</c>（完全不寫 thumbs\ 與 cache.db）。
+    /// 上限每次寫入前讀目前設定的 <see cref="AppConfig.ThumbCacheMaxBytes"/>。呼叫端負責 Dispose，且要早於本物件 Dispose。
+    /// </summary>
+    public ThumbWriteBackQueue? CreateThumbWriteBack()
+    {
+        if (IsReadOnlyDatabase)
+        {
+            return null;
+        }
+
+        return new ThumbWriteBackQueue(MetaStore, ThumbStore, () => Config.ThumbCacheMaxBytes);
+    }
+
     public VisualIndexHostService VisualIndexHost => _visualIndexHost;
 
     public TagTranslator TagTranslator => _tagTranslator.Value;

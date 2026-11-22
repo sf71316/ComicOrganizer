@@ -426,6 +426,89 @@ public class SkiaCoverServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task MemoryCacheEviction_ReportsReleasedPixelBytes_WithoutDisposingBitmap()
+    {
+        EnsureAvaloniaSkiaBackend();
+
+        var src = Path.Combine(_tempDir, "evict_src.png");
+        WriteSolidPng(src, 330, 470, new SKColor(120, 60, 200));
+        using var generator = new SkiaCoverService(_thumbStore);
+        var jpeg = await generator.ExtractCoverJpegBytesAsync(src);
+        Assert.NotNull(jpeg);
+        const string k1 = "e1abababababababababababababababababababab";
+        const string k2 = "e2abababababababababababababababababababab";
+        const string k3 = "e3abababababababababababababababababababab";
+        _thumbStore.Write(k1, jpeg!);
+        _thumbStore.Write(k2, jpeg!);
+        _thumbStore.Write(k3, jpeg!);
+
+        int collects = 0;
+        var trigger = new BitmapReleaseGcTrigger(long.MaxValue, TimeSpan.Zero, () => collects++);
+        using var service = new SkiaCoverService(_thumbStore, maxMemoryCacheItems: 2, releaseGcTrigger: trigger);
+
+        var b1 = await service.GetCachedThumbAsync(k1);
+        await service.GetCachedThumbAsync(k2);
+        Assert.Equal(0, trigger.PendingBytes);
+
+        // 第 3 張擠掉第 1 張：回報第 1 張的像素量，但不 Dispose（畫面上可能還在用）
+        await service.GetCachedThumbAsync(k3);
+        long onePicture = (long)b1!.PixelSize.Width * b1.PixelSize.Height * 4;
+        Assert.Equal(onePicture, trigger.PendingBytes);
+        Assert.Equal(330, b1.PixelSize.Width);
+
+        // 清空快取：剩下 2 張也回報
+        service.ClearMemoryCache();
+        Assert.Equal(onePicture * 3, trigger.PendingBytes);
+        Assert.Equal(0, collects);
+    }
+
+    [Fact]
+    public async Task LoadOrExtractCoverAsync_WithWriteBack_WritesExtractedCoverToThumbsAndIndex()
+    {
+        EnsureAvaloniaSkiaBackend();
+
+        var zipPath = Path.Combine(_tempDir, "writeback.zip");
+        CreateZipWithEntries(zipPath, ("01.png", CreateSolidPngBytes(660, 936, new SKColor(200, 60, 60))));
+
+        using (var store = new SqliteAssetMetaStore(Path.Combine(_tempDir, "cache.db")))
+        {
+            store.UpsertCatalogOnly(new AssetMeta
+            {
+                Path = zipPath,
+                Name = "writeback.zip",
+                IsFolder = false,
+                FileSize = new FileInfo(zipPath).Length,
+                Mtime = 1_700_000_000,
+            });
+
+            using (var writeBack = new ThumbWriteBackQueue(store, _thumbStore, () => 0))
+            {
+                using (var service = new SkiaCoverService(_thumbStore, writeBack: writeBack))
+                {
+                    // 作品沒有縮圖 key（與使用者資料相同），封面從壓縮檔現場解出
+                    var bmp = await service.LoadOrExtractCoverAsync(zipPath, thumbKey: null);
+                    Assert.NotNull(bmp);
+                }
+            }
+
+            string expectedKey = ThumbWriteBackQueue.BuildThumbKey(zipPath);
+            Assert.Equal(expectedKey, store.Get(zipPath)!.CoverThumbKey);
+            using (var stream = _thumbStore.OpenRead(expectedKey))
+            {
+                Assert.NotNull(stream);
+            }
+
+            // 下次用寫回的 key 載入：直接讀縮圖檔，不必再解壓縮
+            using (var service = new SkiaCoverService(_thumbStore))
+            {
+                var fromThumb = await service.GetCachedThumbAsync(expectedKey);
+                Assert.NotNull(fromThumb);
+                Assert.Equal(330, fromThumb!.PixelSize.Width);
+            }
+        }
+    }
+
+    [Fact]
     public void ReportDisplayScale_OnlyIncreases_AndToDecodeSizeRoundsUp()
     {
         using var service = new SkiaCoverService(_thumbStore);

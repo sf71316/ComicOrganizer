@@ -50,6 +50,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
 
     private readonly AppDataContext _dataContext;
     private readonly SkiaCoverService _coverService;
+    // 一般模式下，現場解出的封面在背景寫回縮圖；唯讀模式為 null
+    private readonly ThumbWriteBackQueue? _thumbWriteBack;
     private bool _isSyncingSearch;
     private bool _deferredInitStarted;
     private bool _disposed;
@@ -60,7 +62,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
     public MainWindowViewModel(AppDataContext dataContext)
     {
         _dataContext = dataContext;
-        _coverService = new SkiaCoverService(dataContext.ThumbStore);
+        _thumbWriteBack = dataContext.CreateThumbWriteBack();
+        _coverService = new SkiaCoverService(dataContext.ThumbStore, writeBack: _thumbWriteBack);
 
         _isDarkTheme = dataContext.IsDarkTheme;
         _currentAccentName = dataContext.CurrentAccentName;
@@ -305,5 +308,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         DataManagementPage.OpenInGalleryRequested -= OnOpenInGalleryRequested;
         DataManagementPage.Dispose();
         _coverService.Dispose();
+        // 封面服務停了之後再收尾寫回佇列（寫完剩下的縮圖），必須早於 AppDataContext 關閉 cache.db
+        _thumbWriteBack?.Dispose();
     }
 }

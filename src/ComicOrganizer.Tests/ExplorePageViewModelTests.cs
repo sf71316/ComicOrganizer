@@ -1,5 +1,6 @@
 using Avalonia.Skia;
 using ComicOrganizer.App.Core;
+using ComicOrganizer.App.Models;
 using ComicOrganizer.Avalonia.Services;
 using ComicOrganizer.Avalonia.ViewModels;
 using Microsoft.Data.Sqlite;
@@ -368,6 +369,189 @@ public class ExplorePageViewModelTests : IDisposable
         Assert.Equal(330, cardVm.Cover1!.PixelSize.Width);
         Assert.Equal(188, cardVm.Cover2!.PixelSize.Width);
         Assert.Equal(188, cardVm.Cover3!.PixelSize.Width);
+    }
+
+    [Fact]
+    public async Task CoverSlot_ReleaseImage_DropsReferenceAndReloadsOnNextRequest()
+    {
+        EnsureAvaloniaSkiaBackend();
+        const string key = "7777777777777777777777777777777777777777";
+        await WriteThumbAsync(key);
+
+        Func<Action, Task> inline = static action => { action(); return Task.CompletedTask; };
+        using var limiter = new SemaphoreSlim(4, 4);
+        var slot = new CoverSlotVm(CreateWorkItem(1, key), "#808080");
+
+        await slot.EnsureLoadedAsync(_coverService, limiter, inline);
+        Assert.NotNull(slot.Image);
+
+        // 放掉後不再持有參考；再次要求時重新載入（命中記憶體快取，同一個實例）
+        var first = slot.Image;
+        slot.ReleaseImage();
+        Assert.Null(slot.Image);
+        Assert.False(slot.HasImage);
+
+        await slot.EnsureLoadedAsync(_coverService, limiter, inline);
+        Assert.Same(first, slot.Image);
+
+        // 沒有封面來源：不會反覆重試，也不會出例外
+        var empty = new CoverSlotVm(CreateWorkItem(2, null, path: string.Empty), "#808080");
+        await empty.EnsureLoadedAsync(_coverService, limiter, inline);
+        empty.ReleaseImage();
+        await empty.EnsureLoadedAsync(_coverService, limiter, inline);
+        Assert.Null(empty.Image);
+    }
+
+    [Fact]
+    public async Task CoverSlot_ReleaseDuringInflightLoad_DoesNotApplyStaleImage()
+    {
+        EnsureAvaloniaSkiaBackend();
+        const string key = "8888888888888888888888888888888888888888";
+        await WriteThumbAsync(key);
+
+        // UI 派送延後執行：模擬載入完成前卡片就被回收
+        var pendingUi = new List<Action>();
+        Func<Action, Task> deferred = action => { pendingUi.Add(action); return Task.CompletedTask; };
+        using var limiter = new SemaphoreSlim(4, 4);
+        var slot = new CoverSlotVm(CreateWorkItem(3, key), "#808080");
+
+        await slot.EnsureLoadedAsync(_coverService, limiter, deferred);
+        slot.ReleaseImage();
+        foreach (var action in pendingUi)
+        {
+            action();
+        }
+
+        Assert.Null(slot.Image);
+
+        // 之後再次顯示時仍可正常載入
+        Func<Action, Task> inline = static action => { action(); return Task.CompletedTask; };
+        await slot.EnsureLoadedAsync(_coverService, limiter, inline);
+        Assert.NotNull(slot.Image);
+    }
+
+    [Fact]
+    public async Task CoverSlot_CanceledWhileQueued_SkipsLoad_AndLaterRequestLoads()
+    {
+        EnsureAvaloniaSkiaBackend();
+        const string key = "6666666666666666666666666666666666666666";
+        await WriteThumbAsync(key);
+
+        Func<Action, Task> inline = static action => { action(); return Task.CompletedTask; };
+
+        // 名額全被占住：載入只能排隊
+        using var limiter = new SemaphoreSlim(0, 4);
+        var slot = new CoverSlotVm(CreateWorkItem(4, key), "#808080");
+        using var firstCts = new CancellationTokenSource();
+        var queued = slot.EnsureLoadedAsync(_coverService, limiter, inline, firstCts.Token);
+        Assert.False(queued.IsCompleted);
+
+        // 卡片被回收：排隊中的載入取消，不會套用封面、也不會被當成「沒有封面」
+        firstCts.Cancel();
+        await queued;
+        Assert.Null(slot.Image);
+
+        // 再次顯示（新的權杖）且有名額時，正常載入
+        limiter.Release(4);
+        using var secondCts = new CancellationTokenSource();
+        await slot.EnsureLoadedAsync(_coverService, limiter, inline, secondCts.Token);
+        Assert.NotNull(slot.Image);
+    }
+
+    [Fact]
+    public async Task CoverSlot_RequestAfterCancel_DoesNotReuseCanceledInflightLoad()
+    {
+        EnsureAvaloniaSkiaBackend();
+        const string key = "5555555555555555555555555555555555555555";
+        await WriteThumbAsync(key);
+
+        Func<Action, Task> inline = static action => { action(); return Task.CompletedTask; };
+        using var limiter = new SemaphoreSlim(0, 4);
+        var slot = new CoverSlotVm(CreateWorkItem(5, key), "#808080");
+
+        using var firstCts = new CancellationTokenSource();
+        var first = slot.EnsureLoadedAsync(_coverService, limiter, inline, firstCts.Token);
+        firstCts.Cancel();
+
+        // 不等第一次結束就再次要求：必須另起一次載入，而不是沿用已取消的那次
+        using var secondCts = new CancellationTokenSource();
+        var second = slot.EnsureLoadedAsync(_coverService, limiter, inline, secondCts.Token);
+        Assert.NotSame(first, second);
+
+        limiter.Release(4);
+        await first;
+        await second;
+        Assert.NotNull(slot.Image);
+    }
+
+    [Fact]
+    public async Task Gallery_RecycledCoverQueue_ReleasesOnlyOldestBeyondRetention()
+    {
+        EnsureAvaloniaSkiaBackend();
+        const string key = "9999999999999999999999999999999999999999";
+        await WriteThumbAsync(key);
+
+        Func<Action, Task> inline = static action => { action(); return Task.CompletedTask; };
+        using var gallery = new GalleryPageViewModel(
+            _store,
+            _coverService,
+            rootDirectory: _tempDir,
+            runOnUiAsync: inline,
+            autoLoad: false);
+
+        int total = GalleryPageViewModel.RecycledCoverRetention + 5;
+        var items = Enumerable.Range(0, total)
+            .Select(i => new GalleryItemVm(
+                new GalleryItemSortMetadata($@"C:\fake\g{i}.zip", $"g{i}.zip", $"G {i}", false, 1, 1, ReadStatus.Unread, 0, null),
+                authorName: null,
+                coverThumbKey: key,
+                pageCount: 10,
+                language: null,
+                isAuthorFolder: false,
+                onActivate: _ => { },
+                onRevealInExplorer: _ => { },
+                runOnUiAsync: inline))
+            .ToList();
+
+        foreach (var item in items)
+        {
+            await gallery.NotifyItemRealized(item);
+        }
+        Assert.All(items, item => Assert.True(item.HasCover1));
+
+        // 全部回收：只有最早回收的 5 張超出保留數量而放掉封面
+        foreach (var item in items)
+        {
+            gallery.NotifyItemRecycled(item);
+        }
+        Assert.All(items.Take(5), item => Assert.False(item.HasCover1));
+        Assert.All(items.Skip(5), item => Assert.True(item.HasCover1));
+
+        // 重新顯示的卡片移出佇列：再回收 1 張新的卡片時，被放掉的是佇列中最舊的（第 6 張），不是重新顯示的第 7 張
+        await gallery.NotifyItemRealized(items[6]);
+        await gallery.NotifyItemRealized(items[0]);
+        Assert.True(items[0].HasCover1);
+        gallery.NotifyItemRecycled(items[0]);
+        gallery.NotifyItemRecycled(items[6]);
+        Assert.True(items[0].HasCover1);
+        Assert.True(items[6].HasCover1);
+        Assert.False(items[5].HasCover1);
+    }
+
+    private async Task WriteThumbAsync(string key)
+    {
+        var srcPng = Path.Combine(_tempDir, $"thumb_{key[..4]}.png");
+        WriteSolidPng(srcPng, 400, 600, new SKColor(90, 140, 200));
+        var jpegBytes = await _coverService.ExtractCoverJpegBytesAsync(srcPng);
+        Assert.NotNull(jpegBytes);
+        _thumbStore.Write(key, jpegBytes!);
+    }
+
+    private static ExploreWorkItem CreateWorkItem(long id, string? thumbKey, string? path = null)
+    {
+        return new ExploreWorkItem(
+            id, path ?? $@"C:\fake\slot{id}.zip", $"slot{id}.zip", $"Slot {id}", null, string.Empty, null, null, null,
+            ReadStatus.Unread, 0, null, 0, null, thumbKey, Array.Empty<ExploreTagBadge>());
     }
 
     [Fact]

@@ -11,7 +11,8 @@ namespace ComicOrganizer.Avalonia.Services;
 /// 負責：
 /// 1. 從 <see cref="IThumbStore"/> 讀取既有縮圖快取，搭配執行緒安全 LRU 記憶體快取解碼為 Avalonia <see cref="Bitmap"/>。
 /// 2. 針對單一圖片、資料夾（cover.* 優先 → 自然排序 → 子壓縮檔/PDF → 最多遞迴 2 層）、壓縮檔（SharpCompress）與 PDF（PDFtoImage）提取並縮放為 JPEG 位元組。
-/// 3. <see cref="LoadOrExtractCoverAsync"/> 預設唯讀，不主動寫回 <see cref="IThumbStore"/>。
+/// 3. <see cref="LoadOrExtractCoverAsync"/> 現場解出封面時，若有提供 <see cref="ThumbWriteBackQueue"/>（一般模式）就交給它在背景寫回縮圖；
+///    唯讀模式不提供，完全不寫入。
 /// </summary>
 public sealed class SkiaCoverService : IDisposable
 {
@@ -26,13 +27,21 @@ public sealed class SkiaCoverService : IDisposable
     private static readonly object PdfLock = new();
 
     private readonly IThumbStore _thumbStore;
+    private readonly ThumbWriteBackQueue? _writeBack;
+    private readonly BitmapReleaseGcTrigger _releaseGcTrigger;
     private readonly int _maxMemoryCacheItems;
     private readonly object _cacheLock = new();
     private readonly Dictionary<string, LinkedListNode<CacheEntry>> _cacheMap = new(StringComparer.Ordinal);
     private readonly LinkedList<CacheEntry> _lruList = new();
     private volatile bool _disposed;
 
-    public SkiaCoverService(IThumbStore thumbStore, int maxMemoryCacheItems = 512)
+    /// <param name="writeBack">現場解出封面後寫回縮圖用；<c>null</c>（唯讀模式）表示不寫回。</param>
+    /// <param name="releaseGcTrigger">點陣圖被擠出快取時回報像素量，累積到門檻觸發背景 GC；<c>null</c> 用預設門檻。</param>
+    public SkiaCoverService(
+        IThumbStore thumbStore,
+        int maxMemoryCacheItems = 512,
+        ThumbWriteBackQueue? writeBack = null,
+        BitmapReleaseGcTrigger? releaseGcTrigger = null)
     {
         ArgumentNullException.ThrowIfNull(thumbStore);
         if (maxMemoryCacheItems < 0)
@@ -41,6 +50,8 @@ public sealed class SkiaCoverService : IDisposable
         }
 
         _thumbStore = thumbStore;
+        _writeBack = writeBack;
+        _releaseGcTrigger = releaseGcTrigger ?? new BitmapReleaseGcTrigger();
         _maxMemoryCacheItems = maxMemoryCacheItems;
     }
 
@@ -207,7 +218,7 @@ public sealed class SkiaCoverService : IDisposable
 
     /// <summary>
     /// 優先從 <see cref="IThumbStore"/> 與記憶體快取載入封面；若未命中且來源存在，
-    /// 則現場提取封面並解碼為 <see cref="Bitmap"/>（預設不主動寫回 <see cref="IThumbStore"/>）。
+    /// 則現場提取封面並解碼為 <see cref="Bitmap"/>；有提供寫回佇列時，解出的 JPEG 會在背景寫回縮圖。
     /// </summary>
     /// <param name="decodeSize">顯示框大小（實際像素），見 <see cref="GetCachedThumbAsync"/>；預設為原尺寸。</param>
     public async Task<Bitmap?> LoadOrExtractCoverAsync(
@@ -250,6 +261,12 @@ public sealed class SkiaCoverService : IDisposable
             DefaultJpegQuality,
             ct).ConfigureAwait(false);
 
+        if (jpegBytes != null && jpegBytes.Length > 0)
+        {
+            // 解出來就寫回縮圖（背景執行、不等待）；卡片已捲走也照寫，下次顯示就不必再解壓縮
+            _writeBack?.TrySubmit(sourcePath, jpegBytes);
+        }
+
         if (jpegBytes == null || jpegBytes.Length == 0 || _disposed || ct.IsCancellationRequested)
         {
             return null;
@@ -281,11 +298,19 @@ public sealed class SkiaCoverService : IDisposable
     /// <summary>清空記憶體 LRU 快取強參考（不強制 Dispose，避免畫面上仍在顯示中的 Bitmap 失效拋例外）。</summary>
     public void ClearMemoryCache()
     {
+        long releasedBytes = 0;
         lock (_cacheLock)
         {
+            for (var node = _lruList.First; node != null; node = node.Next)
+            {
+                releasedBytes += EstimatePixelBytes(node.Value.Bitmap);
+            }
+
             _cacheMap.Clear();
             _lruList.Clear();
         }
+
+        _releaseGcTrigger.ReportReleased(releasedBytes);
     }
 
     public void Dispose()
@@ -893,6 +918,7 @@ public sealed class SkiaCoverService : IDisposable
     {
         Bitmap? duplicateToDispose = null;
         Bitmap? result;
+        long evictedBytes = 0;
 
         lock (_cacheLock)
         {
@@ -923,12 +949,14 @@ public sealed class SkiaCoverService : IDisposable
                 _cacheMap[cacheKey] = node;
                 result = newBitmap;
 
-                // 只從強參考 LRU 索引移除，絕不在此 Dispose 可能仍掛在 UI Image.Source 上的 Bitmap
+                // 只從強參考 LRU 索引移除，絕不在此 Dispose 可能仍掛在 UI Image.Source 上的 Bitmap；
+                // 改為回報放掉的像素量，累積夠多時觸發背景 GC 讓原生記憶體早點回收
                 while (_cacheMap.Count > _maxMemoryCacheItems && _lruList.Last != null)
                 {
                     var tail = _lruList.Last;
                     _lruList.RemoveLast();
                     _cacheMap.Remove(tail.Value.Key);
+                    evictedBytes += EstimatePixelBytes(tail.Value.Bitmap);
                 }
             }
         }
@@ -938,7 +966,26 @@ public sealed class SkiaCoverService : IDisposable
             DisposeBitmapSafely(duplicateToDispose);
         }
 
+        if (evictedBytes > 0)
+        {
+            _releaseGcTrigger.ReportReleased(evictedBytes);
+        }
+
         return result;
+    }
+
+    /// <summary>點陣圖像素佔用的原生記憶體估計（BGRA 每像素 4 bytes）。</summary>
+    private static long EstimatePixelBytes(Bitmap bitmap)
+    {
+        try
+        {
+            var size = bitmap.PixelSize;
+            return (long)size.Width * size.Height * 4;
+        }
+        catch
+        {
+            return 0;
+        }
     }
 
     private static void DisposeBitmapsSafely(List<Bitmap> bitmaps)

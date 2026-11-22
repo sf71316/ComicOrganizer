@@ -11,6 +11,7 @@
   <UserControl.Resources>
     <x:Double x:Key="GalleryCardWidth">226</x:Double>
     <x:Double x:Key="GalleryCardCoverHeight">264</x:Double>
+    <x:Double x:Key="GalleryCardCoverWidth">206</x:Double>
     <views:HexToBrushConverter x:Key="HexToBrushConverter" />
   </UserControl.Resources>
 
@@ -96,8 +97,7 @@
     </Style>
     <Style Selector="Image.gallery-cover-fade.loaded">
       <Setter Property="Opacity" Value="1" />
-    </Style>
-  </UserControl.Styles>
+    </Style>  </UserControl.Styles>
 
   <Grid RowDefinitions="Auto,*" Margin="18,12,18,0">
 
@@ -516,24 +516,34 @@
                 </StackPanel>
               </suki:GlassCard>
 
-              <!-- 模式 A：卡片格網（大卡 / 中卡 / 小卡） -->
-              <ItemsControl x:Name="CardGridItemsControl"
-                            IsVisible="{Binding IsCardGridMode}"
-                            ItemsSource="{Binding Items}">
-                <ItemsControl.ItemsPanel>
-                  <ItemsPanelTemplate>
-                    <WrapPanel Orientation="Horizontal" />
-                  </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemTemplate>
+              <!-- 模式 A：卡片格網（大卡 / 中卡 / 小卡）
+                   虛擬化：ItemsRepeater + UniformGridLayout 只建立畫面附近的卡片並回收重用。
+                   格子大小取第一張卡片的實際大小（含右 / 下 12 間距），卡片高度一致（標題固定兩行高），
+                   外觀與原本靠左排列的 WrapPanel 相同。
+                   ItemsSource 由程式碼設定：只有目前模式的清單綁定 Items，隱藏的清單清空以回收卡片與封面。
+                   VerticalCacheLength=0.5：畫面上下各多建立 1/4 個畫面的卡片（預設 2 = 上下各一整個畫面）。
+                   實測拖捲軸跳很遠時要建立的卡片少約一半（1080p：34 → 20 張、版面 24 → 13 ms），
+                   仍保留一點緩衝讓封面在進入畫面前開始載入。 -->
+              <ItemsRepeater x:Name="CardGridRepeater"
+                             VerticalCacheLength="0.5"
+                             IsVisible="{Binding IsCardGridMode}"
+                             ElementPrepared="OnRepeaterElementPrepared"
+                             ElementClearing="OnRepeaterElementClearing">
+                <ItemsRepeater.Layout>
+                  <UniformGridLayout Orientation="Horizontal"
+                                     ItemsJustification="Start"
+                                     ItemsStretch="None" />
+                </ItemsRepeater.Layout>
+                <ItemsRepeater.ItemTemplate>
                   <DataTemplate x:DataType="vm:GalleryItemVm">
+                    <!-- 外層容器擋掉 ItemsRepeater 回收時設的 null DataContext，卡片直接換成新項目（見 StableDataContextHost） -->
+                    <controls:StableDataContextHost>
                     <suki:GlassCard Classes="gallery-item-card"
                                     Classes.selected="{Binding IsSelected}"
                                     Width="{DynamicResource GalleryCardWidth}"
                                     CornerRadius="13"
                                     Padding="10"
-                                    Margin="0,0,12,12"
-                                    EffectiveViewportChanged="OnItemEffectiveViewportChanged">
+                                    Margin="0,0,12,12">
                       <suki:GlassCard.ContextMenu>
                         <ContextMenu>
                           <MenuItem Header="📖 以內建閱讀器開啟" Command="{Binding OpenInReaderCommand}" />
@@ -553,7 +563,11 @@
                                 Cursor="Hand"
                                 ToolTip.Tip="{Binding PrimaryActionTooltip}">
                           <StackPanel Spacing="7">
-                            <Border Height="{DynamicResource GalleryCardCoverHeight}"
+                            <!-- 封面格子固定大小：SukiUI Basic 按鈕不會把內容撐滿，不指定寬度時格子會隨
+                                 標題長度（封面未載入）或封面比例（已載入）變寬變窄 -->
+                            <Border Width="{DynamicResource GalleryCardCoverWidth}"
+                                    HorizontalAlignment="Left"
+                                    Height="{DynamicResource GalleryCardCoverHeight}"
                                     CornerRadius="9"
                                     ClipToBounds="True"
                                     Background="#18808080">
@@ -643,22 +657,29 @@
 
                       </StackPanel>
                     </suki:GlassCard>
+                    </controls:StableDataContextHost>
                   </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
+                </ItemsRepeater.ItemTemplate>
+              </ItemsRepeater>
 
-              <!-- 模式 B：詳細列表模式 -->
-              <ItemsControl x:Name="DetailListItemsControl"
-                            IsVisible="{Binding IsDetailListMode}"
-                            ItemsSource="{Binding Items}">
-                <ItemsControl.ItemTemplate>
+              <!-- 模式 B：詳細列表模式（虛擬化：ItemsRepeater + StackLayout，只建立畫面附近的列並回收重用） -->
+              <ItemsRepeater x:Name="DetailListRepeater"
+                             VerticalCacheLength="0.5"
+                             IsVisible="{Binding IsDetailListMode}"
+                             ElementPrepared="OnRepeaterElementPrepared"
+                             ElementClearing="OnRepeaterElementClearing">
+                <ItemsRepeater.Layout>
+                  <StackLayout Orientation="Vertical" />
+                </ItemsRepeater.Layout>
+                <ItemsRepeater.ItemTemplate>
                   <DataTemplate x:DataType="vm:GalleryItemVm">
+                    <!-- 外層容器擋掉 ItemsRepeater 回收時設的 null DataContext，卡片直接換成新項目（見 StableDataContextHost） -->
+                    <controls:StableDataContextHost>
                     <suki:GlassCard Classes="gallery-item-card"
                                     Classes.selected="{Binding IsSelected}"
                                     CornerRadius="11"
                                     Padding="10,7"
-                                    Margin="0,0,0,6"
-                                    EffectiveViewportChanged="OnItemEffectiveViewportChanged">
+                                    Margin="0,0,0,6">
                       <suki:GlassCard.ContextMenu>
                         <ContextMenu>
                           <MenuItem Header="📖 以內建閱讀器開啟" Command="{Binding OpenInReaderCommand}" />
@@ -762,37 +783,10 @@
 
                       </Grid>
                     </suki:GlassCard>
+                    </controls:StableDataContextHost>
                   </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-
-              <!-- 底部：平滑預載過渡緩衝列 -->
-              <suki:GlassCard IsVisible="{Binding HasMoreItems}"
-                              CornerRadius="14"
-                              Padding="18,12"
-                              Margin="0,8,0,10"
-                              HorizontalAlignment="Center">
-                <StackPanel Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
-                  <StackPanel Spacing="2" VerticalAlignment="Center">
-                    <TextBlock Text="⏳ 捲動接近底部時將自動銜接下一批資料"
-                               FontSize="12.5"
-                               FontWeight="Medium"
-                               Opacity="0.86" />
-                    <TextBlock Text="{Binding PositionBadgeDetail}"
-                               FontSize="11"
-                               Opacity="0.64" />
-                  </StackPanel>
-
-                  <Button Classes="Outlined"
-                          Command="{Binding LoadMoreItemsCommand}"
-                          VerticalAlignment="Center"
-                          Padding="16,7">
-                    <TextBlock Text="{Binding LoadMoreButtonText}"
-                               FontSize="12"
-                               FontWeight="SemiBold" />
-                  </Button>
-                </StackPanel>
-              </suki:GlassCard>
+                </ItemsRepeater.ItemTemplate>
+              </ItemsRepeater>
 
             </StackPanel>
           </ScrollViewer>
@@ -820,15 +814,6 @@
                                Value="{Binding ScrollProgressPercent}"
                                Height="3" />
                 </StackPanel>
-
-                <Button Classes="Outlined"
-                        Padding="9,5"
-                        IsVisible="{Binding HasMoreItems}"
-                        Command="{Binding LoadMoreItemsCommand}"
-                        VerticalAlignment="Center"
-                        ToolTip.Tip="{Binding LoadMoreShortTooltip}">
-                  <TextBlock Text="{Binding LoadMoreShortText}" FontSize="11.5" FontWeight="SemiBold" />
-                </Button>
 
                 <Button Classes="Flat"
                         Padding="10,5"

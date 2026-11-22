@@ -166,12 +166,24 @@ public sealed partial class ExploreTagChipVm : ObservableObject
 /// <summary>
 /// 單張代表作封面槽位 ViewModel。
 /// 注意：<see cref="Image"/> 實例由 <see cref="SkiaCoverService"/> 記憶體 LRU 快取共享管理，此處不主動 Dispose。
+/// 虛擬化清單可呼叫 <see cref="ReleaseImage"/> 放掉參考，沒有人參考後由 GC 回收原生記憶體。
 /// </summary>
 public sealed partial class CoverSlotVm : ObservableObject
 {
     private readonly object _loadLock = new();
     private Task? _inflightTask;
-    private bool _completed;
+
+    // 進行中那次載入使用的取消權杖：已取消時（例如卡片被回收）不能沿用，要另起一次載入
+    private CancellationToken _inflightToken;
+
+    // _completed：目前已持有封面（或確定不需要再載入）；ReleaseImage 會重設，之後可再載入
+    private volatile bool _completed;
+
+    // _unavailable：沒有封面或載入失敗，之後不再重試（避免反覆解壓縮）
+    private volatile bool _unavailable;
+
+    // _imageWanted：ReleaseImage 後若仍有進行中的載入，完成時不套用圖片
+    private volatile bool _imageWanted = true;
 
     /// <param name="decodeDipSize">
     /// 封面顯示框大小（DIP），用於依顯示大小縮小解碼以節省記憶體；<c>null</c> 表示原尺寸解碼。
@@ -219,25 +231,41 @@ public sealed partial class CoverSlotVm : ObservableObject
         ArgumentNullException.ThrowIfNull(concurrencyLimiter);
         ArgumentNullException.ThrowIfNull(runOnUiAsync);
 
-        if (_completed || ct.IsCancellationRequested)
+        _imageWanted = true;
+        if (_completed || _unavailable || ct.IsCancellationRequested)
         {
             return Task.CompletedTask;
         }
 
         lock (_loadLock)
         {
-            if (_completed || ct.IsCancellationRequested)
+            if (_completed || _unavailable || ct.IsCancellationRequested)
             {
                 return Task.CompletedTask;
             }
 
-            if (_inflightTask != null && !_inflightTask.IsCompleted)
+            if (_inflightTask != null && !_inflightTask.IsCompleted && !_inflightToken.IsCancellationRequested)
             {
                 return _inflightTask;
             }
 
+            _inflightToken = ct;
             _inflightTask = LoadCoreAsync(coverService, concurrencyLimiter, runOnUiAsync, ct);
             return _inflightTask;
+        }
+    }
+
+    /// <summary>
+    /// 放掉目前持有的封面參考（需在 UI 執行緒呼叫）。之後再呼叫 <see cref="EnsureLoadedAsync"/> 會重新載入，
+    /// 通常直接命中 <see cref="SkiaCoverService"/> 的記憶體快取或磁碟縮圖。
+    /// </summary>
+    public void ReleaseImage()
+    {
+        _imageWanted = false;
+        _completed = false;
+        if (Image != null)
+        {
+            Image = null;
         }
     }
 
@@ -249,7 +277,7 @@ public sealed partial class CoverSlotVm : ObservableObject
     {
         if (string.IsNullOrWhiteSpace(SourcePath) && string.IsNullOrWhiteSpace(ThumbKey))
         {
-            _completed = true;
+            _unavailable = true;
             return;
         }
 
@@ -278,10 +306,20 @@ public sealed partial class CoverSlotVm : ObservableObject
 
             if (bitmap != null)
             {
-                await runOnUiAsync(() => Image = bitmap).ConfigureAwait(false);
+                // 在 UI 執行緒判斷並設定，與 ReleaseImage 依序執行，避免放掉後又被舊的載入結果填回
+                await runOnUiAsync(() =>
+                {
+                    if (_imageWanted)
+                    {
+                        Image = bitmap;
+                        _completed = true;
+                    }
+                }).ConfigureAwait(false);
             }
-
-            _completed = true;
+            else
+            {
+                _unavailable = true;
+            }
         }
         catch (OperationCanceledException)
         {
@@ -289,11 +327,11 @@ public sealed partial class CoverSlotVm : ObservableObject
         }
         catch (ObjectDisposedException)
         {
-            _completed = true;
+            _unavailable = true;
         }
         catch
         {
-            _completed = true;
+            _unavailable = true;
         }
         finally
         {
