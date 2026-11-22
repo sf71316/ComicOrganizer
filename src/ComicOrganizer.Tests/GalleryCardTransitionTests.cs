@@ -148,6 +148,40 @@ public class GalleryCardTransitionTests
     }
 
     [Fact]
+    public void GalleryCardControl_Reattach_AppliesChangesMadeWhileDetached()
+    {
+        AvaloniaTestThread.Run(() =>
+        {
+            var card = new ComicOrganizer.Avalonia.Views.Controls.GalleryCardControl();
+            var item = new GalleryItemVm(
+                new GalleryItemSortMetadata(@"E:\Comics\c.zip", "c.zip", "作品 C", false, 1024, 1700000000000, ReadStatus.Unread, 0, null),
+                authorName: "作者丙",
+                coverThumbKey: null,
+                pageCount: 10,
+                language: null,
+                isAuthorFolder: false,
+                onActivate: _ => { },
+                onRevealInExplorer: _ => { });
+            var rootCard = card.FindControl<GlassCard>("RootCard")!;
+
+            card.DataContext = item;
+            card.HandleAttached();
+            Assert.DoesNotContain("selected", rootCard.Classes);
+
+            // 卸下期間已退訂：選取變更不會即時反映到卡片
+            card.HandleDetached();
+            item.IsSelected = true;
+            Assert.DoesNotContain("selected", rootCard.Classes);
+
+            // 掛回時要補上卸下期間漏掉的變更，並恢復即時更新
+            card.HandleAttached();
+            Assert.Contains("selected", rootCard.Classes);
+            item.IsSelected = false;
+            Assert.DoesNotContain("selected", rootCard.Classes);
+        });
+    }
+
+    [Fact]
     public void GalleryCardControl_OuterDataContextChanges_DoNotPropagateIntoCardTree()
     {
         AvaloniaTestThread.Run(() =>

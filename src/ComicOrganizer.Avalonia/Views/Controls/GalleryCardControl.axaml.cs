@@ -62,12 +62,33 @@ public partial class GalleryCardControl : UserControl
             s_handCursor ??= new Cursor(StandardCursorType.Hand);
             ActivateButton.Cursor = s_handCursor;
         }
-        EnsureSubscribed();
+        HandleAttached();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnDetachedFromVisualTree(e);
+        HandleDetached();
+    }
+
+    /// <summary>
+    /// 掛回視覺樹：重新訂閱目前項目，並重新套用封面與選取狀態。
+    /// 卸下期間已退訂，這段時間內項目的封面載入完成 / 被放掉、選取變更都不會通知卡片，掛回時必須補上。
+    /// （兩個套用方法都只在值不同時才寫入，狀態沒變時幾乎沒有成本。）
+    /// </summary>
+    internal void HandleAttached()
+    {
+        EnsureSubscribed();
+        if (_boundItem is { } item)
+        {
+            ApplySelectionState(item);
+            ApplyCoverState(item);
+        }
+    }
+
+    /// <summary>卸下視覺樹：退訂目前項目，避免項目持有已不在畫面上的卡片。</summary>
+    internal void HandleDetached()
+    {
         Unsubscribe();
     }
 
