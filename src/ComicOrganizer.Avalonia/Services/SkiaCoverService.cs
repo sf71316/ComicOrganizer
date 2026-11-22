@@ -670,6 +670,19 @@ public sealed class SkiaCoverService : IDisposable
         try
         {
             using var zip = ZipFile.OpenRead(archivePath);
+
+            // .NET 的 ZipFile 一律以 UTF-8 解碼條目名稱，且不讀「Unicode 路徑附加欄位」（0x7075）；
+            // SharpCompress 會優先採用該欄位的正確名稱。非 UTF-8 檔名（例如舊版 WinRAR / 日文 Windows 壓的 Shift-JIS、Big5）
+            // 在這裡會變成含 U+FFFD 的亂碼，自然排序結果可能與改版前不同而選錯封面。
+            // 遇到這類壓縮檔就整個交給下方 SharpCompress 處理，確保選到的封面與改版前一致。
+            foreach (var entry in zip.Entries)
+            {
+                if (entry.FullName.Contains('\uFFFD'))
+                {
+                    return null;
+                }
+            }
+
             var imageEntries = zip.Entries
                 .Where(e =>
                     e.Length > 0
@@ -844,13 +857,22 @@ public sealed class SkiaCoverService : IDisposable
     /// <summary>
     /// 透過 <see cref="ArrayPool{T}"/> 將串流讀入共用緩衝區再一次複製為原生 <see cref="SKData"/>，
     /// 避免 <see cref="MemoryStream"/> 倍增擴容與 <see cref="SKData.Create(Stream)"/> 在 LOH 留下數 MB 暫時 byte[] 垃圾。
+    /// <para>
+    /// 不設人為大小上限（改版前的 <see cref="SKData.Create(Stream)"/> 也沒有）：只受 .NET 單一陣列長度上限
+    /// （<see cref="Array.MaxLength"/>，約 2 GB）限制，超過才放棄。
+    /// </para>
     /// </summary>
     private static SKData? ReadStreamToSkData(Stream stream, long expectedLength)
     {
         const int DefaultInitialCapacity = 64 * 1024;
-        const int MaxAllowedBytes = 64 * 1024 * 1024;
+        int maxAllowedBytes = Array.MaxLength;
 
-        int initialCapacity = expectedLength > 0 && expectedLength <= MaxAllowedBytes
+        if (expectedLength > maxAllowedBytes)
+        {
+            return null;
+        }
+
+        int initialCapacity = expectedLength > 0
             ? (int)expectedLength
             : DefaultInitialCapacity;
 
@@ -862,16 +884,25 @@ public sealed class SkiaCoverService : IDisposable
             {
                 if (totalRead == buffer.Length)
                 {
-                    if (buffer.Length >= MaxAllowedBytes)
+                    // 緩衝區剛好讀滿：先試讀 1 個位元組確認是否已到結尾，避免大小剛好時白白配置兩倍緩衝區
+                    int probe = stream.ReadByte();
+                    if (probe < 0)
+                    {
+                        break;
+                    }
+
+                    if (buffer.Length >= maxAllowedBytes)
                     {
                         return null;
                     }
 
-                    int nextSize = Math.Min(MaxAllowedBytes, buffer.Length * 2);
+                    int nextSize = (int)Math.Min(maxAllowedBytes, (long)buffer.Length * 2);
                     byte[] grown = ArrayPool<byte>.Shared.Rent(nextSize);
                     Buffer.BlockCopy(buffer, 0, grown, 0, totalRead);
                     ArrayPool<byte>.Shared.Return(buffer);
                     buffer = grown;
+                    buffer[totalRead++] = (byte)probe;
+                    continue;
                 }
 
                 int read = stream.Read(buffer, totalRead, buffer.Length - totalRead);

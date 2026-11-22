@@ -178,6 +178,66 @@ public class SkiaCoverServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ExtractCoverJpegBytesAsync_ImageLargerThan64MB_StillExtractsCover()
+    {
+        // 正常 PNG 後面接 65 MB 填充：解碼器讀到 IEND 就停，但讀檔必須讀完整個檔案（超過舊的 64 MB 上限）
+        const int PaddingBytes = 65 * 1024 * 1024;
+        var png = CreateSolidPngBytes(660, 440, new SKColor(230, 20, 20));
+        var imagePath = Path.Combine(_tempDir, "huge.png");
+        using (var fs = File.Create(imagePath))
+        {
+            fs.Write(png, 0, png.Length);
+            fs.SetLength(png.Length + PaddingBytes);
+        }
+
+        // 壓縮檔內同樣大小的條目（deflate 後很小，但解壓後超過 64 MB）
+        var zipPath = Path.Combine(_tempDir, "huge.zip");
+        using (var fs = File.Create(zipPath))
+        {
+            using var zip = new ZipArchive(fs, ZipArchiveMode.Create);
+            var entry = zip.CreateEntry("01.png", CompressionLevel.Fastest);
+            using var s = entry.Open();
+            s.Write(png, 0, png.Length);
+            s.Write(new byte[PaddingBytes], 0, PaddingBytes);
+        }
+
+        using var service = new SkiaCoverService(_thumbStore);
+        foreach (var path in new[] { imagePath, zipPath })
+        {
+            var jpeg = await service.ExtractCoverJpegBytesAsync(path);
+            Assert.NotNull(jpeg);
+            var center = DecodeCenterPixel(jpeg!);
+            Assert.True(center.Red > 150 && center.Red > center.Green + 80, $"{Path.GetFileName(path)} 封面顏色不符：{center}");
+        }
+    }
+
+    [Fact]
+    public async Task ExtractCoverJpegBytesAsync_ZipWithLegacyNamesAndUnicodePathField_PicksSameCoverAsSharpCompress()
+    {
+        // 模擬日文 Windows 舊版壓縮工具：檔名以 Shift-JIS 存放（未設 UTF-8 旗標），另附 Unicode 路徑附加欄位（0x7075）。
+        // 「い.png」（藍）排在壓縮檔前面、「あ.png」（紅）在後；依正確名稱自然排序應選「あ.png」。
+        // .NET ZipFile 會把兩個名稱都解成相同的 U+FFFD 亂碼而按存放順序選到藍色，必須交給 SharpCompress。
+        var zipPath = Path.Combine(_tempDir, "legacy_names.zip");
+        WriteStoredZipWithUnicodePathField(
+            zipPath,
+            (new byte[] { 0x82, 0xA2, (byte)'.', (byte)'p', (byte)'n', (byte)'g' }, "い.png", CreateSolidPngBytes(660, 440, new SKColor(20, 40, 230))),
+            (new byte[] { 0x82, 0xA0, (byte)'.', (byte)'p', (byte)'n', (byte)'g' }, "あ.png", CreateSolidPngBytes(660, 440, new SKColor(230, 20, 20))));
+
+        // 前提：.NET 確實解成亂碼
+        using (var zip = ZipFile.OpenRead(zipPath))
+        {
+            Assert.All(zip.Entries, e => Assert.Contains('�', e.FullName));
+        }
+
+        using var service = new SkiaCoverService(_thumbStore);
+        var jpeg = await service.ExtractCoverJpegBytesAsync(zipPath);
+
+        Assert.NotNull(jpeg);
+        var center = DecodeCenterPixel(jpeg!);
+        Assert.True(center.Red > 150 && center.Red > center.Blue + 80, $"預期依正確檔名選中紅色「あ.png」，實際像素={center}");
+    }
+
+    [Fact]
     public async Task ExtractCoverJpegBytesAsync_PdfFile_RendersFirstPageToValidJpeg()
     {
         var pdfPath = Path.Combine(_tempDir, "minimal.pdf");
@@ -654,6 +714,97 @@ public class SkiaCoverServiceTests : IDisposable
             using var s = entry.Open();
             s.Write(content, 0, content.Length);
         }
+    }
+
+    /// <summary>
+    /// 手工寫出不壓縮（stored）的 ZIP：條目名稱用給定的原始位元組（不設 UTF-8 旗標），
+    /// 並在本地與中央目錄標頭都附上 Unicode 路徑附加欄位（0x7075）存放正確名稱。
+    /// </summary>
+    private static void WriteStoredZipWithUnicodePathField(
+        string zipPath,
+        params (byte[] LegacyName, string UnicodeName, byte[] Content)[] entries)
+    {
+        using var fs = File.Create(zipPath);
+        using var w = new BinaryWriter(fs);
+        var central = new List<(byte[] Name, byte[] Extra, uint Crc, int Size, uint Offset)>();
+
+        foreach (var (legacyName, unicodeName, content) in entries)
+        {
+            byte[] utf8Name = Encoding.UTF8.GetBytes(unicodeName);
+            byte[] extra = new byte[4 + 5 + utf8Name.Length];
+            BitConverter.GetBytes((ushort)0x7075).CopyTo(extra, 0);
+            BitConverter.GetBytes((ushort)(5 + utf8Name.Length)).CopyTo(extra, 2);
+            extra[4] = 1;
+            BitConverter.GetBytes(Crc32(legacyName)).CopyTo(extra, 5);
+            utf8Name.CopyTo(extra, 9);
+
+            uint crc = Crc32(content);
+            uint offset = (uint)fs.Position;
+            w.Write(0x04034b50u);
+            w.Write((ushort)20);
+            w.Write((ushort)0);
+            w.Write((ushort)0);
+            w.Write((ushort)0);
+            w.Write((ushort)0x21);
+            w.Write(crc);
+            w.Write(content.Length);
+            w.Write(content.Length);
+            w.Write((ushort)legacyName.Length);
+            w.Write((ushort)extra.Length);
+            w.Write(legacyName);
+            w.Write(extra);
+            w.Write(content);
+            central.Add((legacyName, extra, crc, content.Length, offset));
+        }
+
+        uint cdOffset = (uint)fs.Position;
+        foreach (var (name, extra, crc, size, offset) in central)
+        {
+            w.Write(0x02014b50u);
+            w.Write((ushort)20);
+            w.Write((ushort)20);
+            w.Write((ushort)0);
+            w.Write((ushort)0);
+            w.Write((ushort)0);
+            w.Write((ushort)0x21);
+            w.Write(crc);
+            w.Write(size);
+            w.Write(size);
+            w.Write((ushort)name.Length);
+            w.Write((ushort)extra.Length);
+            w.Write((ushort)0);
+            w.Write((ushort)0);
+            w.Write((ushort)0);
+            w.Write(0u);
+            w.Write(offset);
+            w.Write(name);
+            w.Write(extra);
+        }
+
+        uint cdSize = (uint)fs.Position - cdOffset;
+        w.Write(0x06054b50u);
+        w.Write((ushort)0);
+        w.Write((ushort)0);
+        w.Write((ushort)central.Count);
+        w.Write((ushort)central.Count);
+        w.Write(cdSize);
+        w.Write(cdOffset);
+        w.Write((ushort)0);
+    }
+
+    private static uint Crc32(byte[] data)
+    {
+        uint crc = 0xFFFFFFFFu;
+        foreach (byte b in data)
+        {
+            crc ^= b;
+            for (int i = 0; i < 8; i++)
+            {
+                crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
+            }
+        }
+
+        return ~crc;
     }
 
     private static void AssertValidJpegHeader(byte[] bytes)
