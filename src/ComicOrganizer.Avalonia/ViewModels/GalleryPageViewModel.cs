@@ -421,6 +421,9 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
     private bool _suppressReload;
     private volatile bool _disposed;
 
+    /// <summary>畫廊主視口滑鼠滾輪單格捲動距離（DIP，預設 200；儲存設定後即時同步）。</summary>
+    public double WheelScrollStepDip { get; private set; } = Views.Controls.ScrollWheelStepHelper.DefaultWheelScrollDip;
+
     public GalleryPageViewModel(AppDataContext dataContext, SkiaCoverService coverService, bool autoLoad = true)
         : this(
             dataContext?.MetaStore ?? throw new ArgumentNullException(nameof(dataContext)),
@@ -434,6 +437,16 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
             readerLauncher: new AvaloniaReaderWindowLauncher(dataContext))
     {
         _dataContext = dataContext;
+        SyncWheelScrollStepDip();
+        _dataContext.SettingsChanged += SyncWheelScrollStepDip;
+    }
+
+    private void SyncWheelScrollStepDip()
+    {
+        if (_dataContext != null)
+        {
+            WheelScrollStepDip = Views.Controls.ScrollWheelStepHelper.ClampOrDefault(_dataContext.Preferences.GalleryWheelScrollDip);
+        }
     }
 
     public GalleryPageViewModel(
@@ -2292,6 +2305,10 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
         }
 
         _disposed = true;
+        if (_dataContext != null)
+        {
+            _dataContext.SettingsChanged -= SyncWheelScrollStepDip;
+        }
         SearchBox.SearchSubmitted -= OnDslSearchSubmitted;
         SearchBox.QueryChanged -= OnDslQueryChanged;
 

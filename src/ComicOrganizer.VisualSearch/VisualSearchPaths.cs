@@ -6,7 +6,8 @@ public sealed record VisualModelStatus(
     string FullPath,
     bool Exists,
     long SizeBytes,
-    string ExpectedSizeHint);
+    string ExpectedSizeHint,
+    bool IsOptional = false);
 
 /// <summary>
 /// 集中管理視覺搜尋模組的目錄結構、ONNX 模型狀態與下載／匯入工具。
@@ -16,6 +17,7 @@ public sealed class VisualSearchPaths
 {
     public const string PanelModelFileName = "panel_detector.onnx";
     public const string EmbedModelFileName = "sscd_disc_mixup.onnx";
+    public const string HeadModelFileName = "head_detector.onnx";
 
     public VisualSearchPaths(string dataDirectory)
     {
@@ -35,6 +37,7 @@ public sealed class VisualSearchPaths
 
     public string PanelModelPath => Path.Combine(ModelsDirectory, PanelModelFileName);
     public string EmbedModelPath => Path.Combine(ModelsDirectory, EmbedModelFileName);
+    public string HeadModelPath => Path.Combine(ModelsDirectory, HeadModelFileName);
 
     public string GetShardPath(int shardId) => Path.Combine(ShardsDirectory, $"panels_{shardId:D3}.usearch");
 
@@ -49,12 +52,16 @@ public sealed class VisualSearchPaths
         => File.Exists(PanelModelPath) && new FileInfo(PanelModelPath).Length > 1024
         && File.Exists(EmbedModelPath) && new FileInfo(EmbedModelPath).Length > 1024;
 
+    public bool IsHeadModelReady()
+        => File.Exists(HeadModelPath) && new FileInfo(HeadModelPath).Length > 1024;
+
     public IReadOnlyList<VisualModelStatus> GetModelStatuses()
     {
         return
         [
-            BuildStatus("分鏡偵測模型 (YOLO26n)", PanelModelFileName, PanelModelPath, "~9.3 MB"),
-            BuildStatus("特徵提取模型 (Meta SSCD)", EmbedModelFileName, EmbedModelPath, "~93.6 MB"),
+            BuildStatus("分鏡偵測模型 (YOLO26n)", PanelModelFileName, PanelModelPath, "~9.3 MB", isOptional: false),
+            BuildStatus("特徵提取模型 (Meta SSCD)", EmbedModelFileName, EmbedModelPath, "~93.6 MB", isOptional: false),
+            BuildStatus("角色頭像偵測模型 (選配 · 方案 B)", HeadModelFileName, HeadModelPath, "~12.0 MB", isOptional: true),
         ];
     }
 
@@ -64,7 +71,8 @@ public sealed class VisualSearchPaths
             throw new FileNotFoundException("找不到來源模型檔。", sourceFilePath);
 
         if (!string.Equals(targetModelFileName, PanelModelFileName, StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(targetModelFileName, EmbedModelFileName, StringComparison.OrdinalIgnoreCase))
+            && !string.Equals(targetModelFileName, EmbedModelFileName, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(targetModelFileName, HeadModelFileName, StringComparison.OrdinalIgnoreCase))
         {
             throw new ArgumentException($"不支援的模型目標檔名：{targetModelFileName}", nameof(targetModelFileName));
         }
@@ -125,10 +133,10 @@ public sealed class VisualSearchPaths
         return total;
     }
 
-    private static VisualModelStatus BuildStatus(string displayName, string fileName, string fullPath, string hint)
+    private static VisualModelStatus BuildStatus(string displayName, string fileName, string fullPath, string hint, bool isOptional = false)
     {
         bool exists = File.Exists(fullPath);
         long len = exists ? new FileInfo(fullPath).Length : 0;
-        return new VisualModelStatus(displayName, fileName, fullPath, exists && len > 1024, len, hint);
+        return new VisualModelStatus(displayName, fileName, fullPath, exists && len > 1024, len, hint, isOptional);
     }
 }

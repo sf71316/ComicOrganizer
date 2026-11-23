@@ -516,7 +516,11 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
                 && cfg is { EnableVisualSearch: true, VisualSearchAutoIndexAfterArchive: true }
                 && new VisualSearchPaths(_dataContext.DataDirectory).AreModelsReady())
             {
-                _ = _dataContext.VisualIndexHost.RunSyncWorkerAsync(cfg.RootDirectory, movedPaths);
+                _ = _dataContext.VisualIndexHost.RunSyncWorkerAsync(
+                    cfg.RootDirectory,
+                    movedPaths,
+                    rebuild: false,
+                    enableHeadIndex: cfg.VisualSearchEnableHeadIndex);
             }
         }
         finally

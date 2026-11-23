@@ -25,18 +25,21 @@ public sealed record VisualSyncSummary(
     int TotalPages,
     int TotalVectorsAdded,
     bool WasCancelled,
-    double ElapsedSeconds);
+    double ElapsedSeconds,
+    int HeadBackfilledComics = 0);
 
 /// <summary>
 /// 視覺索引建庫與增量同步管線：
 /// 支援新作者／新漫畫追加、XxHash3 指紋搬移偵測（零重算更新路徑）、已刪除清理、
-/// 分片寫入、6 核心並行解碼與優雅中斷續建。
+/// 分片寫入、6 核心並行解碼、優雅中斷續建，以及方案 B 角色頭像向量增量補建（Backfill）。
 /// </summary>
 public sealed class VisualIndexingPipeline
 {
     private readonly VisualSearchPaths _paths;
     private readonly Func<IPanelDetector?> _panelDetectorFactory;
+    private readonly Func<IPanelDetector?> _headDetectorFactory;
     private readonly Func<IVisualEmbedder> _embedderFactory;
+    private readonly bool _enableHeadIndex;
     private readonly int _batchSize;
     private readonly int _maxVectorsPerShard;
     private readonly int _checkpointComicInterval;
@@ -46,14 +49,19 @@ public sealed class VisualIndexingPipeline
         bool useDirectMl = true,
         int batchSize = 32,
         int maxVectorsPerShard = ShardedVectorStore.DefaultMaxVectorsPerShard,
-        int checkpointComicInterval = 20)
+        int checkpointComicInterval = 20,
+        bool enableHeadIndex = false)
         : this(
             paths,
             () => new YoloPanelDetector(paths.PanelModelPath, useDirectMl),
             () => new SscdFeatureEmbedder(paths.EmbedModelPath, useDirectMl),
             batchSize,
             maxVectorsPerShard,
-            checkpointComicInterval)
+            checkpointComicInterval,
+            enableHeadIndex,
+            () => enableHeadIndex && paths.IsHeadModelReady()
+                ? new YoloPanelDetector(paths.HeadModelPath, useDirectMl)
+                : null)
     {
     }
 
@@ -66,22 +74,46 @@ public sealed class VisualIndexingPipeline
         Func<IVisualEmbedder> embedderFactory,
         int batchSize = 32,
         int maxVectorsPerShard = ShardedVectorStore.DefaultMaxVectorsPerShard,
-        int checkpointComicInterval = 20)
+        int checkpointComicInterval = 20,
+        bool enableHeadIndex = false,
+        Func<IPanelDetector?>? headDetectorFactory = null)
     {
         _paths = paths;
         _panelDetectorFactory = panelDetectorFactory;
+        _headDetectorFactory = headDetectorFactory ?? (() => null);
         _embedderFactory = embedderFactory;
+        _enableHeadIndex = enableHeadIndex;
         _batchSize = Math.Max(1, batchSize);
         _maxVectorsPerShard = Math.Max(1, maxVectorsPerShard);
         _checkpointComicInterval = Math.Max(1, checkpointComicInterval);
     }
+
+    private enum ComicWorkMode
+    {
+        FullIndex = 0,
+        HeadBackfillOnly = 1,
+    }
+
+    private sealed record QueuedComicWork(
+        VisualComicItem Item,
+        string Fingerprint,
+        long? ExistingMangaId,
+        ComicWorkMode Mode);
+
+    private sealed record PreparedComicWork(
+        VisualComicItem Item,
+        string Fingerprint,
+        long MangaId,
+        ComicWorkMode Mode,
+        Dictionary<int, List<VisualPanelBox>>? ExistingPanelsByPage);
 
     private sealed record PreparedPage(
         long MangaId,
         int PageNo,
         string EntryName,
         SKImage Image,
-        PreparedYoloFrame? YoloInput) : IDisposable
+        PreparedYoloFrame? YoloInput,
+        ComicWorkMode Mode) : IDisposable
     {
         public void Dispose() => Image.Dispose();
     }
@@ -90,7 +122,7 @@ public sealed class VisualIndexingPipeline
         long MangaId,
         int PageNo,
         string EntryName,
-        bool IsFullPage,
+        VisualRegionKind RegionKind,
         float X,
         float Y,
         float W,
@@ -101,7 +133,7 @@ public sealed class VisualIndexingPipeline
         long MangaId,
         int PageNo,
         string EntryName,
-        bool IsFullPage,
+        VisualRegionKind RegionKind,
         float X,
         float Y,
         float W,
@@ -119,6 +151,7 @@ public sealed class VisualIndexingPipeline
         CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
+        VisualNativeLoader.EnsureLoaded();
         _paths.EnsureDirectories();
 
         bool isFullLibrarySync = specificPaths == null || specificPaths.Count == 0;
@@ -133,9 +166,11 @@ public sealed class VisualIndexingPipeline
         using var db = new VisualIndexDatabase(_paths.DatabasePath, readOnly: false);
         using var embedder = _embedderFactory();
         using var vectorStore = new ShardedVectorStore(_paths, embedder.Dimensions, readOnlyMmap: false, _maxVectorsPerShard);
+        using var headDetector = _enableHeadIndex ? _headDetectorFactory() : null;
+        bool headIndexActive = _enableHeadIndex && headDetector != null;
 
-        // 1. 先比對指紋：分類為「未變動 / 搬移改名 / 內容變更 / 全新作品」
-        var workQueue = new List<(VisualComicItem Item, string Fingerprint, long? ExistingChangedMangaId)>();
+        // 1. 先比對指紋：分類為「未變動 / 搬移改名 / 僅補建人頭 / 內容變更 / 全新作品」
+        var workQueue = new List<QueuedComicWork>();
         var presentPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         int skipped = 0;
         int moved = 0;
@@ -154,11 +189,18 @@ public sealed class VisualIndexingPipeline
             {
                 if (string.Equals(byPath.Fingerprint, fp, StringComparison.Ordinal))
                 {
-                    skipped++;
+                    if (headIndexActive && !byPath.HasHeadIndex)
+                    {
+                        workQueue.Add(new QueuedComicWork(comic, fp, byPath.Id, ComicWorkMode.HeadBackfillOnly));
+                    }
+                    else
+                    {
+                        skipped++;
+                    }
                     continue;
                 }
                 // 同路徑但內容已變更（換高清版等）
-                workQueue.Add((comic, fp, byPath.Id));
+                workQueue.Add(new QueuedComicWork(comic, fp, byPath.Id, ComicWorkMode.FullIndex));
                 continue;
             }
 
@@ -170,11 +212,15 @@ public sealed class VisualIndexingPipeline
                 db.UpdateMangaLocation(orphanMatch.Id, comic.Path, comic.Title);
                 presentPaths.Add(comic.Path);
                 moved++;
+                if (headIndexActive && !orphanMatch.HasHeadIndex)
+                {
+                    workQueue.Add(new QueuedComicWork(comic, fp, orphanMatch.Id, ComicWorkMode.HeadBackfillOnly));
+                }
                 continue;
             }
 
             // 全新作品（包含新作者資料夾內的作品）
-            workQueue.Add((comic, fp, null));
+            workQueue.Add(new QueuedComicWork(comic, fp, null, ComicWorkMode.FullIndex));
         }
 
         // 2. 全庫掃描且未設定 maxComics 上限時，自動清理已從磁碟移除的作品
@@ -200,16 +246,18 @@ public sealed class VisualIndexingPipeline
             vectorStore.SaveDirtyShards();
             sw.Stop();
             progress?.Report(new VisualIndexProgress("索引已為最新狀態", 0, 0, 0, 0, moved, deleted, skipped, ""));
-            return new VisualSyncSummary(discovered.Count, 0, skipped, moved, deleted, 0, 0, false, sw.Elapsed.TotalSeconds);
+            return new VisualSyncSummary(discovered.Count, 0, skipped, moved, deleted, 0, 0, false, sw.Elapsed.TotalSeconds, 0);
         }
 
         // 3. 逐批處理待建庫作品（每完成 _checkpointComicInterval 本就落盤一次，確保優雅中斷可無縫續建）
         int indexedComics = 0;
+        int headBackfilledComics = 0;
         int totalPages = 0;
         int totalVectorsAdded = 0;
         bool wasCancelled = false;
 
-        using var detector = _panelDetectorFactory();
+        bool needsPanelDetector = workQueue.Any(w => w.Mode == ComicWorkMode.FullIndex);
+        using var detector = needsPanelDetector ? _panelDetectorFactory() : null;
 
         for (int offset = 0; offset < workQueue.Count; offset += _checkpointComicInterval)
         {
@@ -225,6 +273,7 @@ public sealed class VisualIndexingPipeline
                 db,
                 vectorStore,
                 detector,
+                headDetector,
                 embedder,
                 offset,
                 workQueue.Count,
@@ -236,7 +285,8 @@ public sealed class VisualIndexingPipeline
                 progress,
                 ct).ConfigureAwait(false);
 
-            indexedComics += chunkStats.Indexed;
+            indexedComics += chunkStats.FullIndexed;
+            headBackfilledComics += chunkStats.HeadBackfilled;
             totalPages += chunkStats.Pages;
             totalVectorsAdded += chunkStats.Vectors;
             vectorStore.SaveDirtyShards();
@@ -251,7 +301,7 @@ public sealed class VisualIndexingPipeline
         sw.Stop();
         progress?.Report(new VisualIndexProgress(
             wasCancelled ? "已安全中斷並保存進度" : "增量建庫完成",
-            indexedComics,
+            indexedComics + headBackfilledComics,
             workQueue.Count,
             totalPages,
             totalVectorsAdded,
@@ -269,14 +319,16 @@ public sealed class VisualIndexingPipeline
             totalPages,
             totalVectorsAdded,
             wasCancelled,
-            sw.Elapsed.TotalSeconds);
+            sw.Elapsed.TotalSeconds,
+            headBackfilledComics);
     }
 
-    private async Task<(int Indexed, int Pages, int Vectors, bool Cancelled)> IndexChunkAsync(
-        List<(VisualComicItem Item, string Fingerprint, long? ExistingChangedMangaId)> chunk,
+    private async Task<(int FullIndexed, int HeadBackfilled, int Pages, int Vectors, bool Cancelled)> IndexChunkAsync(
+        List<QueuedComicWork> chunk,
         VisualIndexDatabase db,
         ShardedVectorStore vectorStore,
         IPanelDetector? detector,
+        IPanelDetector? headDetector,
         IVisualEmbedder embedder,
         int baseDoneComics,
         int totalTargetComics,
@@ -288,21 +340,44 @@ public sealed class VisualIndexingPipeline
         IProgress<VisualIndexProgress>? progress,
         CancellationToken ct)
     {
-        // 先建立待處理作品清單（若為換版則先標記刪除舊向量）
-        var preparedWork = new List<(VisualComicItem Item, string Fingerprint, long MangaId)>(chunk.Count);
-        foreach (var (item, fp, changedId) in chunk)
+        // 先建立待處理作品清單：
+        // - FullIndex：若為換版則標記刪除舊向量，暫存 __PENDING__ 指紋
+        // - HeadBackfillOnly：保留既有整頁與分鏡向量，預先讀出既有分鏡框供去重
+        var preparedWork = new List<PreparedComicWork>(chunk.Count);
+        var preparedByMangaId = new Dictionary<long, PreparedComicWork>(chunk.Count);
+        foreach (var q in chunk)
         {
-            if (changedId.HasValue)
+            if (q.Mode == ComicWorkMode.HeadBackfillOnly && q.ExistingMangaId.HasValue)
             {
-                var oldVecs = db.MarkMangaVectorsDeleted(changedId.Value, removeMangaRow: false);
-                foreach (var (vecId, shardId) in oldVecs)
+                long mangaId = q.ExistingMangaId.Value;
+                // 若上次補建人頭中途異常殘留，先清除殘留人頭向量再補
+                var staleHeads = db.MarkMangaHeadVectorsDeleted(mangaId);
+                foreach (var (vecId, shardId) in staleHeads)
                 {
                     vectorStore.Remove(shardId, (ulong)vecId);
                 }
+
+                var existingPanels = db.GetPanelBoxesForManga(mangaId);
+                var pw = new PreparedComicWork(q.Item, q.Fingerprint, mangaId, ComicWorkMode.HeadBackfillOnly, existingPanels);
+                preparedWork.Add(pw);
+                preparedByMangaId[mangaId] = pw;
             }
-            // 先暫存空白指紋，待該本全部向量寫入完成後再寫入正式指紋，確保中斷時未完成本下次會自動重跑
-            long mangaId = db.UpsertManga(item.Path, item.Title, "__PENDING__", pageCount: 0);
-            preparedWork.Add((item, fp, mangaId));
+            else
+            {
+                if (q.ExistingMangaId.HasValue)
+                {
+                    var oldVecs = db.MarkMangaVectorsDeleted(q.ExistingMangaId.Value, removeMangaRow: false);
+                    foreach (var (vecId, shardId) in oldVecs)
+                    {
+                        vectorStore.Remove(shardId, (ulong)vecId);
+                    }
+                }
+                // 先暫存空白指紋，待該本全部向量寫入完成後再寫入正式指紋，確保中斷時未完成本下次會自動重跑
+                long mangaId = db.UpsertManga(q.Item.Path, q.Item.Title, "__PENDING__", pageCount: 0, hasHeadIndex: false);
+                var pw = new PreparedComicWork(q.Item, q.Fingerprint, mangaId, ComicWorkMode.FullIndex, null);
+                preparedWork.Add(pw);
+                preparedByMangaId[mangaId] = pw;
+            }
         }
 
         var rawChannel = Channel.CreateBounded<RawComicPage>(new BoundedChannelOptions(48)
@@ -336,7 +411,7 @@ public sealed class VisualIndexingPipeline
         {
             try
             {
-                foreach (var (item, _, mangaId) in preparedWork)
+                foreach (var pw in preparedWork)
                 {
                     if (ct.IsCancellationRequested)
                     {
@@ -344,17 +419,17 @@ public sealed class VisualIndexingPipeline
                         break;
                     }
                     int pages = 0;
-                    foreach (var raw in VisualComicReader.StreamRawPages(mangaId, item, ct))
+                    foreach (var raw in VisualComicReader.StreamRawPages(pw.MangaId, pw.Item, ct))
                     {
                         pages++;
                         Interlocked.Increment(ref chunkPages);
                         await rawChannel.Writer.WriteAsync(raw, ct).ConfigureAwait(false);
                     }
-                    pagesPerManga[mangaId] = pages;
-                    completedMangaIds.Add(mangaId);
+                    pagesPerManga[pw.MangaId] = pages;
+                    completedMangaIds.Add(pw.MangaId);
                     int doneNow = Interlocked.Increment(ref completedComicsCount);
                     progress?.Report(new VisualIndexProgress(
-                        "正在建立視覺索引…",
+                        pw.Mode == ComicWorkMode.HeadBackfillOnly ? "正在增量補建頭像索引…" : "正在建立視覺索引…",
                         baseDoneComics + doneNow,
                         totalTargetComics,
                         basePages + chunkPages,
@@ -362,7 +437,7 @@ public sealed class VisualIndexingPipeline
                         moved,
                         deleted,
                         skipped,
-                        item.Title));
+                        pw.Item.Title));
                 }
             }
             catch (OperationCanceledException)
@@ -377,6 +452,7 @@ public sealed class VisualIndexingPipeline
 
         // Stage 1b: 多核心並行解碼 + YOLO Letterbox
         int decodeWorkers = Math.Clamp(Environment.ProcessorCount / 2, 2, 6);
+        bool needYoloFrame = detector != null || headDetector != null;
         var decodeTasks = Enumerable.Range(0, decodeWorkers).Select(_ => Task.Run(async () =>
         {
             await foreach (var raw in rawChannel.Reader.ReadAllAsync().ConfigureAwait(false))
@@ -388,11 +464,15 @@ public sealed class VisualIndexingPipeline
                     if (bmp == null) continue;
                     img = SKImage.FromBitmap(bmp);
 
-                    PreparedYoloFrame? yoloIn = detector != null
+                    var mode = preparedByMangaId[raw.MangaId].Mode;
+                    bool prepareYolo = mode == ComicWorkMode.HeadBackfillOnly
+                        ? headDetector != null
+                        : needYoloFrame;
+                    PreparedYoloFrame? yoloIn = prepareYolo
                         ? VisualImagePreprocess.CreateYoloLetterbox(img, YoloPanelDetector.InputSize)
                         : null;
 
-                    await pageChannel.Writer.WriteAsync(new PreparedPage(raw.MangaId, raw.PageNo, raw.EntryName, img, yoloIn)).ConfigureAwait(false);
+                    await pageChannel.Writer.WriteAsync(new PreparedPage(raw.MangaId, raw.PageNo, raw.EntryName, img, yoloIn, mode)).ConfigureAwait(false);
                     img = null;
                 }
                 catch
@@ -408,7 +488,7 @@ public sealed class VisualIndexingPipeline
             pageChannel.Writer.Complete();
         });
 
-        // Stage 2: GPU 分鏡偵測 + 並行一步裁切縮放 + 批次嵌入
+        // Stage 2: GPU 分鏡／人頭偵測 + 並行一步裁切縮放 + 批次嵌入
         var gpuTask = Task.Run(async () =>
         {
             var pending = new List<PendingTensor>(_batchSize * 2);
@@ -426,7 +506,7 @@ public sealed class VisualIndexingPipeline
                     for (int i = 0; i < take; i++)
                     {
                         var s = slice[i];
-                        outBatch.Add(new EmbeddedItem(s.MangaId, s.PageNo, s.EntryName, s.IsFullPage, s.X, s.Y, s.W, s.H, vecs[i]));
+                        outBatch.Add(new EmbeddedItem(s.MangaId, s.PageNo, s.EntryName, s.RegionKind, s.X, s.Y, s.W, s.H, vecs[i]));
                     }
                     await writeChannel.Writer.WriteAsync(outBatch).ConfigureAwait(false);
                 }
@@ -439,28 +519,60 @@ public sealed class VisualIndexingPipeline
                     using (work)
                     {
                         var img = work.Image;
-                        var cropsToBuild = new List<(bool IsFullPage, float X, float Y, float W, float H, SKRect Rect)>
-                        {
-                            (true, 0f, 0f, 1f, 1f, new SKRect(0, 0, img.Width, img.Height))
-                        };
+                        var cropsToBuild = new List<(VisualRegionKind RegionKind, float X, float Y, float W, float H, SKRect Rect)>();
+                        IReadOnlyList<VisualPanelBox>? panelBoxesForDedup = null;
 
-                        if (detector != null && work.YoloInput is { } yIn)
+                        if (work.Mode == ComicWorkMode.FullIndex)
                         {
-                            var panels = detector.DetectPreprocessed(yIn)
-                                .Where(b => b.ClassId == 0)
-                                .ToList();
+                            cropsToBuild.Add((VisualRegionKind.FullPage, 0f, 0f, 1f, 1f, new SKRect(0, 0, img.Width, img.Height)));
 
-                            foreach (var p in panels)
+                            if (detector != null && work.YoloInput is { } yIn)
                             {
-                                float x1 = Math.Clamp(p.X * img.Width, 0, img.Width - 1);
-                                float y1 = Math.Clamp(p.Y * img.Height, 0, img.Height - 1);
-                                float x2 = Math.Clamp((p.X + p.W) * img.Width, x1 + 1, img.Width);
-                                float y2 = Math.Clamp((p.Y + p.H) * img.Height, y1 + 1, img.Height);
-                                if (x2 - x1 >= 32 && y2 - y1 >= 32)
+                                var panels = detector.DetectPreprocessed(yIn)
+                                    .Where(b => b.ClassId == 0)
+                                    .ToList();
+                                panelBoxesForDedup = panels;
+
+                                foreach (var p in panels)
                                 {
-                                    cropsToBuild.Add((false, p.X, p.Y, p.W, p.H, new SKRect(x1, y1, x2, y2)));
+                                    float x1 = Math.Clamp(p.X * img.Width, 0, img.Width - 1);
+                                    float y1 = Math.Clamp(p.Y * img.Height, 0, img.Height - 1);
+                                    float x2 = Math.Clamp((p.X + p.W) * img.Width, x1 + 1, img.Width);
+                                    float y2 = Math.Clamp((p.Y + p.H) * img.Height, y1 + 1, img.Height);
+                                    if (x2 - x1 >= 32 && y2 - y1 >= 32)
+                                    {
+                                        cropsToBuild.Add((VisualRegionKind.Panel, p.X, p.Y, p.W, p.H, new SKRect(x1, y1, x2, y2)));
+                                    }
                                 }
                             }
+                        }
+                        else
+                        {
+                            // 僅補建人頭：直接沿用資料庫中已存的既有分鏡框做重疊去重，完全不重跑分鏡模型
+                            var existingByPage = preparedByMangaId[work.MangaId].ExistingPanelsByPage;
+                            if (existingByPage != null && existingByPage.TryGetValue(work.PageNo, out var savedPanels))
+                            {
+                                panelBoxesForDedup = savedPanels;
+                            }
+                        }
+
+                        if (headDetector != null && work.YoloInput is { } hyIn)
+                        {
+                            var rawHeads = headDetector.DetectPreprocessed(
+                                hyIn,
+                                confThreshold: VisualHeadCropHelper.DefaultHeadConfThreshold,
+                                iouThreshold: VisualHeadCropHelper.DefaultHeadIouThreshold,
+                                minAreaRatio: VisualHeadCropHelper.DefaultHeadMinAreaRatio);
+                            var expandedHeads = VisualHeadCropHelper.ExpandAndFilterHeads(rawHeads, panelBoxesForDedup, img.Width, img.Height);
+                            foreach (var h in expandedHeads)
+                            {
+                                cropsToBuild.Add((VisualRegionKind.Head, h.X, h.Y, h.W, h.H, h.Rect));
+                            }
+                        }
+
+                        if (cropsToBuild.Count == 0)
+                        {
+                            continue;
                         }
 
                         var built = new PendingTensor[cropsToBuild.Count];
@@ -468,7 +580,7 @@ public sealed class VisualIndexingPipeline
                         {
                             var c = cropsToBuild[i];
                             var chw = VisualImagePreprocess.CreateCropNormalizedChw(img, c.Rect, embedder.InputSize);
-                            built[i] = new PendingTensor(work.MangaId, work.PageNo, work.EntryName, c.IsFullPage, c.X, c.Y, c.W, c.H, chw);
+                            built[i] = new PendingTensor(work.MangaId, work.PageNo, work.EntryName, c.RegionKind, c.X, c.Y, c.W, c.H, chw);
                         });
 
                         pending.AddRange(built);
@@ -495,7 +607,7 @@ public sealed class VisualIndexingPipeline
                 {
                     var list = group.ToList();
                     int shardId = vectorStore.CurrentWriteShardId;
-                    var metaRows = list.Select(x => (x.PageNo, x.EntryName, x.IsFullPage, x.X, x.Y, x.W, x.H)).ToList();
+                    var metaRows = list.Select(x => (x.PageNo, x.EntryName, x.RegionKind, x.X, x.Y, x.W, x.H)).ToList();
                     var vecIds = db.InsertVectorsBatch(group.Key, shardId, metaRows);
                     for (int i = 0; i < vecIds.Count; i++)
                     {
@@ -508,28 +620,49 @@ public sealed class VisualIndexingPipeline
 
         await Task.WhenAll(ioTask, decodeCoordTask, gpuTask, dbTask).ConfigureAwait(false);
 
-        // 僅對已完整寫完的作品提交正式指紋；中斷而未完的作品回滾刪除，確保續建乾淨無殘留
+        // 僅對已完整寫完的作品提交完成狀態；中斷而未完的作品回滾刪除，確保續建乾淨無殘留
         var completedSet = completedMangaIds.ToHashSet();
-        int finalized = 0;
-        foreach (var (item, fp, mangaId) in preparedWork)
+        int finalizedFull = 0;
+        int finalizedHeadBackfill = 0;
+        foreach (var pw in preparedWork)
         {
-            if (completedSet.Contains(mangaId))
+            if (pw.Mode == ComicWorkMode.HeadBackfillOnly)
             {
-                int pc = pagesPerManga.GetValueOrDefault(mangaId, 0);
-                db.UpsertManga(item.Path, item.Title, fp, pc);
-                finalized++;
+                if (completedSet.Contains(pw.MangaId))
+                {
+                    db.MarkMangaHeadIndexed(pw.MangaId);
+                    finalizedHeadBackfill++;
+                }
+                else
+                {
+                    // 只回滾未完成的人頭向量，完整保留既有整頁與分鏡索引
+                    var partialHeads = db.MarkMangaHeadVectorsDeleted(pw.MangaId);
+                    foreach (var (vecId, shardId) in partialHeads)
+                    {
+                        vectorStore.Remove(shardId, (ulong)vecId);
+                    }
+                }
             }
             else
             {
-                var partialVecs = db.MarkMangaVectorsDeleted(mangaId, removeMangaRow: true);
-                foreach (var (vecId, shardId) in partialVecs)
+                if (completedSet.Contains(pw.MangaId))
                 {
-                    vectorStore.Remove(shardId, (ulong)vecId);
+                    int pc = pagesPerManga.GetValueOrDefault(pw.MangaId, 0);
+                    db.UpsertManga(pw.Item.Path, pw.Item.Title, pw.Fingerprint, pc, hasHeadIndex: headDetector != null);
+                    finalizedFull++;
+                }
+                else
+                {
+                    var partialVecs = db.MarkMangaVectorsDeleted(pw.MangaId, removeMangaRow: true);
+                    foreach (var (vecId, shardId) in partialVecs)
+                    {
+                        vectorStore.Remove(shardId, (ulong)vecId);
+                    }
                 }
             }
         }
 
-        return (finalized, chunkPages, chunkVectors, cancelled);
+        return (finalizedFull, finalizedHeadBackfill, chunkPages, chunkVectors, cancelled);
     }
 
     /// <summary>
@@ -539,6 +672,7 @@ public sealed class VisualIndexingPipeline
     {
         if (!File.Exists(paths.DatabasePath)) return 0;
 
+        VisualNativeLoader.EnsureLoaded();
         using var db = new VisualIndexDatabase(paths.DatabasePath, readOnly: false);
         using var store = new ShardedVectorStore(paths, dimensions, readOnlyMmap: false);
 

@@ -24,6 +24,7 @@ public sealed class ShardedVectorStore : IDisposable
         bool readOnlyMmap = false,
         int maxVectorsPerShard = DefaultMaxVectorsPerShard)
     {
+        VisualNativeLoader.EnsureLoaded();
         _paths = paths;
         _dimensions = dimensions;
         _readOnlyMmap = readOnlyMmap;

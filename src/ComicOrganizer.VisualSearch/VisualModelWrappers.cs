@@ -5,12 +5,99 @@ using SkiaSharp;
 
 namespace ComicOrganizer.VisualSearch;
 
+public enum VisualRegionKind
+{
+    FullPage = 0,
+    Panel = 1,
+    Head = 2,
+}
+
 public readonly record struct VisualPanelBox(float X, float Y, float W, float H, float Confidence, int ClassId)
 {
     public float Area => W * H;
 }
 
 public readonly record struct PreparedYoloFrame(float[] Data, float Scale, float PadX, float PadY, int SrcWidth, int SrcHeight);
+
+/// <summary>
+/// 方案 B 動漫角色頭像裁切框外擴與去重工具：
+/// 外擴左右 15%、上 10%、下 25% 以保留髮型與肩頸語境，並排除與既有分鏡高度重疊（IoU &gt; 0.70）的重複向量。
+/// </summary>
+public static class VisualHeadCropHelper
+{
+    public const float DefaultHeadConfThreshold = 0.40f;
+    public const float DefaultHeadIouThreshold = 0.45f;
+    public const float DefaultHeadMinAreaRatio = 0.006f;
+    public const float DefaultDuplicatePanelIouThreshold = 0.70f;
+    public const int DefaultMinCropPixels = 32;
+
+    public static List<(float X, float Y, float W, float H, SKRect Rect)> ExpandAndFilterHeads(
+        IReadOnlyList<VisualPanelBox> detectedHeads,
+        IReadOnlyList<VisualPanelBox>? existingPanels,
+        int imageWidth,
+        int imageHeight,
+        float duplicatePanelIouThreshold = DefaultDuplicatePanelIouThreshold,
+        int minCropPixels = DefaultMinCropPixels)
+    {
+        var results = new List<(float X, float Y, float W, float H, SKRect Rect)>();
+        if (detectedHeads.Count == 0 || imageWidth <= 0 || imageHeight <= 0)
+        {
+            return results;
+        }
+
+        foreach (var hd in detectedHeads)
+        {
+            float padX = hd.W * 0.15f;
+            float padTop = hd.H * 0.10f;
+            float padBot = hd.H * 0.25f;
+            float hx = Math.Clamp(hd.X - padX, 0f, 0.98f);
+            float hy = Math.Clamp(hd.Y - padTop, 0f, 0.98f);
+            float hw = Math.Clamp(hd.W + padX * 2f, 0.01f, 1f - hx);
+            float hh = Math.Clamp(hd.H + padTop + padBot, 0.01f, 1f - hy);
+
+            if (existingPanels is { Count: > 0 } && IsDuplicateOfAnyPanel(hx, hy, hw, hh, existingPanels, duplicatePanelIouThreshold))
+            {
+                continue;
+            }
+
+            float hx1 = Math.Clamp(hx * imageWidth, 0, imageWidth - 1);
+            float hy1 = Math.Clamp(hy * imageHeight, 0, imageHeight - 1);
+            float hx2 = Math.Clamp((hx + hw) * imageWidth, hx1 + 1, imageWidth);
+            float hy2 = Math.Clamp((hy + hh) * imageHeight, hy1 + 1, imageHeight);
+            if (hx2 - hx1 >= minCropPixels && hy2 - hy1 >= minCropPixels)
+            {
+                results.Add((hx, hy, hw, hh, new SKRect(hx1, hy1, hx2, hy2)));
+            }
+        }
+
+        return results;
+    }
+
+    private static bool IsDuplicateOfAnyPanel(
+        float hx,
+        float hy,
+        float hw,
+        float hh,
+        IReadOnlyList<VisualPanelBox> panels,
+        float iouThreshold)
+    {
+        float headArea = hw * hh;
+        foreach (var pn in panels)
+        {
+            float ix1 = Math.Max(hx, pn.X);
+            float iy1 = Math.Max(hy, pn.Y);
+            float ix2 = Math.Min(hx + hw, pn.X + pn.W);
+            float iy2 = Math.Min(hy + hh, pn.Y + pn.H);
+            float inter = Math.Max(0f, ix2 - ix1) * Math.Max(0f, iy2 - iy1);
+            float union = headArea + pn.Area - inter;
+            if (union > 0f && (inter / union) > iouThreshold)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+}
 
 public interface IPanelDetector : IDisposable
 {
@@ -117,6 +204,7 @@ public sealed class YoloPanelDetector : IPanelDetector
 
     public YoloPanelDetector(string modelPath, bool useDirectMl)
     {
+        VisualNativeLoader.EnsureLoaded();
         using var opts = VisualImagePreprocess.CreateSessionOptions(useDirectMl);
         _session = new InferenceSession(modelPath, opts);
         _inputName = _session.InputMetadata.Keys.First();
@@ -226,6 +314,7 @@ public sealed class SscdFeatureEmbedder : IVisualEmbedder
         int inputSize = DefaultInputSize,
         int dimensions = DefaultDimensions)
     {
+        VisualNativeLoader.EnsureLoaded();
         InputSize = inputSize;
         Dimensions = dimensions;
         using var opts = VisualImagePreprocess.CreateSessionOptions(useDirectMl);

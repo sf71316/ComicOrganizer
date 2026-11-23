@@ -8,6 +8,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="ComicOrganizer.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\ComicOrganizer.Core\ComicOrganizer.Core.csproj" />
   </ItemGroup>
 

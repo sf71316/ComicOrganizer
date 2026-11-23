@@ -6,6 +6,7 @@ using Avalonia.Media;
 using ComicOrganizer.App.Core;
 using ComicOrganizer.App.Models;
 using ComicOrganizer.Avalonia.Services;
+using ComicOrganizer.Avalonia.Views.Controls;
 using ComicOrganizer.VisualSearch;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -203,6 +204,9 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
     [ObservableProperty]
     private SettingsOption<string> _selectedLanguageOption;
 
+    [ObservableProperty]
+    private decimal? _galleryWheelScrollDip = ScrollWheelStepHelper.DefaultWheelScrollDip;
+
     // ── 組 2：路徑與共用資料目錄 ────────────────────────────────────────
 
     [ObservableProperty]
@@ -328,10 +332,21 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
     private bool _visualSearchAutoIndexAfterArchive;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(VisualIndexGoButtonText))]
+    private bool _visualSearchEnableHeadIndex;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(VisualIndexGoButtonText))]
+    private int _visualIndexPendingHeadBackfillCount;
+
+    [ObservableProperty]
     private string _visualSearchPanelModelUrl = string.Empty;
 
     [ObservableProperty]
     private string _visualSearchEmbedModelUrl = string.Empty;
+
+    [ObservableProperty]
+    private string _visualSearchHeadModelUrl = string.Empty;
 
     [ObservableProperty]
     private string _panelModelStatusText = "尚未安裝";
@@ -340,10 +355,16 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
     private string _embedModelStatusText = "尚未安裝";
 
     [ObservableProperty]
+    private string _headModelStatusText = "尚未安裝（選配）";
+
+    [ObservableProperty]
     private bool _isPanelModelReady;
 
     [ObservableProperty]
     private bool _isEmbedModelReady;
+
+    [ObservableProperty]
+    private bool _isHeadModelReady;
 
     [ObservableProperty]
     private bool _isDownloadingVisualModel;
@@ -376,9 +397,11 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
 
     public bool ShowVisualIndexGuideCard => EnableVisualSearch;
 
-    public string VisualIndexGoButtonText => VisualIndexReady
-        ? "🔎 前往「圖搜漫」頁面"
-        : "🚀 儲存設定並前往建立索引庫";
+    public string VisualIndexGoButtonText => !VisualIndexReady
+        ? "🚀 儲存設定並前往建立索引庫"
+        : (VisualSearchEnableHeadIndex && VisualIndexPendingHeadBackfillCount > 0
+            ? "🚀 儲存設定並前往補建頭像索引"
+            : "🔎 儲存並前往「圖搜漫」頁面");
 
     public IBrush VisualIndexGuideBgBrush => VisualIndexReady ? ReadyBgBrush : WarnBgBrush;
 
@@ -390,9 +413,24 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
 
     public IBrush EmbedModelStatusBrush => IsEmbedModelReady ? StatusSuccessBrush : StatusNeutralBrush;
 
+    public IBrush HeadModelStatusBrush => IsHeadModelReady ? StatusSuccessBrush : StatusNeutralBrush;
+
+    partial void OnIsHeadModelReadyChanged(bool value)
+    {
+        OnPropertyChanged(nameof(HeadModelStatusBrush));
+    }
+
     partial void OnEnableVisualSearchChanged(bool value)
     {
         if (!_isSynchronizing && value)
+        {
+            _ = RefreshVisualSearchIndexStatusAsync();
+        }
+    }
+
+    partial void OnVisualSearchEnableHeadIndexChanged(bool value)
+    {
+        if (!_isSynchronizing && EnableVisualSearch)
         {
             _ = RefreshVisualSearchIndexStatusAsync();
         }
@@ -598,6 +636,10 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
             // 組 1：外觀與介面
             updatedPrefs.Theme = IsDarkTheme ? AppTheme.Dark : AppTheme.Light;
             updatedPrefs.Language = SelectedLanguageOption?.Value ?? "zh-TW";
+            int clampedWheelDip = ScrollWheelStepHelper.ClampStepDip(
+                (int)Math.Round(GalleryWheelScrollDip ?? ScrollWheelStepHelper.DefaultWheelScrollDip));
+            updatedPrefs.GalleryWheelScrollDip = clampedWheelDip;
+            GalleryWheelScrollDip = clampedWheelDip;
 
             // 組 2：路徑
             updatedConfig.UnorganizedDirectory = UnorganizedDirectory.Trim();
@@ -637,8 +679,10 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
             updatedConfig.EnableVisualSearch = EnableVisualSearch;
             updatedConfig.VisualSearchEnableMultiCropRerank = VisualSearchEnableMultiCropRerank;
             updatedConfig.VisualSearchAutoIndexAfterArchive = VisualSearchAutoIndexAfterArchive;
+            updatedConfig.VisualSearchEnableHeadIndex = VisualSearchEnableHeadIndex;
             updatedConfig.VisualSearchPanelModelUrl = VisualSearchPanelModelUrl.Trim();
             updatedConfig.VisualSearchEmbedModelUrl = VisualSearchEmbedModelUrl.Trim();
+            updatedConfig.VisualSearchHeadModelUrl = VisualSearchHeadModelUrl.Trim();
 
             _dataContext.SaveConfig(updatedConfig);
             _dataContext.SavePreferences(updatedPrefs);
@@ -699,6 +743,7 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
             SelectedAccentName = _dataContext.CurrentAccentName;
             UpdateAccentSelection(SelectedAccentName);
             SelectedLanguageOption = FindOption(LanguageOptions, prefs.Language, StringComparer.OrdinalIgnoreCase);
+            GalleryWheelScrollDip = ScrollWheelStepHelper.ClampOrDefault(prefs.GalleryWheelScrollDip);
 
             // 組 2：路徑
             UnorganizedDirectory = cfg.UnorganizedDirectory ?? string.Empty;
@@ -742,8 +787,10 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
             EnableVisualSearch = cfg.EnableVisualSearch;
             VisualSearchEnableMultiCropRerank = cfg.VisualSearchEnableMultiCropRerank;
             VisualSearchAutoIndexAfterArchive = cfg.VisualSearchAutoIndexAfterArchive;
+            VisualSearchEnableHeadIndex = cfg.VisualSearchEnableHeadIndex;
             VisualSearchPanelModelUrl = cfg.VisualSearchPanelModelUrl ?? string.Empty;
             VisualSearchEmbedModelUrl = cfg.VisualSearchEmbedModelUrl ?? string.Empty;
+            VisualSearchHeadModelUrl = cfg.VisualSearchHeadModelUrl ?? string.Empty;
             RefreshVisualSearchModelStatus();
         }
         finally
@@ -789,13 +836,20 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
         }
         else
         {
+            int pendingHeads = Math.Max(0, snapshot.IndexedMangas - snapshot.HeadIndexedMangas);
+            VisualIndexPendingHeadBackfillCount = pendingHeads;
             string pendingHint = snapshot.EstimatedWorks > snapshot.IndexedMangas + 5
                 ? $" 目前書庫估計約 {snapshot.EstimatedWorks:N0} 本，尚有約 {snapshot.EstimatedWorks - snapshot.IndexedMangas:N0} 本待增量補建（約需 {snapshot.IncrementalDurationText}）。"
+                : string.Empty;
+            string headHint = VisualSearchEnableHeadIndex && pendingHeads > 0
+                ? (IsHeadModelReady
+                    ? $" 已勾選頭像索引：尚有 {pendingHeads:N0} 本待增量補建角色頭像（不重算舊分鏡），請點右側按鈕儲存並前往補建。"
+                    : $" 已勾選頭像索引，但尚未匯入 {VisualSearchPaths.HeadModelFileName}。")
                 : string.Empty;
             VisualIndexGuideTitle = "✅ 圖搜漫索引資料庫已就緒";
             VisualIndexGuideDetail =
                 $"已建庫 {snapshot.IndexedMangas:N0} 本 · {snapshot.IndexedPages:N0} 頁 · {snapshot.ActiveVectors:N0} 筆向量 · " +
-                $"佔用 {FormatMbOrGb(snapshot.DiskBytes)}。{pendingHint}";
+                $"佔用 {FormatMbOrGb(snapshot.DiskBytes)}。{pendingHint}{headHint}";
         }
     }
 
@@ -814,6 +868,7 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
         int IndexedMangas,
         int IndexedPages,
         int ActiveVectors,
+        int HeadIndexedMangas,
         long DiskBytes,
         int EstimatedWorks,
         long EstimatedPages,
@@ -824,7 +879,7 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
 
     private VisualIndexEstimateSnapshot InspectVisualIndexAndEstimate(VisualSearchPaths paths)
     {
-        int indexedMangas = 0, indexedPages = 0, activeVecs = 0;
+        int indexedMangas = 0, indexedPages = 0, activeVecs = 0, headIndexedMangas = 0;
         long diskBytes = 0;
 
         if (File.Exists(paths.DatabasePath))
@@ -836,6 +891,7 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
                 indexedMangas = ov.MangaCount;
                 indexedPages = ov.TotalPages;
                 activeVecs = ov.ActiveVectorCount;
+                headIndexedMangas = ov.HeadIndexedMangaCount;
                 diskBytes = paths.GetTotalDiskUsageBytes();
             }
             catch
@@ -901,6 +957,7 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
             indexedMangas,
             indexedPages,
             activeVecs,
+            headIndexedMangas,
             diskBytes,
             totalWorks,
             estTotalPages,
@@ -933,6 +990,7 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
         var statuses = paths.GetModelStatuses();
         var panel = statuses[0];
         var embed = statuses[1];
+        var head = statuses[2];
 
         IsPanelModelReady = panel.Exists;
         PanelModelStatusText = panel.Exists
@@ -943,6 +1001,11 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
         EmbedModelStatusText = embed.Exists
             ? $"✅ 已就緒（{embed.SizeBytes / (1024.0 * 1024.0):F1} MB）"
             : $"⬜ 尚未下載 / 匯入（預期 {embed.ExpectedSizeHint}）";
+
+        IsHeadModelReady = head.Exists;
+        HeadModelStatusText = head.Exists
+            ? $"✅ 已就緒（{head.SizeBytes / (1024.0 * 1024.0):F1} MB）"
+            : $"⬜ 選配未安裝（預期 {head.ExpectedSizeHint}）";
     }
 
     [RelayCommand]
@@ -954,12 +1017,20 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
         => await ImportVisualModelAsync("選擇特徵提取模型 (sscd_disc_mixup.onnx)", VisualSearchPaths.EmbedModelFileName);
 
     [RelayCommand]
+    private async Task ImportHeadModelAsync()
+        => await ImportVisualModelAsync("選擇角色頭像偵測模型 (head_detector.onnx)", VisualSearchPaths.HeadModelFileName);
+
+    [RelayCommand]
     private async Task DownloadPanelModelAsync()
         => await DownloadVisualModelAsync(VisualSearchPanelModelUrl, VisualSearchPaths.PanelModelFileName);
 
     [RelayCommand]
     private async Task DownloadEmbedModelAsync()
         => await DownloadVisualModelAsync(VisualSearchEmbedModelUrl, VisualSearchPaths.EmbedModelFileName);
+
+    [RelayCommand]
+    private async Task DownloadHeadModelAsync()
+        => await DownloadVisualModelAsync(VisualSearchHeadModelUrl, VisualSearchPaths.HeadModelFileName);
 
     [RelayCommand]
     private void OpenVisualSearchModelsFolder()

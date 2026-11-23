@@ -5,6 +5,7 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Threading;
 using ComicOrganizer.Avalonia.ViewModels;
+using ComicOrganizer.Avalonia.Views.Controls;
 
 namespace ComicOrganizer.Avalonia.Views;
 
@@ -19,6 +20,9 @@ public partial class GalleryPageView : UserControl
         DataContextChanged += OnDataContextChanged;
         AttachedToVisualTree += OnAttachedToVisualTree;
         DetachedFromVisualTree += OnDetachedFromVisualTree;
+        ScrollWheelStepHelper.Attach(
+            GalleryScrollViewer,
+            () => _boundViewModel?.WheelScrollStepDip ?? ScrollWheelStepHelper.DefaultWheelScrollDip);
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)

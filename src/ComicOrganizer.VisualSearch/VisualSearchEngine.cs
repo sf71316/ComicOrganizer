@@ -32,8 +32,14 @@ public sealed class VisualSearchEngine : IDisposable
     public VisualSearchEngine(VisualSearchPaths paths)
         : this(
             paths,
-            new SscdFeatureEmbedder(paths.EmbedModelPath, useDirectMl: false))
+            CreateDefaultCpuEmbedder(paths.EmbedModelPath))
     {
+    }
+
+    private static SscdFeatureEmbedder CreateDefaultCpuEmbedder(string embedModelPath)
+    {
+        VisualNativeLoader.EnsureLoaded();
+        return new SscdFeatureEmbedder(embedModelPath, useDirectMl: false);
     }
 
     /// <summary>
@@ -44,6 +50,7 @@ public sealed class VisualSearchEngine : IDisposable
         if (!File.Exists(paths.DatabasePath))
             throw new FileNotFoundException("尚未建立視覺搜尋索引資料庫。", paths.DatabasePath);
 
+        VisualNativeLoader.EnsureLoaded();
         _cpuEmbedder = cpuEmbedder;
         _mmapStore = new ShardedVectorStore(paths, cpuEmbedder.Dimensions, readOnlyMmap: true);
         _db = new VisualIndexDatabase(paths.DatabasePath, readOnly: true);

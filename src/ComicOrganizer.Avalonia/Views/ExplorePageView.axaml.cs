@@ -27,6 +27,9 @@ public partial class ExplorePageView : UserControl
         AttachedToVisualTree += OnAttachedToVisualTree;
         DetachedFromVisualTree += OnDetachedFromVisualTree;
         KeyDown += OnViewKeyDown;
+        ScrollWheelStepHelper.Attach(
+            WallScrollViewer,
+            () => _boundViewModel?.WheelScrollStepDip ?? ScrollWheelStepHelper.DefaultWheelScrollDip);
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)

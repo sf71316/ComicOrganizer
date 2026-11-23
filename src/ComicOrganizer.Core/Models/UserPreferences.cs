@@ -74,4 +74,7 @@ public class UserPreferences
 
     /// <summary>跳頁選擇視窗是否隱藏上方縮圖導覽條。</summary>
     public bool PagePickerHideThumbnails { get; set; } = false;
+
+    /// <summary>畫廊與探索牆滑鼠滾輪每次捲動距離（DIP，預設 200；Avalonia 預設僅約 48 DIP）。</summary>
+    public int GalleryWheelScrollDip { get; set; } = 200;
 }

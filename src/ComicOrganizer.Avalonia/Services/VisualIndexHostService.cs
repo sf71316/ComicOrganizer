@@ -34,7 +34,8 @@ public sealed class VisualIndexHostService : IDisposable
     public async Task<VisualSyncSummary?> RunSyncWorkerAsync(
         string? rootDirectory,
         IReadOnlyList<string>? specificPaths = null,
-        bool rebuild = false)
+        bool rebuild = false,
+        bool enableHeadIndex = false)
     {
         if (_disposed) return null;
         if (!await _runGate.WaitAsync(0).ConfigureAwait(false))
@@ -93,6 +94,11 @@ public sealed class VisualIndexHostService : IDisposable
                 await File.WriteAllTextAsync(pathsTempFile, JsonSerializer.Serialize(specificPaths), Encoding.UTF8).ConfigureAwait(false);
                 psi.ArgumentList.Add("--paths-file");
                 psi.ArgumentList.Add(pathsTempFile);
+            }
+
+            if (enableHeadIndex)
+            {
+                psi.ArgumentList.Add("--enable-head-index");
             }
 
             using var proc = Process.Start(psi);
@@ -259,7 +265,8 @@ public sealed class VisualIndexHostService : IDisposable
                 return 3;
             }
 
-            var pipeline = new VisualIndexingPipeline(paths, useDirectMl: true, batchSize: 32);
+            bool enableHeadIndex = args.Any(a => string.Equals(a, "--enable-head-index", StringComparison.OrdinalIgnoreCase));
+            var pipeline = new VisualIndexingPipeline(paths, useDirectMl: true, batchSize: 32, enableHeadIndex: enableHeadIndex);
             var stdoutLock = new object();
             var progress = new Progress<VisualIndexProgress>(p =>
             {

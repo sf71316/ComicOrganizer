@@ -131,4 +131,10 @@ public class AppConfig
 
     /// <summary>特徵提取模型（sscd_disc_mixup.onnx）選用自訂下載網址（空值代表使用預設或本機匯入）。</summary>
     public string VisualSearchEmbedModelUrl { get; set; } = "";
+
+    /// <summary>是否啟用「角色頭像／小裁切偵測索引（方案 B，head_detector.onnx）」（預設 false，由使用者於設定頁手動勾選）。</summary>
+    public bool VisualSearchEnableHeadIndex { get; set; } = false;
+
+    /// <summary>角色頭像偵測模型（head_detector.onnx）選用自訂下載網址（空值代表使用預設或本機匯入）。</summary>
+    public string VisualSearchHeadModelUrl { get; set; } = "";
 }

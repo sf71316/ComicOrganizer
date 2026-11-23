@@ -168,6 +168,22 @@
                         SelectedItem="{Binding SelectedLanguageOption}"
                         HorizontalAlignment="Stretch" />
             </Grid>
+
+            <!-- 畫廊與探索牆滾輪距離 -->
+            <Grid ColumnDefinitions="*,180" VerticalAlignment="Center">
+              <StackPanel Grid.Column="0" Spacing="2" Margin="0,0,16,0">
+                <TextBlock Text="畫廊／探索牆滾輪捲動距離 (DIP)" Classes="field-label" />
+                <TextBlock Text="滑鼠滾輪滾一格移動的垂直距離（預設 200 DIP，系統原始約 48 DIP；可設 48–600）"
+                           Classes="field-hint"
+                           TextWrapping="Wrap" />
+              </StackPanel>
+              <NumericUpDown Grid.Column="1"
+                             Minimum="48"
+                             Maximum="600"
+                             Increment="20"
+                             FormatString="F0"
+                             Value="{Binding GalleryWheelScrollDip}" />
+            </Grid>
           </StackPanel>
         </suki:GlassCard>
 
@@ -578,6 +594,18 @@
                             VerticalAlignment="Center" />
             </Grid>
 
+            <Grid ColumnDefinitions="*,Auto">
+              <StackPanel Grid.Column="0" Spacing="2" Margin="0,0,16,0">
+                <TextBlock Text="啟用角色頭像／小裁切偵測索引（方案 B，選配）" Classes="field-label" />
+                <TextBlock Text="搭配下方 head_detector.onnx 大幅提升大頭貼與極小裁切截圖的命中率；對既有索引執行「增量更新」時僅補建頭像向量，不重算舊分鏡。"
+                           Classes="field-hint"
+                           TextWrapping="Wrap" />
+              </StackPanel>
+              <ToggleSwitch Grid.Column="1"
+                            IsChecked="{Binding VisualSearchEnableHeadIndex}"
+                            VerticalAlignment="Center" />
+            </Grid>
+
             <Border CornerRadius="10"
                     Padding="12,10"
                     BorderThickness="1"
@@ -644,6 +672,30 @@
                           Content="📁 匯入本機"
                           IsEnabled="{Binding !IsDownloadingVisualModel}"
                           Command="{Binding ImportEmbedModelCommand}"
+                          Padding="10,6" />
+                </Grid>
+
+                <!-- 模型 3：head_detector.onnx（選配 · 方案 B） -->
+                <Grid ColumnDefinitions="190,*,Auto,Auto" ColumnSpacing="8">
+                  <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
+                    <TextBlock Text="3. head_detector.onnx (選配)" FontWeight="SemiBold" FontSize="12.5" />
+                    <TextBlock Text="{Binding HeadModelStatusText}"
+                               Foreground="{Binding HeadModelStatusBrush}"
+                               FontSize="11.5" />
+                  </StackPanel>
+                  <TextBox Grid.Column="1"
+                           Text="{Binding VisualSearchHeadModelUrl}"
+                           PlaceholderText="填入下載網址（或右側匯入本機 head_detector.onnx）"
+                           VerticalAlignment="Center" />
+                  <Button Grid.Column="2"
+                          Content="⬇️ 下載"
+                          IsEnabled="{Binding !IsDownloadingVisualModel}"
+                          Command="{Binding DownloadHeadModelCommand}"
+                          Padding="10,6" />
+                  <Button Grid.Column="3"
+                          Content="📁 匯入本機"
+                          IsEnabled="{Binding !IsDownloadingVisualModel}"
+                          Command="{Binding ImportHeadModelCommand}"
                           Padding="10,6" />
                 </Grid>
 

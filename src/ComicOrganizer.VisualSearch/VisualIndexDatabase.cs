@@ -2,7 +2,14 @@ using Microsoft.Data.Sqlite;
 
 namespace ComicOrganizer.VisualSearch;
 
-public sealed record IndexedMangaRecord(long Id, string Path, string Title, string Fingerprint, int PageCount, long UpdatedAt);
+public sealed record IndexedMangaRecord(
+    long Id,
+    string Path,
+    string Title,
+    string Fingerprint,
+    int PageCount,
+    long UpdatedAt,
+    bool HasHeadIndex = false);
 
 public sealed record VisualVectorMeta(
     long VecId,
@@ -17,7 +24,8 @@ public sealed record VisualVectorMeta(
     float Y,
     float W,
     float H,
-    bool IsDeleted);
+    bool IsDeleted,
+    VisualRegionKind RegionKind = VisualRegionKind.FullPage);
 
 public sealed record VisualShardStat(int ShardId, int ActiveCount, int DeletedCount)
 {
@@ -31,15 +39,19 @@ public sealed record VisualIndexOverview(
     int ActiveVectorCount,
     int DeletedVectorCount,
     long LastUpdatedUnixSec,
-    IReadOnlyList<VisualShardStat> Shards);
+    IReadOnlyList<VisualShardStat> Shards,
+    int HeadIndexedMangaCount = 0,
+    int HeadVectorCount = 0);
 
 /// <summary>
 /// 視覺搜尋專用 SQLite（visual_index.db），與主程式 cache.db 完全隔離。
-/// 支援多 shard 記錄、指紋搬移偵測與已刪除作品清理。
+/// 支援多 shard 記錄、指紋搬移偵測、已刪除作品清理與方案 B 人頭向量增量補建。
 /// </summary>
 public sealed class VisualIndexDatabase : IDisposable
 {
     private readonly SqliteConnection _conn;
+    private readonly bool _hasHeadIndexColumn;
+    private readonly bool _hasRegionKindColumn;
 
     public VisualIndexDatabase(string dbPath, bool readOnly = false)
     {
@@ -63,7 +75,8 @@ public sealed class VisualIndexDatabase : IDisposable
                     title TEXT NOT NULL,
                     fingerprint TEXT NOT NULL,
                     page_count INTEGER NOT NULL DEFAULT 0,
-                    updated_at INTEGER NOT NULL
+                    updated_at INTEGER NOT NULL,
+                    has_head_index INTEGER NOT NULL DEFAULT 0
                 );
                 CREATE INDEX IF NOT EXISTS idx_mangas_fp ON mangas(fingerprint);
                 CREATE TABLE IF NOT EXISTS vectors (
@@ -78,23 +91,73 @@ public sealed class VisualIndexDatabase : IDisposable
                     w REAL NOT NULL,
                     h REAL NOT NULL,
                     is_deleted INTEGER NOT NULL DEFAULT 0,
+                    region_kind INTEGER NOT NULL DEFAULT 0,
                     FOREIGN KEY(manga_id) REFERENCES mangas(id)
                 );
                 CREATE INDEX IF NOT EXISTS idx_vectors_manga ON vectors(manga_id);
                 CREATE INDEX IF NOT EXISTS idx_vectors_shard ON vectors(shard_id, is_deleted);
                 """;
             cmd.ExecuteNonQuery();
+
+            EnsureSchemaUpgraded();
+            _hasHeadIndexColumn = true;
+            _hasRegionKindColumn = true;
+        }
+        else
+        {
+            _hasHeadIndexColumn = HasColumn("mangas", "has_head_index");
+            _hasRegionKindColumn = HasColumn("vectors", "region_kind");
+        }
+    }
+
+    private bool HasColumn(string tableName, string columnName)
+    {
+        using var cmd = _conn.CreateCommand();
+        cmd.CommandText = $"PRAGMA table_info({tableName});";
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            if (string.Equals(r.GetString(1), columnName, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void EnsureSchemaUpgraded()
+    {
+        if (!HasColumn("mangas", "has_head_index"))
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "ALTER TABLE mangas ADD COLUMN has_head_index INTEGER NOT NULL DEFAULT 0;";
+            cmd.ExecuteNonQuery();
+        }
+
+        if (!HasColumn("vectors", "region_kind"))
+        {
+            using var tx = _conn.BeginTransaction();
+            using var cmd = _conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                ALTER TABLE vectors ADD COLUMN region_kind INTEGER NOT NULL DEFAULT 0;
+                UPDATE vectors SET region_kind = CASE WHEN is_full_page != 0 THEN 0 ELSE 1 END;
+                """;
+            cmd.ExecuteNonQuery();
+            tx.Commit();
         }
     }
 
     public IndexedMangaRecord? GetMangaByPath(string path)
     {
         using var cmd = _conn.CreateCommand();
-        cmd.CommandText = "SELECT id, path, title, fingerprint, page_count, updated_at FROM mangas WHERE path = $p;";
+        cmd.CommandText = _hasHeadIndexColumn
+            ? "SELECT id, path, title, fingerprint, page_count, updated_at, has_head_index FROM mangas WHERE path = $p;"
+            : "SELECT id, path, title, fingerprint, page_count, updated_at, 0 FROM mangas WHERE path = $p;";
         cmd.Parameters.AddWithValue("$p", path);
         using var r = cmd.ExecuteReader();
         return r.Read()
-            ? new IndexedMangaRecord(r.GetInt64(0), r.GetString(1), r.GetString(2), r.GetString(3), r.GetInt32(4), r.GetInt64(5))
+            ? new IndexedMangaRecord(r.GetInt64(0), r.GetString(1), r.GetString(2), r.GetString(3), r.GetInt32(4), r.GetInt64(5), r.GetInt32(6) != 0)
             : null;
     }
 
@@ -102,12 +165,14 @@ public sealed class VisualIndexDatabase : IDisposable
     {
         var list = new List<IndexedMangaRecord>();
         using var cmd = _conn.CreateCommand();
-        cmd.CommandText = "SELECT id, path, title, fingerprint, page_count, updated_at FROM mangas WHERE fingerprint = $fp;";
+        cmd.CommandText = _hasHeadIndexColumn
+            ? "SELECT id, path, title, fingerprint, page_count, updated_at, has_head_index FROM mangas WHERE fingerprint = $fp;"
+            : "SELECT id, path, title, fingerprint, page_count, updated_at, 0 FROM mangas WHERE fingerprint = $fp;";
         cmd.Parameters.AddWithValue("$fp", fingerprint);
         using var r = cmd.ExecuteReader();
         while (r.Read())
         {
-            list.Add(new IndexedMangaRecord(r.GetInt64(0), r.GetString(1), r.GetString(2), r.GetString(3), r.GetInt32(4), r.GetInt64(5)));
+            list.Add(new IndexedMangaRecord(r.GetInt64(0), r.GetString(1), r.GetString(2), r.GetString(3), r.GetInt32(4), r.GetInt64(5), r.GetInt32(6) != 0));
         }
         return list;
     }
@@ -116,11 +181,13 @@ public sealed class VisualIndexDatabase : IDisposable
     {
         var list = new List<IndexedMangaRecord>();
         using var cmd = _conn.CreateCommand();
-        cmd.CommandText = "SELECT id, path, title, fingerprint, page_count, updated_at FROM mangas;";
+        cmd.CommandText = _hasHeadIndexColumn
+            ? "SELECT id, path, title, fingerprint, page_count, updated_at, has_head_index FROM mangas;"
+            : "SELECT id, path, title, fingerprint, page_count, updated_at, 0 FROM mangas;";
         using var r = cmd.ExecuteReader();
         while (r.Read())
         {
-            list.Add(new IndexedMangaRecord(r.GetInt64(0), r.GetString(1), r.GetString(2), r.GetString(3), r.GetInt32(4), r.GetInt64(5)));
+            list.Add(new IndexedMangaRecord(r.GetInt64(0), r.GetString(1), r.GetString(2), r.GetString(3), r.GetInt32(4), r.GetInt64(5), r.GetInt32(6) != 0));
         }
         return list;
     }
@@ -139,17 +206,18 @@ public sealed class VisualIndexDatabase : IDisposable
         cmd.ExecuteNonQuery();
     }
 
-    public long UpsertManga(string path, string title, string fingerprint, int pageCount)
+    public long UpsertManga(string path, string title, string fingerprint, int pageCount, bool hasHeadIndex = false)
     {
         using var cmd = _conn.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO mangas(path, title, fingerprint, page_count, updated_at)
-            VALUES ($p, $t, $fp, $pc, $ts)
+            INSERT INTO mangas(path, title, fingerprint, page_count, updated_at, has_head_index)
+            VALUES ($p, $t, $fp, $pc, $ts, $hh)
             ON CONFLICT(path) DO UPDATE SET
                 title = excluded.title,
                 fingerprint = excluded.fingerprint,
                 page_count = excluded.page_count,
-                updated_at = excluded.updated_at
+                updated_at = excluded.updated_at,
+                has_head_index = excluded.has_head_index
             RETURNING id;
             """;
         cmd.Parameters.AddWithValue("$p", path);
@@ -157,7 +225,62 @@ public sealed class VisualIndexDatabase : IDisposable
         cmd.Parameters.AddWithValue("$fp", fingerprint);
         cmd.Parameters.AddWithValue("$pc", pageCount);
         cmd.Parameters.AddWithValue("$ts", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        cmd.Parameters.AddWithValue("$hh", hasHeadIndex ? 1 : 0);
         return Convert.ToInt64(cmd.ExecuteScalar());
+    }
+
+    /// <summary>增量補建人頭向量完成後，僅標記該本已具備人頭索引（不動既有指紋與頁數）。</summary>
+    public void MarkMangaHeadIndexed(long mangaId)
+    {
+        using var cmd = _conn.CreateCommand();
+        cmd.CommandText = "UPDATE mangas SET has_head_index = 1, updated_at = $ts WHERE id = $id;";
+        cmd.Parameters.AddWithValue("$ts", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        cmd.Parameters.AddWithValue("$id", mangaId);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>僅標記刪除該本的「角色頭像」向量（用於人頭補建中途取消時回滾，保留既有整頁與分鏡索引）。</summary>
+    public List<(long VecId, int ShardId)> MarkMangaHeadVectorsDeleted(long mangaId)
+    {
+        var removed = new List<(long, int)>();
+        using (var sel = _conn.CreateCommand())
+        {
+            sel.CommandText = "SELECT vec_id, shard_id FROM vectors WHERE manga_id = $m AND is_deleted = 0 AND region_kind = 2;";
+            sel.Parameters.AddWithValue("$m", mangaId);
+            using var r = sel.ExecuteReader();
+            while (r.Read()) removed.Add((r.GetInt64(0), r.GetInt32(1)));
+        }
+
+        if (removed.Count == 0) return removed;
+
+        using var cmd = _conn.CreateCommand();
+        cmd.CommandText = "UPDATE vectors SET is_deleted = 1 WHERE manga_id = $m AND is_deleted = 0 AND region_kind = 2;";
+        cmd.Parameters.AddWithValue("$m", mangaId);
+        cmd.ExecuteNonQuery();
+        return removed;
+    }
+
+    /// <summary>讀取該本漫畫既有分鏡框（依頁碼分組），供增量補建人頭時做重疊去重，無須重跑分鏡模型。</summary>
+    public Dictionary<int, List<VisualPanelBox>> GetPanelBoxesForManga(long mangaId)
+    {
+        var map = new Dictionary<int, List<VisualPanelBox>>();
+        using var cmd = _conn.CreateCommand();
+        cmd.CommandText = _hasRegionKindColumn
+            ? "SELECT page_no, x, y, w, h FROM vectors WHERE manga_id = $m AND is_deleted = 0 AND region_kind = 1;"
+            : "SELECT page_no, x, y, w, h FROM vectors WHERE manga_id = $m AND is_deleted = 0 AND is_full_page = 0;";
+        cmd.Parameters.AddWithValue("$m", mangaId);
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            int pageNo = r.GetInt32(0);
+            if (!map.TryGetValue(pageNo, out var list))
+            {
+                list = [];
+                map[pageNo] = list;
+            }
+            list.Add(new VisualPanelBox(r.GetFloat(1), r.GetFloat(2), r.GetFloat(3), r.GetFloat(4), 1f, 0));
+        }
+        return map;
     }
 
     public List<(long VecId, int ShardId)> MarkMangaVectorsDeleted(long mangaId, bool removeMangaRow = false)
@@ -196,13 +319,26 @@ public sealed class VisualIndexDatabase : IDisposable
         int shardId,
         IReadOnlyList<(int PageNo, string EntryName, bool IsFullPage, float X, float Y, float W, float H)> items)
     {
+        var converted = new List<(int PageNo, string EntryName, VisualRegionKind RegionKind, float X, float Y, float W, float H)>(items.Count);
+        foreach (var it in items)
+        {
+            converted.Add((it.PageNo, it.EntryName, it.IsFullPage ? VisualRegionKind.FullPage : VisualRegionKind.Panel, it.X, it.Y, it.W, it.H));
+        }
+        return InsertVectorsBatch(mangaId, shardId, converted);
+    }
+
+    public List<long> InsertVectorsBatch(
+        long mangaId,
+        int shardId,
+        IReadOnlyList<(int PageNo, string EntryName, VisualRegionKind RegionKind, float X, float Y, float W, float H)> items)
+    {
         var ids = new List<long>(items.Count);
         using var tx = _conn.BeginTransaction();
         using var cmd = _conn.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText = """
-            INSERT INTO vectors(shard_id, manga_id, page_no, entry_name, is_full_page, x, y, w, h, is_deleted)
-            VALUES ($s, $m, $pn, $en, $fp, $x, $y, $w, $h, 0)
+            INSERT INTO vectors(shard_id, manga_id, page_no, entry_name, is_full_page, x, y, w, h, is_deleted, region_kind)
+            VALUES ($s, $m, $pn, $en, $fp, $x, $y, $w, $h, 0, $rk)
             RETURNING vec_id;
             """;
         var pS = cmd.Parameters.Add("$s", SqliteType.Integer);
@@ -214,6 +350,7 @@ public sealed class VisualIndexDatabase : IDisposable
         var pY = cmd.Parameters.Add("$y", SqliteType.Real);
         var pW = cmd.Parameters.Add("$w", SqliteType.Real);
         var pH = cmd.Parameters.Add("$h", SqliteType.Real);
+        var pRk = cmd.Parameters.Add("$rk", SqliteType.Integer);
 
         pS.Value = shardId;
         pM.Value = mangaId;
@@ -221,11 +358,12 @@ public sealed class VisualIndexDatabase : IDisposable
         {
             pPn.Value = it.PageNo;
             pEn.Value = it.EntryName;
-            pFp.Value = it.IsFullPage ? 1 : 0;
+            pFp.Value = it.RegionKind == VisualRegionKind.FullPage ? 1 : 0;
             pX.Value = it.X;
             pY.Value = it.Y;
             pW.Value = it.W;
             pH.Value = it.H;
+            pRk.Value = (int)it.RegionKind;
             ids.Add(Convert.ToInt64(cmd.ExecuteScalar()));
         }
 
@@ -259,8 +397,11 @@ public sealed class VisualIndexDatabase : IDisposable
         if (list.Count == 0) return result;
 
         using var cmd = _conn.CreateCommand();
+        string rkSelect = _hasRegionKindColumn
+            ? "v.region_kind"
+            : "CASE WHEN v.is_full_page != 0 THEN 0 ELSE 1 END";
         cmd.CommandText = $"""
-            SELECT v.vec_id, v.shard_id, v.manga_id, m.title, m.path, v.page_no, v.entry_name, v.is_full_page, v.x, v.y, v.w, v.h, v.is_deleted
+            SELECT v.vec_id, v.shard_id, v.manga_id, m.title, m.path, v.page_no, v.entry_name, v.is_full_page, v.x, v.y, v.w, v.h, v.is_deleted, {rkSelect}
             FROM vectors v
             JOIN mangas m ON m.id = v.manga_id
             WHERE v.vec_id IN ({string.Join(',', list)});
@@ -268,6 +409,10 @@ public sealed class VisualIndexDatabase : IDisposable
         using var r = cmd.ExecuteReader();
         while (r.Read())
         {
+            int rkVal = r.GetInt32(13);
+            var regionKind = Enum.IsDefined(typeof(VisualRegionKind), rkVal)
+                ? (VisualRegionKind)rkVal
+                : (r.GetInt32(7) != 0 ? VisualRegionKind.FullPage : VisualRegionKind.Panel);
             var rec = new VisualVectorMeta(
                 r.GetInt64(0),
                 r.GetInt32(1),
@@ -281,7 +426,8 @@ public sealed class VisualIndexDatabase : IDisposable
                 r.GetFloat(9),
                 r.GetFloat(10),
                 r.GetFloat(11),
-                r.GetInt32(12) != 0);
+                r.GetInt32(12) != 0,
+                regionKind);
             result[rec.VecId] = rec;
         }
         return result;
@@ -289,17 +435,25 @@ public sealed class VisualIndexDatabase : IDisposable
 
     public VisualIndexOverview GetOverview()
     {
-        int mangaCount = 0, totalPages = 0, activeVecs = 0, deletedVecs = 0;
+        int mangaCount = 0, totalPages = 0, activeVecs = 0, deletedVecs = 0, headIndexedMangas = 0, headVecs = 0;
         long lastUpdated = 0;
         using (var cmd = _conn.CreateCommand())
         {
-            cmd.CommandText = """
+            string headMangaExpr = _hasHeadIndexColumn
+                ? "(SELECT COUNT(*) FROM mangas WHERE has_head_index != 0)"
+                : "0";
+            string headVecExpr = _hasRegionKindColumn
+                ? "(SELECT COUNT(*) FROM vectors WHERE is_deleted = 0 AND region_kind = 2)"
+                : "0";
+            cmd.CommandText = $"""
                 SELECT
                     (SELECT COUNT(*) FROM mangas),
                     (SELECT COALESCE(SUM(page_count), 0) FROM mangas),
                     (SELECT COUNT(*) FROM vectors WHERE is_deleted = 0),
                     (SELECT COUNT(*) FROM vectors WHERE is_deleted = 1),
-                    (SELECT COALESCE(MAX(updated_at), 0) FROM mangas);
+                    (SELECT COALESCE(MAX(updated_at), 0) FROM mangas),
+                    {headMangaExpr},
+                    {headVecExpr};
                 """;
             using var r = cmd.ExecuteReader();
             if (r.Read())
@@ -309,6 +463,8 @@ public sealed class VisualIndexDatabase : IDisposable
                 activeVecs = r.GetInt32(2);
                 deletedVecs = r.GetInt32(3);
                 lastUpdated = r.GetInt64(4);
+                headIndexedMangas = r.GetInt32(5);
+                headVecs = r.GetInt32(6);
             }
         }
 
@@ -330,7 +486,7 @@ public sealed class VisualIndexDatabase : IDisposable
             }
         }
 
-        return new VisualIndexOverview(mangaCount, totalPages, activeVecs, deletedVecs, lastUpdated, shards);
+        return new VisualIndexOverview(mangaCount, totalPages, activeVecs, deletedVecs, lastUpdated, shards, headIndexedMangas, headVecs);
     }
 
     public void Dispose() => _conn.Dispose();

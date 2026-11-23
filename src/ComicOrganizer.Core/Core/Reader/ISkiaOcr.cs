@@ -253,6 +253,21 @@ public static class SkiaOcrPluginManager
 
         protected override IntPtr LoadUnmanagedDll(string unmanagedDllName)
         {
+            // VC++ 執行期 DLL 若 System32 已有新版則優先使用系統版本，避免外掛附帶的舊版（如 14.28）鎖死主程式較新的原生套件
+            string bareName = Path.GetFileName(unmanagedDllName);
+            if ((bareName.StartsWith("msvcp140", StringComparison.OrdinalIgnoreCase) ||
+                 bareName.StartsWith("vcruntime140", StringComparison.OrdinalIgnoreCase) ||
+                 bareName.StartsWith("concrt140", StringComparison.OrdinalIgnoreCase)) &&
+                OperatingSystem.IsWindows())
+            {
+                string dllFile = bareName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? bareName : bareName + ".dll";
+                string sysPath = Path.Combine(Environment.SystemDirectory, dllFile);
+                if (File.Exists(sysPath))
+                {
+                    return LoadUnmanagedDllFromPath(sysPath);
+                }
+            }
+
             string? libraryPath = _resolver.ResolveUnmanagedDllToPath(unmanagedDllName);
             return libraryPath != null ? LoadUnmanagedDllFromPath(libraryPath) : IntPtr.Zero;
         }

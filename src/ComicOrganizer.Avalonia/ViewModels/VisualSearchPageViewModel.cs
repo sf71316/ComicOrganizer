@@ -48,7 +48,12 @@ public sealed partial class VisualSearchHitCardVm : ObservableObject, IDisposabl
         _ => new SolidColorBrush(Color.Parse("#D97706")),
     };
 
-    public string MatchKindBadge => Meta.IsFullPage ? "🖼 整頁原圖" : "📐 分鏡裁切命中";
+    public string MatchKindBadge => Meta.RegionKind switch
+    {
+        VisualRegionKind.Head => "👤 角色頭像命中",
+        VisualRegionKind.Panel => "📐 分鏡裁切命中",
+        _ => "🖼 整頁原圖",
+    };
     public string PageBadgeText => $"第 {Meta.PageNo} 頁 · {Meta.EntryName}";
 
     [ObservableProperty]
@@ -223,10 +228,22 @@ public sealed partial class VisualSearchPageViewModel : ViewModelBase, IDisposab
                 : "-";
 
             IndexSummaryText =
-                $"已索引 {ov.MangaCount:N0} 本 · {ov.TotalPages:N0} 頁 · {ov.ActiveVectorCount:N0} 筆向量 · 佔用 {diskMb:F1} MB（更新：{updatedText}）";
-            ShardsSummaryText = ov.Shards.Count == 0
+                $"已索引 {ov.MangaCount:N0} 本 · {ov.TotalPages:N0} 頁 · {ov.ActiveVectorCount:N0} 筆向量" +
+                (ov.HeadVectorCount > 0 ? $"（含頭像 {ov.HeadVectorCount:N0}）" : "") +
+                $" · 佔用 {diskMb:F1} MB（更新：{updatedText}）";
+
+            int pendingHeadBackfill = _dataContext.Config.VisualSearchEnableHeadIndex && paths.IsHeadModelReady()
+                ? Math.Max(0, ov.MangaCount - ov.HeadIndexedMangaCount)
+                : 0;
+            string headHint = pendingHeadBackfill > 0
+                ? $" · 尚有 {pendingHeadBackfill:N0} 本待增量補建頭像索引"
+                : (_dataContext.Config.VisualSearchEnableHeadIndex && !paths.IsHeadModelReady()
+                    ? " · 已開啟頭像索引（尚缺 head_detector.onnx）"
+                    : "");
+
+            ShardsSummaryText = (ov.Shards.Count == 0
                 ? "尚無向量分片"
-                : $"向量分片：{ov.Shards.Count} 個 · 待回收刪除紀錄：{ov.DeletedVectorCount:N0} 筆";
+                : $"向量分片：{ov.Shards.Count} 個 · 待回收刪除紀錄：{ov.DeletedVectorCount:N0} 筆") + headHint;
 
             NeedsCompactionHint = ov.Shards.Any(s => s.DeletedCount > 0 && s.DeletedRatio >= 0.15);
         }
@@ -239,7 +256,8 @@ public sealed partial class VisualSearchPageViewModel : ViewModelBase, IDisposab
     [RelayCommand]
     private void GoToSettings() => OpenSettingsRequested?.Invoke();
 
-    [RelayCommand]
+    // 允許建庫執行期間再次點擊同顆按鈕以觸發「⏹ 停止建庫」（底層 _hostService 已有 _runGate 防重入）
+    [RelayCommand(AllowConcurrentExecutions = true)]
     public async Task StartOrStopIncrementalSyncAsync()
     {
         if (IsIndexing)
@@ -283,12 +301,26 @@ public sealed partial class VisualSearchPageViewModel : ViewModelBase, IDisposab
             return;
         }
 
+        bool enableHeadIndex = cfg.VisualSearchEnableHeadIndex;
+        if (enableHeadIndex && !paths.IsHeadModelReady())
+        {
+            _dataContext.TryShowToast(
+                "尚未匯入頭像偵測模型",
+                $"已開啟角色頭像索引但找不到 {VisualSearchPaths.HeadModelFileName}，本次僅同步整頁與分鏡。",
+                NotificationType.Warning,
+                5);
+        }
+
         // 先釋放查詢 MMap 句柄，防止 Windows 鎖檔衝突
         DisposeSearchEngine();
         ProgressPercent = 0;
         ProgressStatusText = rebuild ? "準備清空並全部重建索引…" : "正在啟動 GPU 增量建庫子行程…";
 
-        await _hostService.RunSyncWorkerAsync(cfg.RootDirectory, specificPaths: null, rebuild: rebuild).ConfigureAwait(false);
+        await _hostService.RunSyncWorkerAsync(
+            cfg.RootDirectory,
+            specificPaths: null,
+            rebuild: rebuild,
+            enableHeadIndex: enableHeadIndex).ConfigureAwait(false);
     }
 
     [RelayCommand]
@@ -414,11 +446,12 @@ public sealed partial class VisualSearchPageViewModel : ViewModelBase, IDisposab
         }
         catch (Exception ex)
         {
+            string detail = ex.InnerException != null ? $"{ex.Message} ({ex.InnerException.Message})" : ex.Message;
             await _runOnUiAsync(() =>
             {
                 IsSearching = false;
-                QueryMetricsText = $"搜尋失敗：{ex.Message}";
-                _dataContext.TryShowToast("圖搜漫失敗", ex.Message, NotificationType.Error, 4);
+                QueryMetricsText = $"搜尋失敗：{detail}";
+                _dataContext.TryShowToast("圖搜漫失敗", detail, NotificationType.Error, 5);
             }).ConfigureAwait(false);
         }
         finally
@@ -511,8 +544,11 @@ public sealed partial class VisualSearchPageViewModel : ViewModelBase, IDisposab
             RefreshIndexOverview(new VisualSearchPaths(_dataContext.DataDirectory));
             ProgressPercent = 100;
             string statusPrefix = summary.WasCancelled ? "已安全中斷續建" : "增量同步完成";
+            string headPart = summary.HeadBackfilledComics > 0
+                ? $" · 補建頭像 {summary.HeadBackfilledComics} 本"
+                : "";
             ProgressStatusText =
-                $"{statusPrefix}：新增 {summary.IndexedComics} 本（{summary.TotalPages:N0} 頁 / {summary.TotalVectorsAdded:N0} 向量）· " +
+                $"{statusPrefix}：新增 {summary.IndexedComics} 本{headPart}（{summary.TotalPages:N0} 頁 / +{summary.TotalVectorsAdded:N0} 向量）· " +
                 $"搬移 {summary.MovedComics} · 清理 {summary.DeletedComics} · 略過 {summary.SkippedUnchanged} · {summary.ElapsedSeconds:F1}s（VRAM 已歸零）";
 
             _dataContext.TryShowToast(

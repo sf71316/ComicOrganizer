@@ -105,6 +105,73 @@ public sealed class VisualSearchEngineTests : IDisposable
         Assert.False(cfg.EnableVisualSearch);
         Assert.False(cfg.VisualSearchAutoIndexAfterArchive);
         Assert.True(cfg.VisualSearchEnableMultiCropRerank);
+        Assert.False(cfg.VisualSearchEnableHeadIndex);
+        Assert.Equal(string.Empty, cfg.VisualSearchHeadModelUrl);
+    }
+
+    [Fact]
+    public void VisualSearchPaths_HeadModel_IsOptional_AndSupportsLocalImport()
+    {
+        var dataDir = Path.Combine(_tempRoot, "paths_test");
+        var paths = new VisualSearchPaths(dataDir);
+        var srcDir = Path.Combine(_tempRoot, "src_models");
+        Directory.CreateDirectory(srcDir);
+
+        var fakePanel = Path.Combine(srcDir, "p.onnx");
+        var fakeEmbed = Path.Combine(srcDir, "e.onnx");
+        var fakeHead = Path.Combine(srcDir, "h.onnx");
+        var payload = new byte[2048];
+        File.WriteAllBytes(fakePanel, payload);
+        File.WriteAllBytes(fakeEmbed, payload);
+        File.WriteAllBytes(fakeHead, payload);
+
+        paths.ImportLocalModel(fakePanel, VisualSearchPaths.PanelModelFileName);
+        paths.ImportLocalModel(fakeEmbed, VisualSearchPaths.EmbedModelFileName);
+
+        // 必備模型就緒，選配頭像模型尚未匯入
+        Assert.True(paths.AreModelsReady());
+        Assert.False(paths.IsHeadModelReady());
+
+        var statusesBefore = paths.GetModelStatuses();
+        Assert.Equal(3, statusesBefore.Count);
+        Assert.False(statusesBefore[0].IsOptional);
+        Assert.False(statusesBefore[1].IsOptional);
+        Assert.True(statusesBefore[2].IsOptional);
+        Assert.False(statusesBefore[2].Exists);
+
+        // 匯入選配頭像模型
+        paths.ImportLocalModel(fakeHead, VisualSearchPaths.HeadModelFileName);
+        Assert.True(paths.IsHeadModelReady());
+        Assert.True(paths.GetModelStatuses()[2].Exists);
+    }
+
+    [Fact]
+    public void VisualHeadCropHelper_ExpandsPadding_AndFiltersDuplicatePanelOverlap()
+    {
+        var heads = new List<VisualPanelBox>
+        {
+            // 一般角色頭像（遠小於分鏡）
+            new(0.20f, 0.20f, 0.10f, 0.10f, 0.90f, 0),
+            // 與某小分鏡幾乎完全重疊的頭像框
+            new(0.60f, 0.60f, 0.20f, 0.20f, 0.88f, 0),
+            // 過小雜訊（1000x1000 圖上外擴後寬度仍 < 32px）
+            new(0.01f, 0.01f, 0.01f, 0.01f, 0.70f, 0),
+        };
+        var panels = new List<VisualPanelBox>
+        {
+            new(0.05f, 0.05f, 0.50f, 0.50f, 0.95f, 0),
+            new(0.57f, 0.58f, 0.26f, 0.27f, 0.93f, 0),
+        };
+
+        var expanded = VisualHeadCropHelper.ExpandAndFilterHeads(heads, panels, 1000, 1000);
+        Assert.Single(expanded);
+
+        var (hx, hy, hw, hh, rect) = expanded[0];
+        Assert.InRange(hx, 0.184f, 0.186f); // 0.20 - 0.10*0.15 = 0.185
+        Assert.InRange(hy, 0.189f, 0.191f); // 0.20 - 0.10*0.10 = 0.190
+        Assert.InRange(hw, 0.129f, 0.131f); // 0.10 * 1.30 = 0.130
+        Assert.InRange(hh, 0.134f, 0.136f); // 0.10 * 1.35 = 0.135
+        Assert.True(rect.Width >= 32f && rect.Height >= 32f);
     }
 
     [Fact]
@@ -289,15 +356,27 @@ public sealed class VisualSearchEngineTests : IDisposable
         mainVm.SettingsPage.EnableVisualSearch = true;
         mainVm.SettingsPage.VisualSearchAutoIndexAfterArchive = true;
         mainVm.SettingsPage.VisualSearchEnableMultiCropRerank = false;
+        mainVm.SettingsPage.VisualSearchEnableHeadIndex = true;
         mainVm.SettingsPage.VisualSearchPanelModelUrl = "https://example.com/panel.onnx";
+        mainVm.SettingsPage.VisualSearchHeadModelUrl = "https://example.com/head.onnx";
         mainVm.SettingsPage.SaveCommand.Execute(null);
 
         Assert.True(ctx.Config.EnableVisualSearch);
         Assert.True(ctx.Config.VisualSearchAutoIndexAfterArchive);
         Assert.False(ctx.Config.VisualSearchEnableMultiCropRerank);
+        Assert.True(ctx.Config.VisualSearchEnableHeadIndex);
         Assert.Equal("https://example.com/panel.onnx", ctx.Config.VisualSearchPanelModelUrl);
+        Assert.Equal("https://example.com/head.onnx", ctx.Config.VisualSearchHeadModelUrl);
         Assert.True(mainVm.IsVisualSearchEnabled);
         Assert.True(mainVm.VisualSearchPage.IsFeatureEnabled);
+
+        // 驗證命中卡片三種區域徽章文字
+        using var fullCard = new VisualSearchHitCardVm(1, new VisualSearchHit(0.9f, new VisualVectorMeta(1, 0, 1, "T", "P", 1, "001.jpg", true, 0, 0, 1, 1, false, VisualRegionKind.FullPage)), "T", "A", _ => { }, _ => { });
+        using var panelCard = new VisualSearchHitCardVm(2, new VisualSearchHit(0.8f, new VisualVectorMeta(2, 0, 1, "T", "P", 1, "001.jpg", false, 0, 0, 0.5f, 0.5f, false, VisualRegionKind.Panel)), "T", "A", _ => { }, _ => { });
+        using var headCard = new VisualSearchHitCardVm(3, new VisualSearchHit(0.95f, new VisualVectorMeta(3, 0, 1, "T", "P", 1, "001.jpg", false, 0.2f, 0.2f, 0.2f, 0.2f, false, VisualRegionKind.Head)), "T", "A", _ => { }, _ => { });
+        Assert.Contains("整頁", fullCard.MatchKindBadge);
+        Assert.Contains("分鏡", panelCard.MatchKindBadge);
+        Assert.Contains("頭像", headCard.MatchKindBadge);
 
         // 驗證 GoToSettings 通知事件
         bool navigatedSettings = false;
@@ -311,6 +390,14 @@ public sealed class VisualSearchEngineTests : IDisposable
             ctx,
             readerLauncher: capturingLauncher,
             runOnUiAsync: action => { action(); return Task.CompletedTask; });
+
+        // 驗證建庫進行中「⏹ 停止建庫」按鈕仍可點擊（AllowConcurrentExecutions = true）
+        vsVm.IsIndexing = true;
+        Assert.Equal("⏹ 停止建庫", vsVm.SyncButtonText);
+        Assert.True(vsVm.StartOrStopIncrementalSyncCommand.CanExecute(null));
+        vsVm.StartOrStopIncrementalSyncCommand.Execute(null);
+        Assert.Contains("停止建庫", vsVm.ProgressStatusText);
+        vsVm.IsIndexing = false;
 
         var hit = new VisualSearchHit(
             0.94f,
@@ -401,5 +488,206 @@ public sealed class VisualSearchEngineTests : IDisposable
         Assert.True(settingsVm.VisualIndexReady);
         Assert.Contains("已就緒", settingsVm.VisualIndexGuideTitle);
         Assert.Contains("前往「圖搜漫」頁面", settingsVm.VisualIndexGoButtonText);
+    }
+
+    private sealed class CountingPanelDetector : IPanelDetector
+    {
+        public int CallCount { get; private set; }
+
+        public List<VisualPanelBox> DetectPreprocessed(PreparedYoloFrame input, float confThreshold = 0.35f, float iouThreshold = 0.45f, float minAreaRatio = 0.02f)
+        {
+            CallCount++;
+            return
+            [
+                new VisualPanelBox(0.05f, 0.05f, 0.90f, 0.42f, 0.95f, 0),
+                new VisualPanelBox(0.05f, 0.52f, 0.90f, 0.42f, 0.92f, 0),
+            ];
+        }
+
+        public void Dispose() { }
+    }
+
+    private sealed class MockHeadDetector : IPanelDetector
+    {
+        public int CallCount { get; private set; }
+
+        public List<VisualPanelBox> DetectPreprocessed(PreparedYoloFrame input, float confThreshold = 0.35f, float iouThreshold = 0.45f, float minAreaRatio = 0.02f)
+        {
+            CallCount++;
+            // 在 160x200 圖上外擴後約 52x67 px (>=32px)，且與 0.90x0.42 大分鏡 IoU 遠小於 0.70
+            return
+            [
+                new VisualPanelBox(0.20f, 0.15f, 0.25f, 0.25f, 0.91f, 0),
+            ];
+        }
+
+        public void Dispose() { }
+    }
+
+    [Fact]
+    public async Task HeadIndex_IncrementalBackfill_OnlyAddsHeadVectors_WithoutRecomputingPanelsOrFullPages()
+    {
+        var dataDir = Path.Combine(_tempRoot, "head_backfill_data");
+        var libDir = Path.Combine(_tempRoot, "head_backfill_lib");
+        var work1 = Path.Combine(libDir, "AuthorA", "Work1");
+        Directory.CreateDirectory(work1);
+        WriteDistinctComicPage(Path.Combine(work1, "001.png"), SKColors.Crimson, SKColors.Navy);
+        WriteDistinctComicPage(Path.Combine(work1, "002.png"), SKColors.Gold, SKColors.ForestGreen);
+        WriteDistinctComicPage(Path.Combine(work1, "003.png"), SKColors.Purple, SKColors.Teal);
+
+        var paths = new VisualSearchPaths(dataDir);
+
+        // 第一輪：未啟用頭像索引，建立整頁 + 分鏡（3 頁 × 3 = 9 向量）
+        var panelDetector1 = new CountingPanelDetector();
+        var pipeline1 = new VisualIndexingPipeline(
+            paths,
+            () => panelDetector1,
+            () => new DeterministicMockEmbedder(),
+            batchSize: 4,
+            enableHeadIndex: false);
+
+        var s1 = await pipeline1.SyncAsync(libDir);
+        Assert.Equal(1, s1.IndexedComics);
+        Assert.Equal(0, s1.HeadBackfilledComics);
+        Assert.Equal(9, s1.TotalVectorsAdded);
+        Assert.Equal(3, panelDetector1.CallCount);
+
+        using (var db = new VisualIndexDatabase(paths.DatabasePath, readOnly: true))
+        {
+            var ov = db.GetOverview();
+            Assert.Equal(1, ov.MangaCount);
+            Assert.Equal(9, ov.ActiveVectorCount);
+            Assert.Equal(0, ov.HeadIndexedMangaCount);
+            Assert.Equal(0, ov.HeadVectorCount);
+        }
+
+        // 第二輪：開啟頭像索引，應僅增量補建人頭向量，完全不重跑分鏡模型與整頁/分鏡向量
+        var panelDetector2 = new CountingPanelDetector();
+        var headDetector2 = new MockHeadDetector();
+        var pipeline2 = new VisualIndexingPipeline(
+            paths,
+            () => panelDetector2,
+            () => new DeterministicMockEmbedder(),
+            batchSize: 4,
+            enableHeadIndex: true,
+            headDetectorFactory: () => headDetector2);
+
+        var s2 = await pipeline2.SyncAsync(libDir);
+        Assert.Equal(0, s2.IndexedComics);
+        Assert.Equal(1, s2.HeadBackfilledComics);
+        Assert.Equal(3, s2.TotalVectorsAdded); // 3 頁 × 1 顆人頭 = 3 向量
+        Assert.Equal(0, panelDetector2.CallCount); // 關鍵：完全未重跑分鏡偵測器
+        Assert.Equal(3, headDetector2.CallCount);
+
+        using (var db = new VisualIndexDatabase(paths.DatabasePath, readOnly: true))
+        {
+            var ov = db.GetOverview();
+            Assert.Equal(1, ov.MangaCount);
+            Assert.Equal(12, ov.ActiveVectorCount); // 原本 9 + 補建 3
+            Assert.Equal(1, ov.HeadIndexedMangaCount);
+            Assert.Equal(3, ov.HeadVectorCount);
+        }
+
+        // 第三輪：再次同步應全部跳過（零重算）
+        var headDetector3 = new MockHeadDetector();
+        var pipeline3 = new VisualIndexingPipeline(
+            paths,
+            () => new CountingPanelDetector(),
+            () => new DeterministicMockEmbedder(),
+            batchSize: 4,
+            enableHeadIndex: true,
+            headDetectorFactory: () => headDetector3);
+
+        var s3 = await pipeline3.SyncAsync(libDir);
+        Assert.Equal(0, s3.IndexedComics);
+        Assert.Equal(0, s3.HeadBackfilledComics);
+        Assert.Equal(1, s3.SkippedUnchanged);
+        Assert.Equal(0, s3.TotalVectorsAdded);
+        Assert.Equal(0, headDetector3.CallCount);
+    }
+
+    [Fact]
+    public void LegacyDatabaseSchema_ReadOnlyAndUpgradeMigration_AreBackwardCompatible()
+    {
+        var dbPath = Path.Combine(_tempRoot, "legacy_visual.db");
+
+        // 建立不含 has_head_index 與 region_kind 的舊版 schema
+        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}"))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                CREATE TABLE mangas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    path TEXT NOT NULL UNIQUE,
+                    title TEXT NOT NULL,
+                    fingerprint TEXT NOT NULL,
+                    page_count INTEGER NOT NULL DEFAULT 0,
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE TABLE vectors (
+                    vec_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    shard_id INTEGER NOT NULL DEFAULT 0,
+                    manga_id INTEGER NOT NULL,
+                    page_no INTEGER NOT NULL,
+                    entry_name TEXT NOT NULL,
+                    is_full_page INTEGER NOT NULL,
+                    x REAL NOT NULL,
+                    y REAL NOT NULL,
+                    w REAL NOT NULL,
+                    h REAL NOT NULL,
+                    is_deleted INTEGER NOT NULL DEFAULT 0
+                );
+                INSERT INTO mangas(id, path, title, fingerprint, page_count, updated_at)
+                VALUES (1, 'E:\Old\Work.zip', 'OldWork', 'fp1', 10, 1000);
+                INSERT INTO vectors(vec_id, shard_id, manga_id, page_no, entry_name, is_full_page, x, y, w, h, is_deleted)
+                VALUES (1, 0, 1, 1, '001.jpg', 1, 0, 0, 1, 1, 0),
+                       (2, 0, 1, 1, '001.jpg', 0, 0.1, 0.1, 0.4, 0.4, 0);
+                """;
+            cmd.ExecuteNonQuery();
+        }
+
+        // 1. 唯讀開啟舊庫不應拋錯，且應正確推導 RegionKind
+        using (var ro = new VisualIndexDatabase(dbPath, readOnly: true))
+        {
+            var ov = ro.GetOverview();
+            Assert.Equal(1, ov.MangaCount);
+            Assert.Equal(2, ov.ActiveVectorCount);
+            Assert.Equal(0, ov.HeadIndexedMangaCount);
+            Assert.Equal(0, ov.HeadVectorCount);
+
+            var metas = ro.GetVectorsByIds([1, 2]);
+            Assert.Equal(VisualRegionKind.FullPage, metas[1].RegionKind);
+            Assert.Equal(VisualRegionKind.Panel, metas[2].RegionKind);
+        }
+
+        // 2. 讀寫開啟舊庫應自動 ALTER TABLE 升級並回填 region_kind
+        using (var rw = new VisualIndexDatabase(dbPath, readOnly: false))
+        {
+            var manga = rw.GetMangaByPath(@"E:\Old\Work.zip");
+            Assert.NotNull(manga);
+            Assert.False(manga!.HasHeadIndex);
+
+            var panels = rw.GetPanelBoxesForManga(1);
+            Assert.Single(panels[1]);
+
+            var metas = rw.GetVectorsByIds([1, 2]);
+            Assert.Equal(VisualRegionKind.FullPage, metas[1].RegionKind);
+            Assert.Equal(VisualRegionKind.Panel, metas[2].RegionKind);
+        }
+    }
+
+    [Fact]
+    public void VisualNativeLoader_HandlesMissingAndValidLibDirectory_Safely()
+    {
+        var missingBase = Path.Combine(_tempRoot, "no_lib_dir");
+        Assert.Empty(VisualNativeLoader.LoadFromLibDirectory(missingBase));
+
+        // 傳入 bin 目錄下雖無 lib 子目錄（或空的 lib 子目錄）都不應拋例外
+        var emptyBase = Path.Combine(_tempRoot, "empty_lib_dir");
+        Directory.CreateDirectory(Path.Combine(emptyBase, "lib"));
+        Assert.Empty(VisualNativeLoader.LoadFromLibDirectory(emptyBase));
+        Assert.Contains("onnxruntime.dll", VisualNativeLoader.OrderedNativeDllNames);
+        Assert.Contains("libusearch_c.dll", VisualNativeLoader.OrderedNativeDllNames);
     }
 }
