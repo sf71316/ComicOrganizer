@@ -690,4 +690,28 @@ public sealed class VisualSearchEngineTests : IDisposable
         Assert.Contains("onnxruntime.dll", VisualNativeLoader.OrderedNativeDllNames);
         Assert.Contains("libusearch_c.dll", VisualNativeLoader.OrderedNativeDllNames);
     }
+
+    [Fact]
+    public async Task SettingsPage_AutoPopulatesExistingOrImportedHeadModelPath()
+    {
+        var dataDir = Path.Combine(_tempRoot, "head_path_ui");
+        var paths = new VisualSearchPaths(dataDir);
+        paths.EnsureDirectories();
+        File.WriteAllBytes(paths.HeadModelPath, new byte[4096]);
+
+        using var ctx = new AppDataContext(explicitDataDirectory: dataDir, forceReadOnlyDatabase: false);
+        var vm = new SettingsPageViewModel(ctx, runOnUiAsync: action => { action(); return Task.CompletedTask; });
+
+        // 1. 磁碟已有 head_detector.onnx 且設定未手填 URL 時，應自動帶出 models\head_detector.onnx 路徑
+        Assert.True(vm.IsHeadModelReady);
+        Assert.Equal(paths.HeadModelPath, vm.VisualSearchHeadModelUrl);
+
+        // 2. 透過「匯入本機」挑選新檔案時，應立即把來源路徑回填到欄位
+        var pickedHead = Path.Combine(_tempRoot, "picked_head_detector.onnx");
+        File.WriteAllBytes(pickedHead, new byte[4096]);
+        vm.PickFileAsync = (_, _, _, _) => Task.FromResult<string?>(pickedHead);
+        await vm.ImportHeadModelCommand.ExecuteAsync(null);
+
+        Assert.Equal(pickedHead, vm.VisualSearchHeadModelUrl);
+    }
 }

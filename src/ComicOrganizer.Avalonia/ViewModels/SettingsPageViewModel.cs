@@ -996,16 +996,38 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
         PanelModelStatusText = panel.Exists
             ? $"✅ 已就緒（{panel.SizeBytes / (1024.0 * 1024.0):F1} MB）"
             : $"⬜ 尚未下載 / 匯入（預期 {panel.ExpectedSizeHint}）";
+        if (panel.Exists) ApplyModelPath(VisualSearchPaths.PanelModelFileName, panel.FullPath, overwrite: false);
 
         IsEmbedModelReady = embed.Exists;
         EmbedModelStatusText = embed.Exists
             ? $"✅ 已就緒（{embed.SizeBytes / (1024.0 * 1024.0):F1} MB）"
             : $"⬜ 尚未下載 / 匯入（預期 {embed.ExpectedSizeHint}）";
+        if (embed.Exists) ApplyModelPath(VisualSearchPaths.EmbedModelFileName, embed.FullPath, overwrite: false);
 
         IsHeadModelReady = head.Exists;
         HeadModelStatusText = head.Exists
             ? $"✅ 已就緒（{head.SizeBytes / (1024.0 * 1024.0):F1} MB）"
             : $"⬜ 選配未安裝（預期 {head.ExpectedSizeHint}）";
+        if (head.Exists) ApplyModelPath(VisualSearchPaths.HeadModelFileName, head.FullPath, overwrite: false);
+    }
+
+    private void ApplyModelPath(string targetFileName, string path, bool overwrite)
+    {
+        if (string.Equals(targetFileName, VisualSearchPaths.PanelModelFileName, StringComparison.OrdinalIgnoreCase))
+        {
+            if (overwrite || string.IsNullOrWhiteSpace(VisualSearchPanelModelUrl))
+                VisualSearchPanelModelUrl = path;
+        }
+        else if (string.Equals(targetFileName, VisualSearchPaths.EmbedModelFileName, StringComparison.OrdinalIgnoreCase))
+        {
+            if (overwrite || string.IsNullOrWhiteSpace(VisualSearchEmbedModelUrl))
+                VisualSearchEmbedModelUrl = path;
+        }
+        else if (string.Equals(targetFileName, VisualSearchPaths.HeadModelFileName, StringComparison.OrdinalIgnoreCase))
+        {
+            if (overwrite || string.IsNullOrWhiteSpace(VisualSearchHeadModelUrl))
+                VisualSearchHeadModelUrl = path;
+        }
     }
 
     [RelayCommand]
@@ -1059,6 +1081,7 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
         {
             var paths = new VisualSearchPaths(_dataContext.DataDirectory);
             paths.ImportLocalModel(selected, targetFileName);
+            ApplyModelPath(targetFileName, selected, overwrite: true);
             RefreshVisualSearchModelStatus();
             _dataContext.NotifySettingsChanged();
             ShowToast("模型已匯入", $"{targetFileName} 已安裝至視覺搜尋模型目錄。", NotificationType.Success, 3);
