@@ -1,7 +1,11 @@
 using System.ComponentModel;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.LogicalTree;
+using Avalonia.VisualTree;
 using ComicOrganizer.Avalonia.ViewModels;
 using SukiUI.Controls;
 
@@ -20,6 +24,9 @@ public partial class ReaderWindow : SukiWindow
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
         Closed += OnWindowClosed;
+        Deactivated += OnWindowDeactivated;
+        AddHandler(PointerPressedEvent, OnWindowTunnelPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(PointerPressedEvent, OnWindowPointerPressed, RoutingStrategies.Bubble, handledEventsToo: false);
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)
@@ -236,8 +243,78 @@ public partial class ReaderWindow : SukiWindow
         }
     }
 
+    private void OnWindowDeactivated(object? sender, EventArgs e)
+        => Viewport.CloseContextMenu();
+
+    private void OnWindowTunnelPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (Viewport.ContextMenu is { IsOpen: true } menu &&
+            e.GetCurrentPoint(this).Properties.IsLeftButtonPressed &&
+            !IsSourceInsideContextMenu(e.Source, menu))
+        {
+            menu.Close();
+            e.Handled = true;
+        }
+    }
+
+    private void OnWindowPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.Handled || WindowState == WindowState.FullScreen)
+        {
+            return;
+        }
+
+        var props = e.GetCurrentPoint(this).Properties;
+        if (!props.IsLeftButtonPressed || e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            return;
+        }
+
+        if (IsInsideInteractiveControl(e.Source))
+        {
+            return;
+        }
+
+        BeginMoveDrag(e);
+        e.Handled = true;
+    }
+
+    internal static bool IsSourceInsideContextMenu(object? source, ContextMenu menu)
+    {
+        for (Visual? cur = source as Visual; cur != null; cur = cur.GetVisualParent())
+        {
+            if (ReferenceEquals(cur, menu) || cur is ContextMenu || cur is MenuItem)
+            {
+                return true;
+            }
+        }
+
+        for (ILogical? cur = source as ILogical; cur != null; cur = cur.LogicalParent)
+        {
+            if (ReferenceEquals(cur, menu) || cur is ContextMenu || cur is MenuItem)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    internal static bool IsInsideInteractiveControl(object? source)
+    {
+        for (Visual? cur = source as Visual; cur != null; cur = cur.GetVisualParent())
+        {
+            if (cur is Button or ComboBox or ComboBoxItem or Slider or TextBox or TabItem or ListBox or ScrollBar or ScrollViewer or SelectableTextBlock or Expander or Thumb)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void OnWindowClosed(object? sender, EventArgs e)
     {
+        Deactivated -= OnWindowDeactivated;
         if (_vm != null)
         {
             DetachViewModel(_vm);

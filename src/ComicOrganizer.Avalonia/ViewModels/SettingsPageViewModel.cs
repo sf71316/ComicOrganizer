@@ -205,7 +205,7 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
     private SettingsOption<string> _selectedLanguageOption;
 
     [ObservableProperty]
-    private decimal? _galleryWheelScrollDip = ScrollWheelStepHelper.DefaultWheelScrollDip;
+    private double _galleryWheelScrollDip = ScrollWheelStepHelper.DefaultWheelScrollDip;
 
     // ── 組 2：路徑與共用資料目錄 ────────────────────────────────────────
 
@@ -637,7 +637,9 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
             updatedPrefs.Theme = IsDarkTheme ? AppTheme.Dark : AppTheme.Light;
             updatedPrefs.Language = SelectedLanguageOption?.Value ?? "zh-TW";
             int clampedWheelDip = ScrollWheelStepHelper.ClampStepDip(
-                (int)Math.Round(GalleryWheelScrollDip ?? ScrollWheelStepHelper.DefaultWheelScrollDip));
+                double.IsNaN(GalleryWheelScrollDip) || double.IsInfinity(GalleryWheelScrollDip)
+                    ? ScrollWheelStepHelper.DefaultWheelScrollDip
+                    : (int)Math.Round(GalleryWheelScrollDip));
             updatedPrefs.GalleryWheelScrollDip = clampedWheelDip;
             GalleryWheelScrollDip = clampedWheelDip;
 

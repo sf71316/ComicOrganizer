@@ -170,19 +170,28 @@
             </Grid>
 
             <!-- 畫廊與探索牆滾輪距離 -->
-            <Grid ColumnDefinitions="*,180" VerticalAlignment="Center">
+            <Grid ColumnDefinitions="*,240" VerticalAlignment="Center">
               <StackPanel Grid.Column="0" Spacing="2" Margin="0,0,16,0">
                 <TextBlock Text="畫廊／探索牆滾輪捲動距離 (DIP)" Classes="field-label" />
-                <TextBlock Text="滑鼠滾輪滾一格移動的垂直距離（預設 200 DIP，系統原始約 48 DIP；可設 48–600）"
+                <TextBlock Text="滑鼠滾輪滾一格移動的垂直距離（預設 200 DIP；可設 100–400）"
                            Classes="field-hint"
                            TextWrapping="Wrap" />
               </StackPanel>
-              <NumericUpDown Grid.Column="1"
-                             Minimum="48"
-                             Maximum="600"
-                             Increment="20"
-                             FormatString="F0"
-                             Value="{Binding GalleryWheelScrollDip}" />
+              <Grid Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="10" VerticalAlignment="Center">
+                <Slider Grid.Column="0"
+                        Minimum="100"
+                        Maximum="400"
+                        TickFrequency="10"
+                        IsSnapToTickEnabled="True"
+                        VerticalAlignment="Center"
+                        Value="{Binding GalleryWheelScrollDip, Mode=TwoWay}" />
+                <TextBlock Grid.Column="1"
+                           Width="56"
+                           TextAlignment="Right"
+                           VerticalAlignment="Center"
+                           FontWeight="SemiBold"
+                           Text="{Binding GalleryWheelScrollDip, StringFormat='{}{0:F0} DIP'}" />
+              </Grid>
             </Grid>
           </StackPanel>
         </suki:GlassCard>

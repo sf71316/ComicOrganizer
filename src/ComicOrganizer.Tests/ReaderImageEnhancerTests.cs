@@ -159,4 +159,37 @@ public class ReaderImageEnhancerTests
             try { Directory.Delete(tempDir, recursive: true); } catch { }
         }
     }
+
+    [Fact]
+    public void SkiaComicViewport_CanvasPanDragRequiresCtrlOrMiddleButton_AndReaderWindowInteractiveDetectionWorks()
+    {
+        var leftOnly = new global::Avalonia.Input.PointerPointProperties(global::Avalonia.Input.RawInputModifiers.LeftMouseButton, global::Avalonia.Input.PointerUpdateKind.LeftButtonPressed);
+        var middleOnly = new global::Avalonia.Input.PointerPointProperties(global::Avalonia.Input.RawInputModifiers.MiddleMouseButton, global::Avalonia.Input.PointerUpdateKind.MiddleButtonPressed);
+
+        // 純左鍵：不應觸發畫布拖曳平移（改由外層閱讀器視窗拖曳移動）
+        Assert.False(ComicOrganizer.Avalonia.Views.Controls.SkiaComicViewport.ShouldStartCanvasPanDrag(leftOnly, global::Avalonia.Input.KeyModifiers.None));
+
+        // Ctrl+左鍵 或 中鍵：觸發畫布拖曳平移／長條捲動
+        Assert.True(ComicOrganizer.Avalonia.Views.Controls.SkiaComicViewport.ShouldStartCanvasPanDrag(leftOnly, global::Avalonia.Input.KeyModifiers.Control));
+        Assert.True(ComicOrganizer.Avalonia.Views.Controls.SkiaComicViewport.ShouldStartCanvasPanDrag(middleOnly, global::Avalonia.Input.KeyModifiers.None));
+
+        AvaloniaTestThread.Run(() =>
+        {
+            var menu = new global::Avalonia.Controls.ContextMenu();
+            var menuItem = new global::Avalonia.Controls.MenuItem { Header = "測試" };
+            menu.Items.Add(menuItem);
+
+            var viewport = new ComicOrganizer.Avalonia.Views.Controls.SkiaComicViewport();
+            var hudButton = new global::Avalonia.Controls.Button { Content = "返回" };
+            var hudText = new global::Avalonia.Controls.TextBlock { Text = "空白標籤" };
+
+            Assert.True(ComicOrganizer.Avalonia.Views.ReaderWindow.IsSourceInsideContextMenu(menuItem, menu));
+            Assert.False(ComicOrganizer.Avalonia.Views.ReaderWindow.IsSourceInsideContextMenu(viewport, menu));
+            Assert.False(ComicOrganizer.Avalonia.Views.ReaderWindow.IsSourceInsideContextMenu(hudText, menu));
+
+            Assert.True(ComicOrganizer.Avalonia.Views.ReaderWindow.IsInsideInteractiveControl(hudButton));
+            Assert.False(ComicOrganizer.Avalonia.Views.ReaderWindow.IsInsideInteractiveControl(viewport));
+            Assert.False(ComicOrganizer.Avalonia.Views.ReaderWindow.IsInsideInteractiveControl(hudText));
+        });
+    }
 }

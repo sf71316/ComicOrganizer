@@ -83,20 +83,28 @@ public sealed class ScrollWheelStepTests : IDisposable
 
         Assert.Equal(200, galleryVm.WheelScrollStepDip);
         Assert.Equal(200, exploreVm.WheelScrollStepDip);
-        Assert.Equal(200m, settingsVm.GalleryWheelScrollDip);
+        Assert.Equal(200d, settingsVm.GalleryWheelScrollDip);
 
-        // 修改滾輪距離並儲存（並測試超過範圍會被安全夾在 48~600）
-        settingsVm.GalleryWheelScrollDip = 320m;
+        // 修改滾輪距離並儲存（並測試超過 100~400 範圍會被安全夾限）
+        settingsVm.GalleryWheelScrollDip = 320d;
         settingsVm.SaveCommand.Execute(null);
 
         Assert.Equal(320, ctx.Preferences.GalleryWheelScrollDip);
         Assert.Equal(320, galleryVm.WheelScrollStepDip);
         Assert.Equal(320, exploreVm.WheelScrollStepDip);
 
-        settingsVm.GalleryWheelScrollDip = 9999m;
+        settingsVm.GalleryWheelScrollDip = 9999d;
         settingsVm.SaveCommand.Execute(null);
-        Assert.Equal(600, ctx.Preferences.GalleryWheelScrollDip);
-        Assert.Equal(600, galleryVm.WheelScrollStepDip);
-        Assert.Equal(600, exploreVm.WheelScrollStepDip);
+        Assert.Equal(400, ctx.Preferences.GalleryWheelScrollDip);
+        Assert.Equal(400, galleryVm.WheelScrollStepDip);
+        Assert.Equal(400, exploreVm.WheelScrollStepDip);
+
+        settingsVm.GalleryWheelScrollDip = 48d;
+        settingsVm.SaveCommand.Execute(null);
+        Assert.Equal(100, ctx.Preferences.GalleryWheelScrollDip);
+        Assert.Equal(100, galleryVm.WheelScrollStepDip);
+        Assert.Equal(100, exploreVm.WheelScrollStepDip);
+        Assert.Equal(100, ScrollWheelStepHelper.ClampOrDefault(48));
+        Assert.Equal(400, ScrollWheelStepHelper.ClampOrDefault(600));
     }
 }

@@ -68,6 +68,7 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
     // 鑽取頁的封面預載另用一個取消來源：牆面查詢晚到時重新預載牆面，不可取消鑽取頁的預載
     private CancellationTokenSource? _drillDownCoverLoadCts;
     private CancellationTokenSource? _comboCoverCts;
+    private CancellationTokenSource? _errorDismissCts;
 
     // 虛擬化清單回收的卡片封面保留佇列與進行中封面取消權杖（只在 UI 執行緒存取）
     private readonly LinkedList<ExploreCardVmBase> _recycledCoverQueue = new();
@@ -82,6 +83,9 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
     private (long TagIdA, long TagIdB)? _lastRandomComboPair;
     private bool _suppressReload;
     private volatile bool _disposed;
+
+    /// <summary>錯誤橫幅自動隱藏延遲（可在測試覆寫以加速驗證）。</summary>
+    internal TimeSpan ErrorAutoDismissDelay { get; set; } = TimeSpan.FromSeconds(6);
 
     /// <summary>探索牆主視口滑鼠滾輪單格捲動距離（DIP，預設 200；儲存設定後即時同步）。</summary>
     public double WheelScrollStepDip { get; private set; } = Views.Controls.ScrollWheelStepHelper.DefaultWheelScrollDip;
@@ -283,6 +287,49 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasError))]
     private string? _errorMessage;
+
+    partial void OnErrorMessageChanged(string? value)
+    {
+        CancelCts(ref _errorDismissCts);
+        if (_disposed || string.IsNullOrWhiteSpace(value) || ErrorAutoDismissDelay <= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        var cts = ReplaceCancellationSource(ref _errorDismissCts);
+        var ct = cts.Token;
+        var delay = ErrorAutoDismissDelay;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(delay, ct).ConfigureAwait(false);
+                if (ct.IsCancellationRequested || _disposed)
+                {
+                    return;
+                }
+
+                await _runOnUiAsync(() =>
+                {
+                    if (!ct.IsCancellationRequested && !_disposed &&
+                        string.Equals(ErrorMessage, value, StringComparison.Ordinal))
+                    {
+                        ErrorMessage = null;
+                    }
+                }).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // 已手動關閉或被新錯誤取代
+            }
+        }, ct);
+    }
+
+    [RelayCommand]
+    private void DismissError()
+    {
+        ErrorMessage = null;
+    }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(StatusSummaryText))]
@@ -2027,6 +2074,7 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
 
     private void RebuildDrillDownWorksOnUi(bool resetScroll)
     {
+        ErrorMessage = null;
         IEnumerable<ExploreWorkItem> filtered = _allDrillDownRawWorks;
 
         if (UnreadOnly)
@@ -2101,6 +2149,7 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
 
     private void ClearDrillDownState()
     {
+        ErrorMessage = null;
         CancelCts(ref _drillDownCts);
         CancelCts(ref _drillDownCoverLoadCts);
         _currentDrillDownSelection = null;
@@ -2349,6 +2398,7 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
         CancelCts(ref _coverLoadCts);
         CancelCts(ref _drillDownCoverLoadCts);
         CancelCts(ref _comboCoverCts);
+        CancelCts(ref _errorDismissCts);
         ClearRecycledAndRealizedCoverTracking();
 
         _coverLoadSemaphore.Dispose();

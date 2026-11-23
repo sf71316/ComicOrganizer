@@ -13,8 +13,8 @@ namespace ComicOrganizer.Avalonia.Views.Controls;
 public static class ScrollWheelStepHelper
 {
     public const int DefaultWheelScrollDip = 200;
-    public const int MinWheelScrollDip = 48;
-    public const int MaxWheelScrollDip = 600;
+    public const int MinWheelScrollDip = 100;
+    public const int MaxWheelScrollDip = 400;
 
     public static int ClampStepDip(int dip)
         => Math.Clamp(dip, MinWheelScrollDip, MaxWheelScrollDip);

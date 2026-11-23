@@ -59,7 +59,7 @@ public sealed class BatchObservableCollection<T> : ObservableCollection<T>
     /// 把清單內容同步成 <paramref name="target"/>（以參考相等比對項目），盡量只發出逐筆通知：
     /// <list type="bullet">
     /// <item>內容與順序完全相同：不發任何通知（重整後資料沒變時，清單上的卡片完全不動）。</item>
-    /// <item>少量增刪或移動：逐筆 Remove / Insert / Move，虛擬化清單只處理受影響的卡片。</item>
+    /// <item>少量增刪或調整順序：逐筆 Remove / Insert（避免發出 ItemsRepeater UniformGridLayout 未實作的 Move 通知）。</item>
     /// <item>變動很多（例如換排序）：改發一次 Reset，比逐筆通知便宜。</item>
     /// </list>
     /// 目標清單不可有重複項目。
@@ -139,7 +139,12 @@ public sealed class BatchObservableCollection<T> : ObservableCollection<T>
             int existing = currentSet.Contains(wanted) ? IndexOfReference(wanted, i + 1) : -1;
             if (existing >= 0)
             {
-                Move(existing, i);
+                // Avalonia 12 ItemsRepeater.UniformGridLayoutState.ClearElementOnDataSourceChange
+                // 尚未實作 NotifyCollectionChangedAction.Move（會拋 NotImplementedException）；
+                // 改為 RemoveAt(較高索引) + Insert(較低索引)，維持局部增量更新而不觸發 Move。
+                var moved = Items[existing];
+                RemoveAt(existing);
+                Insert(i, moved);
             }
             else
             {

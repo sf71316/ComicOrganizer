@@ -451,11 +451,17 @@
                        FontSize="13"
                        TextWrapping="Wrap"
                        VerticalAlignment="Center" />
-            <Button Grid.Column="1"
-                    Content="重試"
-                    Classes="Outlined"
-                    Command="{Binding RefreshCommand}"
-                    Padding="12,5" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+              <Button Content="重試"
+                      Classes="Outlined"
+                      Command="{Binding RefreshCommand}"
+                      Padding="12,5" />
+              <Button Content="✕"
+                      Classes="Outlined"
+                      Command="{Binding DismissErrorCommand}"
+                      Padding="10,5"
+                      ToolTip.Tip="關閉錯誤提示" />
+            </StackPanel>
           </Grid>
         </Border>
 

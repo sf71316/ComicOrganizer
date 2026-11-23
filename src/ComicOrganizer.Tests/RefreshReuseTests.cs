@@ -111,6 +111,7 @@ public sealed class RefreshReuseTests : IDisposable
 
         Assert.False(reset);
         Assert.DoesNotContain(NotifyCollectionChangedAction.Reset, events);
+        Assert.DoesNotContain(NotifyCollectionChangedAction.Move, events);
         Assert.InRange(events.Count, 1, 8);
         Assert.Equal(target, collection);
     }
@@ -516,6 +517,78 @@ public sealed class RefreshReuseTests : IDisposable
         return new ExploreWorkItem(
             id, $@"C:\fake\{name}.zip", $"{name}.zip", name, null, string.Empty, null, null, 10,
             ReadStatus.Unread, 0, null, 0, null, null, tags);
+    }
+
+    [Fact]
+    public void SyncTo_AttachedToItemsRepeaterUniformGridLayout_DoesNotThrowOnShuffle()
+    {
+        EnsureAvaloniaSkiaBackend();
+        AvaloniaTestThread.Run(() =>
+        {
+            var items = Enumerable.Range(0, 24).Select(i => new Box(i)).ToList();
+            var collection = new BatchObservableCollection<Box>();
+            collection.ReplaceAll(items);
+
+            var events = new List<NotifyCollectionChangedAction>();
+            collection.CollectionChanged += (_, e) => events.Add(e.Action);
+
+            var repeater = new global::Avalonia.Controls.ItemsRepeater
+            {
+                Layout = new global::Avalonia.Layout.UniformGridLayout
+                {
+                    MinItemWidth = 100,
+                    MinItemHeight = 140,
+                    MinColumnSpacing = 8,
+                    MinRowSpacing = 8,
+                },
+                ItemTemplate = new global::Avalonia.Controls.Templates.FuncDataTemplate<Box>(
+                    (b, _) => new global::Avalonia.Controls.Border { Width = 100, Height = 140 }),
+                ItemsSource = collection,
+            };
+
+            // 直接對獨立 Layoutable/Border + ItemsRepeater 執行 Measure/Arrange（不需建立 Win32 Window）
+            var host = new global::Avalonia.Controls.Border
+            {
+                Width = 600,
+                Height = 500,
+                Child = repeater,
+            };
+            host.Measure(new global::Avalonia.Size(600, 500));
+            host.Arrange(new global::Avalonia.Rect(0, 0, 600, 500));
+
+            // 洗牌 24 筆（在 SyncTo 的局部增量門檻內）：先前走 Move() 會在 UniformGridLayoutState 拋出 NotImplementedException
+            var shuffled = Enumerable.Reverse(items).ToList();
+            collection.SyncTo(shuffled);
+
+            host.Measure(new global::Avalonia.Size(600, 500));
+            host.Arrange(new global::Avalonia.Rect(0, 0, 600, 500));
+
+            Assert.DoesNotContain(NotifyCollectionChangedAction.Move, events);
+            Assert.Equal(shuffled, collection);
+        });
+    }
+
+    [Fact]
+    public async Task ExplorePageViewModel_ErrorBanner_DismissCommandAndAutoHideClearError()
+    {
+        var wallSvc = new ExploreWallService(_store);
+        using var vm = new ExplorePageViewModel(wallSvc, _coverService, runOnUiAsync: Inline, autoLoad: false)
+        {
+            ErrorAutoDismissDelay = TimeSpan.FromMilliseconds(80),
+        };
+
+        // 1. 手動按下「✕」立即關閉
+        AvaloniaTestThread.Run(() => vm.ErrorMessage = "手動關閉測試");
+        Assert.True(vm.HasError);
+        AvaloniaTestThread.Run(() => vm.DismissErrorCommand.Execute(null));
+        Assert.False(vm.HasError);
+        Assert.Null(vm.ErrorMessage);
+
+        // 2. 未手動關閉時，超過自動隱藏時間後自動清除
+        AvaloniaTestThread.Run(() => vm.ErrorMessage = "自動隱藏測試");
+        Assert.True(vm.HasError);
+        await WaitUntilAsync(() => !vm.HasError, timeoutMs: 3000);
+        Assert.Null(vm.ErrorMessage);
     }
 
     private static void WriteSolidPng(string path, int width, int height, SKColor color)

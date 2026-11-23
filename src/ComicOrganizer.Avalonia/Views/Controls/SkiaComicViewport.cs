@@ -16,7 +16,8 @@ namespace ComicOrganizer.Avalonia.Views.Controls;
 /// <summary>
 /// 高效能 GPU/Skia 漫畫閱讀畫布：
 /// - 支援單頁、雙頁（RTL 右翻 / LTR 左翻）與連續長條捲動（標準 8px / 韓漫無縫 0px）。
-/// - 支援適高、適寬、原圖 100% 及 Ctrl+滾輪任意縮放、超框拖曳平移。
+/// - 支援適高、適寬、原圖 100% 及 Ctrl+滾輪任意縮放、Ctrl+左鍵（或中鍵）超框拖曳平移。
+/// - 純左鍵按住拖曳預設交由外層閱讀器視窗移動位置，並取消左右邊緣點擊翻頁。
 /// - 整合組合 B 畫質優化引擎（Catmull-Rom 重取樣 + SkSL 即時濾鏡 + 右鍵選單預設/單頁超解析重繪）。
 /// - 先合成翻譯氣泡遮罩再統一套用濾鏡（夜間護眼與原圖紙色零色差）。
 /// </summary>
@@ -43,11 +44,9 @@ public sealed class SkiaComicViewport : Control
     private float _continuousScrollY;
     private int _effectiveZoomPercent = 100;
 
-    // 滑鼠互動狀態
+    // 滑鼠互動狀態（Ctrl+左鍵或中鍵拖曳平移／連續捲動）
     private bool _isDragging;
-    private Point _dragStartPoint;
     private Point _lastDragPoint;
-    private float _dragMovedDistance;
     private double _wheelAccum;
     private DateTime _lastWheelTime = DateTime.MinValue;
 
@@ -683,18 +682,38 @@ public sealed class SkiaComicViewport : Control
         return false;
     }
 
+    internal static bool ShouldStartCanvasPanDrag(PointerPointProperties props, KeyModifiers modifiers)
+        => props.IsMiddleButtonPressed ||
+           (props.IsLeftButtonPressed && modifiers.HasFlag(KeyModifiers.Control));
+
+    public bool CloseContextMenu()
+    {
+        if (ContextMenu is { IsOpen: true } menu)
+        {
+            menu.Close();
+            return true;
+        }
+        return false;
+    }
+
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
         Focus();
 
         var props = e.GetCurrentPoint(this).Properties;
-        if (props.IsLeftButtonPressed || props.IsMiddleButtonPressed)
+        if (props.IsLeftButtonPressed && CloseContextMenu())
+        {
+            e.Handled = true;
+            return;
+        }
+
+        // 原本的拖曳平移／長條捲動改為 Ctrl+左鍵（或中鍵）；純左鍵留給視窗拖曳移動位置
+        if (ShouldStartCanvasPanDrag(props, e.KeyModifiers))
         {
             _isDragging = true;
-            _dragStartPoint = e.GetPosition(this);
-            _lastDragPoint = _dragStartPoint;
-            _dragMovedDistance = 0;
+            _lastDragPoint = e.GetPosition(this);
+            e.Handled = true;
         }
     }
 
@@ -707,7 +726,6 @@ public sealed class SkiaComicViewport : Control
         float dx = (float)(pt.X - _lastDragPoint.X);
         float dy = (float)(pt.Y - _lastDragPoint.Y);
         _lastDragPoint = pt;
-        _dragMovedDistance += MathF.Sqrt(dx * dx + dy * dy);
 
         if (_viewMode == ReaderViewMode.ContinuousScroll && _continuousLayout != null)
         {
@@ -727,6 +745,8 @@ public sealed class SkiaComicViewport : Control
             _panY += dy;
             InvalidateVisual();
         }
+
+        e.Handled = true;
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
@@ -734,26 +754,7 @@ public sealed class SkiaComicViewport : Control
         base.OnPointerReleased(e);
         if (!_isDragging) return;
         _isDragging = false;
-
-        // 純點擊（無拖曳）時於單頁/雙頁左右邊緣點擊快速翻頁（依 RTL/LTR 方向）
-        if (_dragMovedDistance < 6f &&
-            e.InitialPressMouseButton == MouseButton.Left &&
-            _viewMode != ReaderViewMode.ContinuousScroll &&
-            Bounds.Width > 0)
-        {
-            var pt = e.GetPosition(this);
-            double ratio = pt.X / Bounds.Width;
-            if (ratio <= 0.22)
-            {
-                if (_isRightToLeft) NextSpreadOrPage();
-                else PrevSpreadOrPage();
-            }
-            else if (ratio >= 0.78)
-            {
-                if (_isRightToLeft) PrevSpreadOrPage();
-                else NextSpreadOrPage();
-            }
-        }
+        e.Handled = true;
     }
 
     private void BuildContextMenu()
