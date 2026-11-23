@@ -44,6 +44,7 @@ public class GalleryCardTransitionTests
             coverImage.ApplyStyling();
 
             Assert.True(card.Transitions is null || card.Transitions.Count == 0);
+            Assert.False(card.IsAnimated);
             Assert.True(basicButton.Transitions is null || basicButton.Transitions.Count == 0);
             Assert.True(outlinedButton.Transitions is null || outlinedButton.Transitions.Count == 0);
             Assert.True(coverImage.Transitions is null || coverImage.Transitions.Count == 0);
@@ -123,6 +124,7 @@ public class GalleryCardTransitionTests
             Assert.Equal("作品 A", titleTb.Text);
             Assert.Equal("● 未讀", badgeTb.Text);
             Assert.True(pageBorder.IsVisible);
+            Assert.False(rootCard.IsAnimated);
             Assert.DoesNotContain("selected", rootCard.Classes);
 
             // 動態屬性 IsSelected 變更應即時反映到選取外框
@@ -182,6 +184,7 @@ public class GalleryCardTransitionTests
             title.DataContextChanged += (_, _) => innerChanges++;
 
             row.DataContext = item1;
+            Assert.False(rootCard.IsAnimated);
             Assert.Equal("列表作品 A", title.Text);
             Assert.Equal(item1.TypeBadgeText, badge.Text);
             Assert.Equal(item1.SizeDisplay, size.Text);

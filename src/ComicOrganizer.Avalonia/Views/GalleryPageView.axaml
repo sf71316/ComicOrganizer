@@ -65,6 +65,7 @@
     <!-- 畫廊項目選取外框（停用卡片與內部按鈕的 SukiUI 轉場，避免 ItemsRepeater 回收重用時反覆建立動畫） -->
     <Style Selector="suki|GlassCard.gallery-item-card">
       <Setter Property="Transitions" Value="{x:Null}" />
+      <Setter Property="IsAnimated" Value="False" />
     </Style>
     <Style Selector="suki|GlassCard.gallery-item-card /template/ Border">
       <Setter Property="Transitions" Value="{x:Null}" />

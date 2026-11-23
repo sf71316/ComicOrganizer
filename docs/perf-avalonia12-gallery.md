@@ -202,6 +202,14 @@
 
 結論：維持 512。被擠掉的封面不到一幀就補回，加大要多約 240 MB，且逛得更多或在根目錄捲得更深時一樣會被擠掉。
 
+### 停用 SukiUI 7.0.1 `GlassCard` 預設由上往下裁切進場動畫（2026-11-23）
+
+實機錄影（逐幀拆解 `動畫.gif`）確認：切換目錄與點回漫畫庫根目錄時，卡片封面其實皆已載入完畢，但每張卡片都會出現約 250–300 ms「從上往下掀開（如拉窗簾）」的裁切動畫。
+- **根因**：升級 SukiUI 7.0.1 後，`SukiUI.Controls.GlassCard.IsAnimatedProperty` 預設值為 `True`，每次卡片掛上視覺樹（`GlassCard.OnAttachedToVisualTree()`）即觸發由上往下裁切進場動畫；先前僅停用 `Transitions` 不會關閉此動畫。
+- **做法**：
+  - 於 `App.axaml` 全域樣式對 `suki|GlassCard` 設定 `IsAnimated="False"`，同時於 `GalleryCardControl.axaml`、`GalleryListRowControl.axaml` 與 `GalleryPageView.axaml` 顯式設定 `IsAnimated="False"`。
+  - 於 `GalleryCardTransitionTests` 補上 `Assert.False(card.IsAnimated)` 驗證（22/22 通過）。
+
 ---
 
 ## 三、待完成

@@ -6,6 +6,7 @@
   <!-- 畫廊詳細列表的一列：外觀與原本的列表範本相同，但完全不使用 XAML 繫結（值由程式碼設定，見 GalleryItemControlBase） -->
   <suki:GlassCard x:Name="RootCard"
                   Classes="gallery-item-card"
+                  IsAnimated="False"
                   CornerRadius="11"
                   Padding="10,7"
                   Margin="0,0,0,6">

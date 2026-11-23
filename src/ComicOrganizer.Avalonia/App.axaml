@@ -21,6 +21,10 @@
     <Style Selector="suki|SukiWindow">
       <Setter Property="FontFamily" Value="{StaticResource AppFontFamily}" />
     </Style>
+    <!-- 停用 SukiUI 7.0.1 GlassCard 預設的由上往下裁切進場動畫（OnAttachedToVisualTree），避免虛擬化卡片與切目錄時整頁拉窗簾重繪 -->
+    <Style Selector="suki|GlassCard">
+      <Setter Property="IsAnimated" Value="False" />
+    </Style>
   </Application.Styles>
 
 </Application>

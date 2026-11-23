@@ -5,6 +5,7 @@
 
   <suki:GlassCard x:Name="RootCard"
                   Classes="gallery-item-card"
+                  IsAnimated="False"
                   Width="{DynamicResource GalleryCardWidth}"
                   CornerRadius="13"
                   Padding="10"
