@@ -238,6 +238,36 @@ public class SkiaCoverServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ExtractCoverJpegBytesAsync_ShiftedZipWithLeadingNewline_ExtractsValidCover()
+    {
+        var rawZipPath = Path.Combine(_tempDir, "raw_shifted_src.zip");
+        var shiftedZipPath = Path.Combine(_tempDir, "shifted_leading_lf.zip");
+        using (var fs = File.Create(rawZipPath))
+        using (var zip = new ZipArchive(fs, ZipArchiveMode.Create))
+        {
+            var entry = zip.CreateEntry("001.png", CompressionLevel.NoCompression);
+            using var es = entry.Open();
+            var png = CreateSolidPngBytes(660, 440, new SKColor(220, 40, 40));
+            es.Write(png, 0, png.Length);
+        }
+
+        var rawBytes = await File.ReadAllBytesAsync(rawZipPath);
+        await using (var outFs = File.Create(shiftedZipPath))
+        {
+            outFs.WriteByte(0x0A); // 0A-50-4B-03-04
+            await outFs.WriteAsync(rawBytes);
+        }
+
+        using var service = new SkiaCoverService(_thumbStore);
+        var jpeg = await service.ExtractCoverJpegBytesAsync(shiftedZipPath);
+
+        Assert.NotNull(jpeg);
+        AssertValidJpegHeader(jpeg!);
+        var center = DecodeCenterPixel(jpeg!);
+        Assert.True(center.Red > 150 && center.Red > center.Blue + 80, $"預期抽出紅色封面，實際像素={center}");
+    }
+
+    [Fact]
     public async Task ExtractCoverJpegBytesAsync_PdfFile_RendersFirstPageToValidJpeg()
     {
         var pdfPath = Path.Combine(_tempDir, "minimal.pdf");

@@ -173,4 +173,44 @@ public class ArchiveReaderCacheTests : IDisposable
 
         Assert.Throws<ObjectDisposedException>(() => pdfSource.OpenPage(0));
     }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(128)]
+    public void ArchiveReaderSource_ShiftedZipWithLeadingBytes_OpensAllPagesAndReleasesFileLockOnDispose(int prefixByteCount)
+    {
+        var rawZip = CreateTestZip("raw_valid.zip", out var expectedPages, (32, 32), (36, 36), (40, 40));
+        var rawBytes = File.ReadAllBytes(rawZip);
+
+        // 模擬開頭多出 0x0A（換行）或 HTTP 前置文字的畸形 ZIP
+        var shiftedPath = Path.Combine(_tempDir, $"shifted_{prefixByteCount}.zip");
+        var prefix = Enumerable.Repeat((byte)0x0A, prefixByteCount).ToArray();
+        using (var outFs = File.Create(shiftedPath))
+        {
+            outFs.Write(prefix, 0, prefix.Length);
+            outFs.Write(rawBytes, 0, rawBytes.Length);
+        }
+
+        using (var source = new ArchiveReaderSource(shiftedPath))
+        {
+            Assert.Equal(3, source.PageCount);
+            for (int i = 0; i < 3; i++)
+            {
+                Assert.Equal(expectedPages[i], ReadAllBytes(source.OpenPage(i)));
+            }
+        }
+
+        // Dispose 後底層 OffsetReadOnlyStream / FileStream 應完整釋放，不可留下檔案鎖定
+        using var lockCheck = File.Open(shiftedPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        Assert.True(lockCheck.Length > rawBytes.Length);
+    }
+
+    [Fact]
+    public void ArchiveReaderSource_InvalidNonArchiveFile_Throws()
+    {
+        var badPath = Path.Combine(_tempDir, "not_an_archive.zip");
+        File.WriteAllText(badPath, "definitely not a valid zip archive");
+
+        Assert.ThrowsAny<Exception>(() => new ArchiveReaderSource(badPath));
+    }
 }

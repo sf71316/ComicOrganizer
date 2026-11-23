@@ -682,7 +682,7 @@ public sealed class SkiaCoverService : IDisposable
 
         try
         {
-            using var archive = ArchiveFactory.OpenArchive(archivePath);
+            using var archive = ArchiveOpenHelper.OpenArchive(archivePath);
             var imageEntries = archive.Entries
                 .Where(e =>
                     !e.IsDirectory

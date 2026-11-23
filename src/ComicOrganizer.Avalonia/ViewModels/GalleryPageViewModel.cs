@@ -401,6 +401,7 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
     private IReadOnlyList<GalleryItemVm> _allRawItems = Array.Empty<GalleryItemVm>();
     private IReadOnlyList<GalleryItemVm> _allFilteredSortedItems = Array.Empty<GalleryItemVm>();
     private GalleryItemVm? _selectedGalleryItem;
+    private string? _pendingSelectItemPath;
 
     // 目前清單對應的範圍（見 BuildScopeKey）；同一範圍重新載入時沿用沒變的項目、不捲回頂端
     private string? _loadedScopeKey;
@@ -1011,6 +1012,26 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        _pendingSelectItemPath = null;
+        NavigateToFolderCore(folderPath);
+        _ = ReloadSidebarAndItemsAsync();
+    }
+
+    /// <summary>導覽至指定父目錄，並在清單載入完成後自動選取目標作品卡片。</summary>
+    public Task NavigateToFolderAndSelectWorkAsync(string folderPath, string? workPath = null)
+    {
+        if (_disposed || string.IsNullOrWhiteSpace(folderPath))
+        {
+            return Task.CompletedTask;
+        }
+
+        _pendingSelectItemPath = string.IsNullOrWhiteSpace(workPath) ? null : NormalizePathOrEmpty(workPath);
+        NavigateToFolderCore(folderPath);
+        return ReloadSidebarAndItemsAsync();
+    }
+
+    private void NavigateToFolderCore(string folderPath)
+    {
         var normalized = NormalizePathOrEmpty(folderPath);
         _suppressReload = true;
         try
@@ -1026,8 +1047,6 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
         {
             _suppressReload = false;
         }
-
-        _ = ReloadSidebarAndItemsAsync();
     }
 
     /// <summary>由外部（例如頂部全域搜尋列或探索牆跳轉）套用 DSL 查詢並立即執行搜尋。</summary>
@@ -2022,6 +2041,18 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
         // 用差量同步：內容沒變時不發通知、少量變動逐筆更新，清單上其他卡片不會被拆掉重建
         _allFilteredSortedItems = filtered;
         Items.SyncTo(filtered);
+
+        if (!string.IsNullOrEmpty(_pendingSelectItemPath))
+        {
+            var pendingPath = _pendingSelectItemPath;
+            _pendingSelectItemPath = null;
+            var match = filtered.FirstOrDefault(item =>
+                string.Equals(NormalizePathOrEmpty(item.Path), pendingPath, StringComparison.OrdinalIgnoreCase));
+            if (match != null)
+            {
+                SelectGalleryItem(match);
+            }
+        }
 
         NotifyGalleryMetricsChanged();
 

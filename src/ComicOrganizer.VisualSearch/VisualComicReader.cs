@@ -1,5 +1,6 @@
 using System.IO.Hashing;
 using System.Text;
+using ComicOrganizer.App.Core;
 using SharpCompress.Archives;
 using SkiaSharp;
 
@@ -150,7 +151,7 @@ public static class VisualComicReader
         }
 
         IArchive? archive = null;
-        try { archive = ArchiveFactory.OpenArchive(item.Path); } catch { yield break; }
+        try { archive = ArchiveOpenHelper.OpenArchive(item.Path); } catch { yield break; }
 
         using (archive)
         {
@@ -192,7 +193,7 @@ public static class VisualComicReader
             }
             if (File.Exists(mangaPath))
             {
-                using var archive = ArchiveFactory.OpenArchive(mangaPath);
+                using var archive = ArchiveOpenHelper.OpenArchive(mangaPath);
                 var entry = archive.Entries.FirstOrDefault(e =>
                     !e.IsDirectory && string.Equals(e.Key, entryName, StringComparison.OrdinalIgnoreCase));
                 if (entry == null) return null;

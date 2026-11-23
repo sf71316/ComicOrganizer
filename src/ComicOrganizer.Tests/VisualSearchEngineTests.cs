@@ -714,4 +714,93 @@ public sealed class VisualSearchEngineTests : IDisposable
 
         Assert.Equal(pickedHead, vm.VisualSearchHeadModelUrl);
     }
+
+    [Fact]
+    public async Task VisualSearchHit_OpenInGallery_NavigatesToParentFolderAndSelectsWork_OrFallsBackToAuthorDsl()
+    {
+        var dataDir = Path.Combine(_tempRoot, "gallery_nav_data");
+        var libDir = Path.Combine(_tempRoot, "gallery_nav_lib");
+        var authorDir = Path.Combine(libDir, "AuthorA");
+        var work1Dir = Path.Combine(authorDir, "[AuthorA] Work 1");
+        var work2Dir = Path.Combine(authorDir, "[AuthorA] Work 2");
+        Directory.CreateDirectory(dataDir);
+        Directory.CreateDirectory(work1Dir);
+        Directory.CreateDirectory(work2Dir);
+        WriteDistinctComicPage(Path.Combine(work1Dir, "01.png"), SKColors.Navy, SKColors.White);
+        WriteDistinctComicPage(Path.Combine(work2Dir, "01.png"), SKColors.Maroon, SKColors.Yellow);
+
+        var dbPath = Path.Combine(dataDir, "cache.db");
+        using (var seed = new SqliteAssetMetaStore(dbPath))
+        {
+            seed.UpsertCatalogOnly(new AssetMeta { Path = authorDir, Name = "AuthorA", IsFolder = true, Mtime = 1 });
+            seed.UpsertCatalogOnly(new AssetMeta { Path = work1Dir, Name = "[AuthorA] Work 1", IsFolder = true, Mtime = 2 });
+            seed.UpsertCatalogOnly(new AssetMeta { Path = work2Dir, Name = "[AuthorA] Work 2", IsFolder = true, Mtime = 3 });
+        }
+
+        var cfgPath = Path.Combine(dataDir, "appsettings.json");
+        var cfg = new AppConfig { RootDirectory = libDir };
+        File.WriteAllText(cfgPath, System.Text.Json.JsonSerializer.Serialize(cfg));
+
+        using var ctx = new AppDataContext(explicitDataDirectory: dataDir, forceReadOnlyDatabase: false);
+
+        // 1. 驗證 GalleryPageViewModel.NavigateToFolderAndSelectWorkAsync 會切到父目錄並選取目標作品卡片
+        var thumbStore = new FileSystemThumbStore(Path.Combine(dataDir, "thumbs"));
+        using var coverService = new SkiaCoverService(thumbStore);
+        using var galleryVm = new GalleryPageViewModel(
+            ctx.MetaStore,
+            coverService,
+            rootDirectory: libDir,
+            runOnUiAsync: action => { action(); return Task.CompletedTask; },
+            autoLoad: false);
+
+        await galleryVm.NavigateToFolderAndSelectWorkAsync(authorDir, work2Dir);
+
+        Assert.Equal(GallerySidebarMode.Folders, galleryVm.SidebarMode);
+        Assert.Equal(Path.GetFullPath(authorDir).TrimEnd(Path.DirectorySeparatorChar), galleryVm.CurrentFolderPath);
+        Assert.Equal(2, galleryVm.Items.Count);
+        var item1 = Assert.Single(galleryVm.Items, i => string.Equals(i.Path, work1Dir, StringComparison.OrdinalIgnoreCase));
+        var item2 = Assert.Single(galleryVm.Items, i => string.Equals(i.Path, work2Dir, StringComparison.OrdinalIgnoreCase));
+        Assert.False(item1.IsSelected);
+        Assert.True(item2.IsSelected);
+
+        // 2. 驗證 VisualSearchPageViewModel + MainWindowViewModel 事件接線與無父目錄時的作者 DSL 退回
+        using var mainVm = new MainWindowViewModel(ctx);
+        ViewModelBase? navigatedTarget = null;
+        mainVm.NavigateToPageRequested += page => navigatedTarget = page;
+
+        (string Folder, string? Work)? folderEvent = null;
+        string? dslEvent = null;
+        mainVm.VisualSearchPage.OpenFolderInGalleryRequested += (folder, work) => folderEvent = (folder, work);
+        mainVm.VisualSearchPage.OpenInGalleryRequested += dsl => dslEvent = dsl;
+
+        using var existingHitCard = new VisualSearchHitCardVm(
+            1,
+            new VisualSearchHit(0.95f, new VisualVectorMeta(1, 0, 1, "Work 2", work2Dir, 1, "01.png", true, 0, 0, 1, 1, false)),
+            "Work 2",
+            "AuthorA",
+            _ => { },
+            _ => { },
+            mainVm.VisualSearchPage.OnOpenHitInGallery);
+
+        existingHitCard.OpenInGalleryCommand.Execute(null);
+        Assert.Equal((authorDir, work2Dir), folderEvent);
+        Assert.Same(mainVm.GalleryPage, navigatedTarget);
+        Assert.Equal(Path.GetFullPath(authorDir).TrimEnd(Path.DirectorySeparatorChar), mainVm.GalleryPage.CurrentFolderPath);
+
+        // 若來源父目錄已不存在，則退回以作者 DSL 搜尋
+        var missingPath = Path.Combine(_tempRoot, "missing_parent", "missing_author", "GoneComic");
+        navigatedTarget = null;
+        using var fallbackHitCard = new VisualSearchHitCardVm(
+            2,
+            new VisualSearchHit(0.88f, new VisualVectorMeta(2, 0, 2, "Gone", missingPath, 1, "01.png", true, 0, 0, 1, 1, false)),
+            "Gone",
+            "AuthorA",
+            _ => { },
+            _ => { },
+            mainVm.VisualSearchPage.OnOpenHitInGallery);
+
+        fallbackHitCard.OpenInGalleryCommand.Execute(null);
+        Assert.Equal("artist:\"AuthorA\"", dslEvent);
+        Assert.Same(mainVm.GalleryPage, navigatedTarget);
+    }
 }

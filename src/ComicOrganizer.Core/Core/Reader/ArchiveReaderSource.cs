@@ -48,7 +48,7 @@ public class ArchiveReaderSource : IReaderSource
         DisplayName = Path.GetFileName(archivePath);
         _maxCacheBytes = maxCacheBytes;
 
-        _archive = ArchiveFactory.OpenArchive(archivePath);
+        _archive = ArchiveOpenHelper.OpenArchive(archivePath);
         bool isSolid = _archive.IsSolid;
 
         _entries = _archive.Entries
@@ -77,7 +77,7 @@ public class ArchiveReaderSource : IReaderSource
 
         try
         {
-            using var archive2 = ArchiveFactory.OpenArchive(RootPath);
+            using var archive2 = ArchiveOpenHelper.OpenArchive(RootPath);
             using var reader = archive2.ExtractAllEntries();
             while (!_disposed && reader.MoveToNextEntry())
             {

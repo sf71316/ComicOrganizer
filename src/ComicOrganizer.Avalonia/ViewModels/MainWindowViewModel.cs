@@ -87,6 +87,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         ReadingTrackPage.OpenInGalleryRequested += OnOpenInGalleryRequested;
         VisualSearchPage = new VisualSearchPageViewModel(dataContext);
         VisualSearchPage.OpenSettingsRequested += OnVisualSearchOpenSettingsRequested;
+        VisualSearchPage.OpenFolderInGalleryRequested += OnVisualSearchOpenFolderInGalleryRequested;
+        VisualSearchPage.OpenInGalleryRequested += OnOpenInGalleryRequested;
         AutoArchivePage = new AutoArchivePageViewModel(dataContext);
         DataManagementPage = new DataManagementPageViewModel(dataContext, _coverService, autoLoad: false);
         DataManagementPage.OpenInGalleryRequested += OnOpenInGalleryRequested;
@@ -191,6 +193,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         }
 
         _ = GalleryPage.ApplyExternalDslQueryAsync(dsl);
+        NavigateToPageRequested?.Invoke(GalleryPage);
+    }
+
+    private void OnVisualSearchOpenFolderInGalleryRequested(string folderPath, string? workPath)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _ = GalleryPage.NavigateToFolderAndSelectWorkAsync(folderPath, workPath);
         NavigateToPageRequested?.Invoke(GalleryPage);
     }
 
@@ -303,6 +316,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         ReadingTrackPage.OpenInGalleryRequested -= OnOpenInGalleryRequested;
         ReadingTrackPage.Dispose();
         VisualSearchPage.OpenSettingsRequested -= OnVisualSearchOpenSettingsRequested;
+        VisualSearchPage.OpenFolderInGalleryRequested -= OnVisualSearchOpenFolderInGalleryRequested;
+        VisualSearchPage.OpenInGalleryRequested -= OnOpenInGalleryRequested;
         VisualSearchPage.Dispose();
         SettingsPage.OpenVisualSearchRequested -= OnSettingsOpenVisualSearchRequested;
         DataManagementPage.OpenInGalleryRequested -= OnOpenInGalleryRequested;

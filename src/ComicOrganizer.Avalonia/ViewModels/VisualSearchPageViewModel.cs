@@ -15,6 +15,7 @@ public sealed partial class VisualSearchHitCardVm : ObservableObject, IDisposabl
 {
     private readonly Action<VisualSearchHitCardVm> _onOpenInReader;
     private readonly Action<VisualSearchHitCardVm> _onRevealInExplorer;
+    private readonly Action<VisualSearchHitCardVm>? _onOpenInGallery;
 
     public VisualSearchHitCardVm(
         int rank,
@@ -22,7 +23,8 @@ public sealed partial class VisualSearchHitCardVm : ObservableObject, IDisposabl
         string displayTitle,
         string? authorName,
         Action<VisualSearchHitCardVm> onOpenInReader,
-        Action<VisualSearchHitCardVm> onRevealInExplorer)
+        Action<VisualSearchHitCardVm> onRevealInExplorer,
+        Action<VisualSearchHitCardVm>? onOpenInGallery = null)
     {
         Rank = rank;
         Similarity = hit.Similarity;
@@ -31,6 +33,7 @@ public sealed partial class VisualSearchHitCardVm : ObservableObject, IDisposabl
         AuthorName = string.IsNullOrWhiteSpace(authorName) ? "未登錄作者" : authorName;
         _onOpenInReader = onOpenInReader;
         _onRevealInExplorer = onRevealInExplorer;
+        _onOpenInGallery = onOpenInGallery;
     }
 
     public int Rank { get; }
@@ -79,6 +82,9 @@ public sealed partial class VisualSearchHitCardVm : ObservableObject, IDisposabl
 
     [RelayCommand]
     private void OpenInReader() => _onOpenInReader(this);
+
+    [RelayCommand]
+    private void OpenInGallery() => _onOpenInGallery?.Invoke(this);
 
     [RelayCommand]
     private void RevealInExplorer() => _onRevealInExplorer(this);
@@ -132,6 +138,8 @@ public sealed partial class VisualSearchPageViewModel : ViewModelBase, IDisposab
     public ObservableCollection<VisualSearchHitCardVm> SearchHits { get; } = new();
 
     public event Action? OpenSettingsRequested;
+    public event Action<string, string?>? OpenFolderInGalleryRequested;
+    public event Action<string>? OpenInGalleryRequested;
 
     [ObservableProperty]
     private bool _isFeatureEnabled;
@@ -426,7 +434,7 @@ public sealed partial class VisualSearchPageViewModel : ViewModelBase, IDisposab
             {
                 var hit = report.Hits[i];
                 var (title, author) = TryResolveWorkInfoFromMainStore(hit.Meta.MangaPath, hit.Meta.MangaTitle);
-                var card = new VisualSearchHitCardVm(i + 1, hit, title, author, OnOpenHitInReader, OnRevealHitInExplorer);
+                var card = new VisualSearchHitCardVm(i + 1, hit, title, author, OnOpenHitInReader, OnRevealHitInExplorer, OnOpenHitInGallery);
                 card.LoadPreviewOnBackground();
                 cards.Add(card);
             }
@@ -513,6 +521,31 @@ public sealed partial class VisualSearchPageViewModel : ViewModelBase, IDisposab
         {
             _dataContext.TryShowToast("無法開啟閱讀器", error ?? card.Meta.MangaPath, NotificationType.Warning);
         }
+    }
+
+    internal void OnOpenHitInGallery(VisualSearchHitCardVm card)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        var parentDir = Path.GetDirectoryName(card.Meta.MangaPath);
+        if (!string.IsNullOrWhiteSpace(parentDir) && Directory.Exists(parentDir))
+        {
+            OpenFolderInGalleryRequested?.Invoke(parentDir, card.Meta.MangaPath);
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(card.AuthorName) &&
+            !string.Equals(card.AuthorName, "未登錄作者", StringComparison.Ordinal))
+        {
+            var escaped = card.AuthorName.Replace("\"", "\\\"");
+            OpenInGalleryRequested?.Invoke($"artist:\"{escaped}\"");
+            return;
+        }
+
+        _dataContext.TryShowToast("無法定位作品集", card.Meta.MangaPath, NotificationType.Warning);
     }
 
     private void OnRevealHitInExplorer(VisualSearchHitCardVm card)

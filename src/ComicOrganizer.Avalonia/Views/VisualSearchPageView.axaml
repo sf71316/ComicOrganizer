@@ -92,7 +92,7 @@
 
       <!-- 左欄：查詢輸入與截圖預覽 -->
       <suki:GlassCard Grid.Column="0" CornerRadius="14" Padding="14">
-        <Grid RowDefinitions="Auto,*,Auto,Auto" RowSpacing="10">
+        <Grid RowDefinitions="Auto,*,Auto" RowSpacing="10">
           <StackPanel Grid.Row="0" Spacing="8">
             <Grid ColumnDefinitions="*,*,Auto" ColumnSpacing="6">
               <Button Grid.Column="0"
@@ -170,11 +170,6 @@
                      FontSize="11.5"
                      Opacity="0.72"
                      TextWrapping="Wrap" />
-
-          <ProgressBar Grid.Row="3"
-                       IsIndeterminate="True"
-                       IsVisible="{Binding IsSearching}"
-                       Height="4" />
         </Grid>
       </suki:GlassCard>
 
@@ -189,15 +184,17 @@
           </Border>
 
           <Panel Grid.Row="1">
-            <StackPanel VerticalAlignment="Center"
-                        HorizontalAlignment="Center"
-                        Spacing="6"
-                        IsVisible="{Binding !HasSearchResults}">
-              <TextBlock Text="🔍" FontSize="38" HorizontalAlignment="Center" Opacity="0.5" />
-              <TextBlock Text="輸入截圖後將在此顯示 Top 命中結果與分鏡定位"
-                         FontSize="13.5"
-                         Opacity="0.7" />
-            </StackPanel>
+            <Panel IsVisible="{Binding !IsSearching}">
+              <StackPanel VerticalAlignment="Center"
+                          HorizontalAlignment="Center"
+                          Spacing="6"
+                          IsVisible="{Binding !HasSearchResults}">
+                <TextBlock Text="🔍" FontSize="38" HorizontalAlignment="Center" Opacity="0.5" />
+                <TextBlock Text="輸入截圖後將在此顯示 Top 命中結果與分鏡定位"
+                           FontSize="13.5"
+                           Opacity="0.7" />
+              </StackPanel>
+            </Panel>
 
             <ScrollViewer IsVisible="{Binding HasSearchResults}">
               <ItemsControl ItemsSource="{Binding SearchHits}">
@@ -265,21 +262,33 @@
                                      TextTrimming="CharacterEllipsis" />
                         </StackPanel>
 
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                          <Button Grid.Column="0"
+                        <Grid RowDefinitions="Auto,Auto" RowSpacing="6">
+                          <Button Grid.Row="0"
                                   Classes="Flat"
                                   Padding="10,6"
+                                  HorizontalAlignment="Stretch"
                                   HorizontalContentAlignment="Center"
                                   Command="{Binding OpenInReaderCommand}">
                             <TextBlock Text="📖 跳至此頁閱讀" FontSize="12" FontWeight="SemiBold" />
                           </Button>
-                          <Button Grid.Column="1"
-                                  Classes="Outlined"
-                                  Padding="10,6"
-                                  Command="{Binding RevealInExplorerCommand}"
-                                  ToolTip.Tip="於檔案總管顯示">
-                            <TextBlock Text="📂" FontSize="12" />
-                          </Button>
+                          <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                            <Button Grid.Column="0"
+                                    Classes="Outlined"
+                                    Padding="10,6"
+                                    HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center"
+                                    Command="{Binding OpenInGalleryCommand}"
+                                    ToolTip.Tip="在漫畫庫畫廊開啟所在作品集">
+                              <TextBlock Text="📚 移至作品集" FontSize="12" FontWeight="SemiBold" />
+                            </Button>
+                            <Button Grid.Column="1"
+                                    Classes="Outlined"
+                                    Padding="10,6"
+                                    Command="{Binding RevealInExplorerCommand}"
+                                    ToolTip.Tip="於檔案總管顯示">
+                              <TextBlock Text="📂" FontSize="12" />
+                            </Button>
+                          </Grid>
                         </Grid>
                       </StackPanel>
                     </Border>
@@ -287,6 +296,26 @@
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
             </ScrollViewer>
+
+            <!-- 搜尋中遮罩與中央 Loading 動畫 -->
+            <Border IsVisible="{Binding IsSearching}"
+                    Background="#66000000"
+                    CornerRadius="10">
+              <suki:GlassCard IsOpaque="True"
+                              CornerRadius="12"
+                              Padding="24,18"
+                              HorizontalAlignment="Center"
+                              VerticalAlignment="Center">
+                <StackPanel Spacing="10" HorizontalAlignment="Center" Width="220">
+                  <TextBlock Text="🔍 正在比對漫畫庫…"
+                             FontSize="13.5"
+                             FontWeight="SemiBold"
+                             HorizontalAlignment="Center" />
+                  <ProgressBar IsIndeterminate="True"
+                               Height="5" />
+                </StackPanel>
+              </suki:GlassCard>
+            </Border>
           </Panel>
         </Grid>
       </suki:GlassCard>
