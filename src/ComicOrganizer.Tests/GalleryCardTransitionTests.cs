@@ -292,4 +292,20 @@ public class GalleryCardTransitionTests
             Assert.Equal(0, innerChanges);
         });
     }
+
+    [Fact]
+    public void AppIconAssets_ExistAsEmbeddedAvaloniaResources()
+    {
+        var loader = new global::Avalonia.Platform.StandardAssetLoader(typeof(ComicOrganizer.Avalonia.App).Assembly);
+        var icoUri = new Uri("avares://ComicOrganizer.Avalonia/Assets/app.ico");
+        var pngUri = new Uri("avares://ComicOrganizer.Avalonia/Assets/app_icon.png");
+
+        Assert.True(loader.Exists(icoUri));
+        Assert.True(loader.Exists(pngUri));
+
+        using var icoStream = loader.Open(icoUri);
+        using var pngStream = loader.Open(pngUri);
+        Assert.True(icoStream.Length > 1024);
+        Assert.True(pngStream.Length > 1024);
+    }
 }

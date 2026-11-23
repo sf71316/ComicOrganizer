@@ -6,6 +6,7 @@
                  x:Class="ComicOrganizer.Avalonia.Views.ReaderWindow"
                  x:DataType="vm:ReaderViewModel"
                  Title="{Binding WorkTitle}"
+                 Icon="avares://ComicOrganizer.Avalonia/Assets/app.ico"
                  Width="1360"
                  Height="880"
                  MinWidth="960"
@@ -126,11 +127,15 @@
   </suki:SukiWindow.Styles>
 
   <suki:SukiWindow.LogoContent>
-    <Border Width="24" Height="24"
+    <Border Width="26" Height="26"
             CornerRadius="6"
+            Padding="2"
             Background="{DynamicResource SukiPrimaryColor15}"
             VerticalAlignment="Center">
-      <TextBlock Text="📖" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center" />
+      <Image Source="avares://ComicOrganizer.Avalonia/Assets/app_icon.png"
+             Stretch="Uniform"
+             VerticalAlignment="Center"
+             HorizontalAlignment="Center" />
     </Border>
   </suki:SukiWindow.LogoContent>
 
