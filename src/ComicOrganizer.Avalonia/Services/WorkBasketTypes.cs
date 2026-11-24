@@ -170,3 +170,36 @@ public sealed class AvaloniaWorkPreviewLauncher : IWorkPreviewLauncher
         }
     }
 }
+
+public interface IWorkBasketSaveLauncher
+{
+    bool OpenSaveDialog(WorkBasketSaveViewModel dialogVm);
+}
+
+public sealed class AvaloniaWorkBasketSaveLauncher : IWorkBasketSaveLauncher
+{
+    public bool OpenSaveDialog(WorkBasketSaveViewModel dialogVm)
+    {
+        ArgumentNullException.ThrowIfNull(dialogVm);
+
+        var win = new SaveBasketToLibraryWindow
+        {
+            DataContext = dialogVm,
+        };
+
+        var owner = (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
+        if (owner != null && owner.IsVisible)
+        {
+            win.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            _ = win.ShowDialog<bool>(owner);
+        }
+        else
+        {
+            win.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            win.Show();
+        }
+
+        return true;
+    }
+}
+

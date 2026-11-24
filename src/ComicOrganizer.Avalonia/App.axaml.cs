@@ -21,6 +21,7 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            GlobalPopupLightDismissHelper.Install();
             _dataContext = new AppDataContext(args: Program.StartupArgs);
             _dataContext.ApplyInitialTheme();
 

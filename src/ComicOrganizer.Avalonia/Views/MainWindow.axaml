@@ -354,30 +354,28 @@
               </ScrollViewer>
             </Grid>
 
-            <!-- 底部儲存與偏好區 -->
+            <!-- 底部操作按鈕區（點擊儲存再跳出確認視窗，保留上方書籃最大顯示空間） -->
             <Border Grid.Row="3"
                     BorderBrush="{DynamicResource SukiBorderBrush}"
                     BorderThickness="0,1,0,0"
                     Padding="0,10,0,0">
               <StackPanel Spacing="7">
-                <CheckBox IsChecked="{Binding WorkBasket.AutoRemoveAfterRead, Mode=TwoWay}"
-                          FontSize="11.5"
-                          Content="從書籃開啟讀完關閉後自動移出書籃" />
-                <TextBlock Text="⭐ 儲存為永久閱讀清單：" FontSize="12" FontWeight="SemiBold" />
-                <ComboBox HorizontalAlignment="Stretch"
-                          FontSize="12"
-                          ItemsSource="{Binding WorkBasket.SaveTargets}"
-                          SelectedItem="{Binding WorkBasket.SelectedSaveTarget, Mode=TwoWay}" />
-                <TextBox IsVisible="{Binding WorkBasket.IsCreatingNewLibrary}"
-                         PlaceholderText="輸入新書單名稱（選填）…"
-                         FontSize="12"
-                         Text="{Binding WorkBasket.NewLibraryName, Mode=TwoWay}" />
+                <Button Classes="Outlined"
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Center"
+                        Padding="10,7"
+                        IsEnabled="{Binding WorkBasket.HasItems}"
+                        Command="{Binding WorkBasket.OpenAllInReaderCommand}"
+                        ToolTip.Tip="將書籃內全部作品逐一以內建閱讀器開啟（不會移除書籃項目）">
+                  <TextBlock Text="📖 全部使用閱讀器開啟" FontSize="12.5" FontWeight="SemiBold" />
+                </Button>
                 <Button Classes="Flat"
                         HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Center"
                         Padding="10,7"
                         IsEnabled="{Binding WorkBasket.HasItems}"
-                        Command="{Binding WorkBasket.SaveToLibraryCommand}">
+                        Command="{Binding WorkBasket.RequestSaveToLibraryCommand}"
+                        ToolTip.Tip="開啟確認視窗，選擇建立新書單或加入既有書單">
                   <TextBlock Text="💾 儲存至「⭐ 清單」" FontSize="12.5" FontWeight="SemiBold" />
                 </Button>
               </StackPanel>

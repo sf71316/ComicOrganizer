@@ -136,6 +136,7 @@ public sealed partial class WorkBasketViewModel : ViewModelBase, IDisposable
     private readonly SkiaCoverService _coverService;
     private readonly IReaderWindowLauncher _readerLauncher;
     private readonly IWorkPreviewLauncher _previewLauncher;
+    private readonly IWorkBasketSaveLauncher _saveLauncher;
     private readonly ISukiToastManager? _toastManager;
     private readonly Func<Action, Task> _runOnUiAsync;
     private readonly SemaphoreSlim _coverSemaphore = new(2, 2);
@@ -148,12 +149,14 @@ public sealed partial class WorkBasketViewModel : ViewModelBase, IDisposable
         SkiaCoverService coverService,
         IReaderWindowLauncher? readerLauncher = null,
         IWorkPreviewLauncher? previewLauncher = null,
+        IWorkBasketSaveLauncher? saveLauncher = null,
         Func<Action, Task>? runOnUiAsync = null)
         : this(
             (dataContext ?? throw new ArgumentNullException(nameof(dataContext))).MetaStore,
             coverService,
             readerLauncher ?? new AvaloniaReaderWindowLauncher(dataContext),
             previewLauncher ?? new AvaloniaWorkPreviewLauncher(),
+            saveLauncher ?? new AvaloniaWorkBasketSaveLauncher(),
             dataContext.IsReadOnlyDatabase,
             dataContext.ToastManager,
             runOnUiAsync)
@@ -168,24 +171,41 @@ public sealed partial class WorkBasketViewModel : ViewModelBase, IDisposable
         bool isReadOnlyDatabase = false,
         ISukiToastManager? toastManager = null,
         Func<Action, Task>? runOnUiAsync = null)
+        : this(
+            store,
+            coverService,
+            readerLauncher,
+            previewLauncher,
+            new AvaloniaWorkBasketSaveLauncher(),
+            isReadOnlyDatabase,
+            toastManager,
+            runOnUiAsync)
+    {
+    }
+
+    public WorkBasketViewModel(
+        IAssetMetaStore store,
+        SkiaCoverService coverService,
+        IReaderWindowLauncher readerLauncher,
+        IWorkPreviewLauncher previewLauncher,
+        IWorkBasketSaveLauncher saveLauncher,
+        bool isReadOnlyDatabase = false,
+        ISukiToastManager? toastManager = null,
+        Func<Action, Task>? runOnUiAsync = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _coverService = coverService ?? throw new ArgumentNullException(nameof(coverService));
         _readerLauncher = readerLauncher ?? throw new ArgumentNullException(nameof(readerLauncher));
         _previewLauncher = previewLauncher ?? throw new ArgumentNullException(nameof(previewLauncher));
+        _saveLauncher = saveLauncher ?? throw new ArgumentNullException(nameof(saveLauncher));
         IsReadOnlyDatabase = isReadOnlyDatabase;
         _toastManager = toastManager;
         _runOnUiAsync = runOnUiAsync ?? ExploreCardVmBase.DefaultRunOnUiAsync;
-
-        _selectedSaveTarget = new VirtualLibraryTargetOption(null, "＋ 建立新書單…");
-        RefreshSaveTargets();
     }
 
     public bool IsReadOnlyDatabase { get; }
 
     public ObservableCollection<WorkBasketItemVm> Items { get; } = [];
-
-    public ObservableCollection<VirtualLibraryTargetOption> SaveTargets { get; } = [];
 
     /// <summary>書籃成員變動時觸發：(NormalizedPath, IsAdded)；Clear 時會以 (string.Empty, false) 通知。</summary>
     public event Action<string, bool>? MembershipChanged;
@@ -195,18 +215,6 @@ public sealed partial class WorkBasketViewModel : ViewModelBase, IDisposable
 
     [ObservableProperty]
     private bool _isOpen;
-
-    [ObservableProperty]
-    private bool _autoRemoveAfterRead = true;
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsCreatingNewLibrary))]
-    private VirtualLibraryTargetOption _selectedSaveTarget;
-
-    [ObservableProperty]
-    private string _newLibraryName = string.Empty;
-
-    public bool IsCreatingNewLibrary => SelectedSaveTarget?.LibraryId is null;
     public int Count => Items.Count;
     public bool HasItems => Items.Count > 0;
     public bool IsEmpty => Items.Count == 0;
@@ -295,20 +303,49 @@ public sealed partial class WorkBasketViewModel : ViewModelBase, IDisposable
 
     private void OpenInReader(WorkBasketItemVm item)
     {
-        bool autoRemove = AutoRemoveAfterRead;
-        string path = item.Path;
-        Action? onClosed = autoRemove
-            ? () => _ = _runOnUiAsync(() => RemoveByPath(path))
-            : null;
-
+        // 從書籃開啟閱讀後維持項目於書籃內，不自動移除
         if (!_readerLauncher.OpenInReader(
                 item.Path,
                 item.Title,
                 item.AuthorName == "未登錄作者" ? null : item.AuthorName,
-                onClosed,
+                onReaderClosed: null,
                 out var error))
         {
             ShowToast("無法開啟內建閱讀器", error ?? item.Path, NotificationType.Warning);
+        }
+    }
+
+    [RelayCommand]
+    private void OpenAllInReader()
+    {
+        if (Items.Count == 0)
+        {
+            ShowToast("書籃是空的", "請先將想看的作品加入書籃。", NotificationType.Information);
+            return;
+        }
+
+        int failed = 0;
+        string? lastError = null;
+        foreach (var item in Items.ToList())
+        {
+            if (!_readerLauncher.OpenInReader(
+                    item.Path,
+                    item.Title,
+                    item.AuthorName == "未登錄作者" ? null : item.AuthorName,
+                    onReaderClosed: null,
+                    out var error))
+            {
+                failed++;
+                lastError = error ?? item.Path;
+            }
+        }
+
+        if (failed > 0)
+        {
+            ShowToast(
+                "部分作品無法開啟閱讀器",
+                $"共 {failed} 本開啟失敗（{lastError}）。",
+                NotificationType.Warning);
         }
     }
 
@@ -352,37 +389,11 @@ public sealed partial class WorkBasketViewModel : ViewModelBase, IDisposable
 
     public void RefreshSaveTargets()
     {
-        long? prevId = SelectedSaveTarget?.LibraryId;
-        var list = new List<VirtualLibraryTargetOption>
-        {
-            new(null, "＋ 建立新書單…"),
-        };
-
-        try
-        {
-            foreach (var lib in _store.ListVirtualLibraries())
-            {
-                list.Add(new VirtualLibraryTargetOption(lib.Id, $"併入：{lib.Name}"));
-            }
-        }
-        catch
-        {
-            // 讀取書單失敗時保留建立新書單選項
-        }
-
-        SaveTargets.Clear();
-        foreach (var opt in list)
-        {
-            SaveTargets.Add(opt);
-        }
-
-        SelectedSaveTarget = (prevId.HasValue
-            ? list.FirstOrDefault(o => o.LibraryId == prevId.Value)
-            : null) ?? list[0];
+        // 既有清單清單改成點擊「儲存至清單」開啟確認對話框時即時讀取
     }
 
     [RelayCommand]
-    private void SaveToLibrary()
+    private void RequestSaveToLibrary()
     {
         if (Items.Count == 0)
         {
@@ -396,26 +407,59 @@ public sealed partial class WorkBasketViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        IReadOnlyList<VirtualLibrary> existingLibs;
+        try
+        {
+            existingLibs = _store.ListVirtualLibraries();
+        }
+        catch
+        {
+            existingLibs = Array.Empty<VirtualLibrary>();
+        }
+
+        var dialogVm = new WorkBasketSaveViewModel(
+            Items.Count,
+            existingLibs,
+            CommitSaveToLibrary);
+        _saveLauncher.OpenSaveDialog(dialogVm);
+    }
+
+    internal (bool Ok, string? Error) CommitSaveToLibrary(bool createNew, string? newLibraryName, VirtualLibrary? existingLibrary)
+    {
+        if (Items.Count == 0)
+        {
+            return (false, "書籃目前沒有作品。");
+        }
+
+        if (IsReadOnlyDatabase)
+        {
+            return (false, "共用庫唯讀模式無法寫入書單。");
+        }
+
         long targetLibraryId;
         string targetName;
-        if (SelectedSaveTarget?.LibraryId is long existingId)
+        if (createNew)
         {
-            var existing = _store.GetVirtualLibrary(existingId);
-            if (existing == null)
-            {
-                ShowToast("找不到目標書單", "該閱讀清單可能已被刪除，請重新選擇。", NotificationType.Warning);
-                RefreshSaveTargets();
-                return;
-            }
-            targetLibraryId = existing.Id;
-            targetName = existing.Name;
+            targetName = string.IsNullOrWhiteSpace(newLibraryName)
+                ? $"待挑精選 {DateTime.Now:yyyy-MM-dd HH:mm}"
+                : newLibraryName.Trim();
+            targetLibraryId = _store.CreateVirtualLibrary(targetName, string.Empty, null);
         }
         else
         {
-            targetName = string.IsNullOrWhiteSpace(NewLibraryName)
-                ? $"待挑精選 {DateTime.Now:yyyy-MM-dd HH:mm}"
-                : NewLibraryName.Trim();
-            targetLibraryId = _store.CreateVirtualLibrary(targetName, string.Empty, null);
+            if (existingLibrary == null)
+            {
+                return (false, "請先選擇要加入的既有書單。");
+            }
+
+            var current = _store.GetVirtualLibrary(existingLibrary.Id);
+            if (current == null)
+            {
+                return (false, "找不到指定的既有書單（可能已被刪除）。");
+            }
+
+            targetLibraryId = current.Id;
+            targetName = current.Name;
         }
 
         int savedCount = 0;
@@ -427,11 +471,9 @@ public sealed partial class WorkBasketViewModel : ViewModelBase, IDisposable
             }
         }
 
-        NewLibraryName = string.Empty;
-        RefreshSaveTargets();
-        SelectedSaveTarget = SaveTargets.FirstOrDefault(t => t.LibraryId == targetLibraryId) ?? SaveTargets[0];
         VirtualLibrarySaved?.Invoke();
         ShowToast("已儲存至「⭐ 清單」", $"已將 {savedCount} 部作品寫入「{targetName}」。", NotificationType.Success);
+        return (true, null);
     }
 
     private void UpdateReorderFlags()
@@ -488,4 +530,78 @@ public sealed partial class WorkBasketViewModel : ViewModelBase, IDisposable
         _pathSet.Clear();
         _coverSemaphore.Dispose();
     }
+}
+
+public sealed partial class WorkBasketSaveViewModel : ViewModelBase
+{
+    private readonly Func<bool, string?, VirtualLibrary?, (bool Ok, string? Error)> _onConfirm;
+
+    public WorkBasketSaveViewModel(
+        int itemCount,
+        IReadOnlyList<VirtualLibrary> existingLibraries,
+        Func<bool, string?, VirtualLibrary?, (bool Ok, string? Error)> onConfirm)
+    {
+        ItemCount = itemCount;
+        SummaryText = $"將把書籃內共 {itemCount} 部作品加入「⭐ 我的閱讀清單」（寫入後即使關閉程式也會保留）。";
+        _onConfirm = onConfirm ?? throw new ArgumentNullException(nameof(onConfirm));
+
+        foreach (var lib in existingLibraries)
+        {
+            ExistingLibraries.Add(lib);
+        }
+
+        _selectedExistingLibrary = ExistingLibraries.FirstOrDefault();
+    }
+
+    public int ItemCount { get; }
+    public string SummaryText { get; }
+    public ObservableCollection<VirtualLibrary> ExistingLibraries { get; } = [];
+    public bool CanMergeExisting => ExistingLibraries.Count > 0;
+
+    public event Action<bool>? RequestClose;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsMergeExistingMode))]
+    private bool _isCreateNewMode = true;
+
+    public bool IsMergeExistingMode
+    {
+        get => !IsCreateNewMode;
+        set
+        {
+            if (value && CanMergeExisting)
+            {
+                IsCreateNewMode = false;
+            }
+        }
+    }
+
+    [ObservableProperty]
+    private string _newLibraryName = string.Empty;
+
+    [ObservableProperty]
+    private VirtualLibrary? _selectedExistingLibrary;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasValidationError))]
+    private string? _validationError;
+
+    public bool HasValidationError => !string.IsNullOrWhiteSpace(ValidationError);
+
+    [RelayCommand]
+    private void ConfirmSave()
+    {
+        ValidationError = null;
+        var (ok, error) = _onConfirm(IsCreateNewMode, NewLibraryName, SelectedExistingLibrary);
+        if (!ok)
+        {
+            ValidationError = error ?? "儲存失敗。";
+            return;
+        }
+
+        RequestClose?.Invoke(true);
+    }
+
+    [RelayCommand]
+    private void Cancel() => RequestClose?.Invoke(false);
 }

@@ -69,12 +69,14 @@ public sealed class WorkBasketAndPreviewTests : IDisposable
 
         var reader = new FakeReaderLauncher();
         var preview = new FakePreviewLauncher();
+        var saveDialog = new FakeSaveLauncher();
 
         using var basket = new WorkBasketViewModel(
             _store,
             _coverService,
             reader,
             preview,
+            saveDialog,
             isReadOnlyDatabase: false,
             toastManager: null,
             runOnUiAsync: InlineUi);
@@ -92,31 +94,50 @@ public sealed class WorkBasketAndPreviewTests : IDisposable
         Assert.Equal(zip2, basket.Items[0].Path);
         Assert.Equal(zip1, basket.Items[1].Path);
 
-        // 2. 預覽觸發與讀完後自動移出書籃
+        // 2. 預覽觸發；單本開啟與「全部使用閱讀器開啟」均保留書籃項目不移除
         basket.Items[0].PreviewCommand.Execute(null);
         Assert.Equal(zip2, preview.LastOpenedEntry?.Path);
 
-        basket.AutoRemoveAfterRead = true;
         basket.Items[0].OpenInReaderCommand.Execute(null);
-        Assert.Equal(zip2, reader.LastOpenedPath);
-        reader.SimulateClosed();
-        Assert.False(basket.ContainsPath(zip2));
-        Assert.Equal(1, basket.Count);
+        Assert.Single(reader.OpenedPaths);
+        Assert.Equal(zip2, reader.OpenedPaths[0]);
+        reader.SimulateAllClosed();
+        Assert.True(basket.ContainsPath(zip2));
+        Assert.Equal(2, basket.Count);
 
-        // 3. 儲存書籃至新書單與併入既有書單
+        reader.OpenedPaths.Clear();
+        basket.OpenAllInReaderCommand.Execute(null);
+        Assert.Equal([zip2, zip1], reader.OpenedPaths);
+        reader.SimulateAllClosed();
+        Assert.Equal(2, basket.Count);
+
+        // 3. 點擊「儲存至清單」開啟確認對話框 VM，測試新建與併入既有書單
         int savedEvents = 0;
         basket.VirtualLibrarySaved += () => savedEvents++;
-        basket.NewLibraryName = "今晚待看";
-        basket.SaveToLibraryCommand.Execute(null);
+
+        basket.RequestSaveToLibraryCommand.Execute(null);
+        var saveVm = saveDialog.LastDialogVm;
+        Assert.NotNull(saveVm);
+        Assert.True(saveVm!.IsCreateNewMode);
+        Assert.True(saveVm.CanMergeExisting);
+
+        saveVm.NewLibraryName = "今晚待看";
+        saveVm.ConfirmSaveCommand.Execute(null);
         Assert.Equal(1, savedEvents);
 
         var createdLib = Assert.Single(_store.ListVirtualLibraries(), l => l.Name == "今晚待看");
         var createdWorks = _store.ListManualVirtualLibraryWorks(createdLib.Id);
         Assert.Contains(zip1, createdWorks);
+        Assert.Contains(zip2, createdWorks);
 
-        basket.SelectedSaveTarget = Assert.Single(basket.SaveTargets, t => t.LibraryId == existingLibId);
-        basket.SaveToLibraryCommand.Execute(null);
-        Assert.Contains(zip1, _store.ListManualVirtualLibraryWorks(existingLibId));
+        basket.RequestSaveToLibraryCommand.Execute(null);
+        var mergeVm = saveDialog.LastDialogVm!;
+        mergeVm.IsMergeExistingMode = true;
+        mergeVm.SelectedExistingLibrary = Assert.Single(mergeVm.ExistingLibraries, l => l.Id == existingLibId);
+        mergeVm.ConfirmSaveCommand.Execute(null);
+        var mergedWorks = _store.ListManualVirtualLibraryWorks(existingLibId);
+        Assert.Contains(zip1, mergedWorks);
+        Assert.Contains(zip2, mergedWorks);
 
         // 4. 新建立的書籃實例（模擬重開程式）：不載入舊暫存書籃，記憶體一開始必定為空；單獨刪除可移除
         using var reopenedBasket = new WorkBasketViewModel(
@@ -124,12 +145,15 @@ public sealed class WorkBasketAndPreviewTests : IDisposable
             _coverService,
             reader,
             preview,
+            saveDialog,
             isReadOnlyDatabase: false,
             toastManager: null,
             runOnUiAsync: InlineUi);
         Assert.Equal(0, reopenedBasket.Count);
         Assert.True(reopenedBasket.IsEmpty);
 
+        basket.Items[0].RemoveCommand.Execute(null);
+        Assert.Equal(1, basket.Count);
         basket.Items[0].RemoveCommand.Execute(null);
         Assert.True(basket.IsEmpty);
     }
@@ -218,18 +242,28 @@ public sealed class WorkBasketAndPreviewTests : IDisposable
 
     private sealed class FakeReaderLauncher : IReaderWindowLauncher
     {
-        public string? LastOpenedPath { get; private set; }
-        private Action? _onClosed;
+        public List<string> OpenedPaths { get; } = [];
+        private readonly List<Action> _closeCallbacks = [];
 
         public bool OpenInReader(string path, string? displayTitle, string? authorName, Action? onReaderClosed, out string? errorMessage)
         {
-            LastOpenedPath = path;
-            _onClosed = onReaderClosed;
+            OpenedPaths.Add(path);
+            if (onReaderClosed != null)
+            {
+                _closeCallbacks.Add(onReaderClosed);
+            }
             errorMessage = null;
             return true;
         }
 
-        public void SimulateClosed() => _onClosed?.Invoke();
+        public void SimulateAllClosed()
+        {
+            foreach (var cb in _closeCallbacks)
+            {
+                cb();
+            }
+            _closeCallbacks.Clear();
+        }
     }
 
     private sealed class FakePreviewLauncher : IWorkPreviewLauncher
@@ -240,6 +274,17 @@ public sealed class WorkBasketAndPreviewTests : IDisposable
         {
             LastOpenedEntry = entry;
             errorMessage = null;
+            return true;
+        }
+    }
+
+    private sealed class FakeSaveLauncher : IWorkBasketSaveLauncher
+    {
+        public WorkBasketSaveViewModel? LastDialogVm { get; private set; }
+
+        public bool OpenSaveDialog(WorkBasketSaveViewModel dialogVm)
+        {
+            LastDialogVm = dialogVm;
             return true;
         }
     }
@@ -359,6 +404,63 @@ public sealed class WorkBasketAndPreviewTests : IDisposable
         Assert.False(exploreZipCard.IsInBasket);
         Assert.False(galleryVm.Items.Single(i => i.Path == movedZipPath).IsInBasket);
         Assert.True(galleryVm.Items.Single(i => i.Path == folderWorkDir).IsInBasket);
+    }
+
+    [Fact]
+    public void GlobalPopupLightDismissHelper_IdentifiesOutsideClicksCorrectly()
+    {
+        AvaloniaTestThread.Run(() =>
+        {
+            GlobalPopupLightDismissHelper.Install();
+
+            var dropItem = new global::Avalonia.Controls.TextBlock { Text = "選項" };
+            var outsideBtn = new global::Avalonia.Controls.Button { Content = "其他按鈕" };
+            var comboPopup = new global::Avalonia.Controls.Primitives.Popup
+            {
+                Child = dropItem,
+                IsLightDismissEnabled = false,
+            };
+
+            var combo = new global::Avalonia.Controls.ComboBox
+            {
+                Template = new global::Avalonia.Controls.Templates.FuncControlTemplate<global::Avalonia.Controls.ComboBox>((_, ns) =>
+                {
+                    ns.Register("PART_Popup", comboPopup);
+                    return comboPopup;
+                }),
+            };
+            combo.ApplyTemplate();
+
+            Assert.Same(combo, comboPopup.TemplatedParent);
+            Assert.True(GlobalPopupLightDismissHelper.ShouldTrackPopup(comboPopup));
+            Assert.False(GlobalPopupLightDismissHelper.ShouldDismissPopupCore(comboPopup.Child, comboPopup.TemplatedParent, null, dropItem));
+            Assert.False(GlobalPopupLightDismissHelper.ShouldDismissPopupCore(comboPopup.Child, comboPopup.TemplatedParent, null, combo));
+            Assert.True(GlobalPopupLightDismissHelper.ShouldDismissPopupCore(comboPopup.Child, comboPopup.TemplatedParent, null, outsideBtn));
+
+            var contextMenu = new global::Avalonia.Controls.ContextMenu();
+            var contextPopup = new global::Avalonia.Controls.Primitives.Popup
+            {
+                Child = contextMenu,
+                IsLightDismissEnabled = false,
+            };
+            Assert.True(GlobalPopupLightDismissHelper.ShouldTrackPopup(contextPopup));
+            Assert.False(GlobalPopupLightDismissHelper.ShouldDismissPopupCore(contextPopup.Child, null, null, contextMenu));
+            Assert.True(GlobalPopupLightDismissHelper.ShouldDismissPopupCore(contextPopup.Child, null, null, outsideBtn));
+
+            var textTarget = new global::Avalonia.Controls.TextBox();
+            var suggestChild = new global::Avalonia.Controls.Border();
+            var suggestPopup = new global::Avalonia.Controls.Primitives.Popup
+            {
+                PlacementTarget = textTarget,
+                Child = suggestChild,
+                IsLightDismissEnabled = true,
+            };
+
+            Assert.True(GlobalPopupLightDismissHelper.ShouldTrackPopup(suggestPopup));
+            Assert.False(GlobalPopupLightDismissHelper.ShouldDismissPopupCore(suggestPopup.Child, null, textTarget, textTarget));
+            Assert.False(GlobalPopupLightDismissHelper.ShouldDismissPopupCore(suggestPopup.Child, null, textTarget, suggestChild));
+            Assert.True(GlobalPopupLightDismissHelper.ShouldDismissPopupCore(suggestPopup.Child, null, textTarget, outsideBtn));
+        });
     }
 
     private static async Task WaitUntilAsync(Func<bool> predicate, int timeoutMs = 4000)
