@@ -294,4 +294,45 @@ public sealed class Phase4ManagementTests : IDisposable
         Assert.Equal(ComicOrganizer.App.UI.ReaderViewMode.ContinuousScroll, readerVm.ViewMode);
         Assert.Equal(ComicOrganizer.App.UI.ReaderZoomMode.FitWidth, readerVm.ZoomMode);
     }
+
+    [Fact]
+    public void AppDataContext_AccentThemesIncludeLowSaturationPalettes_AndSynchronizeSelection()
+    {
+        var dataDir = CreateTempDir("accent_themes");
+        using var ctx = new AppDataContext(explicitDataDirectory: dataDir, forceReadOnlyDatabase: false);
+
+        var expectedNames = new[]
+        {
+            "Blue", "Purple", "Rose", "Emerald", "Amber",
+            "SlateBlue", "Sage", "Mauve", "Sand",
+        };
+        Assert.Equal(expectedNames, ctx.AvailableAccentNames);
+        Assert.Equal(global::Avalonia.Media.Color.Parse("#5B7394"), AppDataContext.GetAccentPreviewColor("SlateBlue"));
+        Assert.Equal(global::Avalonia.Media.Color.Parse("#547A6F"), AppDataContext.GetAccentPreviewColor("Sage"));
+        Assert.Equal(global::Avalonia.Media.Color.Parse("#746585"), AppDataContext.GetAccentPreviewColor("Mauve"));
+        Assert.Equal(global::Avalonia.Media.Color.Parse("#8C7762"), AppDataContext.GetAccentPreviewColor("Sand"));
+
+        using var mainVm = new MainWindowViewModel(ctx);
+        Assert.Equal(9, mainVm.AccentOptions.Count);
+        Assert.Equal("霧霾藍灰 SlateBlue", mainVm.AccentOptions.Single(x => x.Name == "SlateBlue").DisplayName);
+        Assert.Equal("鼠尾草綠 Sage", mainVm.AccentOptions.Single(x => x.Name == "Sage").DisplayName);
+        Assert.Equal("煙燻藕紫 Mauve", mainVm.AccentOptions.Single(x => x.Name == "Mauve").DisplayName);
+        Assert.Equal("暖沙棕灰 Sand", mainVm.AccentOptions.Single(x => x.Name == "Sand").DisplayName);
+
+        mainVm.AccentOptions.Single(x => x.Name == "SlateBlue").SelectCommand.Execute(null);
+        Assert.Equal("SlateBlue", ctx.CurrentAccentName);
+        Assert.Equal("SlateBlue", mainVm.CurrentAccentName);
+        Assert.Equal("霧霾藍灰", mainVm.CurrentAccentShortLabel);
+        Assert.True(mainVm.AccentOptions.Single(x => x.Name == "SlateBlue").IsSelected);
+
+        var settingsVm = new SettingsPageViewModel(ctx, runOnUiAsync: ImmediateUiAsync);
+        Assert.Equal(9, settingsVm.AccentOptions.Count);
+        Assert.True(settingsVm.AccentOptions.Single(x => x.Name == "SlateBlue").IsSelected);
+
+        settingsVm.AccentOptions.Single(x => x.Name == "Sage").SelectCommand.Execute(null);
+        Assert.Equal("Sage", ctx.CurrentAccentName);
+        Assert.Equal("Sage", mainVm.CurrentAccentName);
+        Assert.True(mainVm.AccentOptions.Single(x => x.Name == "Sage").IsSelected);
+        Assert.False(mainVm.AccentOptions.Single(x => x.Name == "SlateBlue").IsSelected);
+    }
 }

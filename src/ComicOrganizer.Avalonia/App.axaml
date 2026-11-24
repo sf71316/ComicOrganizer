@@ -10,7 +10,24 @@
   </Application.DataTemplates>
 
   <Application.Resources>
-    <FontFamily x:Key="AppFontFamily">Microsoft JhengHei UI, Noto Sans TC, Inter, Segoe UI</FontFamily>
+    <ResourceDictionary>
+      <FontFamily x:Key="AppFontFamily">Microsoft JhengHei UI, Noto Sans TC, Inter, Segoe UI</FontFamily>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+          <!-- 方案 A：冷炭藍灰外框標題列，與內部半透明 GlassCard 拉開明確層次 -->
+          <SolidColorBrush x:Key="WindowChromeTitleBg" Color="#FF111827" />
+          <SolidColorBrush x:Key="WindowChromeOuterBorder" Color="#FF334155" />
+          <SolidColorBrush x:Key="WindowChromeTitleControlBg" Color="#12FFFFFF" />
+          <SolidColorBrush x:Key="WindowChromeTitleControlBorder" Color="#26FFFFFF" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="WindowChromeTitleBg" Color="#FFDCE4F0" />
+          <SolidColorBrush x:Key="WindowChromeOuterBorder" Color="#FFB4C1D4" />
+          <SolidColorBrush x:Key="WindowChromeTitleControlBg" Color="#B8FFFFFF" />
+          <SolidColorBrush x:Key="WindowChromeTitleControlBorder" Color="#FFB7C4D6" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
   </Application.Resources>
 
   <Application.Styles>
@@ -20,6 +37,23 @@
     </Style>
     <Style Selector="suki|SukiWindow">
       <Setter Property="FontFamily" Value="{StaticResource AppFontFamily}" />
+    </Style>
+    <!-- 視窗 1px 外框（透過 SukiMainHost ContentPresenter 繪製） -->
+    <Style Selector="suki|SukiWindow /template/ suki|SukiMainHost">
+      <Setter Property="BorderBrush" Value="{DynamicResource WindowChromeOuterBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <!-- 標題列背景獨立為冷炭藍灰（覆蓋 GlassCard 預設 GlassOpacity，不影響頁面內卡片） -->
+    <Style Selector="suki|SukiWindow /template/ suki|GlassCard#PART_TitleBarBackground /template/ Border.GlassCardBorderPartCard">
+      <Setter Property="Background" Value="{DynamicResource WindowChromeTitleBg}" />
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <!-- 標題列底部 2px 主題強調色細滾邊 -->
+    <Style Selector="suki|SukiWindow[ShowBottomBorder=True] /template/ Border#PART_BottomBorder">
+      <Setter Property="Height" Value="2" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Background" Value="{DynamicResource SukiPrimaryColor}" />
+      <Setter Property="Opacity" Value="0.86" />
     </Style>
     <!-- 停用 SukiUI 7.0.1 GlassCard 預設的由上往下裁切進場動畫（OnAttachedToVisualTree），避免虛擬化卡片與切目錄時整頁拉窗簾重繪 -->
     <Style Selector="suki|GlassCard">

@@ -46,6 +46,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         ["Rose"] = "玫瑰",
         ["Emerald"] = "翡翠",
         ["Amber"] = "琥珀",
+        ["SlateBlue"] = "霧霾藍灰",
+        ["Sage"] = "鼠尾草綠",
+        ["Mauve"] = "煙燻藕紫",
+        ["Sand"] = "暖沙棕灰",
     };
 
     private readonly AppDataContext _dataContext;

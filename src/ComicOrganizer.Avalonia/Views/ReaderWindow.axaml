@@ -18,15 +18,20 @@
   <suki:SukiWindow.Resources>
     <ResourceDictionary>
       <ResourceDictionary.ThemeDictionaries>
-        <ResourceDictionary x:Key="Light">
-          <SolidColorBrush x:Key="ReaderHudBg" Color="#E6ECF5" />
-          <SolidColorBrush x:Key="ReaderHudBorder" Color="#CBD5E1" />
-          <SolidColorBrush x:Key="DrawerContentBg" Color="#F1F5FA" />
-        </ResourceDictionary>
         <ResourceDictionary x:Key="Dark">
-          <SolidColorBrush x:Key="ReaderHudBg" Color="#E61C2230" />
-          <SolidColorBrush x:Key="ReaderHudBorder" Color="#334155" />
-          <SolidColorBrush x:Key="DrawerContentBg" Color="#141924" />
+          <!-- 方案 A 閱讀器外框：更深、極低干擾暗色，與次深 HUD 及閱讀畫布拉出三階對比 -->
+          <SolidColorBrush x:Key="ReaderTitleBg" Color="#FF0A0D13" />
+          <SolidColorBrush x:Key="ReaderOuterBorder" Color="#FF2B3547" />
+          <SolidColorBrush x:Key="ReaderHudBg" Color="#EB1C2434" />
+          <SolidColorBrush x:Key="ReaderHudBorder" Color="#FF364359" />
+          <SolidColorBrush x:Key="DrawerContentBg" Color="#FF121823" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="ReaderTitleBg" Color="#FFD3DCE9" />
+          <SolidColorBrush x:Key="ReaderOuterBorder" Color="#FFAEBBD0" />
+          <SolidColorBrush x:Key="ReaderHudBg" Color="#F5F4F7FC" />
+          <SolidColorBrush x:Key="ReaderHudBorder" Color="#FFCBD5E1" />
+          <SolidColorBrush x:Key="DrawerContentBg" Color="#FFEDF2F9" />
         </ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
 
@@ -73,6 +78,14 @@
   </suki:SukiWindow.Resources>
 
   <suki:SukiWindow.Styles>
+    <Style Selector="suki|SukiWindow /template/ suki|SukiMainHost">
+      <Setter Property="BorderBrush" Value="{DynamicResource ReaderOuterBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="suki|SukiWindow /template/ suki|GlassCard#PART_TitleBarBackground /template/ Border.GlassCardBorderPartCard">
+      <Setter Property="Background" Value="{DynamicResource ReaderTitleBg}" />
+      <Setter Property="Opacity" Value="1" />
+    </Style>
     <Style Selector="Border.reader-hud Button.hud-btn">
       <Setter Property="MinHeight" Value="30" />
       <Setter Property="Height" Value="30" />
@@ -131,6 +144,8 @@
             CornerRadius="6"
             Padding="2"
             Background="{DynamicResource SukiPrimaryColor15}"
+            BorderBrush="{DynamicResource SukiPrimaryColor50}"
+            BorderThickness="1"
             VerticalAlignment="Center">
       <Image Source="avares://ComicOrganizer.Avalonia/Assets/app_icon.png"
              Stretch="Uniform"

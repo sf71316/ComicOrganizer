@@ -21,7 +21,11 @@ public sealed class AppDataContext : IDisposable
     public const string DataDirEnvVar = "COMIC_ORGANIZER_DATA_DIR";
     public const string DefaultDevDataDirectory = @"D:\ComicOrganizer";
 
-    private static readonly string[] AccentNames = ["Blue", "Purple", "Rose", "Emerald", "Amber"];
+    private static readonly string[] AccentNames =
+    [
+        "Blue", "Purple", "Rose", "Emerald", "Amber",
+        "SlateBlue", "Sage", "Mauve", "Sand",
+    ];
 
     private static readonly Dictionary<string, SukiColorTheme> AccentThemes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -30,6 +34,10 @@ public sealed class AppDataContext : IDisposable
         ["Rose"] = new SukiColorTheme("Rose", Color.Parse("#E11D48"), Color.Parse("#FB7185")),
         ["Emerald"] = new SukiColorTheme("Emerald", Color.Parse("#059669"), Color.Parse("#34D399")),
         ["Amber"] = new SukiColorTheme("Amber", Color.Parse("#D97706"), Color.Parse("#FBBF24")),
+        ["SlateBlue"] = new SukiColorTheme("SlateBlue", Color.Parse("#5B7394"), Color.Parse("#829AB8")),
+        ["Sage"] = new SukiColorTheme("Sage", Color.Parse("#547A6F"), Color.Parse("#7BA397")),
+        ["Mauve"] = new SukiColorTheme("Mauve", Color.Parse("#746585"), Color.Parse("#9B8CAE")),
+        ["Sand"] = new SukiColorTheme("Sand", Color.Parse("#8C7762"), Color.Parse("#B39C85")),
     };
 
     private readonly ConfigManager _configManager;

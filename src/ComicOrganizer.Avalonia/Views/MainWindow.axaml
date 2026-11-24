@@ -15,11 +15,25 @@
                  IsTitleBarVisible="True"
                  BackgroundStyle="GradientSoft">
 
+  <suki:SukiWindow.Styles>
+    <Style Selector="Button.titlebar-pill">
+      <Setter Property="Background" Value="{DynamicResource WindowChromeTitleControlBg}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource WindowChromeTitleControlBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+    </Style>
+    <Style Selector="Button.titlebar-pill:pointerover">
+      <Setter Property="BorderBrush" Value="{DynamicResource SukiPrimaryColor}" />
+    </Style>
+  </suki:SukiWindow.Styles>
+
   <suki:SukiWindow.LogoContent>
     <Border Width="28" Height="28"
             CornerRadius="7"
             Padding="2"
             Background="{DynamicResource SukiPrimaryColor15}"
+            BorderBrush="{DynamicResource SukiPrimaryColor50}"
+            BorderThickness="1"
             VerticalAlignment="Center">
       <Image Source="avares://ComicOrganizer.Avalonia/Assets/app_icon.png"
              Stretch="Uniform"
@@ -49,19 +63,20 @@
       <!-- 唯讀模式提示（僅以唯讀參數或 COMIC_ORGANIZER_READONLY=1 啟動時顯示） -->
       <Border CornerRadius="8"
               Padding="10,4"
+              Background="{DynamicResource WindowChromeTitleControlBg}"
               BorderThickness="1"
-              BorderBrush="{DynamicResource SukiBorderBrush}"
+              BorderBrush="{DynamicResource WindowChromeTitleControlBorder}"
               VerticalAlignment="Center"
               IsVisible="{Binding IsReadOnlyDatabase}"
               ToolTip.Tip="{Binding ReadOnlyBadgeTooltip}">
         <TextBlock Text="🔒 唯讀模式"
                    FontSize="12"
-                   Opacity="0.86"
+                   Opacity="0.88"
                    VerticalAlignment="Center" />
       </Border>
 
       <!-- 全域「📌 待挑書籃」抽屜切換 -->
-      <Button Classes="Basic"
+      <Button Classes="Basic titlebar-pill"
               Padding="10,4"
               Height="30"
               VerticalAlignment="Center"
@@ -73,8 +88,8 @@
                    VerticalAlignment="Center" />
       </Button>
 
-      <!-- 5 色主題色切換選單 -->
-      <Button Classes="Basic"
+      <!-- 主題強調色切換選單（9 色） -->
+      <Button Classes="Basic titlebar-pill"
               Padding="10,4"
               Height="30"
               VerticalAlignment="Center"
@@ -107,7 +122,7 @@
                               Padding="10,8"
                               BorderThickness="1"
                               BorderBrush="{DynamicResource SukiBorderBrush}">
-                <StackPanel Spacing="6" Width="174">
+                <StackPanel Spacing="4" Width="206">
                   <TextBlock Text="主題強調色"
                              FontSize="12"
                              FontWeight="SemiBold"
@@ -151,7 +166,7 @@
       </Button>
 
       <!-- 深色 / 淺色模式切換按鈕 -->
-      <Button Classes="Basic"
+      <Button Classes="Basic titlebar-pill"
               Padding="10,4"
               Height="30"
               VerticalAlignment="Center"

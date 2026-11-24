@@ -70,6 +70,10 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
         ["Rose"] = "玫瑰紅",
         ["Emerald"] = "翡翠綠",
         ["Amber"] = "琥珀金",
+        ["SlateBlue"] = "霧霾藍灰",
+        ["Sage"] = "鼠尾草綠",
+        ["Mauve"] = "煙燻藕紫",
+        ["Sand"] = "暖沙棕灰",
     };
 
     private static readonly IBrush WarnBgBrush = new SolidColorBrush(Color.FromArgb(24, 245, 158, 11));
