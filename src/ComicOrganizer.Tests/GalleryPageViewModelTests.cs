@@ -525,4 +525,54 @@ public sealed class GalleryPageViewModelTests : IDisposable
             return true;
         }
     }
+
+    [Fact]
+    public async Task FolderMode_ShowsImagesInsideImageOnlyComicFolder_AndRecognizesWorkFolderCard()
+    {
+        var authorDir = Path.Combine(_rootLibDir, "Bad Mushrooms");
+        var comicFolder = Path.Combine(authorDir, "[Bad Mushrooms] Sample Manga");
+        Directory.CreateDirectory(comicFolder);
+
+        // 模擬真實結構：作者資料夾內有 1 個純圖作品資料夾（18 張 .jpg）、1 個 .zip 與 1 張作者目錄代表封面 cover.jpg
+        for (int i = 1; i <= 18; i++)
+        {
+            await File.WriteAllBytesAsync(Path.Combine(comicFolder, $"{i}.jpg"), new byte[] { 0xFF, 0xD8, 0xFF, 0xD9 });
+        }
+        await File.WriteAllBytesAsync(Path.Combine(authorDir, "OtherWork.zip"), new byte[] { 0x50, 0x4B, 0x05, 0x06 });
+        await File.WriteAllBytesAsync(Path.Combine(authorDir, "cover.jpg"), new byte[] { 0xFF, 0xD8, 0xFF, 0xD9 });
+
+        var fakeLauncher = new FakeLauncher();
+        using var vm = new GalleryPageViewModel(
+            _store,
+            _coverService,
+            rootDirectory: _rootLibDir,
+            externalLauncher: fakeLauncher,
+            runOnUiAsync: static action => { action(); return Task.CompletedTask; },
+            autoLoad: false);
+
+        // 1. 進入作者資料夾：應識別圖片資料夾為 IsWorkFolder (18P)、保留 .zip，且排除作者目錄封面 cover.jpg
+        await vm.NavigateToFolderAndSelectWorkAsync(authorDir);
+        await WaitUntilAsync(() => !vm.IsLoading && vm.CurrentFolderPath == authorDir);
+
+        Assert.Equal(2, vm.Items.Count);
+        Assert.DoesNotContain(vm.Items, i => string.Equals(i.Name, "cover.jpg", StringComparison.OrdinalIgnoreCase));
+
+        var folderWorkItem = Assert.Single(vm.Items, i => i.IsFolder);
+        Assert.True(folderWorkItem.IsWorkFolder);
+        Assert.True(folderWorkItem.HasPageCount);
+        Assert.Equal("18P", folderWorkItem.PageCountText);
+        Assert.Equal("● 未讀", folderWorkItem.TypeBadgeText);
+
+        // 點擊純圖作品資料夾卡應直接啟動閱讀器而非卡在空資料夾
+        folderWorkItem.ActivateCommand.Execute(null);
+        Assert.Contains(comicFolder, fakeLauncher.OpenedPaths);
+
+        // 2. 若直接導覽進入該圖片資料夾，應顯示全部 18 張 .jpg（不可顯示「此目錄或虛擬庫目前沒有項目」）
+        await vm.NavigateToFolderAndSelectWorkAsync(comicFolder);
+        await WaitUntilAsync(() => !vm.IsLoading && vm.CurrentFolderPath == comicFolder);
+
+        Assert.Equal(18, vm.Items.Count);
+        Assert.False(vm.IsEmptyState);
+        Assert.Equal("1.jpg", vm.Items[0].Name);
+    }
 }

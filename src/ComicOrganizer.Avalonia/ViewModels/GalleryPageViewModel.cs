@@ -153,7 +153,8 @@ public sealed partial class GalleryItemVm : ViewModelBase
         Action<GalleryItemVm>? onInspectDetail = null,
         Action<GalleryItemVm>? onCoverLoaded = null,
         Action<GalleryItemVm>? onOpenInReader = null,
-        Action<GalleryItemVm>? onOpenExternal = null)
+        Action<GalleryItemVm>? onOpenExternal = null,
+        bool isWorkFolder = false)
     {
         SortMetadata = sortMeta ?? throw new ArgumentNullException(nameof(sortMeta));
         Path = sortMeta.Path;
@@ -162,6 +163,7 @@ public sealed partial class GalleryItemVm : ViewModelBase
         AuthorName = authorName ?? string.Empty;
         IsFolder = sortMeta.IsFolder;
         IsAuthorFolder = isAuthorFolder;
+        IsWorkFolder = isFolderWorkEffective(IsFolder, isAuthorFolder, isWorkFolder);
         SizeBytes = sortMeta.SizeBytes;
         ModifiedTicks = sortMeta.ModifiedTicks;
         ReadStatus = sortMeta.ReadStatus;
@@ -178,32 +180,36 @@ public sealed partial class GalleryItemVm : ViewModelBase
         _onOpenExternal = onOpenExternal;
         _runOnUiAsync = runOnUiAsync ?? ExploreCardVmBase.DefaultRunOnUiAsync;
 
+        bool treatAsWork = !IsFolder || IsWorkFolder;
         AccentColorHex = ExploreVisualFormatting.PickAccentHex(DisplayTitle);
-        FallbackGlyph = IsFolder
-            ? (IsAuthorFolder ? "👤" : "📁")
-            : ExploreVisualFormatting.ExtractFallbackGlyph(DisplayTitle);
+        FallbackGlyph = treatAsWork
+            ? ExploreVisualFormatting.ExtractFallbackGlyph(DisplayTitle)
+            : (IsAuthorFolder ? "👤" : "📁");
 
         // 預先計算顯示字串並快取，避免虛擬化卡片回收重用時反覆格式化日期、配置 List 與字串插值
         HasAuthor = !string.IsNullOrWhiteSpace(AuthorName);
-        TypeBadgeText = IsFolder
-            ? (IsAuthorFolder ? "👤 作者目錄" : "📁 資料夾")
-            : ReadStatus switch
+        TypeBadgeText = treatAsWork
+            ? ReadStatus switch
             {
                 ReadStatus.Reading => "📖 閱讀中",
                 ReadStatus.Completed => "✓ 已完成",
                 ReadStatus.Dropped => "✕ 放棄",
                 _ => "● 未讀",
-            };
-        HasPageCount = !IsFolder && PageCount is > 0;
+            }
+            : (IsAuthorFolder ? "👤 作者目錄" : "📁 資料夾");
+        HasPageCount = treatAsWork && PageCount is > 0;
         PageCountText = HasPageCount ? $"{PageCount}P" : string.Empty;
-        SizeDisplay = IsFolder ? "資料夾" : FormatSize(SizeBytes);
+        SizeDisplay = IsWorkFolder ? "圖片資料夾" : (IsFolder ? "資料夾" : FormatSize(SizeBytes));
         ModifiedDisplay = ModifiedTicks > 0
             ? DateTimeOffset.FromUnixTimeMilliseconds(ModifiedTicks).ToLocalTime().ToString("yyyy-MM-dd")
             : string.Empty;
         SubtitleText = BuildSubtitleText();
-        PrimaryActionTooltip = IsFolder
-            ? $"進入資料夾：{DisplayTitle}"
-            : $"以內建閱讀器開啟：{DisplayTitle}";
+        PrimaryActionTooltip = treatAsWork
+            ? $"以內建閱讀器開啟：{DisplayTitle}"
+            : $"進入資料夾：{DisplayTitle}";
+
+        static bool isFolderWorkEffective(bool isFolder, bool isAuthorFolder, bool isWorkFolder)
+            => isFolder && !isAuthorFolder && isWorkFolder;
 
         var dummyWork = new ExploreWorkItem(
             AssetId: 0,
@@ -254,6 +260,8 @@ public sealed partial class GalleryItemVm : ViewModelBase
 
     public bool IsAuthorFolder { get; }
 
+    public bool IsWorkFolder { get; }
+
     public long SizeBytes { get; }
 
     public long ModifiedTicks { get; }
@@ -294,7 +302,7 @@ public sealed partial class GalleryItemVm : ViewModelBase
 
     private string BuildSubtitleText()
     {
-        if (IsFolder)
+        if (IsFolder && !IsWorkFolder)
         {
             return IsAuthorFolder ? "點擊進入作者作品目錄" : "點擊進入子資料夾";
         }
@@ -309,6 +317,10 @@ public sealed partial class GalleryItemVm : ViewModelBase
             parts.Add(Language!);
         }
         if (SizeBytes > 0)
+        {
+            parts.Add(SizeDisplay);
+        }
+        else if (IsWorkFolder)
         {
             parts.Add(SizeDisplay);
         }
@@ -352,7 +364,8 @@ public sealed partial class GalleryItemVm : ViewModelBase
             && string.Equals(CoverSlot.ThumbKey, other.CoverSlot.ThumbKey, StringComparison.Ordinal)
             && PageCount == other.PageCount
             && string.Equals(Language, other.Language, StringComparison.Ordinal)
-            && IsAuthorFolder == other.IsAuthorFolder;
+            && IsAuthorFolder == other.IsAuthorFolder
+            && IsWorkFolder == other.IsWorkFolder;
     }
 
     private static string FormatSize(long bytes)
@@ -1714,13 +1727,26 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
             workRowByPath[w.Path] = w;
         }
 
+        // 若目錄內還有子目錄或壓縮檔/PDF，排除該層的資料夾代表封面 cover.*，避免在作者目錄誤顯示成獨立作品卡；
+        // 若目錄內僅有圖片（純圖作品資料夾內部），則完整保留全部圖片檔（含 cover.jpg）。
+        bool hasSubFoldersOrArchives = entryMap.Values.Any(v =>
+            v.IsFolder || SupportedExtensions.BuiltInReader.Contains(System.IO.Path.GetExtension(v.Name)));
+
         var items = new List<GalleryItemVm>(entryMap.Count);
 
         foreach (var entry in entryMap.Values)
         {
             ct.ThrowIfCancellationRequested();
+            if (!entry.IsFolder && hasSubFoldersOrArchives && IsCoverThumbnailFileName(entry.Name))
+            {
+                continue;
+            }
+
             workRowByPath.TryGetValue(entry.Path, out var workRow);
             bool isAuthorFolder = entry.IsFolder && authorFolderSet.Contains(NormalizePathOrEmpty(entry.Path));
+            int? diskPageCount = null;
+            bool isWorkFolder = entry.IsFolder && !isAuthorFolder &&
+                                (workRow != null || TryInspectDirectImageComicFolder(entry.Path, out diskPageCount));
             var readStatus = workRow != null && Enum.IsDefined(typeof(ReadStatus), workRow.ReadStatus)
                 ? (ReadStatus)workRow.ReadStatus
                 : ReadStatus.Unread;
@@ -1740,7 +1766,7 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
                 sortMeta,
                 workRow?.AuthorName,
                 entry.ThumbKey ?? workRow?.CoverThumbKey,
-                workRow?.PageCount,
+                workRow?.PageCount ?? diskPageCount,
                 workRow?.Language,
                 isAuthorFolder,
                 OnItemActivated,
@@ -1749,7 +1775,8 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
                 OnItemInspectDetail,
                 OnItemCoverLoaded,
                 OnItemOpenInReader,
-                OnItemOpenExternal));
+                OnItemOpenExternal,
+                isWorkFolder: isWorkFolder));
         }
 
         return items;
@@ -1788,6 +1815,9 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
             string name = asset?.Name ?? workRow?.FileName ?? System.IO.Path.GetFileName(path);
             bool isFolder = asset?.IsFolder ?? false;
             bool isAuthorFolder = isFolder && authorFolderSet.Contains(NormalizePathOrEmpty(path));
+            int? diskPageCount = null;
+            bool isWorkFolder = isFolder && !isAuthorFolder &&
+                                (workRow != null || TryInspectDirectImageComicFolder(path, out diskPageCount));
             long size = asset?.FileSize ?? 0;
             long mtime = NormalizeTimestampMs(workRow?.AddedAt ?? 0);
             var readStatus = workRow != null && Enum.IsDefined(typeof(ReadStatus), workRow.ReadStatus)
@@ -1809,7 +1839,7 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
                 sortMeta,
                 workRow?.AuthorName,
                 workRow?.CoverThumbKey,
-                workRow?.PageCount,
+                workRow?.PageCount ?? diskPageCount,
                 workRow?.Language,
                 isAuthorFolder,
                 OnItemActivated,
@@ -1818,7 +1848,8 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
                 OnItemInspectDetail,
                 OnItemCoverLoaded,
                 OnItemOpenInReader,
-                OnItemOpenExternal));
+                OnItemOpenExternal,
+                isWorkFolder: isWorkFolder));
         }
 
         return items;
@@ -2123,7 +2154,7 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
     private void OnItemActivated(GalleryItemVm item)
     {
         SelectGalleryItem(item);
-        if (item.IsFolder)
+        if (item.IsFolder && !item.IsWorkFolder)
         {
             NavigateToFolder(item.Path);
             return;
@@ -2306,7 +2337,63 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
     }
 
     private static bool IsSupportedGalleryFile(string fileName)
-        => SupportedExtensions.BuiltInReader.Contains(System.IO.Path.GetExtension(fileName));
+        => SupportedExtensions.Gallery.Contains(System.IO.Path.GetExtension(fileName));
+
+    private static bool IsCoverThumbnailFileName(string fileName)
+        => SupportedExtensions.IsImage(fileName)
+           && string.Equals(System.IO.Path.GetFileNameWithoutExtension(fileName), "cover", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 偵測實體資料夾是否為「純圖檔漫畫作品資料夾」（不含子目錄與壓縮檔，且直接含圖片且非僅單張 cover.*）。
+    /// </summary>
+    private static bool TryInspectDirectImageComicFolder(string folderPath, out int? imageCount)
+    {
+        imageCount = null;
+        if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            if (Directory.EnumerateDirectories(folderPath).Any())
+            {
+                return false;
+            }
+
+            int count = 0;
+            bool onlyCover = true;
+            foreach (var file in Directory.EnumerateFiles(folderPath))
+            {
+                var ext = System.IO.Path.GetExtension(file);
+                if (SupportedExtensions.BuiltInReader.Contains(ext))
+                {
+                    return false;
+                }
+
+                if (SupportedExtensions.Image.Contains(ext))
+                {
+                    count++;
+                    if (!IsCoverThumbnailFileName(System.IO.Path.GetFileName(file)))
+                    {
+                        onlyCover = false;
+                    }
+                }
+            }
+
+            if (count <= 0 || (count == 1 && onlyCover))
+            {
+                return false;
+            }
+
+            imageCount = count;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     private static string NormalizePathOrEmpty(string? path)
     {
