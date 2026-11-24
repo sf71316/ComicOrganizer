@@ -78,11 +78,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
                 SelectAccent))
             .ToList();
 
-        ExplorePage = new ExplorePageViewModel(dataContext, _coverService, autoLoad: true);
+        WorkBasket = new WorkBasketViewModel(dataContext, _coverService);
+        WorkBasket.VirtualLibrarySaved += OnWorkBasketLibrarySaved;
+
+        ExplorePage = new ExplorePageViewModel(dataContext, _coverService, autoLoad: true, workBasket: WorkBasket);
         ExplorePage.PropertyChanged += OnExplorePagePropertyChanged;
         ExplorePage.OpenInGalleryRequested += OnOpenInGalleryRequested;
 
-        GalleryPage = new GalleryPageViewModel(dataContext, _coverService, autoLoad: false);
+        GalleryPage = new GalleryPageViewModel(dataContext, _coverService, autoLoad: false, workBasket: WorkBasket);
         ReadingTrackPage = new ReadingTrackPageViewModel(dataContext, _coverService, autoLoad: false);
         ReadingTrackPage.OpenInGalleryRequested += OnOpenInGalleryRequested;
         VisualSearchPage = new VisualSearchPageViewModel(dataContext);
@@ -104,6 +107,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
     public event Action<ViewModelBase>? NavigateToPageRequested;
 
     public IReadOnlyList<AccentThemeChoice> AccentOptions { get; }
+
+    public WorkBasketViewModel WorkBasket { get; }
 
     public ExplorePageViewModel ExplorePage { get; }
 
@@ -283,9 +288,23 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         NavigateToPageRequested?.Invoke(VisualSearchPage);
     }
 
+    private void OnWorkBasketLibrarySaved()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (GalleryPage.IsMyLibrariesSidebarMode)
+        {
+            _ = GalleryPage.RefreshAsync();
+        }
+    }
+
     private void OnDataContextSettingsChanged()
     {
         OnPropertyChanged(nameof(IsVisualSearchEnabled));
+        WorkBasket.RefreshSaveTargets();
         _ = ExplorePage.RefreshCommand.ExecuteAsync(null);
         _ = GalleryPage.RefreshAsync();
         _ = ReadingTrackPage.RefreshAsync();
@@ -322,6 +341,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         SettingsPage.OpenVisualSearchRequested -= OnSettingsOpenVisualSearchRequested;
         DataManagementPage.OpenInGalleryRequested -= OnOpenInGalleryRequested;
         DataManagementPage.Dispose();
+        WorkBasket.VirtualLibrarySaved -= OnWorkBasketLibrarySaved;
+        WorkBasket.Dispose();
         _coverService.Dispose();
         // 封面服務停了之後再收尾寫回佇列（寫完剩下的縮圖），必須早於 AppDataContext 關閉 cache.db
         _thumbWriteBack?.Dispose();

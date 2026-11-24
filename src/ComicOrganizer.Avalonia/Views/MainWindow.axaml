@@ -60,6 +60,19 @@
                    VerticalAlignment="Center" />
       </Border>
 
+      <!-- 全域「📌 待挑書籃」抽屜切換 -->
+      <Button Classes="Basic"
+              Padding="10,4"
+              Height="30"
+              VerticalAlignment="Center"
+              Command="{Binding WorkBasket.ToggleOpenCommand}"
+              ToolTip.Tip="展開／收合全域「📌 待挑書籃」（探索牆與畫廊跨頁面共用；關閉程式即清空，除非存成書單）">
+        <TextBlock Text="{Binding WorkBasket.ToggleButtonLabel}"
+                   FontSize="12"
+                   FontWeight="SemiBold"
+                   VerticalAlignment="Center" />
+      </Button>
+
       <!-- 5 色主題色切換選單 -->
       <Button Classes="Basic"
               Padding="10,4"
@@ -165,9 +178,214 @@
                      HeaderMinHeight="68"
                      UseCustomContent="True">
 
-    <!-- 保留頁面：各頁 View 只建立一次，切頁只切換顯示（含與 SukiUI 相同的淡出淡入動畫），由 MainWindow.axaml.cs 依選取項目切換 -->
+    <!-- 保留頁面 ＋ 右側全域共用「📌 待挑書籃」抽屜 -->
     <suki:SukiSideMenu.Content>
-      <controls:KeepAlivePageHost x:Name="PageHost" />
+      <Grid ColumnDefinitions="*,Auto">
+        <controls:KeepAlivePageHost Grid.Column="0" x:Name="PageHost" />
+
+        <suki:GlassCard Grid.Column="1"
+                        Width="352"
+                        IsVisible="{Binding WorkBasket.IsOpen}"
+                        CornerRadius="14"
+                        Padding="14"
+                        Margin="0,8,12,12">
+          <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="10">
+
+            <!-- 標題列 -->
+            <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+              <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <TextBlock Text="📌 待挑書籃" FontSize="15" FontWeight="Bold" />
+                <TextBlock Text="{Binding WorkBasket.HeaderCountText}"
+                           FontSize="13.5"
+                           FontWeight="SemiBold"
+                           Opacity="0.72"
+                           VerticalAlignment="Center" />
+              </StackPanel>
+              <Button Grid.Column="1"
+                      Classes="Outlined"
+                      Padding="8,4"
+                      IsEnabled="{Binding WorkBasket.HasItems}"
+                      Command="{Binding WorkBasket.ClearCommand}"
+                      ToolTip.Tip="清空全部書籃項目">
+                <TextBlock Text="清空" FontSize="11.5" />
+              </Button>
+              <Button Grid.Column="2"
+                      Classes="Basic"
+                      Padding="7,4"
+                      Command="{Binding WorkBasket.CloseCommand}"
+                      ToolTip.Tip="收合書籃抽屜">
+                <TextBlock Text="✕" FontSize="12.5" />
+              </Button>
+            </Grid>
+
+            <!-- 記憶體暫存提示 -->
+            <Border Grid.Row="1"
+                    Background="#1AF59E0B"
+                    BorderBrush="#55F59E0B"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="9,6">
+              <TextBlock Text="⚡ 僅暫存於記憶體：除非儲存為書單，否則關閉程式後即自動清空。"
+                         FontSize="11.5"
+                         TextWrapping="Wrap"
+                         Foreground="#D97706" />
+            </Border>
+
+            <!-- 清單或空狀態 -->
+            <Grid Grid.Row="2">
+              <StackPanel IsVisible="{Binding WorkBasket.IsEmpty}"
+                          VerticalAlignment="Center"
+                          HorizontalAlignment="Center"
+                          Spacing="8"
+                          Margin="12">
+                <TextBlock Text="📌" FontSize="32" HorizontalAlignment="Center" Opacity="0.45" />
+                <TextBlock Text="書籃目前是空的"
+                           FontSize="13.5"
+                           FontWeight="SemiBold"
+                           HorizontalAlignment="Center" />
+                <TextBlock Text="逛「探索牆」或「畫廊（目錄／作者／標籤／清單）」時，點作品上的「📌 挑書」就能跨頁暫存於此比較或存書單。"
+                           FontSize="11.5"
+                           Opacity="0.68"
+                           TextWrapping="Wrap"
+                           TextAlignment="Center" />
+              </StackPanel>
+
+              <ScrollViewer IsVisible="{Binding WorkBasket.HasItems}"
+                            HorizontalScrollBarVisibility="Disabled"
+                            VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding WorkBasket.Items}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:WorkBasketItemVm">
+                      <Border BorderBrush="{DynamicResource SukiBorderBrush}"
+                              BorderThickness="1"
+                              Background="#10808080"
+                              CornerRadius="10"
+                              Padding="8"
+                              Margin="0,0,0,8">
+                        <StackPanel Spacing="6">
+                          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                            <Button Grid.Column="0"
+                                    Classes="Basic"
+                                    Padding="0"
+                                    Command="{Binding PreviewCommand}"
+                                    Cursor="Hand"
+                                    ToolTip.Tip="點擊快速預覽內頁">
+                              <Border Width="42"
+                                      Height="56"
+                                      CornerRadius="6"
+                                      ClipToBounds="True"
+                                      Background="#18808080">
+                                <Grid>
+                                  <TextBlock Text="{Binding FallbackGlyph}"
+                                             FontSize="18"
+                                             FontWeight="Bold"
+                                             Opacity="0.65"
+                                             IsVisible="{Binding !HasCover}"
+                                             HorizontalAlignment="Center"
+                                             VerticalAlignment="Center" />
+                                  <Image Source="{Binding Cover}"
+                                         IsVisible="{Binding HasCover}"
+                                         Stretch="UniformToFill" />
+                                </Grid>
+                              </Border>
+                            </Button>
+
+                            <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                              <TextBlock Text="{Binding Title}"
+                                         FontSize="12.5"
+                                         FontWeight="SemiBold"
+                                         MaxLines="2"
+                                         TextWrapping="Wrap"
+                                         TextTrimming="CharacterEllipsis"
+                                         ToolTip.Tip="{Binding Title}" />
+                              <TextBlock Text="{Binding SubtitleText}"
+                                         FontSize="11"
+                                         Opacity="0.68"
+                                         TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+
+                            <Button Grid.Column="2"
+                                    Classes="Basic"
+                                    Padding="5,3"
+                                    VerticalAlignment="Top"
+                                    Command="{Binding RemoveCommand}"
+                                    ToolTip.Tip="從書籃單獨刪除此作品">
+                              <TextBlock Text="✕" FontSize="11.5" Opacity="0.72" />
+                            </Button>
+                          </Grid>
+
+                          <Grid ColumnDefinitions="*,*,Auto,Auto" ColumnSpacing="4">
+                            <Button Grid.Column="0"
+                                    Classes="Outlined"
+                                    Padding="6,4"
+                                    HorizontalContentAlignment="Center"
+                                    Command="{Binding PreviewCommand}">
+                              <TextBlock Text="👁 預覽" FontSize="11" />
+                            </Button>
+                            <Button Grid.Column="1"
+                                    Classes="Flat"
+                                    Padding="6,4"
+                                    HorizontalContentAlignment="Center"
+                                    Command="{Binding OpenInReaderCommand}">
+                              <TextBlock Text="📖 開啟" FontSize="11" FontWeight="SemiBold" />
+                            </Button>
+                            <Button Grid.Column="2"
+                                    Classes="Outlined"
+                                    Padding="6,4"
+                                    IsEnabled="{Binding CanMoveUp}"
+                                    Command="{Binding MoveUpCommand}"
+                                    ToolTip.Tip="上移順序">
+                              <TextBlock Text="↑" FontSize="11" />
+                            </Button>
+                            <Button Grid.Column="3"
+                                    Classes="Outlined"
+                                    Padding="6,4"
+                                    IsEnabled="{Binding CanMoveDown}"
+                                    Command="{Binding MoveDownCommand}"
+                                    ToolTip.Tip="下移順序">
+                              <TextBlock Text="↓" FontSize="11" />
+                            </Button>
+                          </Grid>
+                        </StackPanel>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+            </Grid>
+
+            <!-- 底部儲存與偏好區 -->
+            <Border Grid.Row="3"
+                    BorderBrush="{DynamicResource SukiBorderBrush}"
+                    BorderThickness="0,1,0,0"
+                    Padding="0,10,0,0">
+              <StackPanel Spacing="7">
+                <CheckBox IsChecked="{Binding WorkBasket.AutoRemoveAfterRead, Mode=TwoWay}"
+                          FontSize="11.5"
+                          Content="從書籃開啟讀完關閉後自動移出書籃" />
+                <TextBlock Text="⭐ 儲存為永久閱讀清單：" FontSize="12" FontWeight="SemiBold" />
+                <ComboBox HorizontalAlignment="Stretch"
+                          FontSize="12"
+                          ItemsSource="{Binding WorkBasket.SaveTargets}"
+                          SelectedItem="{Binding WorkBasket.SelectedSaveTarget, Mode=TwoWay}" />
+                <TextBox IsVisible="{Binding WorkBasket.IsCreatingNewLibrary}"
+                         PlaceholderText="輸入新書單名稱（選填）…"
+                         FontSize="12"
+                         Text="{Binding WorkBasket.NewLibraryName, Mode=TwoWay}" />
+                <Button Classes="Flat"
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Center"
+                        Padding="10,7"
+                        IsEnabled="{Binding WorkBasket.HasItems}"
+                        Command="{Binding WorkBasket.SaveToLibraryCommand}">
+                  <TextBlock Text="💾 儲存至「⭐ 清單」" FontSize="12.5" FontWeight="SemiBold" />
+                </Button>
+              </StackPanel>
+            </Border>
+
+          </Grid>
+        </suki:GlassCard>
+      </Grid>
     </suki:SukiSideMenu.Content>
 
     <suki:SukiSideMenu.HeaderContent>

@@ -937,13 +937,18 @@ public sealed partial class ExploreWorkCardVm : ExploreCardVmBase
 {
     private readonly Action<ExploreWorkItem> _onRevealInExplorer;
     private readonly Action<ExploreWorkItem>? _onOpenExternal;
+    private readonly Action<ExploreWorkItem>? _onPreview;
+    private readonly Action<ExploreWorkItem>? _onToggleBasket;
 
     public ExploreWorkCardVm(
         ExploreWorkItem work,
         Action<ExploreWorkItem> onOpenWork,
         Action<ExploreWorkItem> onRevealInExplorer,
         Func<Action, Task>? runOnUiAsync = null,
-        Action<ExploreWorkItem>? onOpenExternal = null)
+        Action<ExploreWorkItem>? onOpenExternal = null,
+        Action<ExploreWorkItem>? onPreview = null,
+        Action<ExploreWorkItem>? onToggleBasket = null,
+        bool isInBasket = false)
         : base(
             new[] { work ?? throw new ArgumentNullException(nameof(work)) },
             work.Title,
@@ -954,6 +959,9 @@ public sealed partial class ExploreWorkCardVm : ExploreCardVmBase
         SourceWork = work;
         _onRevealInExplorer = onRevealInExplorer ?? throw new ArgumentNullException(nameof(onRevealInExplorer));
         _onOpenExternal = onOpenExternal;
+        _onPreview = onPreview;
+        _onToggleBasket = onToggleBasket;
+        _isInBasket = isInBasket;
 
         var filteredTags = work.Tags
             .Where(t => !string.Equals(t.Category, "artist", StringComparison.OrdinalIgnoreCase)
@@ -1022,7 +1030,21 @@ public sealed partial class ExploreWorkCardVm : ExploreCardVmBase
 
     public string OverflowTagText => $"+{OverflowTagCount}";
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(BasketButtonText))]
+    [NotifyPropertyChangedFor(nameof(BasketMenuHeader))]
+    private bool _isInBasket;
+
+    public string BasketButtonText => IsInBasket ? "✓ 已入籃" : "📌 挑書";
+    public string BasketMenuHeader => IsInBasket ? "✓ 移出待挑書籃" : "📌 加入待挑書籃";
+
     public override string CountBadgeText => HasPageCount ? $"{PageCountText} · {ReadStatusLabel}" : ReadStatusLabel;
+
+    [RelayCommand]
+    private void Preview() => _onPreview?.Invoke(SourceWork);
+
+    [RelayCommand]
+    private void ToggleBasket() => _onToggleBasket?.Invoke(SourceWork);
 
     [RelayCommand]
     private void RevealInExplorer() => _onRevealInExplorer(SourceWork);

@@ -138,6 +138,8 @@ public sealed partial class GalleryItemVm : ViewModelBase
     private readonly Action<GalleryItemVm>? _onCoverLoaded;
     private readonly Action<GalleryItemVm>? _onOpenInReader;
     private readonly Action<GalleryItemVm>? _onOpenExternal;
+    private readonly Action<GalleryItemVm>? _onPreview;
+    private readonly Action<GalleryItemVm>? _onToggleBasket;
     private readonly Func<Action, Task> _runOnUiAsync;
 
     public GalleryItemVm(
@@ -154,7 +156,10 @@ public sealed partial class GalleryItemVm : ViewModelBase
         Action<GalleryItemVm>? onCoverLoaded = null,
         Action<GalleryItemVm>? onOpenInReader = null,
         Action<GalleryItemVm>? onOpenExternal = null,
-        bool isWorkFolder = false)
+        bool isWorkFolder = false,
+        Action<GalleryItemVm>? onPreview = null,
+        Action<GalleryItemVm>? onToggleBasket = null,
+        bool isInBasket = false)
     {
         SortMetadata = sortMeta ?? throw new ArgumentNullException(nameof(sortMeta));
         Path = sortMeta.Path;
@@ -164,6 +169,7 @@ public sealed partial class GalleryItemVm : ViewModelBase
         IsFolder = sortMeta.IsFolder;
         IsAuthorFolder = isAuthorFolder;
         IsWorkFolder = isFolderWorkEffective(IsFolder, isAuthorFolder, isWorkFolder);
+        _isInBasket = CanPreviewAndBasket && isInBasket;
         SizeBytes = sortMeta.SizeBytes;
         ModifiedTicks = sortMeta.ModifiedTicks;
         ReadStatus = sortMeta.ReadStatus;
@@ -178,6 +184,8 @@ public sealed partial class GalleryItemVm : ViewModelBase
         _onCoverLoaded = onCoverLoaded;
         _onOpenInReader = onOpenInReader;
         _onOpenExternal = onOpenExternal;
+        _onPreview = onPreview;
+        _onToggleBasket = onToggleBasket;
         _runOnUiAsync = runOnUiAsync ?? ExploreCardVmBase.DefaultRunOnUiAsync;
 
         bool treatAsWork = !IsFolder || IsWorkFolder;
@@ -243,6 +251,11 @@ public sealed partial class GalleryItemVm : ViewModelBase
 
     [ObservableProperty]
     private bool _isSelected;
+
+    [ObservableProperty]
+    private bool _isInBasket;
+
+    public bool CanPreviewAndBasket => !IsFolder || IsWorkFolder;
 
     public GalleryItemSortMetadata SortMetadata { get; }
 
@@ -338,6 +351,12 @@ public sealed partial class GalleryItemVm : ViewModelBase
     private void OpenExternal() => _onOpenExternal?.Invoke(this);
 
     [RelayCommand]
+    private void Preview() => _onPreview?.Invoke(this);
+
+    [RelayCommand]
+    private void ToggleBasket() => _onToggleBasket?.Invoke(this);
+
+    [RelayCommand]
     private void InspectDetail() => _onInspectDetail?.Invoke(this);
 
     [RelayCommand]
@@ -405,6 +424,7 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
     private readonly SkiaCoverService _coverService;
     private readonly IExternalLauncher _externalLauncher;
     private readonly IReaderWindowLauncher _readerLauncher;
+    private readonly WorkBasketViewModel? _workBasket;
     private readonly ISukiToastManager? _toastManager;
     private readonly Func<Action, Task> _runOnUiAsync;
     private readonly SemaphoreSlim _coverLoadSemaphore = new(4, 4);
@@ -438,7 +458,11 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
     /// <summary>畫廊主視口滑鼠滾輪單格捲動距離（DIP，預設 200；儲存設定後即時同步）。</summary>
     public double WheelScrollStepDip { get; private set; } = Views.Controls.ScrollWheelStepHelper.DefaultWheelScrollDip;
 
-    public GalleryPageViewModel(AppDataContext dataContext, SkiaCoverService coverService, bool autoLoad = true)
+    public GalleryPageViewModel(
+        AppDataContext dataContext,
+        SkiaCoverService coverService,
+        bool autoLoad = true,
+        WorkBasketViewModel? workBasket = null)
         : this(
             dataContext?.MetaStore ?? throw new ArgumentNullException(nameof(dataContext)),
             coverService,
@@ -448,7 +472,8 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
             ExploreCardVmBase.DefaultRunOnUiAsync,
             autoLoad: autoLoad,
             isReadOnlyDatabase: dataContext.IsReadOnlyDatabase,
-            readerLauncher: new AvaloniaReaderWindowLauncher(dataContext))
+            readerLauncher: new AvaloniaReaderWindowLauncher(dataContext),
+            workBasket: workBasket)
     {
         _dataContext = dataContext;
         SyncWheelScrollStepDip();
@@ -472,12 +497,18 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
         Func<Action, Task>? runOnUiAsync = null,
         bool autoLoad = true,
         bool isReadOnlyDatabase = false,
-        IReaderWindowLauncher? readerLauncher = null)
+        IReaderWindowLauncher? readerLauncher = null,
+        WorkBasketViewModel? workBasket = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _coverService = coverService ?? throw new ArgumentNullException(nameof(coverService));
         _externalLauncher = externalLauncher ?? new SystemExternalLauncher();
         _readerLauncher = readerLauncher ?? new FallbackExternalReaderLauncher(_externalLauncher);
+        _workBasket = workBasket;
+        if (_workBasket != null)
+        {
+            _workBasket.MembershipChanged += OnWorkBasketMembershipChanged;
+        }
         _toastManager = toastManager;
         _runOnUiAsync = runOnUiAsync ?? ExploreCardVmBase.DefaultRunOnUiAsync;
         IsReadOnlyDatabase = isReadOnlyDatabase;
@@ -1382,6 +1413,10 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
         _allRawItems = sameScope
             ? MergeWithExistingItems(_allRawItems, payload.Items)
             : payload.Items;
+        foreach (var item in _allRawItems)
+        {
+            item.IsInBasket = item.CanPreviewAndBasket && (_workBasket?.ContainsPath(item.Path) ?? false);
+        }
 
         var recVms = payload.Recommendations
             .Select(r => new GalleryFuzzyRecommendationVm(r, OnApplyFuzzyRecommendation))
@@ -1776,7 +1811,10 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
                 OnItemCoverLoaded,
                 OnItemOpenInReader,
                 OnItemOpenExternal,
-                isWorkFolder: isWorkFolder));
+                isWorkFolder: isWorkFolder,
+                onPreview: OnItemPreview,
+                onToggleBasket: OnItemToggleBasket,
+                isInBasket: _workBasket?.ContainsPath(entry.Path) ?? false));
         }
 
         return items;
@@ -1849,7 +1887,10 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
                 OnItemCoverLoaded,
                 OnItemOpenInReader,
                 OnItemOpenExternal,
-                isWorkFolder: isWorkFolder));
+                isWorkFolder: isWorkFolder,
+                onPreview: OnItemPreview,
+                onToggleBasket: OnItemToggleBasket,
+                isInBasket: _workBasket?.ContainsPath(path) ?? false));
         }
 
         return items;
@@ -2204,6 +2245,53 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
         DetailDrawer.InspectItem(item, openDrawer: true);
     }
 
+    private void OnItemPreview(GalleryItemVm item)
+    {
+        if (_disposed || _workBasket == null || !item.CanPreviewAndBasket)
+        {
+            return;
+        }
+
+        _workBasket.OpenPreviewForEntry(ToBasketEntry(item));
+    }
+
+    private void OnItemToggleBasket(GalleryItemVm item)
+    {
+        if (_disposed || _workBasket == null || !item.CanPreviewAndBasket)
+        {
+            return;
+        }
+
+        _workBasket.Toggle(ToBasketEntry(item));
+    }
+
+    private static WorkBasketEntry ToBasketEntry(GalleryItemVm item)
+        => new(
+            item.Path,
+            item.DisplayTitle,
+            item.AuthorName,
+            item.CoverSlot.ThumbKey,
+            item.PageCount,
+            item.Language,
+            item.IsFolder);
+
+    private void OnWorkBasketMembershipChanged(string normalizedPath, bool isAdded)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        foreach (var item in _allRawItems)
+        {
+            if (string.IsNullOrEmpty(normalizedPath) ||
+                string.Equals(WorkBasketEntry.NormalizePathKey(item.Path), normalizedPath, StringComparison.OrdinalIgnoreCase))
+            {
+                item.IsInBasket = item.CanPreviewAndBasket && !string.IsNullOrEmpty(normalizedPath) && isAdded;
+            }
+        }
+    }
+
     private void OnItemCoverLoaded(GalleryItemVm item)
     {
         if (ReferenceEquals(_selectedGalleryItem, item))
@@ -2423,6 +2511,10 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
         }
 
         _disposed = true;
+        if (_workBasket != null)
+        {
+            _workBasket.MembershipChanged -= OnWorkBasketMembershipChanged;
+        }
         if (_dataContext != null)
         {
             _dataContext.SettingsChanged -= SyncWheelScrollStepDip;

@@ -82,6 +82,7 @@ public abstract class GalleryItemControlBase : UserControl
         {
             ApplySelectionState(item);
             ApplyCoverState(item);
+            ApplyBasketState(item);
         }
     }
 
@@ -100,6 +101,11 @@ public abstract class GalleryItemControlBase : UserControl
     /// <summary>套用封面與佔位層。</summary>
     protected abstract void ApplyCoverState(GalleryItemVm item);
 
+    /// <summary>套用書籃與預覽狀態。</summary>
+    protected virtual void ApplyBasketState(GalleryItemVm item)
+    {
+    }
+
     private void BindItem(GalleryItemVm item)
     {
         if (ReferenceEquals(_boundItem, item))
@@ -115,6 +121,7 @@ public abstract class GalleryItemControlBase : UserControl
         ApplySelectionState(item);
         ApplyCoverState(item);
         ApplyStaticContent(item);
+        ApplyBasketState(item);
     }
 
     private void EnsureSubscribed()
@@ -150,6 +157,10 @@ public abstract class GalleryItemControlBase : UserControl
         else if (e.PropertyName == nameof(GalleryItemVm.IsSelected))
         {
             ApplySelectionState(item);
+        }
+        else if (e.PropertyName == nameof(GalleryItemVm.IsInBasket))
+        {
+            ApplyBasketState(item);
         }
     }
 

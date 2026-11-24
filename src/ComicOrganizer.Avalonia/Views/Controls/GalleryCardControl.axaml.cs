@@ -59,6 +59,26 @@ public partial class GalleryCardControl : GalleryItemControlBase
 
         SetTextIfChanged(ModifiedText, item.ModifiedDisplay);
         ToolTip.SetTip(ActivateButton, item.PrimaryActionTooltip);
+
+        bool canBasket = item.CanPreviewAndBasket;
+        SetVisibleIfChanged(ModifiedText, !canBasket);
+        SetVisibleIfChanged(PreviewButton, canBasket);
+        SetVisibleIfChanged(BasketButton, canBasket);
+        SetVisibleIfChanged(PreviewMenuItem, canBasket);
+        SetVisibleIfChanged(BasketMenuItem, canBasket);
+        SetVisibleIfChanged(BasketSeparator, canBasket);
+    }
+
+    protected override void ApplyBasketState(GalleryItemVm item)
+    {
+        bool inBasket = item.CanPreviewAndBasket && item.IsInBasket;
+        SetVisibleIfChanged(BasketCornerBadge, inBasket);
+        SetTextIfChanged(BasketButtonText, inBasket ? "✓ 已入籃" : "📌 挑書");
+        var header = inBasket ? "✓ 移出待挑書籃" : "📌 加入待挑書籃";
+        if (!string.Equals(BasketMenuItem.Header as string, header, StringComparison.Ordinal))
+        {
+            BasketMenuItem.Header = header;
+        }
     }
 
     protected override void ApplySelectionState(GalleryItemVm item)
@@ -81,6 +101,12 @@ public partial class GalleryCardControl : GalleryItemControlBase
 
     private void OnActivateClick(object? sender, RoutedEventArgs e)
         => BoundItem?.ActivateCommand.Execute(null);
+
+    private void OnPreviewClick(object? sender, RoutedEventArgs e)
+        => BoundItem?.PreviewCommand.Execute(null);
+
+    private void OnToggleBasketClick(object? sender, RoutedEventArgs e)
+        => BoundItem?.ToggleBasketCommand.Execute(null);
 
     private void OnOpenInReaderClick(object? sender, RoutedEventArgs e)
         => BoundItem?.OpenInReaderCommand.Execute(null);

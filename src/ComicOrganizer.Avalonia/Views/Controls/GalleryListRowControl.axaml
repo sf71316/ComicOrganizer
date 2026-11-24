@@ -12,13 +12,16 @@
                   Margin="0,0,0,6">
     <suki:GlassCard.ContextMenu>
       <ContextMenu>
+        <MenuItem x:Name="PreviewMenuItem" Header="👁 快速預覽內頁" Click="OnPreviewClick" />
+        <MenuItem x:Name="BasketMenuItem" Header="📌 加入待挑書籃" Click="OnToggleBasketClick" />
+        <Separator x:Name="BasketSeparator" />
         <MenuItem Header="📖 以內建閱讀器開啟" Click="OnOpenInReaderClick" />
         <MenuItem Header="↗ 以外部預設程式開啟" Click="OnOpenExternalClick" />
         <MenuItem Header="ℹ 查看 / 編輯詳細資訊" Click="OnInspectDetailClick" />
         <MenuItem Header="📂 在檔案總管中顯示" Click="OnRevealInExplorerClick" />
       </ContextMenu>
     </suki:GlassCard.ContextMenu>
-    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10">
+    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="8">
 
       <!-- 迷你縮圖 -->
       <Border Grid.Column="0"
@@ -90,8 +93,30 @@
                  TextAlignment="Right"
                  VerticalAlignment="Center" />
 
+      <!-- 預覽按鈕 -->
+      <Button x:Name="PreviewButton"
+              Grid.Column="5"
+              Classes="Outlined"
+              Padding="8,4"
+              Click="OnPreviewClick"
+              VerticalAlignment="Center"
+              ToolTip.Tip="小視窗快速預覽多張內頁">
+        <TextBlock Text="👁 預覽" FontSize="11.5" />
+      </Button>
+
+      <!-- 挑書按鈕 -->
+      <Button x:Name="BasketButton"
+              Grid.Column="6"
+              Classes="Outlined"
+              Padding="8,4"
+              Click="OnToggleBasketClick"
+              VerticalAlignment="Center"
+              ToolTip.Tip="加入或移出全域待挑書籃">
+        <TextBlock x:Name="BasketButtonText" Text="📌 挑書" FontSize="11.5" />
+      </Button>
+
       <!-- 詳情抽屜按鈕 -->
-      <Button Grid.Column="5"
+      <Button Grid.Column="7"
               Classes="Outlined"
               Padding="8,4"
               Click="OnInspectDetailClick"
@@ -101,7 +126,7 @@
       </Button>
 
       <!-- 檔案總管定位 -->
-      <Button Grid.Column="6"
+      <Button Grid.Column="8"
               Classes="Outlined"
               Padding="8,4"
               Click="OnRevealInExplorerClick"

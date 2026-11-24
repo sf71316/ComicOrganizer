@@ -12,6 +12,9 @@
                   Margin="0,0,12,12">
     <suki:GlassCard.ContextMenu>
       <ContextMenu>
+        <MenuItem x:Name="PreviewMenuItem" Header="👁 快速預覽內頁" Click="OnPreviewClick" />
+        <MenuItem x:Name="BasketMenuItem" Header="📌 加入待挑書籃" Click="OnToggleBasketClick" />
+        <Separator x:Name="BasketSeparator" />
         <MenuItem Header="📖 以內建閱讀器開啟" Click="OnOpenInReaderClick" />
         <MenuItem Header="↗ 以外部預設程式開啟" Click="OnOpenExternalClick" />
         <MenuItem Header="ℹ 查看 / 編輯詳細資訊" Click="OnInspectDetailClick" />
@@ -76,6 +79,20 @@
                            FontWeight="SemiBold"
                            Foreground="White" />
               </Border>
+              <!-- 左下：已入待挑書籃角標 -->
+              <Border x:Name="BasketCornerBadge"
+                      HorizontalAlignment="Left"
+                      VerticalAlignment="Bottom"
+                      Margin="6"
+                      IsVisible="False"
+                      Background="#D916A34A"
+                      CornerRadius="6"
+                      Padding="6,2">
+                <TextBlock Text="📌 已入籃"
+                           FontSize="10"
+                           FontWeight="SemiBold"
+                           Foreground="White" />
+              </Border>
             </Grid>
           </Border>
 
@@ -98,23 +115,48 @@
         </StackPanel>
       </Button>
 
-      <!-- 底部動作列 -->
-      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4">
+      <!-- 底部動作列（固定單列高度 26，維持 UniformGridLayout 資料夾與作品卡等高） -->
+      <Grid Height="26" ColumnDefinitions="*,*,Auto,Auto" ColumnSpacing="4">
         <TextBlock x:Name="ModifiedText"
                    Grid.Column="0"
+                   Grid.ColumnSpan="2"
                    FontSize="10.5"
                    Opacity="0.55"
                    VerticalAlignment="Center" />
-        <Button Grid.Column="1"
+        <Button x:Name="PreviewButton"
+                Grid.Column="0"
                 Classes="Outlined"
-                Padding="7,3"
-                Click="OnInspectDetailClick"
-                ToolTip.Tip="在右側抽屜查看或編輯詳細資訊">
-          <TextBlock Text="ℹ" FontSize="11.5" FontWeight="SemiBold" />
+                Padding="3,2"
+                Height="26"
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Center"
+                Click="OnPreviewClick"
+                ToolTip.Tip="小視窗快速預覽多張內頁">
+          <TextBlock Text="👁 預覽" FontSize="10.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+        </Button>
+        <Button x:Name="BasketButton"
+                Grid.Column="1"
+                Classes="Outlined"
+                Padding="3,2"
+                Height="26"
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Center"
+                Click="OnToggleBasketClick"
+                ToolTip.Tip="加入或移出全域待挑書籃">
+          <TextBlock x:Name="BasketButtonText" Text="📌 挑書" FontSize="10.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
         </Button>
         <Button Grid.Column="2"
                 Classes="Outlined"
                 Padding="7,3"
+                Height="26"
+                Click="OnInspectDetailClick"
+                ToolTip.Tip="在右側抽屜查看或編輯詳細資訊">
+          <TextBlock Text="ℹ" FontSize="11.5" FontWeight="SemiBold" />
+        </Button>
+        <Button Grid.Column="3"
+                Classes="Outlined"
+                Padding="7,3"
+                Height="26"
                 Click="OnRevealInExplorerClick"
                 ToolTip.Tip="在檔案總管中顯示">
           <TextBlock Text="📂" FontSize="11.5" />

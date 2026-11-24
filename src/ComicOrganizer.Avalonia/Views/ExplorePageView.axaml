@@ -998,12 +998,15 @@
                     <controls:StableDataContextHost>
                     <suki:GlassCard Classes="explore-item-card"
                                     Width="222"
-                                    Height="396"
+                                    Height="422"
                                     CornerRadius="14"
                                     Padding="10"
                                     Margin="0,0,14,14">
                       <suki:GlassCard.ContextMenu>
                         <ContextMenu>
+                          <MenuItem Header="👁 快速預覽內頁" Command="{Binding PreviewCommand}" />
+                          <MenuItem Header="{Binding BasketMenuHeader}" Command="{Binding ToggleBasketCommand}" />
+                          <Separator />
                           <MenuItem Header="📖 以內建閱讀器開啟" Command="{Binding SelectCardCommand}" />
                           <MenuItem Header="↗ 以外部預設程式開啟" Command="{Binding OpenExternalCommand}" />
                           <MenuItem Header="📂 在檔案總管中顯示" Command="{Binding RevealInExplorerCommand}" />
@@ -1068,6 +1071,20 @@
                                              FontWeight="SemiBold"
                                              Foreground="White" />
                                 </Border>
+
+                                <!-- 左下：已入待挑書籃角標 -->
+                                <Border HorizontalAlignment="Left"
+                                        VerticalAlignment="Bottom"
+                                        Margin="7"
+                                        IsVisible="{Binding IsInBasket}"
+                                        Background="#D916A34A"
+                                        CornerRadius="6"
+                                        Padding="7,2">
+                                  <TextBlock Text="📌 已在書籃"
+                                             FontSize="10.5"
+                                             FontWeight="SemiBold"
+                                             Foreground="White" />
+                                </Border>
                               </Grid>
                             </Border>
 
@@ -1089,47 +1106,63 @@
                           </StackPanel>
                         </Button>
 
-                        <!-- 標籤與底部動作列（獨立於開啟按鈕之外，避免雙重觸發） -->
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                          <WrapPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" MaxHeight="44" ClipToBounds="True">
-                            <ItemsControl ItemsSource="{Binding TopDisplayTags}">
-                              <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                  <WrapPanel Orientation="Horizontal" />
-                                </ItemsPanelTemplate>
-                              </ItemsControl.ItemsPanel>
-                              <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="core:ExploreTagBadge">
-                                  <Border Classes="card-mini-tag" Margin="0,0,4,3">
-                                    <TextBlock Text="{Binding DisplayName}"
-                                               FontSize="10.5"
-                                               Opacity="0.88"
-                                               MaxWidth="88"
-                                               TextTrimming="CharacterEllipsis" />
-                                  </Border>
-                                </DataTemplate>
-                              </ItemsControl.ItemTemplate>
-                            </ItemsControl>
+                        <!-- 標籤列 -->
+                        <WrapPanel Orientation="Horizontal" VerticalAlignment="Center" MaxHeight="26" ClipToBounds="True">
+                          <ItemsControl ItemsSource="{Binding TopDisplayTags}">
+                            <ItemsControl.ItemsPanel>
+                              <ItemsPanelTemplate>
+                                <WrapPanel Orientation="Horizontal" />
+                              </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate x:DataType="core:ExploreTagBadge">
+                                <Border Classes="card-mini-tag" Margin="0,0,4,3">
+                                  <TextBlock Text="{Binding DisplayName}"
+                                             FontSize="10.5"
+                                             Opacity="0.88"
+                                             MaxWidth="88"
+                                             TextTrimming="CharacterEllipsis" />
+                                </Border>
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
 
-                            <Border IsVisible="{Binding HasOverflowTags}"
-                                    Background="{DynamicResource SukiPrimaryColor15}"
-                                    CornerRadius="6"
-                                    Padding="5,2"
-                                    Margin="0,0,0,3">
-                              <TextBlock Text="{Binding OverflowTagText}"
-                                         FontSize="10.5"
-                                         FontWeight="SemiBold"
-                                         Foreground="{DynamicResource SukiPrimaryColor}" />
-                            </Border>
-                          </WrapPanel>
+                          <Border IsVisible="{Binding HasOverflowTags}"
+                                  Background="{DynamicResource SukiPrimaryColor15}"
+                                  CornerRadius="6"
+                                  Padding="5,2"
+                                  Margin="0,0,0,3">
+                            <TextBlock Text="{Binding OverflowTagText}"
+                                       FontSize="10.5"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource SukiPrimaryColor}" />
+                          </Border>
+                        </WrapPanel>
 
+                        <!-- 底部動作列：預覽 / 挑書 / 檔案總管 -->
+                        <Grid ColumnDefinitions="*,*,Auto" ColumnSpacing="5">
+                          <Button Grid.Column="0"
+                                  Classes="Outlined"
+                                  Padding="6,4"
+                                  HorizontalContentAlignment="Center"
+                                  Command="{Binding PreviewCommand}"
+                                  ToolTip.Tip="小視窗快速預覽多張內頁">
+                            <TextBlock Text="👁 預覽" FontSize="11" FontWeight="SemiBold" />
+                          </Button>
                           <Button Grid.Column="1"
                                   Classes="Outlined"
+                                  Padding="6,4"
+                                  HorizontalContentAlignment="Center"
+                                  Command="{Binding ToggleBasketCommand}"
+                                  ToolTip.Tip="加入或移出全域待挑書籃">
+                            <TextBlock Text="{Binding BasketButtonText}" FontSize="11" FontWeight="SemiBold" />
+                          </Button>
+                          <Button Grid.Column="2"
+                                  Classes="Outlined"
                                   Padding="7,4"
-                                  VerticalAlignment="Bottom"
                                   Command="{Binding RevealInExplorerCommand}"
                                   ToolTip.Tip="在檔案總管中顯示">
-                            <TextBlock Text="📂" FontSize="12" />
+                            <TextBlock Text="📂" FontSize="11.5" />
                           </Button>
                         </Grid>
 

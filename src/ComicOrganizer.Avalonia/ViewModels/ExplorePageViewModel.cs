@@ -42,6 +42,7 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
     private readonly object _ctsLock = new();
 
     private readonly List<long> _selectedTagIds = [];
+    private readonly WorkBasketViewModel? _workBasket;
     private readonly Dictionary<long, ExploreTagBadge> _selectedTagMetadata = [];
 
     private IReadOnlyList<ExploreAuthorCardVm> _allAuthorCardVms = Array.Empty<ExploreAuthorCardVm>();
@@ -90,7 +91,7 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
     /// <summary>探索牆主視口滑鼠滾輪單格捲動距離（DIP，預設 200；儲存設定後即時同步）。</summary>
     public double WheelScrollStepDip { get; private set; } = Views.Controls.ScrollWheelStepHelper.DefaultWheelScrollDip;
 
-    public ExplorePageViewModel(AppDataContext dataContext, SkiaCoverService coverService, bool autoLoad = true)
+    public ExplorePageViewModel(AppDataContext dataContext, SkiaCoverService coverService, bool autoLoad = true, WorkBasketViewModel? workBasket = null)
         : this(
             new ExploreWallService(
                 (dataContext ?? throw new ArgumentNullException(nameof(dataContext))).MetaStore,
@@ -99,7 +100,8 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
             coverService,
             dataContext.ToastManager,
             autoLoad: autoLoad,
-            readerLauncher: new AvaloniaReaderWindowLauncher(dataContext))
+            readerLauncher: new AvaloniaReaderWindowLauncher(dataContext),
+            workBasket: workBasket)
     {
         _dataContext = dataContext;
         SyncWheelScrollStepDip();
@@ -122,12 +124,18 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
         TimeSpan? searchDebounceDelay = null,
         Func<Action, Task>? runOnUiAsync = null,
         IExternalLauncher? externalLauncher = null,
-        IReaderWindowLauncher? readerLauncher = null)
+        IReaderWindowLauncher? readerLauncher = null,
+        WorkBasketViewModel? workBasket = null)
     {
         _wallService = wallService ?? throw new ArgumentNullException(nameof(wallService));
         _coverService = coverService ?? throw new ArgumentNullException(nameof(coverService));
         _externalLauncher = externalLauncher ?? new SystemExternalLauncher();
         _readerLauncher = readerLauncher ?? new FallbackExternalReaderLauncher(_externalLauncher);
+        _workBasket = workBasket;
+        if (_workBasket != null)
+        {
+            _workBasket.MembershipChanged += OnWorkBasketMembershipChanged;
+        }
         _toastManager = toastManager;
         _searchDebounceDelay = searchDebounceDelay ?? DefaultSearchDebounce;
         _pickerDebounceDelay = TimeSpan.FromMilliseconds(Math.Min(120, _searchDebounceDelay.TotalMilliseconds));
@@ -2114,7 +2122,20 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
             static work => work.Path.ToUpperInvariant(),
             static vm => vm.SourceWork,
             ExploreContentEquality.SameWork,
-            w => new ExploreWorkCardVm(w, OpenWork, RevealWorkInExplorer, _runOnUiAsync, OpenWorkExternal));
+            w => new ExploreWorkCardVm(
+                w,
+                OpenWork,
+                RevealWorkInExplorer,
+                _runOnUiAsync,
+                OpenWorkExternal,
+                OnPreviewWork,
+                OnToggleWorkBasket,
+                isInBasket: _workBasket?.ContainsPath(w.Path) ?? false));
+
+        foreach (var vm in vms)
+        {
+            vm.IsInBasket = _workBasket?.ContainsPath(vm.Path) ?? false;
+        }
 
         // 只清鑽取頁上被丟掉的卡片：進入鑽取時被回收的牆面卡片留在回收佇列，照常依保留上限放掉封面
         ClearRecycledAndRealizedCoverTracking(card => IsDrillDownCard(card) && !kept.Contains(card));
@@ -2173,6 +2194,41 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
         if (!_readerLauncher.OpenInReader(work.Path, work.Title, work.AuthorName, null, out var error))
         {
             ShowToast("開啟閱讀器失敗", error ?? "無法開啟指定檔案或資料夾。", NotificationType.Error, 4);
+        }
+    }
+
+    private void OnPreviewWork(ExploreWorkItem work)
+    {
+        if (_disposed || _workBasket == null) return;
+        _workBasket.OpenPreviewForEntry(ToBasketEntry(work));
+    }
+
+    private void OnToggleWorkBasket(ExploreWorkItem work)
+    {
+        if (_disposed || _workBasket == null) return;
+        _workBasket.Toggle(ToBasketEntry(work));
+    }
+
+    private static WorkBasketEntry ToBasketEntry(ExploreWorkItem work)
+        => new(
+            work.Path,
+            work.Title,
+            work.AuthorName,
+            work.CoverThumbKey,
+            work.PageCount,
+            work.Language,
+            IsFolder: Directory.Exists(work.Path));
+
+    private void OnWorkBasketMembershipChanged(string normalizedPath, bool isAdded)
+    {
+        if (_disposed) return;
+        foreach (var vm in _allFilteredDrillDownWorkVms)
+        {
+            if (string.IsNullOrEmpty(normalizedPath) ||
+                string.Equals(WorkBasketEntry.NormalizePathKey(vm.Path), normalizedPath, StringComparison.OrdinalIgnoreCase))
+            {
+                vm.IsInBasket = !string.IsNullOrEmpty(normalizedPath) && isAdded;
+            }
         }
     }
 
@@ -2385,6 +2441,10 @@ public sealed partial class ExplorePageViewModel : ViewModelBase, IDisposable
         }
 
         _disposed = true;
+        if (_workBasket != null)
+        {
+            _workBasket.MembershipChanged -= OnWorkBasketMembershipChanged;
+        }
         if (_dataContext != null)
         {
             _dataContext.SettingsChanged -= SyncWheelScrollStepDip;
