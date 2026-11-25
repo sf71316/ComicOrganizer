@@ -23,7 +23,8 @@ public sealed partial class AutoArchiveCandidateVm : ObservableObject
     private readonly Action<AutoArchiveCandidateVm> _onInspectInReader;
     private readonly Action<AutoArchiveCandidateVm> _onRevealInExplorer;
     private readonly Action<AutoArchiveCandidateVm> _onRemoveFromList;
-    private readonly Action _onSelectionChanged;
+    private readonly Action<AutoArchiveCandidateVm> _onCheckedChanged;
+    private readonly Action<AutoArchiveCandidateVm> _onTargetFolderChanged;
     private bool _suppressChangeNotify;
 
     public AutoArchiveCandidateVm(
@@ -38,7 +39,8 @@ public sealed partial class AutoArchiveCandidateVm : ObservableObject
         Action<AutoArchiveCandidateVm> onInspectInReader,
         Action<AutoArchiveCandidateVm> onRevealInExplorer,
         Action<AutoArchiveCandidateVm> onRemoveFromList,
-        Action onSelectionChanged)
+        Action<AutoArchiveCandidateVm> onCheckedChanged,
+        Action<AutoArchiveCandidateVm> onTargetFolderChanged)
     {
         SourceName = sourceName;
         SourceFullPath = sourceFullPath;
@@ -49,7 +51,8 @@ public sealed partial class AutoArchiveCandidateVm : ObservableObject
         _onInspectInReader = onInspectInReader;
         _onRevealInExplorer = onRevealInExplorer;
         _onRemoveFromList = onRemoveFromList;
-        _onSelectionChanged = onSelectionChanged;
+        _onCheckedChanged = onCheckedChanged;
+        _onTargetFolderChanged = onTargetFolderChanged;
 
         _suppressChangeNotify = true;
         try
@@ -105,33 +108,54 @@ public sealed partial class AutoArchiveCandidateVm : ObservableObject
         ? Path.Combine(_rootDirectory, SelectedTargetFolder)
         : string.Empty;
 
+    public void SetCheckedSilently(bool isChecked)
+    {
+        if (IsChecked == isChecked)
+        {
+            return;
+        }
+
+        _suppressChangeNotify = true;
+        try
+        {
+            IsChecked = isChecked;
+        }
+        finally
+        {
+            _suppressChangeNotify = false;
+        }
+    }
+
     partial void OnIsCheckedChanged(bool value)
     {
         if (!_suppressChangeNotify)
-            _onSelectionChanged();
+            _onCheckedChanged(this);
     }
 
     partial void OnSelectedTargetFolderChanged(string value)
     {
         if (_suppressChangeNotify) return;
 
-        if (HasValidDestination)
+        _suppressChangeNotify = true;
+        try
         {
-            MatchSourceLabel = "✏️ 手動指定";
-            if (!IsChecked)
+            if (HasValidDestination)
             {
+                MatchSourceLabel = "✏️ 手動指定";
                 IsChecked = true;
             }
-        }
-        else
-        {
-            MatchSourceLabel = "❓ 未匹配";
-            if (IsChecked)
+            else
             {
+                MatchSourceLabel = "❓ 未匹配";
                 IsChecked = false;
             }
         }
-        _onSelectionChanged();
+        finally
+        {
+            _suppressChangeNotify = false;
+        }
+
+        _onTargetFolderChanged(this);
     }
 
     [RelayCommand]
@@ -142,6 +166,154 @@ public sealed partial class AutoArchiveCandidateVm : ObservableObject
 
     [RelayCommand]
     private void RemoveFromList() => _onRemoveFromList(this);
+}
+
+/// <summary>
+/// 依目標目錄彙整的自動歸檔群組 ViewModel：支援整組勾選、展開／收合與最低信心提醒。
+/// </summary>
+public sealed partial class AutoArchiveTargetGroupVm : ObservableObject
+{
+    private readonly Action _onGroupCheckBatchChanged;
+    private readonly Action<string, bool> _onExpandStateChanged;
+    private bool _suppressGroupCheck;
+
+    public AutoArchiveTargetGroupVm(
+        string targetFolderName,
+        bool isUnmatchedGroup,
+        IReadOnlyList<AutoArchiveCandidateVm> items,
+        bool isExpanded,
+        Action onGroupCheckBatchChanged,
+        Action<string, bool> onExpandStateChanged)
+    {
+        TargetFolderName = targetFolderName;
+        IsUnmatchedGroup = isUnmatchedGroup;
+        _isExpanded = isExpanded;
+        _onGroupCheckBatchChanged = onGroupCheckBatchChanged;
+        _onExpandStateChanged = onExpandStateChanged;
+
+        foreach (var item in items)
+        {
+            Items.Add(item);
+        }
+
+        RefreshStats();
+    }
+
+    public string TargetFolderName { get; }
+    public bool IsUnmatchedGroup { get; }
+    public ObservableCollection<AutoArchiveCandidateVm> Items { get; } = new();
+
+    public string GroupHeaderTitle => IsUnmatchedGroup ? "❓ 尚未匹配目標目錄" : $"📁 {TargetFolderName}";
+    public int TotalCount => Items.Count;
+    public int CheckedCount => Items.Count(i => i.IsChecked);
+
+    public string SummaryBadgeText => IsUnmatchedGroup
+        ? $"共 {TotalCount} 筆待指定 · 已勾選 {CheckedCount} 筆"
+        : $"共 {TotalCount} 筆 · 已勾選 {CheckedCount} 筆";
+
+    public bool HasConfidenceBadge
+    {
+        get
+        {
+            if (IsUnmatchedGroup)
+            {
+                return false;
+            }
+
+            return Items.Any(i => i.Confidence > 0);
+        }
+    }
+
+    public bool HasLowConfidenceItem =>
+        !IsUnmatchedGroup && Items.Any(i => i.Confidence > 0 && i.Confidence < 85.0);
+
+    public bool HasNormalConfidenceBadge => HasConfidenceBadge && !HasLowConfidenceItem;
+
+    public string GroupConfidenceBadgeText
+    {
+        get
+        {
+            if (IsUnmatchedGroup)
+            {
+                return string.Empty;
+            }
+
+            var confs = Items.Where(i => i.Confidence > 0).Select(i => i.Confidence).ToList();
+            if (confs.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            double min = confs.Min();
+            double max = confs.Max();
+            if (min < 85.0)
+            {
+                return $"含低信心 (最低 {min:F0}%)";
+            }
+
+            return Math.Abs(max - min) < 0.5 ? $"{min:F0}%" : $"{min:F0}%–{max:F0}%";
+        }
+    }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ExpandGlyph))]
+    private bool _isExpanded;
+
+    public string ExpandGlyph => IsExpanded ? "▾" : "▸";
+
+    [ObservableProperty]
+    private bool? _isGroupChecked;
+
+    partial void OnIsGroupCheckedChanged(bool? value)
+    {
+        if (_suppressGroupCheck)
+        {
+            return;
+        }
+
+        bool next = value == true;
+        foreach (var item in Items)
+        {
+            item.SetCheckedSilently(next);
+        }
+
+        RefreshStats();
+        _onGroupCheckBatchChanged();
+    }
+
+    partial void OnIsExpandedChanged(bool value)
+    {
+        _onExpandStateChanged(TargetFolderName, value);
+    }
+
+    public void RefreshStats()
+    {
+        int total = Items.Count;
+        int checkedCount = Items.Count(i => i.IsChecked);
+
+        _suppressGroupCheck = true;
+        try
+        {
+            IsGroupChecked = total == 0 || checkedCount == 0
+                ? false
+                : (checkedCount == total ? true : null);
+        }
+        finally
+        {
+            _suppressGroupCheck = false;
+        }
+
+        OnPropertyChanged(nameof(TotalCount));
+        OnPropertyChanged(nameof(CheckedCount));
+        OnPropertyChanged(nameof(SummaryBadgeText));
+        OnPropertyChanged(nameof(HasConfidenceBadge));
+        OnPropertyChanged(nameof(HasLowConfidenceItem));
+        OnPropertyChanged(nameof(HasNormalConfidenceBadge));
+        OnPropertyChanged(nameof(GroupConfidenceBadgeText));
+    }
+
+    [RelayCommand]
+    private void ToggleExpand() => IsExpanded = !IsExpanded;
 }
 
 /// <summary>
@@ -159,6 +331,7 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
     private readonly Func<Action, Task> _runOnUiAsync;
 
     private readonly List<AutoArchiveCandidateVm> _allCandidates = new();
+    private readonly HashSet<string> _collapsedGroupKeys = new(StringComparer.Ordinal);
     private MappingIntelligence? _intelligence;
 
     public AutoArchivePageViewModel(
@@ -184,6 +357,7 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
         "🔒 共用開發庫唯讀保護中（可自由掃描比對與執行 🧪 模擬測試；實際搬移檔案與寫入 mappings.json / cache.db 已鎖定防止異動）";
 
     public ObservableCollection<AutoArchiveCandidateVm> VisibleCandidates { get; } = new();
+    public ObservableCollection<AutoArchiveTargetGroupVm> TargetGroups { get; } = new();
 
     [ObservableProperty]
     private string _unorganizedDirectoryText = "尚未設定";
@@ -202,6 +376,10 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
 
     [ObservableProperty]
     private AutoArchiveFilterTab _activeFilterTab = AutoArchiveFilterTab.All;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsFlatView))]
+    private bool _isGroupedView = true;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanExecuteRealMove))]
@@ -223,6 +401,7 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
     public bool CanExecuteRealMove => IsWritable && !IsBusy && CheckedCount > 0;
     public bool CanSimulate => !IsBusy && CheckedCount > 0;
     public bool HasCandidates => VisibleCandidates.Count > 0;
+    public bool IsFlatView => !IsGroupedView;
 
     public bool IsAllFilterTab => ActiveFilterTab == AutoArchiveFilterTab.All;
     public bool IsCheckedFilterTab => ActiveFilterTab == AutoArchiveFilterTab.CheckedOnly;
@@ -319,7 +498,8 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
                         OnInspectInReader,
                         OnRevealInExplorer,
                         OnRemoveCandidate,
-                        UpdateSelectionCounts));
+                        OnCandidateCheckedChanged,
+                        OnCandidateTargetFolderChanged));
                 }
 
                 return list
@@ -363,27 +543,53 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private void SelectViewMode(string mode)
+    {
+        IsGroupedView = !string.Equals(mode, "Flat", StringComparison.OrdinalIgnoreCase);
+    }
+
+    [RelayCommand]
+    private void ExpandAllGroups()
+    {
+        _collapsedGroupKeys.Clear();
+        foreach (var group in TargetGroups)
+        {
+            group.IsExpanded = true;
+        }
+    }
+
+    [RelayCommand]
+    private void CollapseAllGroups()
+    {
+        foreach (var group in TargetGroups)
+        {
+            _collapsedGroupKeys.Add(group.TargetFolderName);
+            group.IsExpanded = false;
+        }
+    }
+
+    [RelayCommand]
     private void CheckHighConfidence()
     {
         foreach (var c in _allCandidates)
-            c.IsChecked = c.HasValidDestination && c.Confidence >= 85.0;
-        UpdateSelectionCounts();
+            c.SetCheckedSilently(c.HasValidDestination && c.Confidence >= 85.0);
+        RefreshAfterBatchCheckChange();
     }
 
     [RelayCommand]
     private void CheckAllMatched()
     {
         foreach (var c in _allCandidates)
-            c.IsChecked = c.HasValidDestination;
-        UpdateSelectionCounts();
+            c.SetCheckedSilently(c.HasValidDestination);
+        RefreshAfterBatchCheckChange();
     }
 
     [RelayCommand]
     private void UncheckAll()
     {
         foreach (var c in _allCandidates)
-            c.IsChecked = false;
-        UpdateSelectionCounts();
+            c.SetCheckedSilently(false);
+        RefreshAfterBatchCheckChange();
     }
 
     [RelayCommand]
@@ -501,7 +707,7 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
             await _runOnUiAsync(() =>
             {
                 RefreshConfigSummary();
-                UpdateSelectionCounts();
+                RefreshAfterBatchCheckChange();
                 string actionWord = isDryRun ? "模擬測試完成" : "歸檔搬檔完成";
                 StatusMessage = $"{actionWord}：成功 {okCount} 筆，略過／失敗 {skipOrFailCount} 筆";
                 ShowToast(
@@ -592,6 +798,7 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
     private void ApplyFilterOnUi()
     {
         VisibleCandidates.Clear();
+        TargetGroups.Clear();
         var kw = string.IsNullOrWhiteSpace(FilterKeyword) ? null : FilterKeyword.Trim();
 
         foreach (var item in _allCandidates)
@@ -611,7 +818,97 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
             VisibleCandidates.Add(item);
         }
 
+        var grouped = VisibleCandidates
+            .GroupBy(c => c.HasValidDestination ? c.SelectedTargetFolder : "未匹配", StringComparer.Ordinal)
+            .Select(g => new
+            {
+                Key = g.Key,
+                IsUnmatched = string.Equals(g.Key, "未匹配", StringComparison.Ordinal),
+                Items = g.OrderByDescending(i => i.Confidence)
+                         .ThenBy(i => i.SourceName, NaturalStringComparer.Instance)
+                         .ToList()
+            })
+            .OrderBy(g => g.IsUnmatched ? 1 : 0)
+            .ThenByDescending(g => g.Items.Count)
+            .ThenBy(g => g.Key, NaturalStringComparer.Instance);
+
+        foreach (var entry in grouped)
+        {
+            bool expanded = !_collapsedGroupKeys.Contains(entry.Key);
+            TargetGroups.Add(new AutoArchiveTargetGroupVm(
+                entry.Key,
+                entry.IsUnmatched,
+                entry.Items,
+                expanded,
+                OnGroupCheckBatchChanged,
+                OnGroupExpandStateChanged));
+        }
+
         OnPropertyChanged(nameof(HasCandidates));
+    }
+
+    private void OnCandidateCheckedChanged(AutoArchiveCandidateVm item)
+    {
+        if (ActiveFilterTab == AutoArchiveFilterTab.CheckedOnly)
+        {
+            ApplyFilterOnUi();
+        }
+        else
+        {
+            RefreshTargetGroupStats();
+        }
+
+        UpdateSelectionCounts();
+    }
+
+    private void OnCandidateTargetFolderChanged(AutoArchiveCandidateVm item)
+    {
+        ApplyFilterOnUi();
+        UpdateSelectionCounts();
+    }
+
+    private void OnGroupCheckBatchChanged()
+    {
+        if (ActiveFilterTab == AutoArchiveFilterTab.CheckedOnly)
+        {
+            ApplyFilterOnUi();
+        }
+
+        UpdateSelectionCounts();
+    }
+
+    private void OnGroupExpandStateChanged(string groupKey, bool isExpanded)
+    {
+        if (isExpanded)
+        {
+            _collapsedGroupKeys.Remove(groupKey);
+        }
+        else
+        {
+            _collapsedGroupKeys.Add(groupKey);
+        }
+    }
+
+    private void RefreshAfterBatchCheckChange()
+    {
+        if (ActiveFilterTab == AutoArchiveFilterTab.CheckedOnly)
+        {
+            ApplyFilterOnUi();
+        }
+        else
+        {
+            RefreshTargetGroupStats();
+        }
+
+        UpdateSelectionCounts();
+    }
+
+    private void RefreshTargetGroupStats()
+    {
+        foreach (var group in TargetGroups)
+        {
+            group.RefreshStats();
+        }
     }
 
     private void UpdateSelectionCounts()

@@ -335,4 +335,111 @@ public sealed class Phase4ManagementTests : IDisposable
         Assert.True(mainVm.AccentOptions.Single(x => x.Name == "Sage").IsSelected);
         Assert.False(mainVm.AccentOptions.Single(x => x.Name == "SlateBlue").IsSelected);
     }
+
+    [Fact]
+    public async Task AutoArchive_GroupsByTargetFolder_SupportsGroupToggleReassignAndExpandState()
+    {
+        var dataDir = CreateTempDir("GroupData");
+        var srcDir = CreateTempDir("GroupSrc");
+        var rootDir = CreateTempDir("GroupRoot");
+
+        var authorLong = "VeryLongCircleName(很長的作者與社團名稱範例測試目錄)";
+        var authorB = "BetaArtist";
+        Directory.CreateDirectory(Path.Combine(rootDir, authorLong));
+        Directory.CreateDirectory(Path.Combine(rootDir, authorB));
+
+        // 建立來源：2 筆會配對到 authorLong，1 筆會配對到 BetaArtist，1 筆完全未匹配
+        foreach (var srcName in new[]
+        {
+            $"[2024] [{authorLong}] First Super Long Comic Title 01",
+            $"[2024] [{authorLong}] Second Super Long Comic Title 02",
+            $"[2024] [{authorB}] Single Beta Comic",
+            "CompletelyUnmatched_MysteryBook_999"
+        })
+        {
+            var dir = Path.Combine(srcDir, srcName);
+            Directory.CreateDirectory(dir);
+            WriteDummyImage(Path.Combine(dir, "001.png"));
+        }
+
+        await File.WriteAllTextAsync(
+            Path.Combine(dataDir, "appsettings.json"),
+            JsonSerializer.Serialize(new AppConfig
+            {
+                UnorganizedDirectory = srcDir,
+                RootDirectory = rootDir,
+                MaxScanDepth = 2
+            }));
+        using (var initStore = new SqliteAssetMetaStore(Path.Combine(dataDir, "cache.db")))
+        {
+            Assert.NotNull(initStore);
+        }
+
+        using var ctx = new AppDataContext(explicitDataDirectory: dataDir, forceReadOnlyDatabase: false);
+        var vm = new AutoArchivePageViewModel(ctx, runOnUiAsync: ImmediateUiAsync);
+
+        // 預設依目錄分群顯示
+        Assert.True(vm.IsGroupedView);
+        Assert.False(vm.IsFlatView);
+
+        await vm.ScanAsync();
+        Assert.Equal(4, vm.TotalScannedCount);
+        Assert.Equal(2, vm.TargetGroups.Count);
+
+        // 依項目數排序，同時低信心項目（Fuzzy 低分）會標記 HasLowConfidenceItem
+        var groupLong = vm.TargetGroups.Single(g => g.TargetFolderName == authorLong);
+        var groupBeta = vm.TargetGroups.Single(g => g.TargetFolderName == authorB);
+        Assert.True(groupLong.TotalCount >= 2);
+        Assert.True(groupBeta.TotalCount >= 1);
+        Assert.Contains(vm.TargetGroups, g => g.HasLowConfidenceItem);
+
+        // 先確保 groupLong 有完整 2 筆再做整組勾選／半選驗證
+        var lowConfidenceItem = vm.VisibleCandidates.Single(c => c.SourceName == "CompletelyUnmatched_MysteryBook_999");
+        Assert.False(lowConfidenceItem.IsChecked);
+
+        // 手動設為「未匹配」會獨立出底部第 3 組「❓ 尚未匹配目標目錄」
+        lowConfidenceItem.SelectedTargetFolder = "未匹配";
+        Assert.Equal(3, vm.TargetGroups.Count);
+        Assert.Equal(authorLong, vm.TargetGroups[0].TargetFolderName);
+        Assert.Equal(2, vm.TargetGroups[0].TotalCount);
+        Assert.Equal(authorB, vm.TargetGroups[1].TargetFolderName);
+        Assert.Single(vm.TargetGroups[1].Items);
+        Assert.True(vm.TargetGroups[2].IsUnmatchedGroup);
+
+        // 整組取消勾選與全選同步
+        vm.TargetGroups[0].IsGroupChecked = false;
+        Assert.All(vm.TargetGroups[0].Items, i => Assert.False(i.IsChecked));
+        Assert.Equal(1, vm.CheckedCount);
+
+        vm.TargetGroups[0].IsGroupChecked = true;
+        Assert.All(vm.TargetGroups[0].Items, i => Assert.True(i.IsChecked));
+        Assert.Equal(3, vm.CheckedCount);
+
+        // 單筆取消勾選會將群組轉為半選 (null)
+        vm.TargetGroups[0].Items[0].IsChecked = false;
+        Assert.Null(vm.TargetGroups[0].IsGroupChecked);
+        Assert.Equal(1, vm.TargetGroups[0].CheckedCount);
+
+        // 收合後重組（改選另一項目的目標目錄）應記憶收合狀態
+        vm.TargetGroups[1].ToggleExpandCommand.Execute(null);
+        Assert.False(vm.TargetGroups[1].IsExpanded);
+
+        // 將「未匹配」項目手動改派到 BetaArtist，應自動重新歸入 BetaArtist 且展開狀態維持記憶
+        var unmatchedItem = vm.TargetGroups[2].Items[0];
+        unmatchedItem.SelectedTargetFolder = authorB;
+
+        Assert.Equal(2, vm.TargetGroups.Count);
+        var updatedBetaGroup = vm.TargetGroups.Single(g => g.TargetFolderName == authorB);
+        Assert.Equal(2, updatedBetaGroup.TotalCount);
+        Assert.False(updatedBetaGroup.IsExpanded);
+
+        // 全部展開／收合與切換平面檢視皆正常運作
+        vm.ExpandAllGroupsCommand.Execute(null);
+        Assert.All(vm.TargetGroups, g => Assert.True(g.IsExpanded));
+
+        vm.SelectViewModeCommand.Execute("Flat");
+        Assert.True(vm.IsFlatView);
+        Assert.False(vm.IsGroupedView);
+        Assert.Equal(4, vm.VisibleCandidates.Count);
+    }
 }

@@ -5,6 +5,93 @@
              x:Class="ComicOrganizer.Avalonia.Views.AutoArchivePageView"
              x:DataType="vm:AutoArchivePageViewModel">
 
+  <UserControl.Resources>
+    <!-- 分群檢視與平面列表共用的單筆候選項目列（支援來源與目標目錄名稱自動斷行） -->
+    <DataTemplate x:Key="AutoArchiveCandidateRowTemplate" x:DataType="vm:AutoArchiveCandidateVm">
+      <Border Margin="0,3"
+              Padding="10,8"
+              CornerRadius="9"
+              BorderThickness="1"
+              BorderBrush="{DynamicResource SukiBorderBrush}">
+        <Grid ColumnDefinitions="Auto,*,Auto,260,Auto,Auto" ColumnSpacing="10">
+          <CheckBox Grid.Column="0"
+                    IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                    VerticalAlignment="Center" />
+
+          <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+              <Border Grid.Column="0"
+                      CornerRadius="5"
+                      Padding="6,2"
+                      Background="#16808080"
+                      VerticalAlignment="Top"
+                      Margin="0,1,0,0">
+                <TextBlock Text="{Binding TypeBadgeText}" FontSize="10.5" FontWeight="SemiBold" />
+              </Border>
+              <TextBlock Grid.Column="1"
+                         Text="{Binding SourceName}"
+                         FontSize="13"
+                         FontWeight="SemiBold"
+                         TextWrapping="Wrap"
+                         VerticalAlignment="Center"
+                         ToolTip.Tip="{Binding SourceFullPath}" />
+            </Grid>
+            <TextBlock Text="{Binding ExecutionMessage}"
+                       FontSize="11"
+                       Opacity="0.68"
+                       IsVisible="{Binding ExecutionMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+
+          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <TextBlock Text="{Binding MatchSourceLabel}" FontSize="11.5" VerticalAlignment="Center" />
+            <Border CornerRadius="5" Padding="6,2" Background="{DynamicResource SukiPrimaryColor15}">
+              <TextBlock Text="{Binding ConfidenceText}"
+                         FontSize="11.5"
+                         FontWeight="Bold"
+                         Foreground="{DynamicResource SukiPrimaryColor}" />
+            </Border>
+          </StackPanel>
+
+          <ComboBox Grid.Column="3"
+                    ItemsSource="{Binding TargetFolderOptions}"
+                    SelectedItem="{Binding SelectedTargetFolder, Mode=TwoWay}"
+                    FontSize="12"
+                    MinHeight="34"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Center"
+                    ToolTip.Tip="{Binding DestinationPath}">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="x:String">
+                <TextBlock Text="{Binding}" TextWrapping="Wrap" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+
+          <Border Grid.Column="4"
+                  CornerRadius="6"
+                  Padding="8,3"
+                  Background="#14808080"
+                  VerticalAlignment="Center">
+            <TextBlock Text="{Binding ExecutionStatus}" FontSize="11.5" />
+          </Border>
+
+          <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+            <Button Classes="Basic" Padding="6,4" Command="{Binding InspectInReaderCommand}" ToolTip.Tip="以內建閱讀器預覽內容">
+              <TextBlock Text="📖" FontSize="12" />
+            </Button>
+            <Button Classes="Basic" Padding="6,4" Command="{Binding RevealInExplorerCommand}" ToolTip.Tip="在檔案總管中顯示">
+              <TextBlock Text="📂" FontSize="12" />
+            </Button>
+            <Button Classes="Basic" Padding="6,4" Command="{Binding RemoveFromListCommand}" ToolTip.Tip="從預覽清單移除">
+              <TextBlock Text="×" FontSize="13" />
+            </Button>
+          </StackPanel>
+        </Grid>
+      </Border>
+    </DataTemplate>
+  </UserControl.Resources>
+
   <UserControl.Styles>
     <Style Selector="Border.filter-pill">
       <Setter Property="CornerRadius" Value="7" />
@@ -118,49 +205,79 @@
       </StackPanel>
     </suki:GlassCard>
 
-    <!-- 2. 預覽清單篩選與批次勾選列 -->
+    <!-- 2. 檢視模式、篩選與批次勾選列 -->
     <suki:GlassCard Grid.Row="1" CornerRadius="12" Padding="12,8" Margin="0,0,0,10">
-      <Grid ColumnDefinitions="Auto,Auto,*,Auto">
-        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-          <Button Classes="Basic" Padding="0" Command="{Binding SelectFilterTabCommand}" CommandParameter="All">
-            <Border Classes="filter-pill" Classes.active="{Binding IsAllFilterTab}">
-              <TextBlock Text="{Binding TotalScannedCount, StringFormat='全部 ({0})'}" FontSize="12" />
-            </Border>
-          </Button>
-          <Button Classes="Basic" Padding="0" Command="{Binding SelectFilterTabCommand}" CommandParameter="Checked">
-            <Border Classes="filter-pill" Classes.active="{Binding IsCheckedFilterTab}">
-              <TextBlock Text="{Binding CheckedCount, StringFormat='已勾選 ({0})'}" FontSize="12" />
-            </Border>
-          </Button>
-          <Button Classes="Basic" Padding="0" Command="{Binding SelectFilterTabCommand}" CommandParameter="Unmatched">
-            <Border Classes="filter-pill" Classes.active="{Binding IsUnmatchedFilterTab}">
-              <TextBlock Text="{Binding UnmatchedCount, StringFormat='未匹配 ({0})'}" FontSize="12" />
-            </Border>
-          </Button>
-        </StackPanel>
+      <StackPanel Spacing="7">
+        <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+          <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+            <Button Classes="Basic" Padding="0" Command="{Binding SelectViewModeCommand}" CommandParameter="Grouped">
+              <Border Classes="filter-pill" Classes.active="{Binding IsGroupedView}">
+                <TextBlock Text="📂 依目錄分群" FontSize="12" />
+              </Border>
+            </Button>
+            <Button Classes="Basic" Padding="0" Command="{Binding SelectViewModeCommand}" CommandParameter="Flat">
+              <Border Classes="filter-pill" Classes.active="{Binding IsFlatView}">
+                <TextBlock Text="📋 項目列表" FontSize="12" />
+              </Border>
+            </Button>
+          </StackPanel>
 
-        <Border Grid.Column="1" Width="1" Height="18" Background="{DynamicResource SukiBorderBrush}" Margin="10,0" />
+          <Border Grid.Column="1" Width="1" Height="18" Background="{DynamicResource SukiBorderBrush}" Margin="10,0" />
 
-        <TextBox Grid.Column="2"
-                 MaxWidth="320"
-                 HorizontalAlignment="Left"
-                 PlaceholderText="過濾來源名稱或目標目錄…"
-                 Text="{Binding FilterKeyword, Mode=TwoWay}"
-                 FontSize="12"
-                 VerticalAlignment="Center" />
+          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+            <Button Classes="Basic" Padding="0" Command="{Binding SelectFilterTabCommand}" CommandParameter="All">
+              <Border Classes="filter-pill" Classes.active="{Binding IsAllFilterTab}">
+                <TextBlock Text="{Binding TotalScannedCount, StringFormat='全部 ({0})'}" FontSize="12" />
+              </Border>
+            </Button>
+            <Button Classes="Basic" Padding="0" Command="{Binding SelectFilterTabCommand}" CommandParameter="Checked">
+              <Border Classes="filter-pill" Classes.active="{Binding IsCheckedFilterTab}">
+                <TextBlock Text="{Binding CheckedCount, StringFormat='已勾選 ({0})'}" FontSize="12" />
+              </Border>
+            </Button>
+            <Button Classes="Basic" Padding="0" Command="{Binding SelectFilterTabCommand}" CommandParameter="Unmatched">
+              <Border Classes="filter-pill" Classes.active="{Binding IsUnmatchedFilterTab}">
+                <TextBlock Text="{Binding UnmatchedCount, StringFormat='未匹配 ({0})'}" FontSize="12" />
+              </Border>
+            </Button>
+          </StackPanel>
 
-        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-          <Button Classes="Outlined" Padding="9,4" Command="{Binding CheckHighConfidenceCommand}">
-            <TextBlock Text="勾選高信心 (≥85%)" FontSize="11.5" />
-          </Button>
-          <Button Classes="Outlined" Padding="9,4" Command="{Binding CheckAllMatchedCommand}">
-            <TextBlock Text="全選已匹配" FontSize="11.5" />
-          </Button>
-          <Button Classes="Basic" Padding="9,4" Command="{Binding UncheckAllCommand}">
-            <TextBlock Text="全不選" FontSize="11.5" />
-          </Button>
-        </StackPanel>
-      </Grid>
+          <StackPanel Grid.Column="3"
+                      Orientation="Horizontal"
+                      Spacing="6"
+                      VerticalAlignment="Center"
+                      IsVisible="{Binding IsGroupedView}">
+            <Button Classes="Basic" Padding="8,4" Command="{Binding ExpandAllGroupsCommand}">
+              <TextBlock Text="全部展開" FontSize="11.5" />
+            </Button>
+            <Button Classes="Basic" Padding="8,4" Command="{Binding CollapseAllGroupsCommand}">
+              <TextBlock Text="全部收合" FontSize="11.5" />
+            </Button>
+          </StackPanel>
+        </Grid>
+
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+          <TextBox Grid.Column="0"
+                   MaxWidth="360"
+                   HorizontalAlignment="Left"
+                   PlaceholderText="過濾來源名稱或目標目錄…"
+                   Text="{Binding FilterKeyword, Mode=TwoWay}"
+                   FontSize="12"
+                   VerticalAlignment="Center" />
+
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <Button Classes="Outlined" Padding="9,4" Command="{Binding CheckHighConfidenceCommand}">
+              <TextBlock Text="勾選高信心 (≥85%)" FontSize="11.5" />
+            </Button>
+            <Button Classes="Outlined" Padding="9,4" Command="{Binding CheckAllMatchedCommand}">
+              <TextBlock Text="全選已匹配" FontSize="11.5" />
+            </Button>
+            <Button Classes="Basic" Padding="9,4" Command="{Binding UncheckAllCommand}">
+              <TextBlock Text="全不選" FontSize="11.5" />
+            </Button>
+          </StackPanel>
+        </Grid>
+      </StackPanel>
     </suki:GlassCard>
 
     <!-- 3. 預覽與微調清單主區 -->
@@ -180,78 +297,90 @@
         <ScrollViewer IsVisible="{Binding HasCandidates}"
                       HorizontalScrollBarVisibility="Disabled"
                       VerticalScrollBarVisibility="Auto">
-          <ItemsControl ItemsSource="{Binding VisibleCandidates}" Margin="0,0,8,0">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:AutoArchiveCandidateVm">
-                <Border Margin="0,3"
-                        Padding="10,8"
-                        CornerRadius="9"
-                        BorderThickness="1"
-                        BorderBrush="{DynamicResource SukiBorderBrush}">
-                  <Grid ColumnDefinitions="Auto,*,Auto,230,Auto,Auto" ColumnSpacing="10">
-                    <CheckBox Grid.Column="0"
-                              IsChecked="{Binding IsChecked, Mode=TwoWay}"
-                              VerticalAlignment="Center" />
+          <StackPanel Margin="0,0,8,0">
+            <!-- 依目標目錄分群檢視 -->
+            <ItemsControl IsVisible="{Binding IsGroupedView}"
+                          ItemsSource="{Binding TargetGroups}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:AutoArchiveTargetGroupVm">
+                  <Border Margin="0,4"
+                          CornerRadius="12"
+                          ClipToBounds="True"
+                          BorderThickness="1"
+                          BorderBrush="{DynamicResource SukiBorderBrush}"
+                          Background="#0B808080">
+                    <StackPanel>
+                      <Border Padding="12,9"
+                              Background="#12808080">
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="10">
+                          <CheckBox Grid.Column="0"
+                                    IsChecked="{Binding IsGroupChecked, Mode=TwoWay}"
+                                    VerticalAlignment="Center"
+                                    ToolTip.Tip="一鍵全選／取消此目標目錄底下的所有項目" />
 
-                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
-                      <StackPanel Orientation="Horizontal" Spacing="6">
-                        <Border CornerRadius="5" Padding="6,1" Background="#16808080">
-                          <TextBlock Text="{Binding TypeBadgeText}" FontSize="10.5" FontWeight="SemiBold" />
-                        </Border>
-                        <TextBlock Text="{Binding SourceName}"
-                                   FontSize="13"
-                                   FontWeight="SemiBold"
-                                   TextTrimming="CharacterEllipsis"
-                                   ToolTip.Tip="{Binding SourceFullPath}" />
-                      </StackPanel>
-                      <TextBlock Text="{Binding ExecutionMessage}"
-                                 FontSize="11"
-                                 Opacity="0.68"
-                                 IsVisible="{Binding ExecutionMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                                 TextTrimming="CharacterEllipsis" />
-                    </StackPanel>
+                          <TextBlock Grid.Column="1"
+                                     Text="{Binding GroupHeaderTitle}"
+                                     FontSize="14"
+                                     FontWeight="Bold"
+                                     TextWrapping="Wrap"
+                                     VerticalAlignment="Center" />
 
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                      <TextBlock Text="{Binding MatchSourceLabel}" FontSize="11.5" VerticalAlignment="Center" />
-                      <Border CornerRadius="5" Padding="6,2" Background="{DynamicResource SukiPrimaryColor15}">
-                        <TextBlock Text="{Binding ConfidenceText}"
-                                   FontSize="11.5"
-                                   FontWeight="Bold"
-                                   Foreground="{DynamicResource SukiPrimaryColor}" />
+                          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <Border CornerRadius="6"
+                                    Padding="8,2"
+                                    Background="#22F59E0B"
+                                    BorderBrush="#66F59E0B"
+                                    BorderThickness="1"
+                                    IsVisible="{Binding HasLowConfidenceItem}">
+                              <TextBlock Text="{Binding GroupConfidenceBadgeText}"
+                                         FontSize="11.5"
+                                         FontWeight="SemiBold"
+                                         Foreground="#F59E0B" />
+                            </Border>
+                            <Border CornerRadius="6"
+                                    Padding="8,2"
+                                    Background="{DynamicResource SukiPrimaryColor15}"
+                                    IsVisible="{Binding HasNormalConfidenceBadge}">
+                              <TextBlock Text="{Binding GroupConfidenceBadgeText}"
+                                         FontSize="11.5"
+                                         FontWeight="SemiBold"
+                                         Foreground="{DynamicResource SukiPrimaryColor}" />
+                            </Border>
+                          </StackPanel>
+
+                          <Border Grid.Column="3"
+                                  CornerRadius="6"
+                                  Padding="8,2"
+                                  Background="#16808080"
+                                  VerticalAlignment="Center">
+                            <TextBlock Text="{Binding SummaryBadgeText}" FontSize="11.5" FontWeight="SemiBold" />
+                          </Border>
+
+                          <Button Grid.Column="4"
+                                  Classes="Basic"
+                                  Padding="8,3"
+                                  Command="{Binding ToggleExpandCommand}"
+                                  ToolTip.Tip="展開／收合此目標目錄群組">
+                            <TextBlock Text="{Binding ExpandGlyph}" FontSize="13" FontWeight="Bold" />
+                          </Button>
+                        </Grid>
                       </Border>
+
+                      <ItemsControl IsVisible="{Binding IsExpanded}"
+                                    ItemsSource="{Binding Items}"
+                                    ItemTemplate="{StaticResource AutoArchiveCandidateRowTemplate}"
+                                    Margin="8,4,8,8" />
                     </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
 
-                    <ComboBox Grid.Column="3"
-                              ItemsSource="{Binding TargetFolderOptions}"
-                              SelectedItem="{Binding SelectedTargetFolder, Mode=TwoWay}"
-                              FontSize="12"
-                              HorizontalAlignment="Stretch"
-                              VerticalAlignment="Center" />
-
-                    <Border Grid.Column="4"
-                            CornerRadius="6"
-                            Padding="8,3"
-                            Background="#14808080"
-                            VerticalAlignment="Center">
-                      <TextBlock Text="{Binding ExecutionStatus}" FontSize="11.5" />
-                    </Border>
-
-                    <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                      <Button Classes="Basic" Padding="6,4" Command="{Binding InspectInReaderCommand}" ToolTip.Tip="以內建閱讀器預覽內容">
-                        <TextBlock Text="📖" FontSize="12" />
-                      </Button>
-                      <Button Classes="Basic" Padding="6,4" Command="{Binding RevealInExplorerCommand}" ToolTip.Tip="在檔案總管中顯示">
-                        <TextBlock Text="📂" FontSize="12" />
-                      </Button>
-                      <Button Classes="Basic" Padding="6,4" Command="{Binding RemoveFromListCommand}" ToolTip.Tip="從預覽清單移除">
-                        <TextBlock Text="×" FontSize="13" />
-                      </Button>
-                    </StackPanel>
-                  </Grid>
-                </Border>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
+            <!-- 平面項目列表檢視 -->
+            <ItemsControl IsVisible="{Binding IsFlatView}"
+                          ItemsSource="{Binding VisibleCandidates}"
+                          ItemTemplate="{StaticResource AutoArchiveCandidateRowTemplate}" />
+          </StackPanel>
         </ScrollViewer>
       </Grid>
     </suki:GlassCard>
