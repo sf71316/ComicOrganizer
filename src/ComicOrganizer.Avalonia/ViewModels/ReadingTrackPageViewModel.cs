@@ -22,6 +22,7 @@ public sealed partial class ReadingWorkItemVm : ViewModelBase
     private readonly Action<ReadingWorkItemVm> _onReveal;
     private readonly Action<ReadingWorkItemVm> _onMarkCompleted;
     private readonly Action<ReadingWorkItemVm> _onResetUnread;
+    private readonly Action<ReadingWorkItemVm>? _onOpenAuthorGallery;
     private readonly Func<Action, Task> _runOnUiAsync;
 
     public ReadingWorkItemVm(
@@ -40,7 +41,8 @@ public sealed partial class ReadingWorkItemVm : ViewModelBase
         Action<ReadingWorkItemVm> onMarkCompleted,
         Action<ReadingWorkItemVm> onResetUnread,
         Func<Action, Task>? runOnUiAsync = null,
-        Action<ReadingWorkItemVm>? onOpenExternal = null)
+        Action<ReadingWorkItemVm>? onOpenExternal = null,
+        Action<ReadingWorkItemVm>? onOpenAuthorGallery = null)
     {
         Path = path;
         Title = title;
@@ -55,6 +57,7 @@ public sealed partial class ReadingWorkItemVm : ViewModelBase
         _onReveal = onReveal ?? throw new ArgumentNullException(nameof(onReveal));
         _onMarkCompleted = onMarkCompleted ?? throw new ArgumentNullException(nameof(onMarkCompleted));
         _onResetUnread = onResetUnread ?? throw new ArgumentNullException(nameof(onResetUnread));
+        _onOpenAuthorGallery = onOpenAuthorGallery;
         _runOnUiAsync = runOnUiAsync ?? ExploreCardVmBase.DefaultRunOnUiAsync;
 
         AccentColorHex = ExploreVisualFormatting.PickAccentHex(title);
@@ -166,6 +169,10 @@ public sealed partial class ReadingWorkItemVm : ViewModelBase
 
     public bool CanResetUnread { get; }
 
+    public bool CanOpenAuthorGallery =>
+        !string.IsNullOrWhiteSpace(System.IO.Path.GetDirectoryName(Path)) ||
+        !string.IsNullOrWhiteSpace(AuthorName);
+
     [RelayCommand]
     private void Open() => _onOpen(this);
 
@@ -180,6 +187,9 @@ public sealed partial class ReadingWorkItemVm : ViewModelBase
 
     [RelayCommand]
     private void ResetUnread() => _onResetUnread(this);
+
+    [RelayCommand]
+    private void OpenAuthorGallery() => _onOpenAuthorGallery?.Invoke(this);
 
     public Task EnsureCoverLoadedAsync(
         SkiaCoverService coverService,
@@ -347,6 +357,8 @@ public sealed partial class ReadingTrackPageViewModel : ViewModelBase, IDisposab
     public string ReadOnlyBannerText => "🔒 共用資料庫唯讀保護中（狀態變更與重置操作僅在可寫入模式開放，不改寫 cache.db）";
 
     public event Action<string>? OpenInGalleryRequested;
+
+    public event Action<string, string?>? OpenFolderInGalleryRequested;
 
     public BatchObservableCollection<ReadingWorkItemVm> InProgressWorks { get; } = [];
 
@@ -667,7 +679,8 @@ public sealed partial class ReadingTrackPageViewModel : ViewModelBase, IDisposab
                 OnMarkCompleted,
                 OnResetUnread,
                 _runOnUiAsync,
-                OnOpenWorkExternal));
+                OnOpenWorkExternal,
+                OnOpenAuthorGallery));
         }
 
         return list;
@@ -850,6 +863,55 @@ public sealed partial class ReadingTrackPageViewModel : ViewModelBase, IDisposab
         if (!_externalLauncher.RevealInFileExplorer(item.Path, out var error))
         {
             ShowToast("無法開啟檔案總管", error ?? item.Path, NotificationType.Warning);
+        }
+    }
+
+    private void OnOpenAuthorGallery(ReadingWorkItemVm item)
+    {
+        string? folderPath = System.IO.Path.GetDirectoryName(item.Path);
+        string? rootDir = _dataContext?.Config.RootDirectory;
+
+        if (!string.IsNullOrWhiteSpace(folderPath) && !IsSameDirectoryPath(folderPath, rootDir))
+        {
+            OpenFolderInGalleryRequested?.Invoke(folderPath, item.Path);
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(item.AuthorName))
+        {
+            var dsl = SearchQueryParser.BuildFieldToken("artist", item.AuthorName);
+            if (!string.IsNullOrWhiteSpace(dsl))
+            {
+                OpenInGalleryRequested?.Invoke(dsl);
+                return;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(folderPath))
+        {
+            OpenFolderInGalleryRequested?.Invoke(folderPath, item.Path);
+        }
+    }
+
+    private static bool IsSameDirectoryPath(string pathA, string? pathB)
+    {
+        if (string.IsNullOrWhiteSpace(pathB))
+        {
+            return false;
+        }
+
+        return string.Equals(NormalizeDir(pathA), NormalizeDir(pathB), StringComparison.OrdinalIgnoreCase);
+
+        static string NormalizeDir(string p)
+        {
+            try
+            {
+                return Path.GetFullPath(p).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            }
+            catch
+            {
+                return p.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            }
         }
     }
 

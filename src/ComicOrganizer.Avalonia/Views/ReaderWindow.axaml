@@ -104,14 +104,23 @@
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
-    <Style Selector="Border.reader-hud ComboBox.hud-combo">
-      <Setter Property="MinHeight" Value="36" />
-      <Setter Property="Height" Value="36" />
-      <Setter Property="Padding" Value="8,3" />
-      <Setter Property="Margin" Value="0,-3" />
-      <Setter Property="CornerRadius" Value="6" />
+    <Style Selector="Border.reader-hud Button.hud-icon-btn">
+      <Setter Property="MinWidth" Value="32" />
+      <Setter Property="Width" Value="32" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.reader-hud ToggleButton.hud-icon-btn">
+      <Setter Property="MinWidth" Value="32" />
+      <Setter Property="Width" Value="32" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.reader-hud PathIcon.hud-svg">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
     <Style Selector="Border.drawer-tab-body">
       <Setter Property="Background" Value="{DynamicResource DrawerContentBg}" />
@@ -183,7 +192,7 @@
             BorderBrush="{DynamicResource ReaderHudBorder}"
             BorderThickness="1"
             IsVisible="{Binding IsHudVisible}">
-      <Grid ColumnDefinitions="Auto,*,Auto">
+      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
         <!-- 左段：返回 + 頁數統計點擊開關側欄 -->
         <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
           <Button x:Name="BackButton"
@@ -205,90 +214,121 @@
           </Button>
         </StackPanel>
 
-        <!-- 中段：閱讀模式 + 翻頁方向/韓漫無縫 + 縮放比例調整 -->
-        <StackPanel Grid.Column="1"
-                    Orientation="Horizontal"
-                    Spacing="5"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center">
-          <!-- 檢視模式切換 (無外框，保留各自按鈕框線) -->
-          <StackPanel Orientation="Horizontal" Spacing="3" VerticalAlignment="Center">
-            <ToggleButton Classes="hud-btn"
-                          IsChecked="{Binding IsSingleMode, Mode=OneWay}"
-                          Command="{Binding SetViewModeCommand}"
-                          CommandParameter="SinglePage">
-              <TextBlock Text="單頁" FontSize="11.5" FontWeight="SemiBold" />
-            </ToggleButton>
-            <ToggleButton Classes="hud-btn"
-                          IsChecked="{Binding IsDoubleMode, Mode=OneWay}"
-                          Command="{Binding SetViewModeCommand}"
-                          CommandParameter="DualPage">
-              <TextBlock Text="雙頁" FontSize="11.5" FontWeight="SemiBold" />
-            </ToggleButton>
-            <ToggleButton Classes="hud-btn"
-                          IsChecked="{Binding IsContinuousMode, Mode=OneWay}"
-                          Command="{Binding SetViewModeCommand}"
-                          CommandParameter="ContinuousScroll">
-              <TextBlock Text="連續長條" FontSize="11.5" FontWeight="SemiBold" />
-            </ToggleButton>
-          </StackPanel>
+        <!-- 中段：閱讀模式 + 翻頁方向/韓漫無縫 + 縮放比例調整（外包 ScrollViewer 防止窄視窗溢出重疊） -->
+        <ScrollViewer Grid.Column="1"
+                      HorizontalScrollBarVisibility="Auto"
+                      VerticalScrollBarVisibility="Disabled"
+                      HorizontalContentAlignment="Center"
+                      ClipToBounds="True">
+          <StackPanel Orientation="Horizontal"
+                      Spacing="5"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Center">
+            <!-- 檢視模式切換 (向量圖示按鈕) -->
+            <StackPanel Orientation="Horizontal" Spacing="3" VerticalAlignment="Center">
+              <ToggleButton Classes="hud-btn hud-icon-btn"
+                            IsChecked="{Binding IsSingleMode, Mode=OneWay}"
+                            Command="{Binding SetViewModeCommand}"
+                            CommandParameter="SinglePage"
+                            ToolTip.Tip="單頁模式">
+                <PathIcon Classes="hud-svg"
+                          Data="M6,2 L14,2 L20,8 L20,20 C20,21.1 19.1,22 18,22 L6,22 C4.9,22 4,21.1 4,20 L4,4 C4,2.9 4.9,2 6,2 Z M6,4 L6,20 L18,20 L18,9 L13,9 L13,4 Z M8,12 L16,12 L16,13.6 L8,13.6 Z M8,15.5 L14,15.5 L14,17.1 L8,17.1 Z" />
+              </ToggleButton>
+              <ToggleButton Classes="hud-btn hud-icon-btn"
+                            IsChecked="{Binding IsDoubleMode, Mode=OneWay}"
+                            Command="{Binding SetViewModeCommand}"
+                            CommandParameter="DualPage"
+                            ToolTip.Tip="雙頁對開模式">
+                <PathIcon Classes="hud-svg"
+                          Data="M2,4 L11,4 L11,20 L2,20 Z M4,6 L4,18 L9,18 L9,6 Z M13,4 L22,4 L22,20 L13,20 Z M15,6 L15,18 L20,18 L20,6 Z" />
+              </ToggleButton>
+              <ToggleButton Classes="hud-btn hud-icon-btn"
+                            IsChecked="{Binding IsContinuousMode, Mode=OneWay}"
+                            Command="{Binding SetViewModeCommand}"
+                            CommandParameter="ContinuousScroll"
+                            ToolTip.Tip="垂直連續捲動（長條模式）">
+                <PathIcon Classes="hud-svg"
+                          Data="M5,2 L19,2 L19,9.5 L5,9.5 Z M7,4 L7,7.5 L17,7.5 L17,4 Z M5,11.5 L19,11.5 L19,19 L5,19 Z M7,13.5 L7,17 L17,17 L17,13.5 Z M8.5,20.2 L12,23.5 L15.5,20.2 Z" />
+              </ToggleButton>
+            </StackPanel>
 
-          <!-- 單/雙頁時：翻頁方向 RTL/LTR -->
-          <Button Classes="Basic hud-btn"
-                  IsVisible="{Binding ShowDirectionToggle}"
-                  Command="{Binding ToggleDirectionCommand}"
-                  ToolTip.Tip="切換日漫右翻 (RTL) 或美漫左翻 (LTR)">
-            <TextBlock Text="{Binding DirectionToggleLabel}" FontSize="11.5" FontWeight="SemiBold" />
-          </Button>
-
-          <!-- 連續長條時：標準頁距 / 韓漫無縫切換 -->
-          <ToggleButton Classes="hud-btn"
-                        IsChecked="{Binding IsGaplessWebtoon, Mode=OneWay}"
-                        IsVisible="{Binding ShowContinuousGapToggle}"
-                        Command="{Binding ToggleContinuousGapCommand}"
-                        ToolTip.Tip="切換標準頁距 (8px) 與韓漫無縫緊貼 (0px)">
-            <TextBlock Text="{Binding ContinuousGapLabel}" FontSize="11.5" FontWeight="SemiBold" />
-          </ToggleButton>
-
-          <Border Width="1" Height="16" Background="{DynamicResource ReaderHudBorder}" />
-
-          <!-- 縮放模式 + 數值調整 -->
-          <ToggleButton Classes="hud-btn"
-                        IsChecked="{Binding IsFitPageMode, Mode=OneWay}"
-                        Command="{Binding SetZoomModeCommand}"
-                        CommandParameter="FitPage">
-            <TextBlock Text="適頁" FontSize="11.5" />
-          </ToggleButton>
-          <ToggleButton Classes="hud-btn"
-                        IsChecked="{Binding IsFitWidthMode, Mode=OneWay}"
-                        Command="{Binding SetZoomModeCommand}"
-                        CommandParameter="FitWidth">
-            <TextBlock Text="適寬" FontSize="11.5" />
-          </ToggleButton>
-          <ToggleButton Classes="hud-btn"
-                        IsChecked="{Binding IsActualZoomMode, Mode=OneWay}"
-                        Command="{Binding SetZoomModeCommand}"
-                        CommandParameter="Actual">
-            <TextBlock Text="100%" FontSize="11.5" />
-          </ToggleButton>
-
-          <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
-            <Button Classes="Basic hud-btn" Padding="6,3" Command="{Binding ZoomOutCommand}" ToolTip.Tip="縮小 (-15%)">
-              <TextBlock Text="－" FontSize="11.5" FontWeight="Bold" />
+            <!-- 單/雙頁時：翻頁方向 RTL(日漫右翻) / LTR(美漫左翻) -->
+            <Button Classes="Basic hud-btn hud-icon-btn"
+                    IsVisible="{Binding ShowDirectionToggle}"
+                    Command="{Binding ToggleDirectionCommand}"
+                    ToolTip.Tip="{Binding DirectionToggleTooltip}">
+              <Panel>
+                <PathIcon Classes="hud-svg"
+                          IsVisible="{Binding IsRightToLeft}"
+                          Data="M20,4 L22,4 L22,20 L20,20 Z M9.5,6.5 L3,12 L9.5,17.5 L9.5,13.8 L18,13.8 L18,10.2 L9.5,10.2 Z" />
+                <PathIcon Classes="hud-svg"
+                          IsVisible="{Binding !IsRightToLeft}"
+                          Data="M2,4 L4,4 L4,20 L2,20 Z M14.5,6.5 L21,12 L14.5,17.5 L14.5,13.8 L6,13.8 L6,10.2 L14.5,10.2 Z" />
+              </Panel>
             </Button>
-            <TextBlock Text="{Binding ZoomPercentText}"
-                       Width="42"
-                       TextAlignment="Center"
-                       FontSize="11.5"
-                       FontWeight="SemiBold"
-                       VerticalAlignment="Center" />
-            <Button Classes="Basic hud-btn" Padding="6,3" Command="{Binding ZoomInCommand}" ToolTip.Tip="放大 (+15%)">
-              <TextBlock Text="＋" FontSize="11.5" FontWeight="Bold" />
-            </Button>
-          </StackPanel>
-        </StackPanel>
 
-        <!-- 右段：AI翻譯 / 原文對照 / OCR引擎 / 書籤 / 側欄 / 全螢幕 / 隱藏HUD -->
+            <!-- 連續長條時：標準頁距 / 韓漫無縫切換 -->
+            <ToggleButton Classes="hud-btn hud-icon-btn"
+                          IsChecked="{Binding IsGaplessWebtoon, Mode=OneWay}"
+                          IsVisible="{Binding ShowContinuousGapToggle}"
+                          Command="{Binding ToggleContinuousGapCommand}"
+                          ToolTip.Tip="{Binding ContinuousGapTooltip}">
+              <Panel>
+                <PathIcon Classes="hud-svg"
+                          IsVisible="{Binding IsGaplessWebtoon}"
+                          Data="M4,3 L20,3 L20,11.4 L4,11.4 Z M4,12.2 L20,12.2 L20,20.6 L4,20.6 Z" />
+                <PathIcon Classes="hud-svg"
+                          IsVisible="{Binding !IsGaplessWebtoon}"
+                          Data="M4,2 L20,2 L20,8.8 L4,8.8 Z M4,15.2 L20,15.2 L20,22 L4,22 Z M9,11.2 L15,11.2 L15,12.8 L9,12.8 Z" />
+              </Panel>
+            </ToggleButton>
+
+            <Border Width="1" Height="16" Background="{DynamicResource ReaderHudBorder}" />
+
+            <!-- 縮放模式 (向量圖示按鈕) + 數值調整 -->
+            <ToggleButton Classes="hud-btn hud-icon-btn"
+                          IsChecked="{Binding IsFitPageMode, Mode=OneWay}"
+                          Command="{Binding SetZoomModeCommand}"
+                          CommandParameter="FitPage"
+                          ToolTip.Tip="符合整頁">
+              <PathIcon Classes="hud-svg"
+                        Data="M3,3 L9.5,3 L9.5,5.2 L5.2,5.2 L5.2,9.5 L3,9.5 Z M21,3 L14.5,3 L14.5,5.2 L18.8,5.2 L18.8,9.5 L21,9.5 Z M3,21 L9.5,21 L9.5,18.8 L5.2,18.8 L5.2,14.5 L3,14.5 Z M21,21 L14.5,21 L14.5,18.8 L18.8,18.8 L18.8,14.5 L21,14.5 Z M8,8 L16,8 L16,16 L8,16 Z" />
+            </ToggleButton>
+            <ToggleButton Classes="hud-btn hud-icon-btn"
+                          IsChecked="{Binding IsFitWidthMode, Mode=OneWay}"
+                          Command="{Binding SetZoomModeCommand}"
+                          CommandParameter="FitWidth"
+                          ToolTip.Tip="符合視窗寬度">
+              <PathIcon Classes="hud-svg"
+                        Data="M2,4 L4.2,4 L4.2,20 L2,20 Z M19.8,4 L22,4 L22,20 L19.8,20 Z M9.5,7.5 L5.2,12 L9.5,16.5 L9.5,13.6 L14.5,13.6 L14.5,16.5 L18.8,12 L14.5,7.5 L14.5,10.4 L9.5,10.4 Z" />
+            </ToggleButton>
+            <ToggleButton Classes="hud-btn hud-icon-btn"
+                          IsChecked="{Binding IsActualZoomMode, Mode=OneWay}"
+                          Command="{Binding SetZoomModeCommand}"
+                          CommandParameter="Actual"
+                          ToolTip.Tip="原始尺寸 (100%)">
+              <PathIcon Classes="hud-svg"
+                        Data="M2,4 L6.5,4 L6.5,6 L4,6 L4,18 L6.5,18 L6.5,20 L2,20 Z M22,4 L17.5,4 L17.5,6 L20,6 L20,18 L17.5,18 L17.5,20 L22,20 Z M7.8,8.5 L9.8,8.5 L9.8,15.5 L7.8,15.5 L7.8,10.5 L6.4,11.3 L6.4,9.6 Z M11.2,9.2 L12.8,9.2 L12.8,10.8 L11.2,10.8 Z M11.2,13.2 L12.8,13.2 L12.8,14.8 L11.2,14.8 Z M15.4,8.5 L17.4,8.5 L17.4,15.5 L15.4,15.5 L15.4,10.5 L14,11.3 L14,9.6 Z" />
+            </ToggleButton>
+
+            <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+              <Button Classes="Basic hud-btn" Padding="6,3" Command="{Binding ZoomOutCommand}" ToolTip.Tip="縮小 (-15%)">
+                <TextBlock Text="－" FontSize="11.5" FontWeight="Bold" />
+              </Button>
+              <TextBlock Text="{Binding ZoomPercentText}"
+                         Width="42"
+                         TextAlignment="Center"
+                         FontSize="11.5"
+                         FontWeight="SemiBold"
+                         VerticalAlignment="Center" />
+              <Button Classes="Basic hud-btn" Padding="6,3" Command="{Binding ZoomInCommand}" ToolTip.Tip="放大 (+15%)">
+                <TextBlock Text="＋" FontSize="11.5" FontWeight="Bold" />
+              </Button>
+            </StackPanel>
+          </StackPanel>
+        </ScrollViewer>
+
+        <!-- 右段：AI翻譯 / 原文對照 / 書籤 / 側欄 / 全螢幕 / 隱藏HUD（OCR引擎切換已移至系統設定） -->
         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
           <ToggleButton Classes="hud-btn"
                         IsChecked="{Binding IsTranslationEnabled, Mode=TwoWay}"
@@ -302,23 +342,6 @@
                         ToolTip.Tip="暫時顯示未塗白原圖進行對照 (快速鍵 Space)">
             <TextBlock Text="👁️ 原文" FontSize="11.5" />
           </ToggleButton>
-
-          <ComboBox Classes="hud-combo"
-                    HorizontalAlignment="Left"
-                    MinWidth="120"
-                    FontSize="11.5"
-                    ItemsSource="{Binding OcrEngineOptions}"
-                    SelectedItem="{Binding SelectedOcrEngine, Mode=TwoWay}"
-                    ToolTip.Tip="切換 OCR 文字辨識引擎">
-            <ComboBox.ItemTemplate>
-              <DataTemplate x:DataType="vm:OcrEngineOptionVm">
-                <TextBlock Text="{Binding DisplayLabel}"
-                           FontSize="11.5"
-                           TextTrimming="None"
-                           VerticalAlignment="Center" />
-              </DataTemplate>
-            </ComboBox.ItemTemplate>
-          </ComboBox>
 
           <ToggleButton Classes="hud-btn"
                         IsChecked="{Binding IsCurrentPageBookmarked, Mode=OneWay}"
@@ -529,6 +552,10 @@
                                  FontWeight="SemiBold"
                                  TextWrapping="Wrap" />
                       <TextBlock Text="{Binding LlmSummaryText}"
+                                 FontSize="11"
+                                 Opacity="0.72"
+                                 TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding OcrEngineSummaryText}"
                                  FontSize="11"
                                  Opacity="0.72"
                                  TextWrapping="Wrap" />

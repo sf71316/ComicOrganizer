@@ -183,6 +183,7 @@ public sealed partial class ReaderViewModel : ViewModelBase, IDisposable
         _pipeline = new ReaderPagePipeline(_source, _dataContext.Config);
         _pipeline.PageUpdated += OnPipelinePageUpdated;
         _pipeline.TranslationStatusChanged += OnTranslationStatusChanged;
+        _dataContext.SettingsChanged += OnDataContextSettingsChanged;
 
         SourceRootPath = _source.RootPath;
         PageCount = _source.PageCount;
@@ -270,6 +271,8 @@ public sealed partial class ReaderViewModel : ViewModelBase, IDisposable
     public string ReadOnlyBadgeText => IsReadOnlyDatabase ? "🔒 共用庫唯讀（進度/書籤僅存本機工作階段）" : "";
     public string LlmSummaryText =>
         $"LLM：{_dataContext.Config.TranslationModelName} ({_dataContext.Config.TranslationEndpoint})";
+    public string OcrEngineSummaryText =>
+        $"OCR：{SelectedOcrEngine?.DisplayLabel ?? "預設"}（可至系統設定調整）";
 
     public ObservableCollection<ReaderThumbnailItemVm> Thumbnails { get; } = new();
     public ObservableCollection<ReaderBookmarkItemVm> Bookmarks { get; } = new();
@@ -370,7 +373,13 @@ public sealed partial class ReaderViewModel : ViewModelBase, IDisposable
 
     public string ZoomPercentText => $"{ZoomPercent}%";
     public string DirectionToggleLabel => IsRightToLeft ? "右翻 (RTL)" : "左翻 (LTR)";
+    public string DirectionToggleTooltip => IsRightToLeft
+        ? "目前：日漫右翻 (RTL) — 點擊切換美漫左翻 (LTR)"
+        : "目前：美漫左翻 (LTR) — 點擊切換日漫右翻 (RTL)";
     public string ContinuousGapLabel => IsGaplessWebtoon ? "韓漫無縫 (0px)" : "頁距：標準 (8px)";
+    public string ContinuousGapTooltip => IsGaplessWebtoon
+        ? "目前：韓漫無縫 (0px) — 點擊切換標準頁距 (8px)"
+        : "目前：標準頁距 (8px) — 點擊切換韓漫無縫緊貼 (0px)";
     public int ContinuousGapPx => IsGaplessWebtoon ? 0 : ContinuousLayout.PageGap;
 
     public bool IsSingleMode => ViewMode == ReaderViewMode.SinglePage;
@@ -461,11 +470,16 @@ public sealed partial class ReaderViewModel : ViewModelBase, IDisposable
 
     partial void OnZoomPercentChanged(int value) => OnPropertyChanged(nameof(ZoomPercentText));
 
-    partial void OnIsRightToLeftChanged(bool value) => OnPropertyChanged(nameof(DirectionToggleLabel));
+    partial void OnIsRightToLeftChanged(bool value)
+    {
+        OnPropertyChanged(nameof(DirectionToggleLabel));
+        OnPropertyChanged(nameof(DirectionToggleTooltip));
+    }
 
     partial void OnIsGaplessWebtoonChanged(bool value)
     {
         OnPropertyChanged(nameof(ContinuousGapLabel));
+        OnPropertyChanged(nameof(ContinuousGapTooltip));
         OnPropertyChanged(nameof(ContinuousGapPx));
     }
 
@@ -488,6 +502,7 @@ public sealed partial class ReaderViewModel : ViewModelBase, IDisposable
         if (value == null) return;
         _pipeline.SetOcrEngine(value.EngineType);
         TranslationStatusText = $"已切換 OCR 引擎：{value.DisplayName}";
+        OnPropertyChanged(nameof(OcrEngineSummaryText));
     }
 
     partial void OnActiveDrawerTabChanged(ReaderDrawerTab value)
@@ -850,6 +865,36 @@ public sealed partial class ReaderViewModel : ViewModelBase, IDisposable
         SelectedOcrEngine = match;
     }
 
+    private void SyncOcrEngineFromConfig()
+    {
+        InitializeOcrEngineOptions();
+        if (SelectedOcrEngine == null)
+        {
+            _pipeline.SetOcrEngine(_dataContext.Config.OcrEngineType);
+        }
+
+        OnPropertyChanged(nameof(OcrEngineSummaryText));
+    }
+
+    private void OnDataContextSettingsChanged()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _ = _runOnUiAsync(() =>
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            SyncOcrEngineFromConfig();
+            OnPropertyChanged(nameof(LlmSummaryText));
+        });
+    }
+
     private void LoadInitialBookmarks()
     {
         Bookmarks.Clear();
@@ -1106,6 +1151,7 @@ public sealed partial class ReaderViewModel : ViewModelBase, IDisposable
 
         PersistSessionProgressIfAllowed();
 
+        _dataContext.SettingsChanged -= OnDataContextSettingsChanged;
         _pipeline.PageUpdated -= OnPipelinePageUpdated;
         _pipeline.TranslationStatusChanged -= OnTranslationStatusChanged;
         _pipeline.Dispose();

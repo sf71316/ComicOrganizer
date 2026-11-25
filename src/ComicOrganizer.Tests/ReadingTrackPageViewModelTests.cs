@@ -145,6 +145,105 @@ public sealed class ReadingTrackPageViewModelTests : IDisposable
         Assert.Equal(ReadStatus.Reading, _store.GetReadStatus(path));
     }
 
+    [Fact]
+    public async Task ReadingTrack_OpenAuthorGallery_NavigatesToAuthorFolderOrArtistDslFallback()
+    {
+        var dataDir = Path.Combine(Path.GetTempPath(), $"ComicOrg_TrackCtx_{Guid.NewGuid():N}");
+        var rootDir = Path.Combine(Path.GetTempPath(), $"ComicOrg_TrackRoot_{Guid.NewGuid():N}");
+        var authorFolder = Path.Combine(rootDir, "Flugel");
+        Directory.CreateDirectory(dataDir);
+        Directory.CreateDirectory(authorFolder);
+
+        try
+        {
+            await File.WriteAllTextAsync(
+                Path.Combine(dataDir, "appsettings.json"),
+                System.Text.Json.JsonSerializer.Serialize(new ComicOrganizer.App.Models.AppConfig
+                {
+                    RootDirectory = rootDir
+                }));
+
+            using var ctx = new AppDataContext(explicitDataDirectory: dataDir, forceReadOnlyDatabase: false);
+            var aFlugel = ctx.MetaStore.UpsertAuthor("Flugel");
+            var aSolo = ctx.MetaStore.UpsertAuthor("SoloArtist");
+
+            string folderWorkPath = Path.Combine(authorFolder, "Maid_Book.zip");
+            string rootWorkPath = Path.Combine(rootDir, "Root_Book.zip");
+
+            ctx.MetaStore.Upsert(new AssetMeta
+            {
+                Path = folderWorkPath,
+                Name = Path.GetFileName(folderWorkPath),
+                IsFolder = false,
+                FileSize = 1024,
+                Mtime = 1000,
+                LastScanned = 1000,
+            });
+            long folderWorkId = ctx.MetaStore.GetAssetId(folderWorkPath)!.Value;
+            ctx.MetaStore.UpsertMetadata(new AssetMetadata
+            {
+                AssetId = folderWorkId,
+                AuthorId = aFlugel,
+                Title = "Maid Book",
+                PageCount = 20,
+                LastPage = 2,
+                ReadStatus = ReadStatus.Reading,
+                ParsedAt = 1000,
+            });
+            ctx.MetaStore.RecordRead(folderWorkPath);
+
+            ctx.MetaStore.Upsert(new AssetMeta
+            {
+                Path = rootWorkPath,
+                Name = Path.GetFileName(rootWorkPath),
+                IsFolder = false,
+                FileSize = 1024,
+                Mtime = 1000,
+                LastScanned = 1000,
+            });
+            long rootWorkId = ctx.MetaStore.GetAssetId(rootWorkPath)!.Value;
+            ctx.MetaStore.UpsertMetadata(new AssetMetadata
+            {
+                AssetId = rootWorkId,
+                AuthorId = aSolo,
+                Title = "Root Only Book",
+                PageCount = 12,
+                ReadStatus = ReadStatus.Unread,
+                ParsedAt = 1000,
+            });
+
+            using var coverSvc = new SkiaCoverService(new FileSystemThumbStore(Path.Combine(dataDir, "thumbs")));
+            using var vm = new ReadingTrackPageViewModel(ctx, coverSvc, autoLoad: false);
+            await WaitUntilAsync(() => !vm.IsLoading);
+            await vm.RefreshAsync();
+
+            (string Folder, string? Work)? navigatedFolder = null;
+            string? navigatedDsl = null;
+            vm.OpenFolderInGalleryRequested += (folder, work) => navigatedFolder = (folder, work);
+            vm.OpenInGalleryRequested += dsl => navigatedDsl = dsl;
+
+            // 1. 位於作者子目錄的作品應優先導回該作者目錄並自動選取該作品（方案 A）
+            var inProgItem = Assert.Single(vm.InProgressWorks);
+            Assert.True(inProgItem.CanOpenAuthorGallery);
+            inProgItem.OpenAuthorGalleryCommand.Execute(null);
+            Assert.Equal((authorFolder, folderWorkPath), navigatedFolder);
+            Assert.Null(navigatedDsl);
+
+            // 2. 若作品直接散落於 RootDirectory 且具作者欄位，則退回 artist:"..." 篩選
+            navigatedFolder = null;
+            vm.SelectRecentlyAddedTabCommand.Execute(null);
+            var rootWorkItem = vm.ActiveRecordWorks.Single(w => w.Path == rootWorkPath);
+            rootWorkItem.OpenAuthorGalleryCommand.Execute(null);
+            Assert.Null(navigatedFolder);
+            Assert.Equal("artist:SoloArtist", navigatedDsl);
+        }
+        finally
+        {
+            try { Directory.Delete(dataDir, true); } catch { }
+            try { Directory.Delete(rootDir, true); } catch { }
+        }
+    }
+
     private void SeedWork(
         string path,
         string title,

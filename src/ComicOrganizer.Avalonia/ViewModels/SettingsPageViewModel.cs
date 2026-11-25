@@ -117,11 +117,18 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
             new SettingsOption<string>("Actual", "原始尺寸 (100%)"),
         ];
 
-        OcrEngineOptions =
-        [
-            new SettingsOption<int>(0, "Windows 原生 OCR（系統內建免下載）"),
-            new SettingsOption<int>(1, "PaddleOCR（外掛模型 PP-OCRv6）"),
-        ];
+        var detectedOcrEngines = SkiaOcrPluginManager.GetAvailableEngines();
+        OcrEngineOptions = detectedOcrEngines.Count > 0
+            ? detectedOcrEngines
+                .Select(e => new SettingsOption<int>(
+                    e.EngineType,
+                    e.IsAvailable ? $"{e.Name}（就緒）" : $"{e.Name}（未就緒：{e.StatusMessage}）"))
+                .ToArray()
+            :
+            [
+                new SettingsOption<int>(0, "Windows 原生 OCR（系統內建免下載）"),
+                new SettingsOption<int>(1, "PaddleOCR（外掛模型 PP-OCRv6）"),
+            ];
 
         MaskEngineOptions =
         [

@@ -231,6 +231,59 @@ public class ReaderViewModelTests
         }
     }
 
+    [Fact]
+    public void ReaderViewModel_SyncsSettingsOcrAndTooltipsLiveWhenConfigSaved()
+    {
+        var comicDir = CreateTempComicFolder(out _);
+        var dataDir = CreateTempDataDir(out var setupStore, comicDir);
+        setupStore.Dispose();
+
+        try
+        {
+            using var ctx = new AppDataContext(explicitDataDirectory: dataDir);
+            var settingsVm = new SettingsPageViewModel(ctx);
+            Assert.NotEmpty(settingsVm.OcrEngineOptions);
+            Assert.Contains(settingsVm.OcrEngineOptions, o => o.Value == 0);
+            Assert.Contains(settingsVm.OcrEngineOptions, o => o.Value == 1);
+
+            using var vm = new ReaderViewModel(
+                ctx,
+                comicDir,
+                runOnUiAsync: action => { action(); return Task.CompletedTask; });
+
+            Assert.Contains("系統設定", vm.OcrEngineSummaryText);
+            Assert.Contains("RTL", vm.DirectionToggleTooltip);
+            vm.ToggleDirectionCommand.Execute(null);
+            Assert.Contains("LTR", vm.DirectionToggleTooltip);
+
+            vm.SetViewModeCommand.Execute("ContinuousScroll");
+            Assert.Contains("標準頁距", vm.ContinuousGapTooltip);
+            vm.ToggleContinuousGapCommand.Execute(null);
+            Assert.Contains("韓漫無縫", vm.ContinuousGapTooltip);
+
+            int initialEngine = vm.Pipeline.OcrEngineType;
+            int targetEngine = vm.OcrEngineOptions.FirstOrDefault(o => o.IsAvailable && o.EngineType != initialEngine)?.EngineType
+                               ?? initialEngine;
+
+            var updated = new ComicOrganizer.App.Models.AppConfig
+            {
+                UnorganizedDirectory = ctx.Config.UnorganizedDirectory,
+                RootDirectory = ctx.Config.RootDirectory,
+                OcrEngineType = targetEngine,
+                TranslationModelName = "test-model-updated"
+            };
+            ctx.SaveConfig(updated);
+
+            Assert.Equal(targetEngine, vm.Pipeline.OcrEngineType);
+            Assert.Contains("test-model-updated", vm.LlmSummaryText);
+        }
+        finally
+        {
+            try { Directory.Delete(comicDir, true); } catch { }
+            try { Directory.Delete(dataDir, true); } catch { }
+        }
+    }
+
     private sealed class RecordingReaderLauncher : IReaderWindowLauncher
     {
         public List<string> OpenedPaths { get; } = new();

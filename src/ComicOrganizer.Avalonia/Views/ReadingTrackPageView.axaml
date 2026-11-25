@@ -147,7 +147,7 @@
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:ReadingWorkItemVm">
-                <suki:GlassCard Width="320"
+                <suki:GlassCard Width="346"
                                 CornerRadius="12"
                                 Padding="10"
                                 Margin="0,0,12,12"
@@ -155,6 +155,7 @@
                   <suki:GlassCard.ContextMenu>
                     <ContextMenu>
                       <MenuItem Header="📖 以內建閱讀器繼續閱讀" Command="{Binding OpenCommand}" />
+                      <MenuItem Header="🖼 導回作者畫廊" Command="{Binding OpenAuthorGalleryCommand}" IsEnabled="{Binding CanOpenAuthorGallery}" />
                       <MenuItem Header="↗ 以外部預設程式開啟" Command="{Binding OpenExternalCommand}" />
                       <MenuItem Header="📂 在檔案總管中顯示" Command="{Binding RevealInExplorerCommand}" />
                     </ContextMenu>
@@ -245,6 +246,13 @@
                                 Command="{Binding ResetUnreadCommand}"
                                 ToolTip.Tip="重置此作品的閱讀紀錄">
                           <TextBlock Text="↻" FontSize="11" />
+                        </Button>
+                        <Button Classes="Outlined"
+                                Padding="7,3"
+                                IsEnabled="{Binding CanOpenAuthorGallery}"
+                                Command="{Binding OpenAuthorGalleryCommand}"
+                                ToolTip.Tip="切回漫畫庫畫廊並定位此作者目錄">
+                          <TextBlock Text="🖼 畫廊" FontSize="11" />
                         </Button>
                         <Button Classes="Outlined"
                                 Padding="7,3"
@@ -461,6 +469,7 @@
                   <suki:GlassCard.ContextMenu>
                     <ContextMenu>
                       <MenuItem Header="📖 以內建閱讀器開啟" Command="{Binding OpenCommand}" />
+                      <MenuItem Header="🖼 導回作者畫廊" Command="{Binding OpenAuthorGalleryCommand}" IsEnabled="{Binding CanOpenAuthorGallery}" />
                       <MenuItem Header="↗ 以外部預設程式開啟" Command="{Binding OpenExternalCommand}" />
                       <MenuItem Header="📂 在檔案總管中顯示" Command="{Binding RevealInExplorerCommand}" />
                     </ContextMenu>
@@ -516,7 +525,7 @@
                       </StackPanel>
                     </Button>
 
-                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4">
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="4">
                       <Button Grid.Column="0"
                               Classes="Outlined"
                               Padding="7,3"
@@ -531,9 +540,17 @@
                               IsVisible="{Binding CanResetUnread}"
                               Command="{Binding ResetUnreadCommand}"
                               ToolTip.Tip="重置閱讀紀錄">
-                        <TextBlock Text="↻ 重置" FontSize="11" />
+                        <TextBlock Text="↻" FontSize="11" />
                       </Button>
                       <Button Grid.Column="2"
+                              Classes="Outlined"
+                              Padding="7,3"
+                              IsEnabled="{Binding CanOpenAuthorGallery}"
+                              Command="{Binding OpenAuthorGalleryCommand}"
+                              ToolTip.Tip="切回漫畫庫畫廊並定位此作者目錄">
+                        <TextBlock Text="🖼 畫廊" FontSize="11" />
+                      </Button>
+                      <Button Grid.Column="3"
                               Classes="Outlined"
                               Padding="7,3"
                               Command="{Binding RevealInExplorerCommand}"

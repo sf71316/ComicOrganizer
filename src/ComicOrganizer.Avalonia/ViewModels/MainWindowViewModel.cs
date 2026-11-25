@@ -92,6 +92,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         GalleryPage = new GalleryPageViewModel(dataContext, _coverService, autoLoad: false, workBasket: WorkBasket);
         ReadingTrackPage = new ReadingTrackPageViewModel(dataContext, _coverService, autoLoad: false);
         ReadingTrackPage.OpenInGalleryRequested += OnOpenInGalleryRequested;
+        ReadingTrackPage.OpenFolderInGalleryRequested += OnVisualSearchOpenFolderInGalleryRequested;
         VisualSearchPage = new VisualSearchPageViewModel(dataContext);
         VisualSearchPage.OpenSettingsRequested += OnVisualSearchOpenSettingsRequested;
         VisualSearchPage.OpenFolderInGalleryRequested += OnVisualSearchOpenFolderInGalleryRequested;
@@ -337,6 +338,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         ExplorePage.Dispose();
         GalleryPage.Dispose();
         ReadingTrackPage.OpenInGalleryRequested -= OnOpenInGalleryRequested;
+        ReadingTrackPage.OpenFolderInGalleryRequested -= OnVisualSearchOpenFolderInGalleryRequested;
         ReadingTrackPage.Dispose();
         VisualSearchPage.OpenSettingsRequested -= OnVisualSearchOpenSettingsRequested;
         VisualSearchPage.OpenFolderInGalleryRequested -= OnVisualSearchOpenFolderInGalleryRequested;
