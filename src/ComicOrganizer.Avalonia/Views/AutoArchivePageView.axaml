@@ -618,7 +618,7 @@
           </ScrollViewer>
         </Grid>
 
-        <!-- 底部統一執行區（模擬測試 / 一鍵全部歸檔） -->
+        <!-- 底部統一執行區（一鍵全部歸檔） -->
         <Border Grid.Row="3"
                 BorderBrush="{DynamicResource SukiBorderBrush}"
                 BorderThickness="0,1,0,0"
@@ -643,18 +643,11 @@
                            CornerRadius="2" />
             </StackPanel>
 
-            <Button Classes="Outlined"
-                    HorizontalAlignment="Stretch"
-                    HorizontalContentAlignment="Center"
-                    Padding="10,7"
-                    Command="{Binding SimulateQueueCommand}"
-                    ToolTip.Tip="只檢查待歸檔清單內的路徑與衝突，不實際搬移硬碟檔案或寫入資料庫">
-              <TextBlock Text="{Binding QueueCount, StringFormat='🧪 模擬測試 ({0})'}" FontSize="12.5" FontWeight="SemiBold" />
-            </Button>
             <Button Classes="Flat"
                     HorizontalAlignment="Stretch"
                     HorizontalContentAlignment="Center"
                     Padding="10,8"
+                    IsEnabled="{Binding CanExecuteQueue}"
                     Command="{Binding ExecuteQueueCommand}"
                     ToolTip.Tip="將清單內全部項目一次搬移至各自目標目錄並寫入知識庫">
               <TextBlock Text="{Binding QueueCount, StringFormat='📦 一鍵全部歸檔 ({0})'}" FontSize="12.5" FontWeight="SemiBold" />

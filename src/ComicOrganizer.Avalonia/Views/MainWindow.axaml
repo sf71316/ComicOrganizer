@@ -181,7 +181,7 @@
   </suki:SukiWindow.RightWindowTitleBarControls>
 
   <suki:SukiWindow.Hosts>
-    <suki:SukiToastHost Manager="{Binding ToastManager}" />
+    <suki:SukiToastHost Manager="{Binding ToastManager}" Position="TopRight" />
   </suki:SukiWindow.Hosts>
 
   <suki:SukiSideMenu x:Name="MainSideMenu"

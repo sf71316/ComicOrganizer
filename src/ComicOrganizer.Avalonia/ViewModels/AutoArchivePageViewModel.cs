@@ -472,7 +472,7 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
     public bool IsWritable => !IsReadOnlyDatabase;
 
     public string ReadOnlyBannerText =>
-        "🔒 共用開發庫唯讀保護中（可自由掃描比對與執行 🧪 模擬測試；實際搬移檔案與寫入 mappings.json / cache.db 已鎖定防止異動）";
+        "🔒 共用開發庫唯讀保護中（可自由掃描比對與預覽；實際搬移檔案與寫入 mappings.json / cache.db 已鎖定防止異動）";
 
     public ObservableCollection<AutoArchiveCandidateVm> VisibleCandidates { get; } = new();
     public ObservableCollection<AutoArchiveTargetGroupVm> TargetGroups { get; } = new();
@@ -508,6 +508,10 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(CanSimulate))]
     [NotifyPropertyChangedFor(nameof(CanExecuteQueue))]
     [NotifyPropertyChangedFor(nameof(CanSimulateQueue))]
+    [NotifyPropertyChangedFor(nameof(CanAddAnyCheckedToQueue))]
+    [NotifyCanExecuteChangedFor(nameof(AddAllCheckedToQueueCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SimulateQueueCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExecuteQueueCommand))]
     private bool _isBusy;
 
     [ObservableProperty]
@@ -923,7 +927,7 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
     {
         if (IsReadOnlyDatabase)
         {
-            StatusMessage = "🔒 共用開發庫為唯讀模式，已攔截真實搬檔（請改用「🧪 模擬測試」驗證流程）。";
+            StatusMessage = "🔒 共用開發庫為唯讀模式，已攔截真實搬檔（不會異動檔案或資料庫）。";
             ShowToast("唯讀保護", StatusMessage, NotificationType.Warning);
             return;
         }
@@ -942,7 +946,7 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
     {
         if (IsReadOnlyDatabase)
         {
-            StatusMessage = "🔒 共用開發庫為唯讀模式，已攔截真實搬檔（請改用「🧪 模擬測試」驗證流程）。";
+            StatusMessage = "🔒 共用開發庫為唯讀模式，已攔截真實搬檔（不會異動檔案或資料庫）。";
             ShowToast("唯讀保護", StatusMessage, NotificationType.Warning);
             return;
         }
