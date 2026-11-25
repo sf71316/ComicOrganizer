@@ -431,4 +431,105 @@ public sealed class Phase4ManagementTests : IDisposable
         Assert.False(vm.IsGroupedView);
         Assert.Equal(4, vm.VisibleCandidates.Count);
     }
+
+    [Fact]
+    public async Task AutoArchive_GroupAddToQueue_RemoveRestore_AndExecuteQueueEndToEnd()
+    {
+        var dataDir = CreateTempDir("QueueData");
+        var srcDir = CreateTempDir("QueueSrc");
+        var rootDir = CreateTempDir("QueueRoot");
+
+        var authorA = "ArtistAlpha";
+        var authorB = "ArtistBeta";
+        var targetA = Path.Combine(rootDir, authorA);
+        var targetB = Path.Combine(rootDir, authorB);
+        Directory.CreateDirectory(targetA);
+        Directory.CreateDirectory(targetB);
+
+        var work1 = "[ArtistAlpha] Work One [DL版]";
+        var work2 = "[ArtistAlpha] Work Two [DL版]";
+        var work3 = "[ArtistBeta] Work Three [DL版]";
+        foreach (var w in new[] { work1, work2, work3 })
+        {
+            var dir = Path.Combine(srcDir, w);
+            Directory.CreateDirectory(dir);
+            WriteDummyImage(Path.Combine(dir, "001.png"));
+        }
+
+        await File.WriteAllTextAsync(
+            Path.Combine(dataDir, "appsettings.json"),
+            JsonSerializer.Serialize(new AppConfig
+            {
+                UnorganizedDirectory = srcDir,
+                RootDirectory = rootDir,
+                MaxScanDepth = 2
+            }));
+        using (var initStore = new SqliteAssetMetaStore(Path.Combine(dataDir, "cache.db")))
+        {
+            Assert.NotNull(initStore);
+        }
+
+        // 1. 唯讀模式下：可放入清單與模擬，但禁止真實搬檔
+        using (var roCtx = new AppDataContext(explicitDataDirectory: dataDir, forceReadOnlyDatabase: true))
+        {
+            var roVm = new AutoArchivePageViewModel(roCtx, runOnUiAsync: ImmediateUiAsync);
+            await roVm.ScanAsync();
+
+            var alphaGroup = roVm.TargetGroups.Single(g => g.TargetFolderName == authorA);
+            alphaGroup.Items[1].IsChecked = false; // 僅保留第 1 筆勾選
+            Assert.True(alphaGroup.CanAddCheckedToQueue);
+            Assert.Equal("📥 放入清單 (1)", alphaGroup.AddToQueueButtonText);
+
+            alphaGroup.AddCheckedToQueueCommand.Execute(null);
+            Assert.True(roVm.IsQueueDrawerOpen);
+            Assert.Single(roVm.QueuedItems);
+            Assert.Equal(alphaGroup.Items[0].SourceName, roVm.QueuedItems[0].SourceName);
+
+            // 選項 A：左側保留並取消勾選＋標記「📥 已入清單」
+            Assert.Equal(2, alphaGroup.TotalCount);
+            Assert.False(alphaGroup.Items[0].IsChecked);
+            Assert.Equal("📥 已入清單", alphaGroup.Items[0].ExecutionStatus);
+            Assert.False(alphaGroup.CanAddCheckedToQueue);
+
+            // 從右側清單刪除後，左側恢復待處理
+            roVm.QueuedItems[0].RemoveCommand.Execute(null);
+            Assert.Empty(roVm.QueuedItems);
+            Assert.Equal("待處理", alphaGroup.Items[0].ExecutionStatus);
+
+            // 重新全部勾選並放入清單後測試模擬與唯讀保護
+            alphaGroup.IsGroupChecked = true;
+            alphaGroup.AddCheckedToQueueCommand.Execute(null);
+            Assert.Equal(2, roVm.QueueCount);
+
+            await roVm.SimulateQueueCommand.ExecuteAsync(null);
+            Assert.All(roVm.QueuedItems, q => Assert.Equal("🧪 模擬通過", q.StatusText));
+            Assert.False(Directory.Exists(Path.Combine(targetA, work1)));
+
+            await roVm.ExecuteQueueCommand.ExecuteAsync(null);
+            Assert.Equal(2, roVm.QueueCount);
+            Assert.True(Directory.Exists(Path.Combine(srcDir, work1)));
+        }
+
+        // 2. 讀寫模式下：從多個群組加入清單並一鍵全部歸檔
+        using (var rwCtx = new AppDataContext(explicitDataDirectory: dataDir, forceReadOnlyDatabase: false))
+        {
+            var rwVm = new AutoArchivePageViewModel(rwCtx, runOnUiAsync: ImmediateUiAsync);
+            await rwVm.ScanAsync();
+
+            var alphaGroup = rwVm.TargetGroups.Single(g => g.TargetFolderName == authorA);
+            var betaGroup = rwVm.TargetGroups.Single(g => g.TargetFolderName == authorB);
+            alphaGroup.AddCheckedToQueueCommand.Execute(null);
+            betaGroup.AddCheckedToQueueCommand.Execute(null);
+
+            Assert.Equal(3, rwVm.QueueCount);
+            await rwVm.ExecuteQueueCommand.ExecuteAsync(null);
+
+            Assert.Empty(rwVm.QueuedItems);
+            Assert.True(Directory.Exists(Path.Combine(targetA, work1)));
+            Assert.True(Directory.Exists(Path.Combine(targetA, work2)));
+            Assert.True(Directory.Exists(Path.Combine(targetB, work3)));
+            Assert.False(Directory.Exists(Path.Combine(srcDir, work1)));
+            Assert.NotNull(rwCtx.MetaStore.GetAssetId(Path.Combine(targetB, work3)));
+        }
+    }
 }

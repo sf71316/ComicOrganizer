@@ -176,12 +176,84 @@ public sealed partial class AutoArchiveCandidateVm : ObservableObject
 }
 
 /// <summary>
-/// 依目標目錄彙整的自動歸檔群組 ViewModel：支援整組勾選、展開／收合與最低信心提醒。
+/// 「📥 待歸檔清單」抽屜內的單筆待搬移作品項目。
+/// </summary>
+public sealed partial class AutoArchiveQueuedItemVm : ObservableObject
+{
+    private readonly Action<AutoArchiveQueuedItemVm> _onInspectInReader;
+    private readonly Action<AutoArchiveQueuedItemVm> _onRevealInExplorer;
+    private readonly Action<AutoArchiveQueuedItemVm> _onRemove;
+
+    public AutoArchiveQueuedItemVm(
+        AutoArchiveCandidateVm sourceCandidate,
+        string targetFolderName,
+        string destinationPath,
+        bool isManuallyAssigned,
+        Action<AutoArchiveQueuedItemVm> onInspectInReader,
+        Action<AutoArchiveQueuedItemVm> onRevealInExplorer,
+        Action<AutoArchiveQueuedItemVm> onRemove)
+    {
+        SourceCandidate = sourceCandidate;
+        SourceName = sourceCandidate.SourceName;
+        SourceFullPath = sourceCandidate.SourceFullPath;
+        IsDirectory = sourceCandidate.IsDirectory;
+        TypeBadgeText = sourceCandidate.TypeBadgeText;
+        _targetFolderName = targetFolderName;
+        _destinationPath = destinationPath;
+        _isManuallyAssigned = isManuallyAssigned;
+        _onInspectInReader = onInspectInReader;
+        _onRevealInExplorer = onRevealInExplorer;
+        _onRemove = onRemove;
+    }
+
+    public AutoArchiveCandidateVm SourceCandidate { get; }
+    public string SourceName { get; }
+    public string SourceFullPath { get; }
+    public bool IsDirectory { get; }
+    public string TypeBadgeText { get; }
+
+    [ObservableProperty]
+    private string _targetFolderName;
+
+    [ObservableProperty]
+    private string _destinationPath;
+
+    [ObservableProperty]
+    private bool _isManuallyAssigned;
+
+    [ObservableProperty]
+    private string _statusText = "待歸檔";
+
+    [ObservableProperty]
+    private string _statusMessage = string.Empty;
+
+    public void UpdateTarget(AutoArchiveCandidateVm candidate, string targetFolderName, string destinationPath, bool isManuallyAssigned)
+    {
+        TargetFolderName = targetFolderName;
+        DestinationPath = destinationPath;
+        IsManuallyAssigned = isManuallyAssigned;
+        StatusText = "待歸檔";
+        StatusMessage = string.Empty;
+    }
+
+    [RelayCommand]
+    private void InspectInReader() => _onInspectInReader(this);
+
+    [RelayCommand]
+    private void RevealInExplorer() => _onRevealInExplorer(this);
+
+    [RelayCommand]
+    private void Remove() => _onRemove(this);
+}
+
+/// <summary>
+/// 依目標目錄彙整的自動歸檔群組 ViewModel：支援整條標題點擊展開／收合、整組勾選與一鍵加入待歸檔清單。
 /// </summary>
 public sealed partial class AutoArchiveTargetGroupVm : ObservableObject
 {
     private readonly Action _onGroupCheckBatchChanged;
     private readonly Action<string, bool> _onExpandStateChanged;
+    private readonly Action<AutoArchiveTargetGroupVm> _onAddCheckedToQueue;
     private bool _suppressGroupCheck;
 
     public AutoArchiveTargetGroupVm(
@@ -190,13 +262,15 @@ public sealed partial class AutoArchiveTargetGroupVm : ObservableObject
         IReadOnlyList<AutoArchiveCandidateVm> items,
         bool isExpanded,
         Action onGroupCheckBatchChanged,
-        Action<string, bool> onExpandStateChanged)
+        Action<string, bool> onExpandStateChanged,
+        Action<AutoArchiveTargetGroupVm> onAddCheckedToQueue)
     {
         TargetFolderName = targetFolderName;
         IsUnmatchedGroup = isUnmatchedGroup;
         _isExpanded = isExpanded;
         _onGroupCheckBatchChanged = onGroupCheckBatchChanged;
         _onExpandStateChanged = onExpandStateChanged;
+        _onAddCheckedToQueue = onAddCheckedToQueue;
 
         foreach (var item in items)
         {
@@ -293,6 +367,10 @@ public sealed partial class AutoArchiveTargetGroupVm : ObservableObject
         _onExpandStateChanged(TargetFolderName, value);
     }
 
+    public int EnqueuedCheckedCount => Items.Count(i => i.IsChecked && i.HasValidDestination);
+    public bool CanAddCheckedToQueue => !IsUnmatchedGroup && EnqueuedCheckedCount > 0;
+    public string AddToQueueButtonText => EnqueuedCheckedCount > 0 ? $"📥 放入清單 ({EnqueuedCheckedCount})" : "📥 放入清單";
+
     public void RefreshStats()
     {
         int total = Items.Count;
@@ -312,6 +390,10 @@ public sealed partial class AutoArchiveTargetGroupVm : ObservableObject
 
         OnPropertyChanged(nameof(TotalCount));
         OnPropertyChanged(nameof(CheckedCount));
+        OnPropertyChanged(nameof(EnqueuedCheckedCount));
+        OnPropertyChanged(nameof(CanAddCheckedToQueue));
+        OnPropertyChanged(nameof(AddToQueueButtonText));
+        AddCheckedToQueueCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(SummaryBadgeText));
         OnPropertyChanged(nameof(HasConfidenceBadge));
         OnPropertyChanged(nameof(HasLowConfidenceItem));
@@ -321,6 +403,9 @@ public sealed partial class AutoArchiveTargetGroupVm : ObservableObject
 
     [RelayCommand]
     private void ToggleExpand() => IsExpanded = !IsExpanded;
+
+    [RelayCommand(CanExecute = nameof(CanAddCheckedToQueue))]
+    private void AddCheckedToQueue() => _onAddCheckedToQueue(this);
 }
 
 /// <summary>
@@ -365,6 +450,7 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
 
     public ObservableCollection<AutoArchiveCandidateVm> VisibleCandidates { get; } = new();
     public ObservableCollection<AutoArchiveTargetGroupVm> TargetGroups { get; } = new();
+    public ObservableCollection<AutoArchiveQueuedItemVm> QueuedItems { get; } = new();
 
     [ObservableProperty]
     private string _unorganizedDirectoryText = "尚未設定";
@@ -389,11 +475,19 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
     private bool _isGroupedView = true;
 
     [ObservableProperty]
+    private bool _isQueueDrawerOpen;
+
+    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanExecuteRealMove))]
+    [NotifyPropertyChangedFor(nameof(CanSimulate))]
+    [NotifyPropertyChangedFor(nameof(CanExecuteQueue))]
+    [NotifyPropertyChangedFor(nameof(CanSimulateQueue))]
     private bool _isBusy;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanExecuteRealMove))]
+    [NotifyPropertyChangedFor(nameof(CanSimulate))]
+    [NotifyPropertyChangedFor(nameof(CanAddAnyCheckedToQueue))]
     private int _checkedCount;
 
     [ObservableProperty]
@@ -409,6 +503,15 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
     public bool CanSimulate => !IsBusy && CheckedCount > 0;
     public bool HasCandidates => VisibleCandidates.Count > 0;
     public bool IsFlatView => !IsGroupedView;
+
+    public int QueueCount => QueuedItems.Count;
+    public bool HasQueuedItems => QueuedItems.Count > 0;
+    public bool IsQueueEmpty => QueuedItems.Count == 0;
+    public string QueueToggleButtonLabel => $"📥 待歸檔清單 ({QueueCount})";
+    public string QueueHeaderCountText => $"({QueueCount})";
+    public bool CanSimulateQueue => !IsBusy && HasQueuedItems;
+    public bool CanExecuteQueue => IsWritable && !IsBusy && HasQueuedItems;
+    public bool CanAddAnyCheckedToQueue => _allCandidates.Any(c => c.IsChecked && c.HasValidDestination);
 
     public bool IsAllFilterTab => ActiveFilterTab == AutoArchiveFilterTab.All;
     public bool IsCheckedFilterTab => ActiveFilterTab == AutoArchiveFilterTab.CheckedOnly;
@@ -601,6 +704,135 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private void ToggleQueueDrawer() => IsQueueDrawerOpen = !IsQueueDrawerOpen;
+
+    [RelayCommand]
+    private void CloseQueueDrawer() => IsQueueDrawerOpen = false;
+
+    [RelayCommand(CanExecute = nameof(CanAddAnyCheckedToQueue))]
+    private void AddAllCheckedToQueue()
+    {
+        var ready = _allCandidates.Where(c => c.IsChecked && c.HasValidDestination).ToList();
+        EnqueueCandidates(ready, openDrawer: true);
+    }
+
+    [RelayCommand]
+    private void ClearQueue()
+    {
+        if (QueuedItems.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var q in QueuedItems)
+        {
+            RestoreCandidateStatusIfQueued(q.SourceFullPath);
+        }
+
+        QueuedItems.Clear();
+        NotifyQueueStateChanged();
+    }
+
+    private void OnRemoveQueuedItem(AutoArchiveQueuedItemVm queuedItem)
+    {
+        QueuedItems.Remove(queuedItem);
+        RestoreCandidateStatusIfQueued(queuedItem.SourceFullPath);
+        NotifyQueueStateChanged();
+    }
+
+    private void RestoreCandidateStatusIfQueued(string sourceFullPath)
+    {
+        var candidate = _allCandidates.FirstOrDefault(
+            c => string.Equals(c.SourceFullPath, sourceFullPath, StringComparison.OrdinalIgnoreCase));
+        if (candidate != null && string.Equals(candidate.ExecutionStatus, "📥 已入清單", StringComparison.Ordinal))
+        {
+            candidate.ExecutionStatus = "待處理";
+            candidate.ExecutionMessage = string.Empty;
+        }
+    }
+
+    private void OnAddGroupCheckedToQueue(AutoArchiveTargetGroupVm group)
+    {
+        var ready = group.Items.Where(i => i.IsChecked && i.HasValidDestination).ToList();
+        EnqueueCandidates(ready, openDrawer: true);
+    }
+
+    private void EnqueueCandidates(IReadOnlyList<AutoArchiveCandidateVm> candidates, bool openDrawer)
+    {
+        if (candidates.Count == 0)
+        {
+            StatusMessage = "請先勾選至少一個已指定目標目錄的作品再放入清單。";
+            ShowToast("無可入列項目", StatusMessage, NotificationType.Warning);
+            return;
+        }
+
+        int added = 0;
+        int updated = 0;
+        foreach (var item in candidates)
+        {
+            if (!item.HasValidDestination)
+            {
+                continue;
+            }
+
+            var existing = QueuedItems.FirstOrDefault(
+                q => string.Equals(q.SourceFullPath, item.SourceFullPath, StringComparison.OrdinalIgnoreCase));
+            if (existing != null)
+            {
+                existing.UpdateTarget(item, item.SelectedTargetFolder, item.DestinationPath, item.IsManuallyAssigned);
+                updated++;
+            }
+            else
+            {
+                QueuedItems.Add(new AutoArchiveQueuedItemVm(
+                    item,
+                    item.SelectedTargetFolder,
+                    item.DestinationPath,
+                    item.IsManuallyAssigned,
+                    OnInspectQueuedInReader,
+                    OnRevealQueuedInExplorer,
+                    OnRemoveQueuedItem));
+                added++;
+            }
+
+            // 選項 A：保留左側預覽項目但取消勾選，改標記「📥 已入清單」避免重複誤入列
+            item.SetCheckedSilently(false);
+            item.ExecutionStatus = "📥 已入清單";
+            item.ExecutionMessage = $"待歸檔至：{item.SelectedTargetFolder}";
+        }
+
+        if (openDrawer && (added > 0 || updated > 0))
+        {
+            IsQueueDrawerOpen = true;
+        }
+
+        RefreshAfterBatchCheckChange();
+        NotifyQueueStateChanged();
+        StatusMessage = updated > 0
+            ? $"已加入 {added} 筆並更新 {updated} 筆至「📥 待歸檔清單」（共 {QueueCount} 筆）"
+            : $"已將 {added} 筆加入「📥 待歸檔清單」（共 {QueueCount} 筆）";
+    }
+
+    [RelayCommand(CanExecute = nameof(CanSimulateQueue))]
+    public async Task SimulateQueueAsync()
+    {
+        await RunQueuedExecutionAsync(isDryRun: true);
+    }
+
+    [RelayCommand(CanExecute = nameof(CanExecuteQueue))]
+    public async Task ExecuteQueueAsync()
+    {
+        if (IsReadOnlyDatabase)
+        {
+            StatusMessage = "🔒 共用開發庫為唯讀模式，已攔截真實搬檔（請改用「🧪 模擬測試」驗證流程）。";
+            ShowToast("唯讀保護", StatusMessage, NotificationType.Warning);
+            return;
+        }
+
+        await RunQueuedExecutionAsync(isDryRun: false);
+    }
+
+    [RelayCommand]
     public async Task SimulateExecuteAsync()
     {
         await RunArchiveExecutionAsync(isDryRun: true);
@@ -619,6 +851,53 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
         await RunArchiveExecutionAsync(isDryRun: false);
     }
 
+    private async Task RunQueuedExecutionAsync(bool isDryRun)
+    {
+        if (IsBusy) return;
+        var snapshot = QueuedItems.ToList();
+        if (snapshot.Count == 0)
+        {
+            StatusMessage = "「📥 待歸檔清單」目前為空。";
+            ShowToast("清單為空", StatusMessage, NotificationType.Warning);
+            return;
+        }
+
+        var entries = snapshot.Select(q => new BatchMoveEntry(
+            SourceName: q.SourceName,
+            SourceFullPath: q.SourceFullPath,
+            TargetFolder: q.TargetFolderName,
+            DestinationPath: q.DestinationPath,
+            IsManuallyAssigned: q.IsManuallyAssigned,
+            SetStatus: (status, msg) =>
+            {
+                q.StatusText = status;
+                q.StatusMessage = msg;
+                var candidate = _allCandidates.FirstOrDefault(
+                    c => string.Equals(c.SourceFullPath, q.SourceFullPath, StringComparison.OrdinalIgnoreCase));
+                if (candidate != null)
+                {
+                    candidate.ExecutionStatus = status;
+                    candidate.ExecutionMessage = msg;
+                }
+            },
+            OnMoveSucceeded: _ => q.SourceCandidate.SetCheckedSilently(false))).ToList();
+
+        var succeededIndices = await ExecuteBatchEntriesAsync(entries, isDryRun);
+
+        if (!isDryRun && succeededIndices.Count > 0)
+        {
+            await _runOnUiAsync(() =>
+            {
+                foreach (int idx in succeededIndices)
+                {
+                    QueuedItems.Remove(snapshot[idx]);
+                }
+
+                NotifyQueueStateChanged();
+            }).ConfigureAwait(false);
+        }
+    }
+
     private async Task RunArchiveExecutionAsync(bool isDryRun)
     {
         if (IsBusy) return;
@@ -631,9 +910,37 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
             return;
         }
 
+        var entries = selected.Select(item => new BatchMoveEntry(
+            SourceName: item.SourceName,
+            SourceFullPath: item.SourceFullPath,
+            TargetFolder: item.SelectedTargetFolder,
+            DestinationPath: item.DestinationPath,
+            IsManuallyAssigned: item.IsManuallyAssigned,
+            SetStatus: (status, msg) =>
+            {
+                item.ExecutionStatus = status;
+                item.ExecutionMessage = msg;
+            },
+            OnMoveSucceeded: _ => item.IsChecked = false)).ToList();
+
+        await ExecuteBatchEntriesAsync(entries, isDryRun);
+    }
+
+    private sealed record BatchMoveEntry(
+        string SourceName,
+        string SourceFullPath,
+        string TargetFolder,
+        string DestinationPath,
+        bool IsManuallyAssigned,
+        Action<string, string> SetStatus,
+        Action<string> OnMoveSucceeded);
+
+    private async Task<List<int>> ExecuteBatchEntriesAsync(IReadOnlyList<BatchMoveEntry> entries, bool isDryRun)
+    {
         IsBusy = true;
         int okCount = 0;
         int skipOrFailCount = 0;
+        var succeededIndices = new List<int>();
 
         try
         {
@@ -645,12 +952,14 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
 
             await Task.Run(() =>
             {
-                foreach (var item in selected)
+                for (int i = 0; i < entries.Count; i++)
                 {
-                    if (!item.HasValidDestination)
+                    var item = entries[i];
+                    if (string.IsNullOrWhiteSpace(item.TargetFolder) ||
+                        string.Equals(item.TargetFolder, "未匹配", StringComparison.Ordinal) ||
+                        string.IsNullOrWhiteSpace(item.DestinationPath))
                     {
-                        item.ExecutionStatus = "✕ 略過";
-                        item.ExecutionMessage = "尚未選擇目標資料夾";
+                        item.SetStatus("✕ 略過", "尚未選擇目標資料夾");
                         skipOrFailCount++;
                         continue;
                     }
@@ -660,56 +969,52 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
 
                     if (!File.Exists(cleanSource) && !Directory.Exists(cleanSource))
                     {
-                        item.ExecutionStatus = "✕ 找不到來源";
-                        item.ExecutionMessage = "來源檔案或資料夾已不存在";
+                        item.SetStatus("✕ 找不到來源", "來源檔案或資料夾已不存在");
                         skipOrFailCount++;
                         continue;
                     }
 
                     if (File.Exists(targetPath) || Directory.Exists(targetPath))
                     {
-                        item.ExecutionStatus = "⚠️ 名稱衝突";
-                        item.ExecutionMessage = $"目標目錄已存在同名項目：{Path.GetFileName(targetPath)}";
+                        item.SetStatus("⚠️ 名稱衝突", $"目標目錄已存在同名項目：{Path.GetFileName(targetPath)}");
                         skipOrFailCount++;
                         continue;
                     }
 
                     if (isDryRun)
                     {
-                        item.ExecutionStatus = "🧪 模擬通過";
-                        item.ExecutionMessage = $"將搬移至 {item.SelectedTargetFolder}";
+                        item.SetStatus("🧪 模擬通過", $"將搬移至 {item.TargetFolder}");
                         okCount++;
                         continue;
                     }
 
                     try
                     {
-                        item.ExecutionStatus = "⏳ 搬移中";
+                        item.SetStatus("⏳ 搬移中", string.Empty);
                         string movedPath = ArchiveMoveHelper.MoveItemSafely(item.SourceFullPath, item.DestinationPath);
-                        UpsertMovedCatalog(movedPath, item.SelectedTargetFolder);
+                        UpsertMovedCatalog(movedPath, item.TargetFolder);
 
                         var keywords = organizer.ExtractAuthorKeywordsForLearning(item.SourceName);
                         foreach (var kw in keywords)
                         {
                             bool shouldLearn = item.IsManuallyAssigned
                                 ? MappingIntelligence.IsValidLearningKey(MappingIntelligence.NormalizeKey(kw))
-                                : organizer.IsKeywordValidForTarget(kw, item.SelectedTargetFolder);
+                                : organizer.IsKeywordValidForTarget(kw, item.TargetFolder);
                             if (shouldLearn)
                             {
-                                intelligence.Learn(kw, item.SelectedTargetFolder);
+                                intelligence.Learn(kw, item.TargetFolder);
                             }
                         }
 
-                        item.ExecutionStatus = "✓ 已歸檔";
-                        item.ExecutionMessage = movedPath;
-                        item.IsChecked = false;
+                        item.SetStatus("✓ 已歸檔", movedPath);
+                        item.OnMoveSucceeded(movedPath);
                         movedPaths.Add(movedPath);
+                        succeededIndices.Add(i);
                         okCount++;
                     }
                     catch (Exception ex)
                     {
-                        item.ExecutionStatus = "✕ 失敗";
-                        item.ExecutionMessage = ex.Message;
+                        item.SetStatus("✕ 失敗", ex.Message);
                         skipOrFailCount++;
                     }
                 }
@@ -744,6 +1049,8 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
         {
             await _runOnUiAsync(() => IsBusy = false).ConfigureAwait(false);
         }
+
+        return succeededIndices;
     }
 
     private void UpsertMovedCatalog(string movedPath, string targetFolder)
@@ -852,7 +1159,8 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
                 entry.Items,
                 expanded,
                 OnGroupCheckBatchChanged,
-                OnGroupExpandStateChanged));
+                OnGroupExpandStateChanged,
+                OnAddGroupCheckedToQueue));
         }
 
         OnPropertyChanged(nameof(HasCandidates));
@@ -930,6 +1238,21 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
         CheckedCount = _allCandidates.Count(c => c.IsChecked);
         OnPropertyChanged(nameof(CanSimulate));
         OnPropertyChanged(nameof(CanExecuteRealMove));
+        OnPropertyChanged(nameof(CanAddAnyCheckedToQueue));
+        AddAllCheckedToQueueCommand.NotifyCanExecuteChanged();
+    }
+
+    private void NotifyQueueStateChanged()
+    {
+        OnPropertyChanged(nameof(QueueCount));
+        OnPropertyChanged(nameof(HasQueuedItems));
+        OnPropertyChanged(nameof(IsQueueEmpty));
+        OnPropertyChanged(nameof(QueueToggleButtonLabel));
+        OnPropertyChanged(nameof(QueueHeaderCountText));
+        OnPropertyChanged(nameof(CanSimulateQueue));
+        OnPropertyChanged(nameof(CanExecuteQueue));
+        SimulateQueueCommand.NotifyCanExecuteChanged();
+        ExecuteQueueCommand.NotifyCanExecuteChanged();
     }
 
     private void OnInspectInReader(AutoArchiveCandidateVm item)
@@ -941,6 +1264,22 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
     }
 
     private void OnRevealInExplorer(AutoArchiveCandidateVm item)
+    {
+        if (!_externalLauncher.RevealInFileExplorer(item.SourceFullPath, out var err))
+        {
+            ShowToast("無法開啟檔案總管", err ?? item.SourceFullPath, NotificationType.Warning);
+        }
+    }
+
+    private void OnInspectQueuedInReader(AutoArchiveQueuedItemVm item)
+    {
+        if (!_readerLauncher.OpenInReader(item.SourceFullPath, item.SourceName, item.TargetFolderName, null, out var err))
+        {
+            ShowToast("無法預覽", err ?? item.SourceFullPath, NotificationType.Warning);
+        }
+    }
+
+    private void OnRevealQueuedInExplorer(AutoArchiveQueuedItemVm item)
     {
         if (!_externalLauncher.RevealInFileExplorer(item.SourceFullPath, out var err))
         {

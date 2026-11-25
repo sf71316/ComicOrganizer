@@ -111,9 +111,17 @@
       <Setter Property="Foreground" Value="{DynamicResource SukiPrimaryColor}" />
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
+    <Style Selector="Button.group-header-btn">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style Selector="Button.group-header-btn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#14808080" />
+    </Style>
   </UserControl.Styles>
 
-  <Grid RowDefinitions="Auto,Auto,*" Margin="18,14,18,16">
+  <Grid ColumnDefinitions="*,Auto" Margin="18,14,18,16">
+    <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*">
     <!-- 1. 標題與設定摘要卡片 -->
     <suki:GlassCard Grid.Row="0" CornerRadius="14" Padding="16,12" Margin="0,0,0,10">
       <StackPanel Spacing="10">
@@ -147,18 +155,9 @@
 
             <Button Classes="Outlined"
                     Padding="12,7"
-                    Command="{Binding SimulateExecuteCommand}"
-                    IsEnabled="{Binding CanSimulate}"
-                    ToolTip.Tip="只檢查路徑與衝突，不實際搬移磁碟檔案或寫入資料庫">
-              <TextBlock Text="🧪 模擬測試" FontSize="12.5" />
-            </Button>
-
-            <Button Classes="Flat"
-                    Padding="14,7"
-                    Command="{Binding ExecuteArchiveCommand}"
-                    IsEnabled="{Binding CanExecuteRealMove}"
-                    ToolTip.Tip="搬移已勾選項目至目標目錄並將有效關鍵字寫回 mappings.json">
-              <TextBlock Text="{Binding CheckedCount, StringFormat='📦 執行歸檔 ({0})'}"
+                    Command="{Binding ToggleQueueDrawerCommand}"
+                    ToolTip.Tip="展開／收合右側「📥 待歸檔清單」抽屜，統一檢視或一鍵全部歸檔">
+              <TextBlock Text="{Binding QueueToggleButtonLabel}"
                          FontSize="12.5"
                          FontWeight="SemiBold" />
             </Button>
@@ -275,6 +274,13 @@
             <Button Classes="Basic" Padding="9,4" Command="{Binding UncheckAllCommand}">
               <TextBlock Text="全不選" FontSize="11.5" />
             </Button>
+            <Border Width="1" Height="16" Background="{DynamicResource SukiBorderBrush}" Margin="2,0" />
+            <Button Classes="Flat"
+                    Padding="10,4"
+                    Command="{Binding AddAllCheckedToQueueCommand}"
+                    ToolTip.Tip="將目前已勾選且具目標目錄的作品全部放入右側「📥 待歸檔清單」">
+              <TextBlock Text="{Binding CheckedCount, StringFormat='📥 勾選入清單 ({0})'}" FontSize="11.5" FontWeight="SemiBold" />
+            </Button>
           </StackPanel>
         </Grid>
       </StackPanel>
@@ -310,58 +316,82 @@
                           BorderBrush="{DynamicResource SukiBorderBrush}"
                           Background="#0B808080">
                     <StackPanel>
-                      <Border Padding="12,9"
+                      <Border Padding="10,7"
                               Background="#12808080">
-                        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="10">
+                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                           <CheckBox Grid.Column="0"
+                                    Margin="2,0,0,0"
                                     IsChecked="{Binding IsGroupChecked, Mode=TwoWay}"
                                     VerticalAlignment="Center"
                                     ToolTip.Tip="一鍵全選／取消此目標目錄底下的所有項目" />
 
-                          <TextBlock Grid.Column="1"
-                                     Text="{Binding GroupHeaderTitle}"
-                                     FontSize="14"
-                                     FontWeight="Bold"
-                                     TextWrapping="Wrap"
-                                     VerticalAlignment="Center" />
-
-                          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                            <Border CornerRadius="6"
-                                    Padding="8,2"
-                                    Background="#22F59E0B"
-                                    BorderBrush="#66F59E0B"
-                                    BorderThickness="1"
-                                    IsVisible="{Binding HasLowConfidenceItem}">
-                              <TextBlock Text="{Binding GroupConfidenceBadgeText}"
-                                         FontSize="11.5"
-                                         FontWeight="SemiBold"
-                                         Foreground="#F59E0B" />
-                            </Border>
-                            <Border CornerRadius="6"
-                                    Padding="8,2"
-                                    Background="{DynamicResource SukiPrimaryColor15}"
-                                    IsVisible="{Binding HasNormalConfidenceBadge}">
-                              <TextBlock Text="{Binding GroupConfidenceBadgeText}"
-                                         FontSize="11.5"
-                                         FontWeight="SemiBold"
-                                         Foreground="{DynamicResource SukiPrimaryColor}" />
-                            </Border>
-                          </StackPanel>
-
-                          <Border Grid.Column="3"
-                                  CornerRadius="6"
-                                  Padding="8,2"
-                                  Background="#16808080"
-                                  VerticalAlignment="Center">
-                            <TextBlock Text="{Binding SummaryBadgeText}" FontSize="11.5" FontWeight="SemiBold" />
-                          </Border>
-
-                          <Button Grid.Column="4"
-                                  Classes="Basic"
-                                  Padding="8,3"
+                          <!-- 點擊整條標題列任何位置（目錄名稱、統計徽章或箭頭）即可展開／收合 -->
+                          <Button Grid.Column="1"
+                                  Classes="Basic group-header-btn"
+                                  HorizontalAlignment="Stretch"
+                                  HorizontalContentAlignment="Stretch"
+                                  Padding="6,4"
+                                  CornerRadius="8"
+                                  Cursor="Hand"
                                   Command="{Binding ToggleExpandCommand}"
-                                  ToolTip.Tip="展開／收合此目標目錄群組">
-                            <TextBlock Text="{Binding ExpandGlyph}" FontSize="13" FontWeight="Bold" />
+                                  ToolTip.Tip="點擊標題列展開／收合此目標目錄群組">
+                            <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
+                              <TextBlock Grid.Column="0"
+                                         Text="{Binding GroupHeaderTitle}"
+                                         FontSize="14"
+                                         FontWeight="Bold"
+                                         TextWrapping="Wrap"
+                                         VerticalAlignment="Center" />
+
+                              <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <Border CornerRadius="6"
+                                        Padding="8,2"
+                                        Background="#22F59E0B"
+                                        BorderBrush="#66F59E0B"
+                                        BorderThickness="1"
+                                        IsVisible="{Binding HasLowConfidenceItem}">
+                                  <TextBlock Text="{Binding GroupConfidenceBadgeText}"
+                                             FontSize="11.5"
+                                             FontWeight="SemiBold"
+                                             Foreground="#F59E0B" />
+                                </Border>
+                                <Border CornerRadius="6"
+                                        Padding="8,2"
+                                        Background="{DynamicResource SukiPrimaryColor15}"
+                                        IsVisible="{Binding HasNormalConfidenceBadge}">
+                                  <TextBlock Text="{Binding GroupConfidenceBadgeText}"
+                                             FontSize="11.5"
+                                             FontWeight="SemiBold"
+                                             Foreground="{DynamicResource SukiPrimaryColor}" />
+                                </Border>
+                              </StackPanel>
+
+                              <Border Grid.Column="2"
+                                      CornerRadius="6"
+                                      Padding="8,2"
+                                      Background="#16808080"
+                                      VerticalAlignment="Center">
+                                <TextBlock Text="{Binding SummaryBadgeText}" FontSize="11.5" FontWeight="SemiBold" />
+                              </Border>
+
+                              <TextBlock Grid.Column="3"
+                                         Text="{Binding ExpandGlyph}"
+                                         FontSize="13"
+                                         FontWeight="Bold"
+                                         Margin="2,0,4,0"
+                                         VerticalAlignment="Center" />
+                            </Grid>
+                          </Button>
+
+                          <Button Grid.Column="2"
+                                  Classes="Outlined"
+                                  Padding="10,5"
+                                  Command="{Binding AddCheckedToQueueCommand}"
+                                  VerticalAlignment="Center"
+                                  ToolTip.Tip="將此目錄群組內有打勾的作品放入右側「📥 待歸檔清單」">
+                            <TextBlock Text="{Binding AddToQueueButtonText}"
+                                       FontSize="12"
+                                       FontWeight="SemiBold" />
                           </Button>
                         </Grid>
                       </Border>
@@ -382,6 +412,184 @@
                           ItemTemplate="{StaticResource AutoArchiveCandidateRowTemplate}" />
           </StackPanel>
         </ScrollViewer>
+      </Grid>
+    </suki:GlassCard>
+    </Grid>
+
+    <!-- 右側：比照「待挑書籃」模式的「📥 待歸檔清單」抽屜 -->
+    <suki:GlassCard Grid.Column="1"
+                    Width="364"
+                    IsVisible="{Binding IsQueueDrawerOpen}"
+                    CornerRadius="14"
+                    Padding="14"
+                    Margin="12,0,0,0">
+      <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="10">
+
+        <!-- 抽屜標題列 -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+          <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <TextBlock Text="📥 待歸檔清單" FontSize="15" FontWeight="Bold" />
+            <TextBlock Text="{Binding QueueHeaderCountText}"
+                       FontSize="13.5"
+                       FontWeight="SemiBold"
+                       Opacity="0.72"
+                       VerticalAlignment="Center" />
+          </StackPanel>
+          <Button Grid.Column="1"
+                  Classes="Outlined"
+                  Padding="8,4"
+                  IsEnabled="{Binding HasQueuedItems}"
+                  Command="{Binding ClearQueueCommand}"
+                  ToolTip.Tip="清空全部待歸檔項目（不會刪除硬碟檔案）">
+            <TextBlock Text="清空" FontSize="11.5" />
+          </Button>
+          <Button Grid.Column="2"
+                  Classes="Basic"
+                  Padding="7,4"
+                  Command="{Binding CloseQueueDrawerCommand}"
+                  ToolTip.Tip="收合待歸檔清單抽屜">
+            <TextBlock Text="✕" FontSize="12.5" />
+          </Button>
+        </Grid>
+
+        <!-- 操作提示 -->
+        <Border Grid.Row="1"
+                Background="{DynamicResource SukiPrimaryColor15}"
+                BorderBrush="{DynamicResource SukiPrimaryColor50}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Padding="9,6">
+          <TextBlock Text="在左側各群組勾選確認後按「📥 放入清單」，可在此最後複檢或移除不需要的作品，再一鍵全部歸檔。"
+                     FontSize="11.5"
+                     TextWrapping="Wrap"
+                     Opacity="0.9" />
+        </Border>
+
+        <!-- 清單或空狀態 -->
+        <Grid Grid.Row="2">
+          <StackPanel IsVisible="{Binding IsQueueEmpty}"
+                      VerticalAlignment="Center"
+                      HorizontalAlignment="Center"
+                      Spacing="8"
+                      Margin="12">
+            <TextBlock Text="📥" FontSize="32" HorizontalAlignment="Center" Opacity="0.45" />
+            <TextBlock Text="待歸檔清單目前是空的"
+                       FontSize="13.5"
+                       FontWeight="SemiBold"
+                       HorizontalAlignment="Center" />
+            <TextBlock Text="在左側目標目錄分群標題旁點擊「📥 放入清單」，即可將群組內勾選作品統一收攏至此確認搬移。"
+                       FontSize="11.5"
+                       Opacity="0.68"
+                       TextWrapping="Wrap"
+                       TextAlignment="Center" />
+          </StackPanel>
+
+          <ScrollViewer IsVisible="{Binding HasQueuedItems}"
+                        HorizontalScrollBarVisibility="Disabled"
+                        VerticalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{Binding QueuedItems}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:AutoArchiveQueuedItemVm">
+                  <Border BorderBrush="{DynamicResource SukiBorderBrush}"
+                          BorderThickness="1"
+                          Background="#10808080"
+                          CornerRadius="10"
+                          Padding="9"
+                          Margin="0,0,0,8">
+                    <StackPanel Spacing="6">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                        <StackPanel Grid.Column="0" Spacing="3">
+                          <StackPanel Orientation="Horizontal" Spacing="5">
+                            <Border CornerRadius="5" Padding="5,1" Background="#16808080">
+                              <TextBlock Text="{Binding TypeBadgeText}" FontSize="10" FontWeight="SemiBold" />
+                            </Border>
+                            <Border CornerRadius="5" Padding="5,1" Background="#14808080">
+                              <TextBlock Text="{Binding StatusText}" FontSize="10" FontWeight="SemiBold" />
+                            </Border>
+                          </StackPanel>
+                          <TextBlock Text="{Binding SourceName}"
+                                     FontSize="12.5"
+                                     FontWeight="SemiBold"
+                                     TextWrapping="Wrap"
+                                     ToolTip.Tip="{Binding SourceFullPath}" />
+                        </StackPanel>
+
+                        <Button Grid.Column="1"
+                                Classes="Basic"
+                                Padding="5,3"
+                                VerticalAlignment="Top"
+                                Command="{Binding RemoveCommand}"
+                                ToolTip.Tip="從待歸檔清單移除此作品">
+                          <TextBlock Text="✕" FontSize="11.5" Opacity="0.72" />
+                        </Button>
+                      </Grid>
+
+                      <Border CornerRadius="6"
+                              Padding="7,4"
+                              Background="{DynamicResource SukiPrimaryColor10}">
+                        <TextBlock Text="{Binding TargetFolderName, StringFormat='→ 📁 {0}'}"
+                                   FontSize="11.5"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource SukiPrimaryColor}"
+                                   TextWrapping="Wrap"
+                                   ToolTip.Tip="{Binding DestinationPath}" />
+                      </Border>
+
+                      <TextBlock Text="{Binding StatusMessage}"
+                                 FontSize="11"
+                                 Opacity="0.72"
+                                 IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                 TextWrapping="Wrap" />
+
+                      <Grid ColumnDefinitions="*,*" ColumnSpacing="6">
+                        <Button Grid.Column="0"
+                                Classes="Outlined"
+                                Padding="6,4"
+                                HorizontalContentAlignment="Center"
+                                Command="{Binding InspectInReaderCommand}">
+                          <TextBlock Text="📖 預覽" FontSize="11" />
+                        </Button>
+                        <Button Grid.Column="1"
+                                Classes="Outlined"
+                                Padding="6,4"
+                                HorizontalContentAlignment="Center"
+                                Command="{Binding RevealInExplorerCommand}">
+                          <TextBlock Text="📂 位置" FontSize="11" />
+                        </Button>
+                      </Grid>
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </Grid>
+
+        <!-- 底部統一執行區（模擬測試 / 一鍵全部歸檔） -->
+        <Border Grid.Row="3"
+                BorderBrush="{DynamicResource SukiBorderBrush}"
+                BorderThickness="0,1,0,0"
+                Padding="0,10,0,0">
+          <StackPanel Spacing="7">
+            <Button Classes="Outlined"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Center"
+                    Padding="10,7"
+                    Command="{Binding SimulateQueueCommand}"
+                    ToolTip.Tip="只檢查待歸檔清單內的路徑與衝突，不實際搬移硬碟檔案或寫入資料庫">
+              <TextBlock Text="{Binding QueueCount, StringFormat='🧪 模擬測試 ({0})'}" FontSize="12.5" FontWeight="SemiBold" />
+            </Button>
+            <Button Classes="Flat"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Center"
+                    Padding="10,8"
+                    Command="{Binding ExecuteQueueCommand}"
+                    ToolTip.Tip="將清單內全部項目一次搬移至各自目標目錄並寫入知識庫">
+              <TextBlock Text="{Binding QueueCount, StringFormat='📦 一鍵全部歸檔 ({0})'}" FontSize="12.5" FontWeight="SemiBold" />
+            </Button>
+          </StackPanel>
+        </Border>
+
       </Grid>
     </suki:GlassCard>
   </Grid>
