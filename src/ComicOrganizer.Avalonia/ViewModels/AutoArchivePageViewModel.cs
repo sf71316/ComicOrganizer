@@ -511,7 +511,17 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
     public string QueueHeaderCountText => $"({QueueCount})";
     public bool CanSimulateQueue => !IsBusy && HasQueuedItems;
     public bool CanExecuteQueue => IsWritable && !IsBusy && HasQueuedItems;
-    public bool CanAddAnyCheckedToQueue => _allCandidates.Any(c => c.IsChecked && c.HasValidDestination);
+    public bool CanAddAnyCheckedToQueue
+    {
+        get
+        {
+            var queuedFolders = GetQueuedTargetFolders();
+            return _allCandidates.Any(c =>
+                c.IsChecked &&
+                c.HasValidDestination &&
+                !queuedFolders.Contains(c.SelectedTargetFolder));
+        }
+    }
 
     public bool IsAllFilterTab => ActiveFilterTab == AutoArchiveFilterTab.All;
     public bool IsCheckedFilterTab => ActiveFilterTab == AutoArchiveFilterTab.CheckedOnly;
@@ -623,8 +633,11 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
             {
                 _allCandidates.Clear();
                 _allCandidates.AddRange(results);
+                QueuedItems.Clear();
+                IsQueueDrawerOpen = false;
                 ApplyFilterOnUi();
                 UpdateSelectionCounts();
+                NotifyQueueStateChanged();
                 StatusMessage = $"掃描完成：共 {TotalScannedCount} 筆項目（已匹配 {MatchedCount} 筆、未匹配 {UnmatchedCount} 筆、已勾選 {CheckedCount} 筆）";
             }).ConfigureAwait(false);
         }
@@ -712,7 +725,10 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanAddAnyCheckedToQueue))]
     private void AddAllCheckedToQueue()
     {
-        var ready = _allCandidates.Where(c => c.IsChecked && c.HasValidDestination).ToList();
+        var queuedFolders = GetQueuedTargetFolders();
+        var ready = _allCandidates
+            .Where(c => c.IsChecked && c.HasValidDestination && !queuedFolders.Contains(c.SelectedTargetFolder))
+            .ToList();
         EnqueueCandidates(ready, openDrawer: true);
     }
 
@@ -730,6 +746,8 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
         }
 
         QueuedItems.Clear();
+        ApplyFilterOnUi();
+        UpdateSelectionCounts();
         NotifyQueueStateChanged();
     }
 
@@ -737,6 +755,8 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
     {
         QueuedItems.Remove(queuedItem);
         RestoreCandidateStatusIfQueued(queuedItem.SourceFullPath);
+        ApplyFilterOnUi();
+        UpdateSelectionCounts();
         NotifyQueueStateChanged();
     }
 
@@ -806,7 +826,8 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
             IsQueueDrawerOpen = true;
         }
 
-        RefreshAfterBatchCheckChange();
+        ApplyFilterOnUi();
+        UpdateSelectionCounts();
         NotifyQueueStateChanged();
         StatusMessage = updated > 0
             ? $"已加入 {added} 筆並更新 {updated} 筆至「📥 待歸檔清單」（共 {QueueCount} 筆）"
@@ -890,9 +911,14 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
             {
                 foreach (int idx in succeededIndices)
                 {
-                    QueuedItems.Remove(snapshot[idx]);
+                    var queued = snapshot[idx];
+                    QueuedItems.Remove(queued);
+                    _allCandidates.RemoveAll(
+                        c => string.Equals(c.SourceFullPath, queued.SourceFullPath, StringComparison.OrdinalIgnoreCase));
                 }
 
+                ApplyFilterOnUi();
+                UpdateSelectionCounts();
                 NotifyQueueStateChanged();
             }).ConfigureAwait(false);
         }
@@ -1113,14 +1139,25 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
         }
     }
 
+    private HashSet<string> GetQueuedTargetFolders()
+        => QueuedItems
+            .Select(q => q.TargetFolderName)
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
     private void ApplyFilterOnUi()
     {
         VisibleCandidates.Clear();
         TargetGroups.Clear();
         var kw = string.IsNullOrWhiteSpace(FilterKeyword) ? null : FilterKeyword.Trim();
+        var queuedFolders = GetQueuedTargetFolders();
 
         foreach (var item in _allCandidates)
         {
+            // 若該作者目標分類已經有項目加入待歸檔清單，則整個分類（含未勾選項目）一起隱藏
+            if (item.HasValidDestination && queuedFolders.Contains(item.SelectedTargetFolder))
+                continue;
+
             if (ActiveFilterTab == AutoArchiveFilterTab.CheckedOnly && !item.IsChecked)
                 continue;
             if (ActiveFilterTab == AutoArchiveFilterTab.UnmatchedOnly && item.HasValidDestination)
@@ -1232,10 +1269,15 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
 
     private void UpdateSelectionCounts()
     {
-        TotalScannedCount = _allCandidates.Count;
-        MatchedCount = _allCandidates.Count(c => c.HasValidDestination);
+        var queuedFolders = GetQueuedTargetFolders();
+        var active = _allCandidates
+            .Where(c => !(c.HasValidDestination && queuedFolders.Contains(c.SelectedTargetFolder)))
+            .ToList();
+
+        TotalScannedCount = active.Count;
+        MatchedCount = active.Count(c => c.HasValidDestination);
         UnmatchedCount = TotalScannedCount - MatchedCount;
-        CheckedCount = _allCandidates.Count(c => c.IsChecked);
+        CheckedCount = active.Count(c => c.IsChecked);
         OnPropertyChanged(nameof(CanSimulate));
         OnPropertyChanged(nameof(CanExecuteRealMove));
         OnPropertyChanged(nameof(CanAddAnyCheckedToQueue));

@@ -469,37 +469,46 @@ public sealed class Phase4ManagementTests : IDisposable
             Assert.NotNull(initStore);
         }
 
-        // 1. 唯讀模式下：可放入清單與模擬，但禁止真實搬檔
+        // 1. 唯讀模式下：掃描完成時待歸檔清單必須一開始為空；放入清單後該作者整個分類（含未勾選項目）應隱藏
         using (var roCtx = new AppDataContext(explicitDataDirectory: dataDir, forceReadOnlyDatabase: true))
         {
             var roVm = new AutoArchivePageViewModel(roCtx, runOnUiAsync: ImmediateUiAsync);
+            Assert.Empty(roVm.QueuedItems);
+            Assert.False(roVm.IsQueueDrawerOpen);
+
             await roVm.ScanAsync();
+            Assert.Empty(roVm.QueuedItems);
+            Assert.Equal(2, roVm.TargetGroups.Count);
 
             var alphaGroup = roVm.TargetGroups.Single(g => g.TargetFolderName == authorA);
-            alphaGroup.Items[1].IsChecked = false; // 僅保留第 1 筆勾選
+            var alphaFirstItem = alphaGroup.Items[0];
+            var alphaUncheckedSecondItem = alphaGroup.Items[1];
+            alphaUncheckedSecondItem.IsChecked = false; // 僅保留第 1 筆勾選，第 2 筆刻意不勾選
             Assert.True(alphaGroup.CanAddCheckedToQueue);
             Assert.Equal("📥 放入清單 (1)", alphaGroup.AddToQueueButtonText);
 
             alphaGroup.AddCheckedToQueueCommand.Execute(null);
             Assert.True(roVm.IsQueueDrawerOpen);
             Assert.Single(roVm.QueuedItems);
-            Assert.Equal(alphaGroup.Items[0].SourceName, roVm.QueuedItems[0].SourceName);
+            Assert.Equal(alphaFirstItem.SourceName, roVm.QueuedItems[0].SourceName);
 
-            // 選項 A：左側保留並取消勾選＋標記「📥 已入清單」
-            Assert.Equal(2, alphaGroup.TotalCount);
-            Assert.False(alphaGroup.Items[0].IsChecked);
-            Assert.Equal("📥 已入清單", alphaGroup.Items[0].ExecutionStatus);
-            Assert.False(alphaGroup.CanAddCheckedToQueue);
+            // 只要該作者已加入待歸檔清單，整個分類（含未勾選的第 2 筆）必須立即從左側隱藏
+            Assert.DoesNotContain(roVm.TargetGroups, g => g.TargetFolderName == authorA);
+            Assert.DoesNotContain(roVm.VisibleCandidates, c => c.SelectedTargetFolder == authorA);
+            Assert.Single(roVm.TargetGroups); // 僅剩 ArtistBeta
 
-            // 從右側清單刪除後，左側恢復待處理
+            // 從右側清單刪除後，左側整個 ArtistAlpha 分類應恢復顯示，且狀態恢復待處理
             roVm.QueuedItems[0].RemoveCommand.Execute(null);
             Assert.Empty(roVm.QueuedItems);
-            Assert.Equal("待處理", alphaGroup.Items[0].ExecutionStatus);
+            var restoredAlphaGroup = roVm.TargetGroups.Single(g => g.TargetFolderName == authorA);
+            Assert.Equal(2, restoredAlphaGroup.TotalCount);
+            Assert.Equal("待處理", restoredAlphaGroup.Items[0].ExecutionStatus);
 
             // 重新全部勾選並放入清單後測試模擬與唯讀保護
-            alphaGroup.IsGroupChecked = true;
-            alphaGroup.AddCheckedToQueueCommand.Execute(null);
+            restoredAlphaGroup.IsGroupChecked = true;
+            restoredAlphaGroup.AddCheckedToQueueCommand.Execute(null);
             Assert.Equal(2, roVm.QueueCount);
+            Assert.DoesNotContain(roVm.TargetGroups, g => g.TargetFolderName == authorA);
 
             await roVm.SimulateQueueCommand.ExecuteAsync(null);
             Assert.All(roVm.QueuedItems, q => Assert.Equal("🧪 模擬通過", q.StatusText));
@@ -515,16 +524,19 @@ public sealed class Phase4ManagementTests : IDisposable
         {
             var rwVm = new AutoArchivePageViewModel(rwCtx, runOnUiAsync: ImmediateUiAsync);
             await rwVm.ScanAsync();
+            Assert.Empty(rwVm.QueuedItems);
 
             var alphaGroup = rwVm.TargetGroups.Single(g => g.TargetFolderName == authorA);
-            var betaGroup = rwVm.TargetGroups.Single(g => g.TargetFolderName == authorB);
             alphaGroup.AddCheckedToQueueCommand.Execute(null);
+            var betaGroup = rwVm.TargetGroups.Single(g => g.TargetFolderName == authorB);
             betaGroup.AddCheckedToQueueCommand.Execute(null);
 
+            Assert.Empty(rwVm.TargetGroups);
             Assert.Equal(3, rwVm.QueueCount);
             await rwVm.ExecuteQueueCommand.ExecuteAsync(null);
 
             Assert.Empty(rwVm.QueuedItems);
+            Assert.Empty(rwVm.TargetGroups);
             Assert.True(Directory.Exists(Path.Combine(targetA, work1)));
             Assert.True(Directory.Exists(Path.Combine(targetA, work2)));
             Assert.True(Directory.Exists(Path.Combine(targetB, work3)));
