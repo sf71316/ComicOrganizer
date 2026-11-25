@@ -544,4 +544,198 @@ public sealed class Phase4ManagementTests : IDisposable
             Assert.NotNull(rwCtx.MetaStore.GetAssetId(Path.Combine(targetB, work3)));
         }
     }
+
+    [Fact]
+    public async Task AutoArchive_UnmatchedCollapsedByDefault_AndIncrementalQueueRemoveRestore()
+    {
+        var dataDir = CreateTempDir("IncrData");
+        var srcDir = CreateTempDir("IncrSrc");
+        var rootDir = CreateTempDir("IncrRoot");
+
+        var authorA = "IncrArtistA";
+        var authorB = "IncrArtistB";
+        Directory.CreateDirectory(Path.Combine(rootDir, authorA));
+        Directory.CreateDirectory(Path.Combine(rootDir, authorB));
+
+        foreach (var name in new[]
+        {
+            $"[{authorA}] Item 01",
+            $"[{authorA}] Item 02",
+            $"[{authorB}] Item 03",
+            "TotallyUnknown_Work_001"
+        })
+        {
+            var dir = Path.Combine(srcDir, name);
+            Directory.CreateDirectory(dir);
+            WriteDummyImage(Path.Combine(dir, "001.png"));
+        }
+
+        await File.WriteAllTextAsync(
+            Path.Combine(dataDir, "appsettings.json"),
+            JsonSerializer.Serialize(new AppConfig
+            {
+                UnorganizedDirectory = srcDir,
+                RootDirectory = rootDir,
+                MaxScanDepth = 2
+            }));
+        using (var initStore = new SqliteAssetMetaStore(Path.Combine(dataDir, "cache.db")))
+        {
+            Assert.NotNull(initStore);
+        }
+
+        using var ctx = new AppDataContext(explicitDataDirectory: dataDir, forceReadOnlyDatabase: false);
+        var vm = new AutoArchivePageViewModel(ctx, runOnUiAsync: ImmediateUiAsync);
+        await vm.ScanAsync();
+
+        // 1. 「未匹配」分群在 All 頁籤預設必須為收合狀態，切換到 Unmatched 頁籤時才自動展開
+        var unmatchedInAll = vm.TargetGroups.Single(g => g.IsUnmatchedGroup);
+        var alphaGroupBefore = vm.TargetGroups.Single(g => g.TargetFolderName == authorA);
+        var betaGroupBefore = vm.TargetGroups.Single(g => g.TargetFolderName == authorB);
+        Assert.False(unmatchedInAll.IsExpanded);
+        Assert.True(alphaGroupBefore.IsExpanded);
+        Assert.True(betaGroupBefore.IsExpanded);
+
+        vm.SelectFilterTabCommand.Execute("Unmatched");
+        Assert.Single(vm.TargetGroups);
+        Assert.True(vm.TargetGroups[0].IsUnmatchedGroup);
+        Assert.True(vm.TargetGroups[0].IsExpanded);
+
+        vm.SelectFilterTabCommand.Execute("All");
+        Assert.False(vm.TargetGroups.Single(g => g.IsUnmatchedGroup).IsExpanded);
+
+        // 2. 放入清單應採增量移除：不應重建其他群組實例
+        alphaGroupBefore = vm.TargetGroups.Single(g => g.TargetFolderName == authorA);
+        betaGroupBefore = vm.TargetGroups.Single(g => g.TargetFolderName == authorB);
+        var alphaSecondItem = alphaGroupBefore.Items[1];
+        alphaSecondItem.IsChecked = false;
+
+        alphaGroupBefore.AddCheckedToQueueCommand.Execute(null);
+        Assert.Single(vm.QueuedItems);
+        Assert.DoesNotContain(vm.TargetGroups, g => g.TargetFolderName == authorA);
+        Assert.Same(betaGroupBefore, vm.TargetGroups.Single(g => g.TargetFolderName == authorB));
+
+        // 3. 執行佇列後應即時移除已完成項目，並增量還原同作者尚餘未勾選的項目
+        await vm.ExecuteQueueCommand.ExecuteAsync(null);
+        Assert.Empty(vm.QueuedItems);
+        Assert.Same(betaGroupBefore, vm.TargetGroups.Single(g => g.TargetFolderName == authorB));
+        var restoredAlpha = vm.TargetGroups.Single(g => g.TargetFolderName == authorA);
+        Assert.Single(restoredAlpha.Items);
+        Assert.Equal(alphaSecondItem.SourceName, restoredAlpha.Items[0].SourceName);
+    }
+
+    [Fact]
+    public async Task AutoArchive_ConflictPrompt_OverwriteSkipCancel_AndPerItemRemoval()
+    {
+        var dataDir = CreateTempDir("ConflictData");
+        var srcDir = CreateTempDir("ConflictSrc");
+        var rootDir = CreateTempDir("ConflictRoot");
+
+        var author1 = "ConflictAuthor1";
+        var author2 = "ConflictAuthor2";
+        var author3 = "ConflictAuthor3";
+        var author4 = "ConflictAuthor4";
+        foreach (var a in new[] { author1, author2, author3, author4 })
+        {
+            Directory.CreateDirectory(Path.Combine(rootDir, a));
+        }
+
+        var w1 = $"[{author1}] Conflict Work 1";
+        var w2 = $"[{author2}] Conflict Work 2";
+        var w3 = $"[{author3}] Conflict Work 3";
+        var w4 = $"[{author4}] Clean Work 4";
+        foreach (var w in new[] { w1, w2, w3, w4 })
+        {
+            var src = Path.Combine(srcDir, w);
+            Directory.CreateDirectory(src);
+            WriteDummyImage(Path.Combine(src, "001.png"));
+            await File.WriteAllTextAsync(Path.Combine(src, "marker.txt"), $"new:{w}");
+        }
+
+        // 建立既有目標項目以製造前三筆檔名衝突
+        foreach (var (author, work) in new[] { (author1, w1), (author2, w2), (author3, w3) })
+        {
+            var existingDest = Path.Combine(rootDir, author, work);
+            Directory.CreateDirectory(existingDest);
+            await File.WriteAllTextAsync(Path.Combine(existingDest, "marker.txt"), $"old:{work}");
+        }
+
+        await File.WriteAllTextAsync(
+            Path.Combine(dataDir, "appsettings.json"),
+            JsonSerializer.Serialize(new AppConfig
+            {
+                UnorganizedDirectory = srcDir,
+                RootDirectory = rootDir,
+                MaxScanDepth = 2
+            }));
+        using (var initStore = new SqliteAssetMetaStore(Path.Combine(dataDir, "cache.db")))
+        {
+            Assert.NotNull(initStore);
+        }
+
+        using var ctx = new AppDataContext(explicitDataDirectory: dataDir, forceReadOnlyDatabase: false);
+        AutoArchivePageViewModel? vmRef = null;
+        var seenQueueCountsDuringPrompts = new List<int>();
+        var decisions = new Queue<ArchiveConflictDecision>(new[]
+        {
+            ArchiveConflictDecision.Overwrite,
+            ArchiveConflictDecision.Skip,
+            ArchiveConflictDecision.CancelRemaining
+        });
+
+        var prompt = new FakeConflictPrompt(conflict =>
+        {
+            seenQueueCountsDuringPrompts.Add(vmRef!.QueuedItems.Count);
+            return Task.FromResult(decisions.Dequeue());
+        });
+
+        var vm = new AutoArchivePageViewModel(ctx, runOnUiAsync: ImmediateUiAsync, conflictPrompt: prompt);
+        vmRef = vm;
+
+        await vm.ScanAsync();
+        foreach (var author in new[] { author1, author2, author3, author4 })
+        {
+            vm.TargetGroups.Single(g => g.TargetFolderName == author).AddCheckedToQueueCommand.Execute(null);
+        }
+
+        Assert.Equal(4, vm.QueuedItems.Count);
+
+        await vm.ExecuteQueueCommand.ExecuteAsync(null);
+
+        // 提示第 1 筆時清單尚有 4 筆；第 1 筆覆蓋成功後立刻消失，提示第 2 筆時只剩 3 筆；第 2 筆略過保留，提示第 3 筆仍為 3 筆
+        Assert.Equal(new[] { 4, 3, 3 }, seenQueueCountsDuringPrompts);
+
+        // Work1 覆蓋並即時移除
+        Assert.DoesNotContain(vm.QueuedItems, q => q.SourceName == w1);
+        Assert.Equal($"new:{w1}", await File.ReadAllTextAsync(Path.Combine(rootDir, author1, w1, "marker.txt")));
+        Assert.False(Directory.Exists(Path.Combine(srcDir, w1)));
+
+        // Work2 略過保留舊目標
+        var q2 = vm.QueuedItems.Single(q => q.SourceName == w2);
+        Assert.Equal("⏭️ 已略過", q2.StatusText);
+        Assert.Equal($"old:{w2}", await File.ReadAllTextAsync(Path.Combine(rootDir, author2, w2, "marker.txt")));
+        Assert.True(Directory.Exists(Path.Combine(srcDir, w2)));
+
+        // Work3 中止，保留舊目標與來源；Work4 未執行仍維持待歸檔
+        var q3 = vm.QueuedItems.Single(q => q.SourceName == w3);
+        Assert.Equal("⏹️ 已中止", q3.StatusText);
+        Assert.Equal($"old:{w3}", await File.ReadAllTextAsync(Path.Combine(rootDir, author3, w3, "marker.txt")));
+
+        var q4 = vm.QueuedItems.Single(q => q.SourceName == w4);
+        Assert.Equal("待歸檔", q4.StatusText);
+        Assert.False(Directory.Exists(Path.Combine(rootDir, author4, w4)));
+        Assert.True(Directory.Exists(Path.Combine(srcDir, w4)));
+    }
+
+    private sealed class FakeConflictPrompt : IArchiveConflictPrompt
+    {
+        private readonly Func<ArchiveConflictInfo, Task<ArchiveConflictDecision>> _handler;
+
+        public FakeConflictPrompt(Func<ArchiveConflictInfo, Task<ArchiveConflictDecision>> handler)
+        {
+            _handler = handler;
+        }
+
+        public Task<ArchiveConflictDecision> ConfirmOverwriteAsync(ArchiveConflictInfo conflict)
+            => _handler(conflict);
+    }
 }

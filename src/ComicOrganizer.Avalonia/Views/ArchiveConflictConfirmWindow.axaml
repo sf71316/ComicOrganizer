@@ -1,0 +1,85 @@
+<suki:SukiWindow xmlns="https://github.com/avaloniaui"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:suki="https://github.com/kikipoulet/SukiUI"
+                 xmlns:svc="using:ComicOrganizer.Avalonia.Services"
+                 x:Class="ComicOrganizer.Avalonia.Views.ArchiveConflictConfirmWindow"
+                 x:DataType="svc:ArchiveConflictConfirmViewModel"
+                 Title="檔名衝突確認"
+                 Icon="avares://ComicOrganizer.Avalonia/Assets/app.ico"
+                 Width="540"
+                 Height="420"
+                 MinWidth="460"
+                 MinHeight="360"
+                 CanResize="True"
+                 BackgroundStyle="GradientSoft">
+
+  <Grid RowDefinitions="Auto,*,Auto" Margin="16,10,16,16" RowSpacing="12">
+
+    <suki:GlassCard Grid.Row="0" CornerRadius="12" Padding="14,10">
+      <StackPanel Spacing="4">
+        <TextBlock Text="⚠️ 目標目錄已存在同名檔案／資料夾" FontSize="15" FontWeight="Bold" Foreground="#F59E0B" />
+        <TextBlock Text="{Binding HeaderSubtitle}" FontSize="12" Opacity="0.82" TextWrapping="Wrap" />
+      </StackPanel>
+    </suki:GlassCard>
+
+    <suki:GlassCard Grid.Row="1" CornerRadius="12" Padding="14,12">
+      <StackPanel Spacing="10">
+        <TextBlock Text="{Binding Conflict.SourceName}"
+                   FontSize="13.5"
+                   FontWeight="Bold"
+                   TextWrapping="Wrap" />
+
+        <Border BorderBrush="{DynamicResource SukiBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="9"
+                Padding="10,8"
+                Background="#10808080">
+          <StackPanel Spacing="3">
+            <TextBlock Text="📥 欲歸檔來源（新）" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource SukiPrimaryColor}" />
+            <TextBlock Text="{Binding Conflict.SourceFullPath}" FontSize="11.5" Opacity="0.8" TextWrapping="Wrap" />
+            <TextBlock Text="{Binding Conflict.SourceSummaryText}" FontSize="11.5" FontWeight="Medium" />
+          </StackPanel>
+        </Border>
+
+        <Border BorderBrush="#55F59E0B"
+                BorderThickness="1"
+                CornerRadius="9"
+                Padding="10,8"
+                Background="#14F59E0B">
+          <StackPanel Spacing="3">
+            <TextBlock Text="📁 目標目錄既有項目（舊）" FontSize="12" FontWeight="SemiBold" Foreground="#F59E0B" />
+            <TextBlock Text="{Binding Conflict.DestinationFullPath}" FontSize="11.5" Opacity="0.8" TextWrapping="Wrap" />
+            <TextBlock Text="{Binding Conflict.DestinationSummaryText}" FontSize="11.5" FontWeight="Medium" />
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </suki:GlassCard>
+
+    <Grid Grid.Row="2" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+      <Button Grid.Column="0"
+              Classes="Basic"
+              Padding="12,7"
+              Command="{Binding CancelRemainingCommand}"
+              ToolTip.Tip="停止後續待歸檔清單處理">
+        <TextBlock Text="✕ 中止剩餘" FontSize="12.5" />
+      </Button>
+
+      <Button Grid.Column="2"
+              Classes="Outlined"
+              Padding="14,7"
+              Command="{Binding SkipCommand}"
+              ToolTip.Tip="略過此作品，保留於待歸檔清單且不覆蓋目標檔 (Esc)">
+        <TextBlock Text="⏭️ 略過此筆" FontSize="12.5" />
+      </Button>
+
+      <Button Grid.Column="3"
+              Classes="Flat"
+              Padding="16,7"
+              Command="{Binding OverwriteCommand}"
+              ToolTip.Tip="安全取代既有目標檔案／資料夾">
+        <TextBlock Text="✓ 覆蓋目標" FontSize="12.5" FontWeight="SemiBold" />
+      </Button>
+    </Grid>
+
+  </Grid>
+</suki:SukiWindow>

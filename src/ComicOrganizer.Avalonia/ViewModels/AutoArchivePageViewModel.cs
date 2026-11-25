@@ -227,6 +227,18 @@ public sealed partial class AutoArchiveQueuedItemVm : ObservableObject
     [ObservableProperty]
     private string _statusMessage = string.Empty;
 
+    [ObservableProperty]
+    private bool _isProcessing;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ProgressText))]
+    private double _progressValue;
+
+    [ObservableProperty]
+    private bool _isProgressIndeterminate;
+
+    public string ProgressText => IsProgressIndeterminate ? "搬移中..." : $"{ProgressValue:F0}%";
+
     public void UpdateTarget(AutoArchiveCandidateVm candidate, string targetFolderName, string destinationPath, bool isManuallyAssigned)
     {
         TargetFolderName = targetFolderName;
@@ -234,6 +246,16 @@ public sealed partial class AutoArchiveQueuedItemVm : ObservableObject
         IsManuallyAssigned = isManuallyAssigned;
         StatusText = "待歸檔";
         StatusMessage = string.Empty;
+        IsProcessing = false;
+        ProgressValue = 0;
+        IsProgressIndeterminate = false;
+    }
+
+    public void SetProgressState(bool isProcessing, double progressValue, bool isIndeterminate)
+    {
+        IsProcessing = isProcessing;
+        ProgressValue = Math.Clamp(progressValue, 0.0, 100.0);
+        IsProgressIndeterminate = isIndeterminate;
     }
 
     [RelayCommand]
@@ -421,16 +443,19 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
     private readonly IReaderWindowLauncher _readerLauncher;
     private readonly ISukiToastManager? _toastManager;
     private readonly Func<Action, Task> _runOnUiAsync;
+    private readonly IArchiveConflictPrompt _conflictPrompt;
 
     private readonly List<AutoArchiveCandidateVm> _allCandidates = new();
     private readonly HashSet<string> _collapsedGroupKeys = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _explicitExpandedGroups = new(StringComparer.Ordinal);
     private MappingIntelligence? _intelligence;
 
     public AutoArchivePageViewModel(
         AppDataContext dataContext,
         IExternalLauncher? externalLauncher = null,
         IReaderWindowLauncher? readerLauncher = null,
-        Func<Action, Task>? runOnUiAsync = null)
+        Func<Action, Task>? runOnUiAsync = null,
+        IArchiveConflictPrompt? conflictPrompt = null)
     {
         _dataContext = dataContext ?? throw new ArgumentNullException(nameof(dataContext));
         _store = dataContext.MetaStore;
@@ -438,6 +463,7 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
         _readerLauncher = readerLauncher ?? new AvaloniaReaderWindowLauncher(dataContext);
         _toastManager = dataContext.ToastManager;
         _runOnUiAsync = runOnUiAsync ?? ExploreCardVmBase.DefaultRunOnUiAsync;
+        _conflictPrompt = conflictPrompt ?? new AvaloniaArchiveConflictPrompt();
 
         RefreshConfigSummary();
     }
@@ -499,10 +525,28 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
     [ObservableProperty]
     private int _unmatchedCount;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(BatchProgressPercent))]
+    [NotifyPropertyChangedFor(nameof(BatchProgressText))]
+    private int _batchProcessedCount;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(BatchProgressPercent))]
+    [NotifyPropertyChangedFor(nameof(BatchProgressText))]
+    private int _batchTotalCount;
+
     public bool CanExecuteRealMove => IsWritable && !IsBusy && CheckedCount > 0;
     public bool CanSimulate => !IsBusy && CheckedCount > 0;
     public bool HasCandidates => VisibleCandidates.Count > 0;
     public bool IsFlatView => !IsGroupedView;
+
+    public double BatchProgressPercent => BatchTotalCount <= 0
+        ? 0.0
+        : Math.Clamp((double)BatchProcessedCount / BatchTotalCount * 100.0, 0.0, 100.0);
+
+    public string BatchProgressText => BatchTotalCount <= 0
+        ? string.Empty
+        : $"進度 {BatchProcessedCount} / {BatchTotalCount}";
 
     public int QueueCount => QueuedItems.Count;
     public bool HasQueuedItems => QueuedItems.Count > 0;
@@ -676,8 +720,10 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
     private void ExpandAllGroups()
     {
         _collapsedGroupKeys.Clear();
+        _explicitExpandedGroups.Add("未匹配");
         foreach (var group in TargetGroups)
         {
+            _explicitExpandedGroups.Add(group.TargetFolderName);
             group.IsExpanded = true;
         }
     }
@@ -685,6 +731,7 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
     [RelayCommand]
     private void CollapseAllGroups()
     {
+        _explicitExpandedGroups.Clear();
         foreach (var group in TargetGroups)
         {
             _collapsedGroupKeys.Add(group.TargetFolderName);
@@ -740,22 +787,49 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
             return;
         }
 
+        var affectedFolders = QueuedItems
+            .Select(q => q.TargetFolderName)
+            .Where(f => !string.IsNullOrWhiteSpace(f))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
         foreach (var q in QueuedItems)
         {
             RestoreCandidateStatusIfQueued(q.SourceFullPath);
         }
 
         QueuedItems.Clear();
-        ApplyFilterOnUi();
+
+        if (affectedFolders.Count <= 8)
+        {
+            RestoreFoldersIncremental(affectedFolders);
+        }
+        else
+        {
+            ApplyFilterOnUi();
+        }
+
         UpdateSelectionCounts();
         NotifyQueueStateChanged();
     }
 
     private void OnRemoveQueuedItem(AutoArchiveQueuedItemVm queuedItem)
     {
+        if (queuedItem.IsProcessing)
+        {
+            return;
+        }
+
         QueuedItems.Remove(queuedItem);
         RestoreCandidateStatusIfQueued(queuedItem.SourceFullPath);
-        ApplyFilterOnUi();
+
+        bool folderStillQueued = QueuedItems.Any(
+            q => string.Equals(q.TargetFolderName, queuedItem.TargetFolderName, StringComparison.OrdinalIgnoreCase));
+        if (!folderStillQueued && !string.IsNullOrWhiteSpace(queuedItem.TargetFolderName))
+        {
+            RestoreFoldersIncremental(new[] { queuedItem.TargetFolderName });
+        }
+
         UpdateSelectionCounts();
         NotifyQueueStateChanged();
     }
@@ -788,12 +862,16 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
 
         int added = 0;
         int updated = 0;
+        var affectedFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var item in candidates)
         {
             if (!item.HasValidDestination)
             {
                 continue;
             }
+
+            affectedFolders.Add(item.SelectedTargetFolder);
 
             var existing = QueuedItems.FirstOrDefault(
                 q => string.Equals(q.SourceFullPath, item.SourceFullPath, StringComparison.OrdinalIgnoreCase));
@@ -826,7 +904,7 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
             IsQueueDrawerOpen = true;
         }
 
-        ApplyFilterOnUi();
+        HideFoldersIncremental(affectedFolders);
         UpdateSelectionCounts();
         NotifyQueueStateChanged();
         StatusMessage = updated > 0
@@ -901,27 +979,27 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
                     candidate.ExecutionMessage = msg;
                 }
             },
-            OnMoveSucceeded: _ => q.SourceCandidate.SetCheckedSilently(false))).ToList();
-
-        var succeededIndices = await ExecuteBatchEntriesAsync(entries, isDryRun);
-
-        if (!isDryRun && succeededIndices.Count > 0)
-        {
-            await _runOnUiAsync(() =>
+            OnMoveSucceeded: _ => q.SourceCandidate.SetCheckedSilently(false),
+            SetProgress: (isProcessing, progressValue, isIndeterminate) =>
+                q.SetProgressState(isProcessing, progressValue, isIndeterminate),
+            OnQueuedCompletedRemove: folderName =>
             {
-                foreach (int idx in succeededIndices)
+                QueuedItems.Remove(q);
+                _allCandidates.RemoveAll(
+                    c => string.Equals(c.SourceFullPath, q.SourceFullPath, StringComparison.OrdinalIgnoreCase));
+
+                bool folderStillQueued = QueuedItems.Any(
+                    other => string.Equals(other.TargetFolderName, folderName, StringComparison.OrdinalIgnoreCase));
+                if (!folderStillQueued && !string.IsNullOrWhiteSpace(folderName))
                 {
-                    var queued = snapshot[idx];
-                    QueuedItems.Remove(queued);
-                    _allCandidates.RemoveAll(
-                        c => string.Equals(c.SourceFullPath, queued.SourceFullPath, StringComparison.OrdinalIgnoreCase));
+                    RestoreFoldersIncremental(new[] { folderName });
                 }
 
-                ApplyFilterOnUi();
                 UpdateSelectionCounts();
                 NotifyQueueStateChanged();
-            }).ConfigureAwait(false);
-        }
+            })).ToList();
+
+        await ExecuteBatchEntriesAsync(entries, isDryRun);
     }
 
     private async Task RunArchiveExecutionAsync(bool isDryRun)
@@ -959,13 +1037,20 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
         string DestinationPath,
         bool IsManuallyAssigned,
         Action<string, string> SetStatus,
-        Action<string> OnMoveSucceeded);
+        Action<string> OnMoveSucceeded,
+        Action<bool, double, bool>? SetProgress = null,
+        Action<string>? OnQueuedCompletedRemove = null);
 
     private async Task<List<int>> ExecuteBatchEntriesAsync(IReadOnlyList<BatchMoveEntry> entries, bool isDryRun)
     {
         IsBusy = true;
+        BatchTotalCount = entries.Count;
+        BatchProcessedCount = 0;
+
         int okCount = 0;
         int skipOrFailCount = 0;
+        int processedCount = 0;
+        bool cancelledByUser = false;
         var succeededIndices = new List<int>();
 
         try
@@ -976,7 +1061,7 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
             var organizer = new ArchiveOrganizer(intelligence, cfg);
             var movedPaths = new List<string>();
 
-            await Task.Run(() =>
+            await Task.Run(async () =>
             {
                 for (int i = 0; i < entries.Count; i++)
                 {
@@ -985,7 +1070,12 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
                         string.Equals(item.TargetFolder, "未匹配", StringComparison.Ordinal) ||
                         string.IsNullOrWhiteSpace(item.DestinationPath))
                     {
-                        item.SetStatus("✕ 略過", "尚未選擇目標資料夾");
+                        await _runOnUiAsync(() =>
+                        {
+                            item.SetProgress?.Invoke(false, 0, false);
+                            item.SetStatus("✕ 略過", "尚未選擇目標資料夾");
+                            BatchProcessedCount = ++processedCount;
+                        }).ConfigureAwait(false);
                         skipOrFailCount++;
                         continue;
                     }
@@ -995,29 +1085,109 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
 
                     if (!File.Exists(cleanSource) && !Directory.Exists(cleanSource))
                     {
-                        item.SetStatus("✕ 找不到來源", "來源檔案或資料夾已不存在");
+                        await _runOnUiAsync(() =>
+                        {
+                            item.SetProgress?.Invoke(false, 0, false);
+                            item.SetStatus("✕ 找不到來源", "來源檔案或資料夾已不存在");
+                            BatchProcessedCount = ++processedCount;
+                        }).ConfigureAwait(false);
                         skipOrFailCount++;
                         continue;
                     }
 
-                    if (File.Exists(targetPath) || Directory.Exists(targetPath))
+                    bool hasConflict = File.Exists(targetPath) || Directory.Exists(targetPath);
+                    bool allowOverwrite = false;
+
+                    if (hasConflict)
                     {
-                        item.SetStatus("⚠️ 名稱衝突", $"目標目錄已存在同名項目：{Path.GetFileName(targetPath)}");
-                        skipOrFailCount++;
-                        continue;
+                        if (isDryRun)
+                        {
+                            await _runOnUiAsync(() =>
+                            {
+                                item.SetProgress?.Invoke(false, 0, false);
+                                item.SetStatus("⚠️ 名稱衝突", $"目標目錄已存在同名項目：{Path.GetFileName(targetPath)}");
+                                BatchProcessedCount = ++processedCount;
+                            }).ConfigureAwait(false);
+                            skipOrFailCount++;
+                            continue;
+                        }
+
+                        await _runOnUiAsync(() =>
+                        {
+                            item.SetProgress?.Invoke(true, 0, true);
+                            item.SetStatus("⚠️ 等待確認", $"目標已存在：{Path.GetFileName(targetPath)}");
+                        }).ConfigureAwait(false);
+
+                        var conflictInfo = ArchiveConflictInfo.FromPaths(cleanSource, item.TargetFolder, targetPath);
+                        var decision = await _conflictPrompt.ConfirmOverwriteAsync(conflictInfo).ConfigureAwait(false);
+
+                        if (decision == ArchiveConflictDecision.Skip)
+                        {
+                            await _runOnUiAsync(() =>
+                            {
+                                item.SetProgress?.Invoke(false, 0, false);
+                                item.SetStatus("⏭️ 已略過", $"保留目標既有項目：{Path.GetFileName(targetPath)}");
+                                BatchProcessedCount = ++processedCount;
+                            }).ConfigureAwait(false);
+                            skipOrFailCount++;
+                            continue;
+                        }
+
+                        if (decision == ArchiveConflictDecision.CancelRemaining)
+                        {
+                            await _runOnUiAsync(() =>
+                            {
+                                item.SetProgress?.Invoke(false, 0, false);
+                                item.SetStatus("⏹️ 已中止", "使用者中止後續歸檔作業");
+                            }).ConfigureAwait(false);
+                            cancelledByUser = true;
+                            break;
+                        }
+
+                        allowOverwrite = decision == ArchiveConflictDecision.Overwrite;
                     }
 
                     if (isDryRun)
                     {
-                        item.SetStatus("🧪 模擬通過", $"將搬移至 {item.TargetFolder}");
+                        await _runOnUiAsync(() =>
+                        {
+                            item.SetProgress?.Invoke(false, 100, false);
+                            item.SetStatus("🧪 模擬通過", $"將搬移至 {item.TargetFolder}");
+                            BatchProcessedCount = ++processedCount;
+                        }).ConfigureAwait(false);
                         okCount++;
                         continue;
                     }
 
                     try
                     {
-                        item.SetStatus("⏳ 搬移中", string.Empty);
-                        string movedPath = ArchiveMoveHelper.MoveItemSafely(item.SourceFullPath, item.DestinationPath);
+                        await _runOnUiAsync(() =>
+                        {
+                            item.SetProgress?.Invoke(true, 0, true);
+                            item.SetStatus("⏳ 搬移中", allowOverwrite ? "覆蓋目標並搬移中..." : string.Empty);
+                        }).ConfigureAwait(false);
+
+                        double lastReportedProgress = -5.0;
+                        string movedPath = ArchiveMoveHelper.MoveItemSafely(
+                            item.SourceFullPath,
+                            item.DestinationPath,
+                            overwrite: allowOverwrite,
+                            progressCallback: percent =>
+                            {
+                                if (item.SetProgress == null)
+                                {
+                                    return;
+                                }
+
+                                if (percent < 100.0 && percent - lastReportedProgress < 2.0)
+                                {
+                                    return;
+                                }
+
+                                lastReportedProgress = percent;
+                                _ = _runOnUiAsync(() => item.SetProgress(true, percent, false));
+                            });
+
                         UpsertMovedCatalog(movedPath, item.TargetFolder);
 
                         var keywords = organizer.ExtractAuthorKeywordsForLearning(item.SourceName);
@@ -1032,15 +1202,27 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
                             }
                         }
 
-                        item.SetStatus("✓ 已歸檔", movedPath);
-                        item.OnMoveSucceeded(movedPath);
+                        await _runOnUiAsync(() =>
+                        {
+                            item.SetProgress?.Invoke(false, 100, false);
+                            item.SetStatus("✓ 已歸檔", movedPath);
+                            item.OnMoveSucceeded(movedPath);
+                            item.OnQueuedCompletedRemove?.Invoke(item.TargetFolder);
+                            BatchProcessedCount = ++processedCount;
+                        }).ConfigureAwait(false);
+
                         movedPaths.Add(movedPath);
                         succeededIndices.Add(i);
                         okCount++;
                     }
                     catch (Exception ex)
                     {
-                        item.SetStatus("✕ 失敗", ex.Message);
+                        await _runOnUiAsync(() =>
+                        {
+                            item.SetProgress?.Invoke(false, 0, false);
+                            item.SetStatus("✕ 失敗", ex.Message);
+                            BatchProcessedCount = ++processedCount;
+                        }).ConfigureAwait(false);
                         skipOrFailCount++;
                     }
                 }
@@ -1050,12 +1232,14 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
             {
                 RefreshConfigSummary();
                 RefreshAfterBatchCheckChange();
-                string actionWord = isDryRun ? "模擬測試完成" : "歸檔搬檔完成";
+                string actionWord = isDryRun
+                    ? "模擬測試完成"
+                    : (cancelledByUser ? "已中止後續歸檔" : "歸檔搬檔完成");
                 StatusMessage = $"{actionWord}：成功 {okCount} 筆，略過／失敗 {skipOrFailCount} 筆";
                 ShowToast(
                     actionWord,
                     StatusMessage,
-                    skipOrFailCount == 0 ? NotificationType.Success : NotificationType.Warning);
+                    cancelledByUser || skipOrFailCount > 0 ? NotificationType.Warning : NotificationType.Success);
             }).ConfigureAwait(false);
 
             if (!isDryRun
@@ -1073,7 +1257,12 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
         }
         finally
         {
-            await _runOnUiAsync(() => IsBusy = false).ConfigureAwait(false);
+            await _runOnUiAsync(() =>
+            {
+                IsBusy = false;
+                BatchTotalCount = 0;
+                BatchProcessedCount = 0;
+            }).ConfigureAwait(false);
         }
 
         return succeededIndices;
@@ -1145,6 +1334,184 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
             .Where(n => !string.IsNullOrWhiteSpace(n))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+    private bool ShouldShowCandidate(AutoArchiveCandidateVm item, string? keyword, IReadOnlySet<string> queuedFolders)
+    {
+        // 若該作者目標分類已經有項目加入待歸檔清單，則整個分類（含未勾選項目）一起隱藏
+        if (item.HasValidDestination && queuedFolders.Contains(item.SelectedTargetFolder))
+        {
+            return false;
+        }
+
+        if (ActiveFilterTab == AutoArchiveFilterTab.CheckedOnly && !item.IsChecked)
+        {
+            return false;
+        }
+
+        if (ActiveFilterTab == AutoArchiveFilterTab.UnmatchedOnly && item.HasValidDestination)
+        {
+            return false;
+        }
+
+        if (keyword != null &&
+            !item.SourceName.Contains(keyword, StringComparison.OrdinalIgnoreCase) &&
+            !item.SelectedTargetFolder.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool ResolveGroupExpanded(string groupKey, bool isUnmatched)
+    {
+        if (isUnmatched && ActiveFilterTab != AutoArchiveFilterTab.UnmatchedOnly)
+        {
+            // 「尚未匹配目標目錄」在大量未歸類檔案掃描時預設收合，避免同時實體化過多 ComboBox 造成卡頓
+            return _explicitExpandedGroups.Contains(groupKey);
+        }
+
+        return !_collapsedGroupKeys.Contains(groupKey);
+    }
+
+    private AutoArchiveTargetGroupVm BuildGroupVm(string groupKey, IReadOnlyList<AutoArchiveCandidateVm> items)
+    {
+        bool isUnmatched = string.Equals(groupKey, "未匹配", StringComparison.Ordinal);
+        var sortedItems = items
+            .OrderByDescending(i => i.Confidence)
+            .ThenBy(i => i.SourceName, NaturalStringComparer.Instance)
+            .ToList();
+
+        return new AutoArchiveTargetGroupVm(
+            groupKey,
+            isUnmatched,
+            sortedItems,
+            ResolveGroupExpanded(groupKey, isUnmatched),
+            OnGroupCheckBatchChanged,
+            OnGroupExpandStateChanged,
+            OnAddGroupCheckedToQueue);
+    }
+
+    private static int CompareGroups(AutoArchiveTargetGroupVm a, AutoArchiveTargetGroupVm b)
+    {
+        int unmatchedCmp = (a.IsUnmatchedGroup ? 1 : 0).CompareTo(b.IsUnmatchedGroup ? 1 : 0);
+        if (unmatchedCmp != 0)
+        {
+            return unmatchedCmp;
+        }
+
+        int countCmp = b.TotalCount.CompareTo(a.TotalCount);
+        if (countCmp != 0)
+        {
+            return countCmp;
+        }
+
+        return NaturalStringComparer.Instance.Compare(a.TargetFolderName, b.TargetFolderName);
+    }
+
+    private void InsertGroupSorted(AutoArchiveTargetGroupVm group)
+    {
+        int insertIndex = 0;
+        while (insertIndex < TargetGroups.Count && CompareGroups(TargetGroups[insertIndex], group) <= 0)
+        {
+            insertIndex++;
+        }
+
+        TargetGroups.Insert(insertIndex, group);
+    }
+
+    private void HideFoldersIncremental(IReadOnlyCollection<string> folderNames)
+    {
+        if (folderNames.Count == 0)
+        {
+            return;
+        }
+
+        var folderSet = folderNames as HashSet<string> ?? new HashSet<string>(folderNames, StringComparer.OrdinalIgnoreCase);
+
+        for (int i = TargetGroups.Count - 1; i >= 0; i--)
+        {
+            var group = TargetGroups[i];
+            if (!group.IsUnmatchedGroup && folderSet.Contains(group.TargetFolderName))
+            {
+                TargetGroups.RemoveAt(i);
+            }
+        }
+
+        for (int i = VisibleCandidates.Count - 1; i >= 0; i--)
+        {
+            var item = VisibleCandidates[i];
+            if (item.HasValidDestination && folderSet.Contains(item.SelectedTargetFolder))
+            {
+                VisibleCandidates.RemoveAt(i);
+            }
+        }
+
+        OnPropertyChanged(nameof(HasCandidates));
+    }
+
+    private void RestoreFoldersIncremental(IReadOnlyCollection<string> folderNames)
+    {
+        if (folderNames.Count == 0)
+        {
+            return;
+        }
+
+        var folderSet = new HashSet<string>(folderNames, StringComparer.OrdinalIgnoreCase);
+        var kw = string.IsNullOrWhiteSpace(FilterKeyword) ? null : FilterKeyword.Trim();
+        var queuedFolders = GetQueuedTargetFolders();
+
+        var existingVisible = new HashSet<AutoArchiveCandidateVm>(VisibleCandidates);
+        int visibleInsertIndex = 0;
+        var groupedItems = new Dictionary<string, List<AutoArchiveCandidateVm>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var candidate in _allCandidates)
+        {
+            bool isAlreadyVisible = existingVisible.Contains(candidate);
+            if (isAlreadyVisible)
+            {
+                visibleInsertIndex++;
+                continue;
+            }
+
+            if (!candidate.HasValidDestination || !folderSet.Contains(candidate.SelectedTargetFolder))
+            {
+                continue;
+            }
+
+            if (!ShouldShowCandidate(candidate, kw, queuedFolders))
+            {
+                continue;
+            }
+
+            VisibleCandidates.Insert(visibleInsertIndex, candidate);
+            existingVisible.Add(candidate);
+            visibleInsertIndex++;
+
+            if (!groupedItems.TryGetValue(candidate.SelectedTargetFolder, out var bucket))
+            {
+                bucket = new List<AutoArchiveCandidateVm>();
+                groupedItems[candidate.SelectedTargetFolder] = bucket;
+            }
+
+            bucket.Add(candidate);
+        }
+
+        foreach (var kvp in groupedItems)
+        {
+            for (int i = TargetGroups.Count - 1; i >= 0; i--)
+            {
+                if (string.Equals(TargetGroups[i].TargetFolderName, kvp.Key, StringComparison.OrdinalIgnoreCase))
+                {
+                    TargetGroups.RemoveAt(i);
+                }
+            }
+
+            InsertGroupSorted(BuildGroupVm(kvp.Key, kvp.Value));
+        }
+
+        OnPropertyChanged(nameof(HasCandidates));
+    }
+
     private void ApplyFilterOnUi()
     {
         VisibleCandidates.Clear();
@@ -1154,18 +1521,7 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
 
         foreach (var item in _allCandidates)
         {
-            // 若該作者目標分類已經有項目加入待歸檔清單，則整個分類（含未勾選項目）一起隱藏
-            if (item.HasValidDestination && queuedFolders.Contains(item.SelectedTargetFolder))
-                continue;
-
-            if (ActiveFilterTab == AutoArchiveFilterTab.CheckedOnly && !item.IsChecked)
-                continue;
-            if (ActiveFilterTab == AutoArchiveFilterTab.UnmatchedOnly && item.HasValidDestination)
-                continue;
-
-            if (kw != null &&
-                !item.SourceName.Contains(kw, StringComparison.OrdinalIgnoreCase) &&
-                !item.SelectedTargetFolder.Contains(kw, StringComparison.OrdinalIgnoreCase))
+            if (!ShouldShowCandidate(item, kw, queuedFolders))
             {
                 continue;
             }
@@ -1175,29 +1531,13 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
 
         var grouped = VisibleCandidates
             .GroupBy(c => c.HasValidDestination ? c.SelectedTargetFolder : "未匹配", StringComparer.Ordinal)
-            .Select(g => new
-            {
-                Key = g.Key,
-                IsUnmatched = string.Equals(g.Key, "未匹配", StringComparison.Ordinal),
-                Items = g.OrderByDescending(i => i.Confidence)
-                         .ThenBy(i => i.SourceName, NaturalStringComparer.Instance)
-                         .ToList()
-            })
-            .OrderBy(g => g.IsUnmatched ? 1 : 0)
-            .ThenByDescending(g => g.Items.Count)
-            .ThenBy(g => g.Key, NaturalStringComparer.Instance);
+            .Select(g => BuildGroupVm(g.Key, g.ToList()))
+            .ToList();
+        grouped.Sort(CompareGroups);
 
-        foreach (var entry in grouped)
+        foreach (var group in grouped)
         {
-            bool expanded = !_collapsedGroupKeys.Contains(entry.Key);
-            TargetGroups.Add(new AutoArchiveTargetGroupVm(
-                entry.Key,
-                entry.IsUnmatched,
-                entry.Items,
-                expanded,
-                OnGroupCheckBatchChanged,
-                OnGroupExpandStateChanged,
-                OnAddGroupCheckedToQueue));
+            TargetGroups.Add(group);
         }
 
         OnPropertyChanged(nameof(HasCandidates));
@@ -1238,10 +1578,12 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
         if (isExpanded)
         {
             _collapsedGroupKeys.Remove(groupKey);
+            _explicitExpandedGroups.Add(groupKey);
         }
         else
         {
             _collapsedGroupKeys.Add(groupKey);
+            _explicitExpandedGroups.Remove(groupKey);
         }
     }
 

@@ -204,4 +204,82 @@ public class ArchiveMoveHelperTests : IDisposable
 
         Assert.Equal("original content", File.ReadAllText(Path.Combine(destDir, "same.txt")));
     }
+
+    [Fact]
+    public void MoveItemSafely_WithOverwriteTrue_ShouldReplaceExistingFileAndReportProgress()
+    {
+        var sourceDir = Path.Combine(_testRoot, "OverwriteFileSrc");
+        var destDir = Path.Combine(_testRoot, "OverwriteFileDest");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(destDir);
+
+        var sourceFile = Path.Combine(sourceDir, "comic.zip");
+        var destFile = Path.Combine(destDir, "comic.zip");
+        File.WriteAllText(sourceFile, "new zip content");
+        File.WriteAllText(destFile, "old zip content");
+
+        var reported = new List<double>();
+        string movedPath = ArchiveMoveHelper.MoveItemSafely(
+            sourceFile,
+            destDir,
+            overwrite: true,
+            progressCallback: p => reported.Add(p));
+
+        Assert.Equal(destFile, movedPath);
+        Assert.False(File.Exists(sourceFile));
+        Assert.Equal("new zip content", File.ReadAllText(destFile));
+        Assert.Contains(100.0, reported);
+        Assert.Empty(Directory.GetFileSystemEntries(destDir, "*__overwrite_bak_*"));
+    }
+
+    [Fact]
+    public void MoveItemSafely_WithOverwriteTrue_ShouldReplaceExistingDirectorySafely()
+    {
+        var sourceDir = Path.Combine(_testRoot, "OverwriteDirSrc");
+        var destDir = Path.Combine(_testRoot, "OverwriteDirDest");
+
+        var sourceComic = Path.Combine(sourceDir, "ComicSeries");
+        var destComic = Path.Combine(destDir, "ComicSeries");
+        Directory.CreateDirectory(sourceComic);
+        Directory.CreateDirectory(destComic);
+
+        File.WriteAllText(Path.Combine(sourceComic, "page01.png"), "new page");
+        File.WriteAllText(Path.Combine(destComic, "old.png"), "old page");
+
+        string movedPath = ArchiveMoveHelper.MoveItemSafely(sourceComic, destDir, overwrite: true);
+
+        Assert.Equal(destComic, movedPath);
+        Assert.False(Directory.Exists(sourceComic));
+        Assert.True(File.Exists(Path.Combine(destComic, "page01.png")));
+        Assert.Equal("new page", File.ReadAllText(Path.Combine(destComic, "page01.png")));
+        Assert.False(File.Exists(Path.Combine(destComic, "old.png")));
+        Assert.Empty(Directory.GetFileSystemEntries(destDir, "*__overwrite_bak_*"));
+    }
+
+    [Fact]
+    public void MoveItemSafely_OverwriteFailure_ShouldRestoreOriginalBackup()
+    {
+        var sourceDir = Path.Combine(_testRoot, "RollbackSrc");
+        var destDir = Path.Combine(_testRoot, "RollbackDest");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(destDir);
+
+        var sourceFile = Path.Combine(sourceDir, "locked.zip");
+        var destFile = Path.Combine(destDir, "locked.zip");
+        File.WriteAllText(sourceFile, "incoming content");
+        File.WriteAllText(destFile, "precious original content");
+
+        // 以 FileShare.None 鎖住來源檔，模擬搬移時發生 IOException
+        using (var lockStream = new FileStream(sourceFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            Assert.NotNull(lockStream);
+            Assert.ThrowsAny<IOException>(() =>
+                ArchiveMoveHelper.MoveItemSafely(sourceFile, destDir, overwrite: true));
+        }
+
+        // 原目標檔案必須從暫存備份完整還原
+        Assert.True(File.Exists(destFile));
+        Assert.Equal("precious original content", File.ReadAllText(destFile));
+        Assert.Empty(Directory.GetFileSystemEntries(destDir, "*__overwrite_bak_*"));
+    }
 }
