@@ -192,4 +192,78 @@ public class ReaderImageEnhancerTests
             Assert.False(ComicOrganizer.Avalonia.Views.ReaderWindow.IsInsideInteractiveControl(hudText));
         });
     }
+
+    [Fact]
+    public void ReaderWindow_ExitingFullscreen_RestoresTitleBarVisibility()
+    {
+        // 模擬 SukiWindow.OnWindowStateChanged 的真實行為：
+        // 進入 FullScreen 時會記憶當下的 IsTitleBarVisible，離開 FullScreen 時會用該記憶值覆寫 IsTitleBarVisible。
+        var windowState = global::Avalonia.Controls.WindowState.Normal;
+        bool isTitleBarVisible = true;
+        bool wasTitleBarVisibleBeforeFullScreen = true;
+        var preFullscreenState = global::Avalonia.Controls.WindowState.Normal;
+
+        void SetWindowState(global::Avalonia.Controls.WindowState next)
+        {
+            var prev = windowState;
+            windowState = next;
+            if (next == global::Avalonia.Controls.WindowState.FullScreen && prev != global::Avalonia.Controls.WindowState.FullScreen)
+            {
+                wasTitleBarVisibleBeforeFullScreen = isTitleBarVisible;
+                isTitleBarVisible = false;
+            }
+            else if (prev == global::Avalonia.Controls.WindowState.FullScreen && next != global::Avalonia.Controls.WindowState.FullScreen)
+            {
+                isTitleBarVisible = wasTitleBarVisibleBeforeFullScreen;
+            }
+        }
+
+        // 1. 從 Normal 進入全螢幕後返回，標題列必須恢復顯示
+        ComicOrganizer.Avalonia.Views.ReaderWindow.ApplyFullscreenTransition(
+            true,
+            () => windowState,
+            SetWindowState,
+            () => isTitleBarVisible,
+            v => isTitleBarVisible = v,
+            ref preFullscreenState);
+
+        Assert.Equal(global::Avalonia.Controls.WindowState.FullScreen, windowState);
+        Assert.True(wasTitleBarVisibleBeforeFullScreen);
+        Assert.False(isTitleBarVisible);
+
+        ComicOrganizer.Avalonia.Views.ReaderWindow.ApplyFullscreenTransition(
+            false,
+            () => windowState,
+            SetWindowState,
+            () => isTitleBarVisible,
+            v => isTitleBarVisible = v,
+            ref preFullscreenState);
+
+        Assert.Equal(global::Avalonia.Controls.WindowState.Normal, windowState);
+        Assert.True(isTitleBarVisible);
+
+        // 2. 從 Maximized 進入全螢幕後返回，必須回到 Maximized 且標題列恢復顯示
+        windowState = global::Avalonia.Controls.WindowState.Maximized;
+        ComicOrganizer.Avalonia.Views.ReaderWindow.ApplyFullscreenTransition(
+            true,
+            () => windowState,
+            SetWindowState,
+            () => isTitleBarVisible,
+            v => isTitleBarVisible = v,
+            ref preFullscreenState);
+
+        Assert.Equal(global::Avalonia.Controls.WindowState.FullScreen, windowState);
+        Assert.False(isTitleBarVisible);
+
+        ComicOrganizer.Avalonia.Views.ReaderWindow.ApplyFullscreenTransition(
+            false,
+            () => windowState,
+            SetWindowState,
+            () => isTitleBarVisible,
+            v => isTitleBarVisible = v,
+            ref preFullscreenState);
+
+        Assert.Equal(global::Avalonia.Controls.WindowState.Maximized, windowState);
+        Assert.True(isTitleBarVisible);
+    }
 }

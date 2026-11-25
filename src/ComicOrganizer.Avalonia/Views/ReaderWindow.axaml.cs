@@ -18,11 +18,13 @@ public partial class ReaderWindow : SukiWindow
 {
     private ReaderViewModel? _vm;
     private WindowState _preFullscreenState = WindowState.Normal;
+    private bool _isSyncingFullscreen;
 
     public ReaderWindow()
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
+        PropertyChanged += OnWindowPropertyChanged;
         Closed += OnWindowClosed;
         Deactivated += OnWindowDeactivated;
         AddHandler(PointerPressedEvent, OnWindowTunnelPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -124,17 +126,99 @@ public partial class ReaderWindow : SukiWindow
     private void OnZoomStepRequested(float step) => Viewport.AdjustZoomByStep(step);
 
     private void OnFullscreenChanged(bool isFullscreen)
+        => ApplyFullscreenState(isFullscreen);
+
+    internal void ApplyFullscreenState(bool isFullscreen)
+    {
+        if (_isSyncingFullscreen)
+        {
+            return;
+        }
+
+        _isSyncingFullscreen = true;
+        try
+        {
+            ApplyFullscreenTransition(
+                isFullscreen,
+                () => WindowState,
+                state => WindowState = state,
+                () => IsTitleBarVisible,
+                visible => IsTitleBarVisible = visible,
+                ref _preFullscreenState);
+        }
+        finally
+        {
+            _isSyncingFullscreen = false;
+        }
+    }
+
+    internal static void ApplyFullscreenTransition(
+        bool isFullscreen,
+        Func<WindowState> getWindowState,
+        Action<WindowState> setWindowState,
+        Func<bool> getIsTitleBarVisible,
+        Action<bool> setIsTitleBarVisible,
+        ref WindowState preFullscreenState)
     {
         if (isFullscreen)
         {
-            _preFullscreenState = WindowState == WindowState.FullScreen ? WindowState.Normal : WindowState;
-            IsTitleBarVisible = false;
-            WindowState = WindowState.FullScreen;
+            var currentState = getWindowState();
+            preFullscreenState = currentState == WindowState.FullScreen ? WindowState.Normal : currentState;
+            // 必須先讓 SukiWindow 在 WindowState 切換進全螢幕時記錄到 IsTitleBarVisible == true，
+            // 否則 _wasTitleBarVisibleBeforeFullScreen 會誤記為 false，退出全螢幕後會把標題列再蓋回隱藏
+            if (!getIsTitleBarVisible())
+            {
+                setIsTitleBarVisible(true);
+            }
+
+            setWindowState(WindowState.FullScreen);
+            setIsTitleBarVisible(false);
         }
         else
         {
+            var restoreState = preFullscreenState == WindowState.FullScreen ? WindowState.Normal : preFullscreenState;
+            setWindowState(restoreState);
+            setIsTitleBarVisible(true);
+        }
+    }
+
+    private void OnWindowPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property != WindowStateProperty || _isSyncingFullscreen)
+        {
+            return;
+        }
+
+        var newState = (WindowState)(e.NewValue ?? WindowState.Normal);
+        var oldState = (WindowState)(e.OldValue ?? WindowState.Normal);
+        if (newState == WindowState.FullScreen)
+        {
+            _preFullscreenState = oldState == WindowState.FullScreen ? WindowState.Normal : oldState;
+            IsTitleBarVisible = false;
+            SyncVmFullscreen(true);
+        }
+        else if (oldState == WindowState.FullScreen)
+        {
             IsTitleBarVisible = true;
-            WindowState = _preFullscreenState;
+            SyncVmFullscreen(false);
+        }
+    }
+
+    private void SyncVmFullscreen(bool isFullscreen)
+    {
+        if (_vm == null || _vm.IsFullscreen == isFullscreen)
+        {
+            return;
+        }
+
+        _isSyncingFullscreen = true;
+        try
+        {
+            _vm.IsFullscreen = isFullscreen;
+        }
+        finally
+        {
+            _isSyncingFullscreen = false;
         }
     }
 
@@ -314,6 +398,7 @@ public partial class ReaderWindow : SukiWindow
 
     private void OnWindowClosed(object? sender, EventArgs e)
     {
+        PropertyChanged -= OnWindowPropertyChanged;
         Deactivated -= OnWindowDeactivated;
         if (_vm != null)
         {

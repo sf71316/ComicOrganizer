@@ -13,6 +13,7 @@
                  MinHeight="620"
                  WindowStartupLocation="CenterScreen"
                  IsTitleBarVisible="True"
+                 TitleBarVisibilityOnFullScreen="Hidden"
                  BackgroundStyle="GradientSoft">
 
   <suki:SukiWindow.Resources>
