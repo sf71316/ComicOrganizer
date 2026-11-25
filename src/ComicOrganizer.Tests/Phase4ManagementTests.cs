@@ -384,27 +384,16 @@ public sealed class Phase4ManagementTests : IDisposable
 
         await vm.ScanAsync();
         Assert.Equal(4, vm.TotalScannedCount);
-        Assert.Equal(2, vm.TargetGroups.Count);
-
-        // 依項目數排序，同時低信心項目（Fuzzy 低分）會標記 HasLowConfidenceItem
-        var groupLong = vm.TargetGroups.Single(g => g.TargetFolderName == authorLong);
-        var groupBeta = vm.TargetGroups.Single(g => g.TargetFolderName == authorB);
-        Assert.True(groupLong.TotalCount >= 2);
-        Assert.True(groupBeta.TotalCount >= 1);
-        Assert.Contains(vm.TargetGroups, g => g.HasLowConfidenceItem);
-
-        // 先確保 groupLong 有完整 2 筆再做整組勾選／半選驗證
-        var lowConfidenceItem = vm.VisibleCandidates.Single(c => c.SourceName == "CompletelyUnmatched_MysteryBook_999");
-        Assert.False(lowConfidenceItem.IsChecked);
-
-        // 手動設為「未匹配」會獨立出底部第 3 組「❓ 尚未匹配目標目錄」
-        lowConfidenceItem.SelectedTargetFolder = "未匹配";
         Assert.Equal(3, vm.TargetGroups.Count);
+
+        // 已匹配且項目數最多（2 筆）排最前，其次 BetaArtist（1 筆），最後未匹配（1 筆）
         Assert.Equal(authorLong, vm.TargetGroups[0].TargetFolderName);
         Assert.Equal(2, vm.TargetGroups[0].TotalCount);
         Assert.Equal(authorB, vm.TargetGroups[1].TargetFolderName);
         Assert.Single(vm.TargetGroups[1].Items);
         Assert.True(vm.TargetGroups[2].IsUnmatchedGroup);
+        Assert.Equal("CompletelyUnmatched_MysteryBook_999", vm.TargetGroups[2].Items[0].SourceName);
+        Assert.False(vm.TargetGroups[2].Items[0].IsChecked);
 
         // 整組取消勾選與全選同步
         vm.TargetGroups[0].IsGroupChecked = false;

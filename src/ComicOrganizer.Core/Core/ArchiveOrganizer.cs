@@ -6,8 +6,33 @@ namespace ComicOrganizer.App.Core;
 
 public class ArchiveOrganizer
 {
+    private static readonly Regex BalancedBracketRegex = new(
+        @"\[([^\]]+)\]|\(([^()]+)\)|\{([^\}]+)\}",
+        RegexOptions.Compiled);
+
+    private static readonly Regex CompactStripRegex = new(
+        @"[\s\.\-・_･'""`~!@#$%^&*+=,、。]+",
+        RegexOptions.Compiled);
+
+    // 切分多作者合作分隔符（故意不將英文字母 'x' 與單獨空白當作無條件切詞符）
+    private static readonly Regex AuthorMultiSplitRegex = new(
+        @"\s*(?:[×・、/|／\\]|(?<=\s)[-xX](?=\s))\s*",
+        RegexOptions.Compiled);
+
+    private static readonly string[] BuiltInNoiseTokens =
+    {
+        "ai", "dl", "ch", "en", "jp", "ko", "zh", "raw", "v2", "v3",
+        "no", "in", "on", "of", "the", "and", "to", "ru",
+        "comiket", "sample", "digital", "patreon", "skeb", "pixiv", "fanbox", "fantia"
+    };
+
     private readonly MappingIntelligence _intelligence;
     private readonly AppConfig _config;
+
+    // 目標目錄清單相同時重用預解析別名與碰撞表，避免每次掃描重算
+    private IReadOnlyList<string>? _cachedTargetInput;
+    private List<TargetEntity>? _cachedTargets;
+    private Dictionary<string, int>? _cachedWordCollisions;
 
     public ArchiveOrganizer(MappingIntelligence intelligence, AppConfig config)
     {
@@ -17,101 +42,690 @@ public class ArchiveOrganizer
 
     public MatchResult? FindBestMatch(string sourceName, List<string> targetFolderNames)
     {
-        if (targetFolderNames.Count == 0) return null;
-
-        // 1. 知識庫預判
-        var learnedFolder = _intelligence.TryGetMappedFolder(sourceName);
-        if (learnedFolder != null && targetFolderNames.Contains(learnedFolder))
+        if (string.IsNullOrWhiteSpace(sourceName) || targetFolderNames.Count == 0)
         {
-            return new MatchResult { FolderName = learnedFolder, Confidence = 100.0, IsLearned = true };
+            return null;
         }
 
-        // 2. 混合式比對
-        string? bestFolder = null;
-        double bestScore = -1;
-
-        foreach (var target in targetFolderNames)
+        // 1. 知識庫預判（MappingIntelligence 已具備詞界與短雜訊防呆）
+        var learnedFolder = _intelligence.TryGetMappedFolder(sourceName);
+        if (learnedFolder != null)
         {
-            double score = CalculateSmartScore(sourceName, target);
-            if (score > bestScore)
+            var matchedTarget = targetFolderNames.FirstOrDefault(
+                t => string.Equals(t, learnedFolder, StringComparison.OrdinalIgnoreCase));
+            if (matchedTarget != null)
             {
-                bestScore = score;
-                bestFolder = target;
+                return new MatchResult
+                {
+                    FolderName = matchedTarget,
+                    Confidence = 100.0,
+                    IsLearned = true,
+                    MatchSourceSummary = "知識庫"
+                };
             }
         }
-        
-        if (bestFolder == null) return null;
+
+        // 2. 結構化解析來源作者／標題 ＋ 目標庫別名展開與碰撞表
+        var (targets, wordCollisions) = GetOrBuildTargetEntities(targetFolderNames);
+        var sourceInfo = ParseSourceInfo(sourceName);
+
+        TargetEntity? bestTarget = null;
+        double bestScore = -1.0;
+        string bestReason = string.Empty;
+        double secondBestScore = -1.0;
+
+        foreach (var target in targets)
+        {
+            var (score, reason) = ScoreTarget(sourceInfo, target, wordCollisions);
+            if (score > bestScore)
+            {
+                secondBestScore = bestScore;
+                bestScore = score;
+                bestTarget = target;
+                bestReason = reason;
+            }
+            else if (score > secondBestScore)
+            {
+                secondBestScore = score;
+            }
+        }
+
+        // 若出現非精確匹配的模糊平手／極接近歧義，避免任意被字典序第一個目標吸走
+        if (bestTarget != null && bestScore < 90.0 && secondBestScore >= bestScore - 1.5 && secondBestScore > 0)
+        {
+            bestScore = Math.Min(bestScore, 70.0);
+        }
+
+        double minThreshold = Math.Clamp(_config.MinMatchConfidence, 0.0, 100.0);
+        if (bestTarget == null || bestScore < minThreshold)
+        {
+            return null;
+        }
 
         return new MatchResult
         {
-            FolderName = bestFolder,
-            Confidence = bestScore,
-            IsLearned = false
+            FolderName = bestTarget.FolderName,
+            Confidence = Math.Round(bestScore, 1),
+            IsLearned = false,
+            MatchSourceSummary = bestReason
         };
     }
 
-    private double CalculateSmartScore(string source, string target)
-    {
-        if (source.Contains(target, StringComparison.OrdinalIgnoreCase)) return 95.0;
-        
-        var tags = ExtractAllKeywords(source);
-        if (tags.Any(t => target.Contains(t, StringComparison.OrdinalIgnoreCase) || t.Contains(target, StringComparison.OrdinalIgnoreCase)))
-        {
-            return 90.0; 
-        }
-
-        return Fuzz.WeightedRatio(source, target);
-    }
-
+    /// <summary>
+    /// 從來源名稱擷取可用於學習或比對的安全關鍵字：
+    /// 先檢查完整括號是否屬於黑名單／雜訊再視需要拆多作者，絕不再先用空白或 'x' 切碎片語。
+    /// </summary>
     public List<string> ExtractAllKeywords(string input)
     {
-        var keywords = new List<string>();
-        var matches = Regex.Matches(input, @"[\[\(\{](.*?)[\]\)\}]");
-        foreach (Match m in matches)
+        if (string.IsNullOrWhiteSpace(input))
         {
-            string content = m.Groups[1].Value;
-            var parts = content.Split(new[] { '-', '×', 'x', ',', ' ', ':', '|', '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
-            foreach (var p in parts)
+            return new List<string>();
+        }
+
+        var normalized = FilenameMetadataParser.NormalizeMatchText(input);
+        var keywords = new List<string>();
+
+        foreach (Match m in BalancedBracketRegex.Matches(normalized))
+        {
+            string rawBlock = m.Groups[1].Success ? m.Groups[1].Value
+                : (m.Groups[2].Success ? m.Groups[2].Value : m.Groups[3].Value);
+            string block = rawBlock.Trim();
+            if (string.IsNullOrEmpty(block) || IsNoise(block))
             {
-                string trimmed = p.Trim();
-                if (trimmed.Length > 1 && !IsNoise(trimmed))
-                {
-                    keywords.Add(trimmed);
-                }
+                continue;
+            }
+
+            // 支援 "[Group (Author)]" 拆解後保留群組名與作者名
+            var ga = Regex.Match(block, @"^(.+?)\s*\(([^()]+)\)\s*$");
+            if (ga.Success)
+            {
+                AddCleanAuthorTokens(ga.Groups[1].Value, keywords);
+                AddCleanAuthorTokens(ga.Groups[2].Value, keywords);
+            }
+            else
+            {
+                AddCleanAuthorTokens(block, keywords);
             }
         }
-        return keywords.Distinct().ToList();
+
+        return keywords.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>
+    /// 抽取「僅來自作者／社團欄」的關鍵字，供歸檔成功後安全寫回 mappings.json。
+    /// </summary>
+    public List<string> ExtractAuthorKeywordsForLearning(string sourceName)
+    {
+        if (string.IsNullOrWhiteSpace(sourceName))
+        {
+            return new List<string>();
+        }
+
+        var info = ParseSourceInfo(sourceName);
+        var result = new List<string>();
+        foreach (var cand in info.AuthorCandidates)
+        {
+            if (cand.Value.Length >= 2 && !IsNoise(cand.Value))
+            {
+                result.Add(cand.Value);
+            }
+        }
+
+        return result.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     public bool IsKeywordValidForTarget(string kw, string targetFolderName)
     {
-        if (IsNoise(kw)) return false;
-
-        if (targetFolderName.Contains(kw, StringComparison.OrdinalIgnoreCase) || 
-            kw.Contains(targetFolderName, StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        if (Fuzz.WeightedRatio(kw, targetFolderName) > 80)
-            return true;
-
-        return false;
-    }
-
-    private bool IsNoise(string token)
-    {
-        string cleanToken = token.Trim('[', ']', '(', ')', '{', '}', ' ');
-        
-        if (_config.Blacklist.Any(nw => cleanToken.Contains(nw, StringComparison.OrdinalIgnoreCase)))
-            return true;
-
-        foreach (var pattern in _config.BlacklistPatterns)
+        if (string.IsNullOrWhiteSpace(kw) || IsNoise(kw))
         {
-            if (Regex.IsMatch(cleanToken, pattern, RegexOptions.IgnoreCase))
+            return false;
+        }
+
+        string cleanKw = FilenameMetadataParser.NormalizeMatchText(kw);
+        if (cleanKw.Length < 2)
+        {
+            return false;
+        }
+
+        bool kwIsAscii = IsAsciiOnly(cleanKw);
+        var aliases = FilenameMetadataParser.ExpandAuthorFolderAliases(targetFolderName);
+        foreach (var alias in aliases)
+        {
+            if (string.Equals(cleanKw, alias, StringComparison.OrdinalIgnoreCase))
+            {
                 return true;
+            }
+
+            string compactKw = Compact(cleanKw);
+            string compactAlias = Compact(alias);
+            if (compactKw.Length >= 3 && string.Equals(compactKw, compactAlias, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            // 純 ASCII 短詞（< 4 字元）不開放部分包含，避免如 "ai" 驗證過關
+            if (kwIsAscii && cleanKw.Length < 4)
+            {
+                continue;
+            }
+
+            if (cleanKw.Length >= 4 && alias.Length >= 4)
+            {
+                if (IsWordBoundaryContained(alias, cleanKw) || IsWordBoundaryContained(cleanKw, alias))
+                {
+                    return true;
+                }
+
+                if (ComputeAuthorFuzzyScore(cleanKw, alias) >= 85.0)
+                {
+                    return true;
+                }
+            }
         }
 
         return false;
     }
+
+    private void AddCleanAuthorTokens(string segment, List<string> targetList)
+    {
+        var trimmed = segment.Trim();
+        if (string.IsNullOrEmpty(trimmed) || IsNoise(trimmed))
+        {
+            return;
+        }
+
+        foreach (var part in AuthorMultiSplitRegex.Split(trimmed))
+        {
+            var p = part.Trim();
+            if (p.Length < 2 || IsNoise(p))
+            {
+                continue;
+            }
+
+            targetList.Add(p);
+        }
+    }
+
+    private (List<TargetEntity> Targets, Dictionary<string, int> WordCollisions) GetOrBuildTargetEntities(List<string> targetFolderNames)
+    {
+        if (_cachedTargetInput != null
+            && _cachedTargets != null
+            && _cachedWordCollisions != null
+            && ReferenceEquals(_cachedTargetInput, targetFolderNames))
+        {
+            return (_cachedTargets, _cachedWordCollisions);
+        }
+
+        var targets = new List<TargetEntity>(targetFolderNames.Count);
+        var collisions = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var folder in targetFolderNames)
+        {
+            var rawAliases = FilenameMetadataParser.ExpandAuthorFolderAliases(folder);
+            var aliasEntries = new List<AliasEntry>(rawAliases.Count);
+            var seenTokensForThisTarget = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var raw in rawAliases)
+            {
+                var lower = raw.ToLowerInvariant();
+                var compact = Compact(lower);
+                var words = SplitSpaceTokens(lower);
+                aliasEntries.Add(new AliasEntry(raw, lower, compact, words));
+
+                foreach (var w in words)
+                {
+                    if (w.Length >= 2)
+                    {
+                        seenTokensForThisTarget.Add(w);
+                    }
+                }
+            }
+
+            foreach (var tok in seenTokensForThisTarget)
+            {
+                collisions[tok] = collisions.TryGetValue(tok, out int count) ? count + 1 : 1;
+            }
+
+            targets.Add(new TargetEntity(folder, aliasEntries));
+        }
+
+        _cachedTargetInput = targetFolderNames;
+        _cachedTargets = targets;
+        _cachedWordCollisions = collisions;
+        return (targets, collisions);
+    }
+
+    private SourceMatchInfo ParseSourceInfo(string sourceName)
+    {
+        var normalized = FilenameMetadataParser.NormalizeMatchText(sourceName);
+        var parsed = FilenameMetadataParser.ParseWorkName(normalized);
+
+        var candidates = new List<SourceAuthorCandidate>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void TryAddAuthor(string? raw, bool isSplitSub)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return;
+            }
+
+            var clean = raw.Trim();
+            if (clean.Length < 2 || IsNoise(clean))
+            {
+                return;
+            }
+
+            if (seen.Add(clean))
+            {
+                candidates.Add(new SourceAuthorCandidate(clean, clean.ToLowerInvariant(), Compact(clean), isSplitSub));
+            }
+        }
+
+        void ExpandAuthorField(string? field)
+        {
+            if (string.IsNullOrWhiteSpace(field))
+            {
+                return;
+            }
+
+            var f = field.Trim();
+            TryAddAuthor(f, isSplitSub: false);
+
+            foreach (var sub in AuthorMultiSplitRegex.Split(f))
+            {
+                var s = sub.Trim();
+                if (!string.Equals(s, f, StringComparison.OrdinalIgnoreCase))
+                {
+                    TryAddAuthor(s, isSplitSub: true);
+                }
+            }
+        }
+
+        ExpandAuthorField(parsed.AuthorMainName);
+        ExpandAuthorField(parsed.AuthorAlias);
+
+        // 若檔名沒有領頭 [...] 作者欄但含有 "(Author)" 等少見非黑名單括號，不把最後的純文字標題直接冒充作者
+        string titleLower = string.IsNullOrWhiteSpace(parsed.Title) ? string.Empty : parsed.Title.ToLowerInvariant();
+        string titleCompact = string.IsNullOrEmpty(titleLower) ? string.Empty : Compact(titleLower);
+
+        return new SourceMatchInfo(candidates, parsed.Title ?? string.Empty, titleLower, titleCompact);
+    }
+
+    private (double Score, string Reason) ScoreTarget(
+        SourceMatchInfo source,
+        TargetEntity target,
+        Dictionary<string, int> wordCollisions)
+    {
+        double bestScore = 0.0;
+        string bestReason = string.Empty;
+
+        // Track A：作者／社團結構化欄位比對（最高精準度）
+        foreach (var cand in source.AuthorCandidates)
+        {
+            foreach (var alias in target.Aliases)
+            {
+                // A1. 完全一致或去標點空白一致（支援 [ae]、[MM]、Pure Tone vs PureTone）
+                if (string.Equals(cand.Lower, alias.Lower, StringComparison.Ordinal))
+                {
+                    double score = cand.IsSplitSub ? 95.0 : 98.0;
+                    if (score > bestScore)
+                    {
+                        bestScore = score;
+                        bestReason = cand.IsSplitSub ? "多作者吻合" : "作者精確吻合";
+                    }
+                    continue;
+                }
+
+                if (cand.Compact.Length >= 2 && alias.Compact.Length >= 2 &&
+                    string.Equals(cand.Compact, alias.Compact, StringComparison.Ordinal))
+                {
+                    double score = cand.IsSplitSub ? 93.0 : 96.0;
+                    if (score > bestScore)
+                    {
+                        bestScore = score;
+                        bestReason = "作者正規化吻合";
+                    }
+                    continue;
+                }
+
+                // 短名稱（<= 3 字元）僅允許精確吻合，硬性否決部分包含與模糊猜測
+                int minLen = Math.Min(cand.Lower.Length, alias.Lower.Length);
+                if (minLen < 4)
+                {
+                    continue;
+                }
+
+                // A2. 詞界完整詞命中（例如 [Marvel] 命中 "Marvel Comics"）
+                if (IsWordBoundaryTokenMatch(cand.Lower, alias.Lower))
+                {
+                    int colCount = wordCollisions.TryGetValue(cand.Lower, out int c1) ? c1 : 1;
+                    int colAlias = wordCollisions.TryGetValue(alias.Lower, out int c2) ? c2 : 1;
+                    int maxCol = Math.Max(colCount, colAlias);
+                    double score = maxCol > 1 ? 82.0 : 90.0;
+                    if (score > bestScore)
+                    {
+                        bestScore = score;
+                        bestReason = maxCol > 1 ? "作者部分詞(多目標碰撞)" : "作者詞界吻合";
+                    }
+                    continue;
+                }
+
+                // A3. 非空白分隔長 CJK 子字串包含：僅允許長度比例 >= 0.65（防止 2~3 字短詞吞掉長名）
+                if (cand.Lower.Length >= 4 && alias.Lower.Length >= 4)
+                {
+                    int maxLen = Math.Max(cand.Lower.Length, alias.Lower.Length);
+                    double lenRatio = (double)minLen / maxLen;
+                    if (lenRatio >= 0.65 && (cand.Lower.Contains(alias.Lower, StringComparison.Ordinal) || alias.Lower.Contains(cand.Lower, StringComparison.Ordinal)))
+                    {
+                        double score = 88.0;
+                        if (score > bestScore)
+                        {
+                            bestScore = score;
+                            bestReason = "作者高比例吻合";
+                        }
+                        continue;
+                    }
+                }
+
+                // A4. 欄位級混合模糊比對（Jaro-Winkler + Bigram Dice + 長度比懲罰）
+                double fuzzy = ComputeAuthorFuzzyScore(cand.Lower, alias.Lower);
+                if (fuzzy > bestScore)
+                {
+                    bestScore = fuzzy;
+                    bestReason = "作者近似比對";
+                }
+            }
+        }
+
+        // Track B：標題／系列名目錄比對（相容以「鬼滅の刃」、「One Punch Man (ワンパンマン)」分類的作品集）
+        if (!string.IsNullOrEmpty(source.TitleLower))
+        {
+            foreach (var alias in target.Aliases)
+            {
+                bool aliasIsAscii = IsAsciiOnly(alias.Lower);
+                int minAllowedTitleAlias = aliasIsAscii ? 4 : 3;
+                if (alias.Lower.Length < minAllowedTitleAlias)
+                {
+                    continue;
+                }
+
+                if (string.Equals(source.TitleLower, alias.Lower, StringComparison.Ordinal) ||
+                    (source.TitleCompact.Length >= 4 && string.Equals(source.TitleCompact, alias.Compact, StringComparison.Ordinal)))
+                {
+                    if (95.0 > bestScore)
+                    {
+                        bestScore = 95.0;
+                        bestReason = "作品標題吻合";
+                    }
+                    continue;
+                }
+
+                if (IsTitleBoundaryMatch(source.TitleLower, alias.Lower))
+                {
+                    int colCount = wordCollisions.TryGetValue(alias.Lower, out int c) ? c : 1;
+                    double score = colCount > 1 ? 78.0 : 90.0;
+                    if (score > bestScore)
+                    {
+                        bestScore = score;
+                        bestReason = "作品系列詞界吻合";
+                    }
+                }
+            }
+        }
+
+        return (bestScore, bestReason);
+    }
+
+    private static double ComputeAuthorFuzzyScore(string a, string b)
+    {
+        if (a.Length < 4 || b.Length < 4)
+        {
+            return 0.0;
+        }
+
+        int minLen = Math.Min(a.Length, b.Length);
+        int maxLen = Math.Max(a.Length, b.Length);
+        double lenRatio = (double)minLen / maxLen;
+        if (lenRatio < 0.5)
+        {
+            return 0.0;
+        }
+
+        double jw = JaroWinkler(a, b);
+        double dice = BigramDice(a, b);
+        double combined = 0.55 * jw + 0.45 * dice;
+
+        // 僅在字元重疊度也足夠時才轉換為分數，最高封頂 88（低於精確匹配的 95-98）
+        double score = combined * (0.65 + 0.35 * lenRatio) * 89.0;
+        return Math.Min(88.0, score);
+    }
+
+    private static bool IsWordBoundaryTokenMatch(string aLower, string bLower)
+    {
+        var shorter = aLower.Length <= bLower.Length ? aLower : bLower;
+        var longer = aLower.Length <= bLower.Length ? bLower : aLower;
+
+        if (shorter.Length == 0 || string.Equals(shorter, longer, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var tokens = SplitSpaceTokens(longer);
+        if (tokens.Count > 1 && tokens.Any(t => string.Equals(t, shorter, StringComparison.Ordinal)))
+        {
+            return true;
+        }
+
+        return IsWordBoundaryContained(longer, shorter);
+    }
+
+    private static bool IsTitleBoundaryMatch(string titleLower, string aliasLower)
+    {
+        int idx = 0;
+        while (idx <= titleLower.Length - aliasLower.Length)
+        {
+            int pos = titleLower.IndexOf(aliasLower, idx, StringComparison.Ordinal);
+            if (pos < 0)
+            {
+                return false;
+            }
+
+            bool leftOk = pos == 0 || !IsWordCharForBoundary(titleLower[pos - 1], aliasLower[0]);
+            int end = pos + aliasLower.Length;
+            bool rightOk = end >= titleLower.Length || !IsWordCharForBoundary(titleLower[end], aliasLower[^1]);
+
+            if (leftOk && rightOk)
+            {
+                return true;
+            }
+
+            idx = pos + 1;
+        }
+
+        return false;
+    }
+
+    private static bool IsWordCharForBoundary(char adjacent, char edgeChar)
+    {
+        // ASCII 英數邊界不得相鄰字母／數字；日文／中文標題開頭或空白/標點/數字隔離時視為詞界（如 "鬼滅の刃 第01巻"）
+        if (edgeChar <= 0x7F)
+        {
+            return char.IsLetterOrDigit(adjacent);
+        }
+
+        return char.IsLetter(adjacent);
+    }
+
+    private static bool IsWordBoundaryContained(string haystack, string needle)
+    {
+        int idx = 0;
+        while (idx <= haystack.Length - needle.Length)
+        {
+            int pos = haystack.IndexOf(needle, idx, StringComparison.OrdinalIgnoreCase);
+            if (pos < 0)
+            {
+                return false;
+            }
+
+            bool leftOk = pos == 0 || !char.IsLetterOrDigit(haystack[pos - 1]);
+            int end = pos + needle.Length;
+            bool rightOk = end >= haystack.Length || !char.IsLetterOrDigit(haystack[end]);
+
+            if (leftOk && rightOk)
+            {
+                return true;
+            }
+
+            idx = pos + 1;
+        }
+
+        return false;
+    }
+
+    private static double JaroWinkler(string s1, string s2)
+    {
+        if (s1 == s2) return 1.0;
+        int len1 = s1.Length;
+        int len2 = s2.Length;
+        if (len1 == 0 || len2 == 0) return 0.0;
+
+        int matchDistance = Math.Max(0, Math.Max(len1, len2) / 2 - 1);
+        var s1Matches = new bool[len1];
+        var s2Matches = new bool[len2];
+
+        int matches = 0;
+        for (int i = 0; i < len1; i++)
+        {
+            int start = Math.Max(0, i - matchDistance);
+            int end = Math.Min(i + matchDistance + 1, len2);
+            for (int j = start; j < end; j++)
+            {
+                if (s2Matches[j] || s1[i] != s2[j]) continue;
+                s1Matches[i] = true;
+                s2Matches[j] = true;
+                matches++;
+                break;
+            }
+        }
+
+        if (matches == 0) return 0.0;
+
+        double t = 0;
+        int k = 0;
+        for (int i = 0; i < len1; i++)
+        {
+            if (!s1Matches[i]) continue;
+            while (!s2Matches[k]) k++;
+            if (s1[i] != s2[k]) t++;
+            k++;
+        }
+
+        double m = matches;
+        double jaro = ((m / len1) + (m / len2) + ((m - t / 2.0) / m)) / 3.0;
+
+        int prefix = 0;
+        int maxPrefix = Math.Min(4, Math.Min(len1, len2));
+        for (int i = 0; i < maxPrefix; i++)
+        {
+            if (s1[i] == s2[i]) prefix++;
+            else break;
+        }
+
+        return jaro + prefix * 0.1 * (1.0 - jaro);
+    }
+
+    private static double BigramDice(string s1, string s2)
+    {
+        if (s1.Length < 2 || s2.Length < 2)
+        {
+            return s1 == s2 ? 1.0 : 0.0;
+        }
+
+        var bigrams1 = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (int i = 0; i < s1.Length - 1; i++)
+        {
+            var bg = s1.Substring(i, 2);
+            bigrams1[bg] = bigrams1.TryGetValue(bg, out int c) ? c + 1 : 1;
+        }
+
+        int intersection = 0;
+        for (int i = 0; i < s2.Length - 1; i++)
+        {
+            var bg = s2.Substring(i, 2);
+            if (bigrams1.TryGetValue(bg, out int count) && count > 0)
+            {
+                intersection++;
+                bigrams1[bg] = count - 1;
+            }
+        }
+
+        int totalBigrams = (s1.Length - 1) + (s2.Length - 1);
+        return totalBigrams == 0 ? 0.0 : (2.0 * intersection) / totalBigrams;
+    }
+
+    private static string Compact(string s)
+        => CompactStripRegex.Replace(s.ToLowerInvariant(), string.Empty);
+
+    private static List<string> SplitSpaceTokens(string s)
+        => s.Split([' ', '-', '_', '.', '・', '(', ')', '[', ']', '、', '/', '／'], StringSplitOptions.RemoveEmptyEntries)
+            .ToList();
+
+    private static bool IsAsciiOnly(string s)
+    {
+        foreach (char c in s)
+        {
+            if (c > 0x7F) return false;
+        }
+        return true;
+    }
+
+    private bool IsNoise(string token)
+    {
+        string cleanToken = FilenameMetadataParser.NormalizeMatchText(token)
+            .Trim('[', ']', '(', ')', '{', '}', ' ');
+        if (string.IsNullOrEmpty(cleanToken))
+        {
+            return true;
+        }
+
+        if (FilenameMetadataParser.IsKnownNoiseTag(cleanToken))
+        {
+            return true;
+        }
+
+        if (BuiltInNoiseTokens.Any(b => string.Equals(cleanToken, b, StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        if (_config.Blacklist.Any(nw =>
+            !string.IsNullOrWhiteSpace(nw)
+            && (string.Equals(cleanToken, nw.Trim(), StringComparison.OrdinalIgnoreCase)
+                || (nw.Trim().Length >= 4 && cleanToken.Contains(nw.Trim(), StringComparison.OrdinalIgnoreCase)))))
+        {
+            return true;
+        }
+
+        foreach (var pattern in _config.BlacklistPatterns)
+        {
+            if (!string.IsNullOrWhiteSpace(pattern) && Regex.IsMatch(cleanToken, pattern, RegexOptions.IgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private sealed record AliasEntry(string Raw, string Lower, string Compact, List<string> SpaceTokens);
+    private sealed record TargetEntity(string FolderName, List<AliasEntry> Aliases);
+    private sealed record SourceAuthorCandidate(string Value, string Lower, string Compact, bool IsSplitSub);
+    private sealed record SourceMatchInfo(
+        List<SourceAuthorCandidate> AuthorCandidates,
+        string Title,
+        string TitleLower,
+        string TitleCompact);
 }
 
 public class MatchResult
@@ -119,4 +733,5 @@ public class MatchResult
     public string FolderName { get; set; } = string.Empty;
     public double Confidence { get; set; }
     public bool IsLearned { get; set; }
+    public string MatchSourceSummary { get; set; } = string.Empty;
 }

@@ -54,19 +54,28 @@ public class AppConfig
     /// </summary>
     public int ReadCountThresholdPages { get; set; } = 2;
 
+    /// <summary>
+    /// 自動歸檔配對的最低接受信心分數（0~100）。低於此分數者回傳未匹配（null），預設 75.0。
+    /// </summary>
+    public double MinMatchConfidence { get; set; } = 75.0;
+
     // 動態黑名單 (使用者可編輯)
     public List<string> Blacklist { get; set; } = new()
     {
-        "中国翻訳", "中譯", "DL版", "Digital", "AI Generated", "無修正", "個人漢化", "繁中機翻",
-        "pixiv", "fanbox", "fantia", "upscaled", "high res"
+        "中国翻訳", "中譯", "DL版", "DL", "Digital", "AI Generated", "AI Translate",
+        "AI绘图", "AI繪圖", "AI生成", "AI絵図", "AI翻譯", "AI翻译",
+        "無修正", "无修正", "個人漢化", "个人汉化", "個人翻譯", "个人翻译", "繁中機翻",
+        "pixiv", "fanbox", "fantia", "patreon", "skeb", "upscaled", "high res",
+        "見本", "Sample", "Uncensored", "Decensored", "Full Color", "全彩"
     };
 
     // 模式黑名單 (Regex)
     public List<string> BlacklistPatterns { get; set; } = new()
     {
-        @"C\d{2,3}",          // Comic Market 編號 (C103, C99)
-        @"\d+x\d+",           // 解析度 (1280x720)
-        @"\d{6,8}"            // 日期格式 (20240907)
+        @"^C\d{2,3}$",        // Comic Market 編號 (C103, C99)
+        @"^\d+x\d+$",         // 解析度 (1280x720)
+        @"^\d{6,8}$",         // 日期格式 (20240907)
+        @"(?:漢化|汉化|翻訳|翻譯|機翻|机翻|Translation|校正)" // 漢化組／機翻／校正標籤
     };
 
     // ===== 外部 metadata 整合 (#52) =====

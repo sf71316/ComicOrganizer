@@ -40,7 +40,8 @@ public sealed partial class AutoArchiveCandidateVm : ObservableObject
         Action<AutoArchiveCandidateVm> onRevealInExplorer,
         Action<AutoArchiveCandidateVm> onRemoveFromList,
         Action<AutoArchiveCandidateVm> onCheckedChanged,
-        Action<AutoArchiveCandidateVm> onTargetFolderChanged)
+        Action<AutoArchiveCandidateVm> onTargetFolderChanged,
+        string? matchSourceSummary = null)
     {
         SourceName = sourceName;
         SourceFullPath = sourceFullPath;
@@ -60,7 +61,9 @@ public sealed partial class AutoArchiveCandidateVm : ObservableObject
             SelectedTargetFolder = string.IsNullOrWhiteSpace(matchedFolder) ? "未匹配" : matchedFolder;
             MatchSourceLabel = string.IsNullOrWhiteSpace(matchedFolder)
                 ? "❓ 未匹配"
-                : (isLearned ? "🧠 知識庫" : "🔍 模糊比對");
+                : (isLearned
+                    ? "🧠 知識庫"
+                    : (!string.IsNullOrWhiteSpace(matchSourceSummary) ? $"🔍 {matchSourceSummary}" : "🔍 模糊比對"));
             _isChecked = !string.IsNullOrWhiteSpace(matchedFolder) && confidence >= 85.0;
         }
         finally
@@ -99,6 +102,8 @@ public sealed partial class AutoArchiveCandidateVm : ObservableObject
 
     [ObservableProperty]
     private string _executionMessage = string.Empty;
+
+    public bool IsManuallyAssigned { get; private set; }
 
     public bool HasValidDestination =>
         !string.IsNullOrWhiteSpace(SelectedTargetFolder) &&
@@ -141,11 +146,13 @@ public sealed partial class AutoArchiveCandidateVm : ObservableObject
         {
             if (HasValidDestination)
             {
+                IsManuallyAssigned = true;
                 MatchSourceLabel = "✏️ 手動指定";
                 IsChecked = true;
             }
             else
             {
+                IsManuallyAssigned = false;
                 MatchSourceLabel = "❓ 未匹配";
                 IsChecked = false;
             }
@@ -499,7 +506,8 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
                         OnRevealInExplorer,
                         OnRemoveCandidate,
                         OnCandidateCheckedChanged,
-                        OnCandidateTargetFolderChanged));
+                        OnCandidateTargetFolderChanged,
+                        match?.MatchSourceSummary));
                 }
 
                 return list
@@ -680,10 +688,13 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
                         string movedPath = ArchiveMoveHelper.MoveItemSafely(item.SourceFullPath, item.DestinationPath);
                         UpsertMovedCatalog(movedPath, item.SelectedTargetFolder);
 
-                        var keywords = organizer.ExtractAllKeywords(item.SourceName);
+                        var keywords = organizer.ExtractAuthorKeywordsForLearning(item.SourceName);
                         foreach (var kw in keywords)
                         {
-                            if (organizer.IsKeywordValidForTarget(kw, item.SelectedTargetFolder))
+                            bool shouldLearn = item.IsManuallyAssigned
+                                ? MappingIntelligence.IsValidLearningKey(MappingIntelligence.NormalizeKey(kw))
+                                : organizer.IsKeywordValidForTarget(kw, item.SelectedTargetFolder);
+                            if (shouldLearn)
                             {
                                 intelligence.Learn(kw, item.SelectedTargetFolder);
                             }

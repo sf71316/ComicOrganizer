@@ -70,15 +70,17 @@ public static class FilenameMetadataParser
         "雑誌寄せ集め", "汉化同人誌", "成年____",
     };
 
-    // 非作者身份的常見版本/規格方括號詞（避免 authorFromParent 時被誤當作社團名剝除）
+    // 非作者身份的常見版本/規格方括號詞（避免 authorFromParent 或歸檔比對時被誤當作作者／社團）
     private static readonly HashSet<string> NonAuthorSquareTags = new(StringComparer.OrdinalIgnoreCase)
     {
-        "DL版", "Digital", "無修正", "无修正", "修正", "Uncensored", "Decensored",
-        "AI Generated", "RAW", "Full Color", "全彩", "カラー", "Sample",
+        "DL版", "DL", "Digital", "無修正", "无修正", "修正", "修正版", "完全版", "Uncensored", "Decensored",
+        "AI Generated", "AI Translate", "AI绘图", "AI繪圖", "AI生成", "AI絵図", "AI",
+        "RAW", "Full Color", "全彩", "カラー", "Sample",
         "無碼", "无码", "薄碼", "薄码", "疏碼", "疏码", "有修正", "無修", "无修",
         "騎兵", "步兵", "カラー化", "単行本", "单行本", "單行本", "見本", "有水印",
         "去碼", "去码", "機翻", "机翻", "AI翻譯", "AI翻译", "進行中", "进行中",
         "完結", "完结", "連載中", "连载中", "整合", "合集", "Hcomic",
+        "pixiv", "fanbox", "fantia", "patreon", "skeb", "upscaled", "high res",
     };
 
     // 語言對應表（命中即設 Language，不再進 Tags）
@@ -128,13 +130,14 @@ public static class FilenameMetadataParser
         "家族社", "宇宙分組", "宇宙分组", "漢化社", "汉化社",
         "翻譯組", "翻译组", "翻譯社", "翻译社", "漢化部", "汉化部",
         "掃圖", "扫图", "Scan by", "Scanned by",
-        "重嵌", "嵌字", "修圖", "修图", "校對", "校对",
-        "工坊", "工房", "個人翻譯", "个人翻译", "禁漫天堂",
+        "重嵌", "嵌字", "修圖", "修图", "校對", "校对", "校正",
+        "工坊", "工房", "個人翻譯", "个人翻译", "個人漢化", "个人汉化", "禁漫天堂",
         "機翻", "机翻",
     };
 
-    // 雜訊方括號規則：純頁碼/編號、單字母、版本號、日期戳與漢化編號（不寫入 Tags）
+    // 雜訊方括號規則：純頁碼/編號、四位數年份、單字母、版本號、日期戳與漢化編號（不寫入 Tags）
     private static readonly Regex NoiseDigitsRegex = new(@"^\d{1,3}$", RegexOptions.Compiled);
+    private static readonly Regex NoiseYearRegex = new(@"^(?:19|20)\d{2}$", RegexOptions.Compiled);
     private static readonly Regex NoiseSingleLetterRegex = new(@"^[A-Za-z]$", RegexOptions.Compiled);
     private static readonly Regex NoiseVersionRegex = new(@"^v\d+(?:\.\d+)?$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex NoiseDateRegex = new(@"^\d{4}[-/.年]\d{1,2}(?:[-/.月]\d{1,2}日?)?$", RegexOptions.Compiled);
@@ -199,6 +202,175 @@ public static class FilenameMetadataParser
         return (s, null);
     }
 
+    // 切分混合作者名內的日文／中文與羅馬字連寫邊界（例如 "みずゆきRenainou" → "みずゆき" + "Renainou"）
+    private static readonly Regex CjkLatinBoundaryRegex = new(
+        @"(?<=[\p{IsCJKUnifiedIdeographs}\p{IsHiragana}\p{IsKatakana}])(?=[A-Za-z])|(?<=[A-Za-z])(?=[\p{IsCJKUnifiedIdeographs}\p{IsHiragana}\p{IsKatakana}])",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// 比對前文字正規化（Unicode NFKC 統一全半形英數／濁點並修剪前後空白）。
+    /// </summary>
+    public static string NormalizeMatchText(string? input)
+        => string.IsNullOrWhiteSpace(input)
+            ? string.Empty
+            : input.Trim().Normalize(System.Text.NormalizationForm.FormKC);
+
+    /// <summary>
+    /// 判斷完整標籤片語是否屬於非作者雜訊（規格、版本、AI、語言、漢化組、展會、雜誌刊號或純數字日期）。
+    /// 不依賴使用者舊版 appsettings.json 內的黑名單即可即時擋下已知雜訊。
+    /// </summary>
+    public static bool IsKnownNoiseTag(string? token)
+    {
+        var c = NormalizeMatchText(token).Trim('[', ']', '(', ')', '{', '}', ' ');
+        if (string.IsNullOrEmpty(c))
+        {
+            return true;
+        }
+
+        if (NonAuthorSquareTags.Contains(c)
+            || LanguageMap.ContainsKey(c)
+            || FormatTypeWords.Contains(c)
+            || IsEventToken(c)
+            || IsTranslationGroup(c)
+            || IsNoiseSquareTag(c)
+            || IsMagazineOrNoiseParen(c))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 從目標作者／作品目錄名稱展開所有可用於實體比對的別名集合（含複合括號、連寫雙語與多作者拆分）。
+    /// 例如 "文雅[Fumi Miyabi](Bunga)"、"みずゆきRenainou"、"床子屋 (HEIZO、鬼頭えん)"。
+    /// </summary>
+    public static IReadOnlyList<string> ExpandAuthorFolderAliases(string folderName)
+    {
+        var normalized = NormalizeMatchText(folderName);
+        if (string.IsNullOrEmpty(normalized))
+        {
+            return Array.Empty<string>();
+        }
+
+        var results = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void AddCandidate(string? raw)
+        {
+            var cleaned = NormalizeMatchText(raw)
+                .Trim('[', ']', '(', ')', '{', '}', ' ', '♀', '♂', '＊', '*', '・');
+            if (cleaned.Length == 0)
+            {
+                return;
+            }
+
+            if (seen.Add(cleaned))
+            {
+                results.Add(cleaned);
+            }
+        }
+
+        AddCandidate(normalized);
+
+        var (main, alias) = ParseAuthorFolderName(normalized);
+        AddCandidate(main);
+        AddCandidate(alias);
+
+        // 取出所有方括號與圓括號內段落（支援 "文雅[Fumi Miyabi](Bunga)"、"(ベコ太郎)ほおぶくろっ[Hobukuro]"）
+        foreach (Match m in AnyBracketRegex.Matches(normalized))
+        {
+            AddWithSubSplits(m.Groups[1].Value, AddCandidate);
+        }
+
+        foreach (Match m in AnyParenRegex.Matches(normalized))
+        {
+            AddWithSubSplits(m.Groups[1].Value, AddCandidate);
+        }
+
+        // 去除所有括號後的外部文字（支援 "鐵華巻 (鉄山かや) Tekkamaki"、"さんじゅうろう Sanjuurou"）
+        var residual = AnyBracketRegex.Replace(normalized, " ");
+        residual = AnyParenRegex.Replace(residual, " ");
+        residual = Regex.Replace(residual, @"\s+", " ").Trim();
+        AddWithSubSplits(residual, AddCandidate);
+
+        // 也對正規化主名做日文/中文↔拉丁混寫切分（如 "みずゆきRenainou"）
+        foreach (var existing in results.ToList())
+        {
+            if (CjkLatinBoundaryRegex.IsMatch(existing))
+            {
+                foreach (var seg in CjkLatinBoundaryRegex.Split(existing))
+                {
+                    var s = seg.Trim();
+                    if (s.Length >= 2)
+                    {
+                        AddCandidate(s);
+                    }
+                }
+            }
+
+            // 以明確多空白分隔的前後段也拆開（僅保留詞長 >= 2 的段，如 "さんじゅうろう Sanjuurou"）
+            if (existing.Contains(' '))
+            {
+                var spaceParts = existing.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (spaceParts.Length == 2 && spaceParts[0].Length >= 2 && spaceParts[1].Length >= 3)
+                {
+                    // 例如 "さんじゅうろう Sanjuurou" 與英文單詞複合名：保留語系不同的切分
+                    bool leftHasCjk = ContainsCjkOrKana(spaceParts[0]);
+                    bool rightHasCjk = ContainsCjkOrKana(spaceParts[1]);
+                    if (leftHasCjk != rightHasCjk)
+                    {
+                        AddCandidate(spaceParts[0]);
+                        AddCandidate(spaceParts[1]);
+                    }
+                }
+            }
+        }
+
+        return results;
+    }
+
+    private static void AddWithSubSplits(string text, Action<string?> add)
+    {
+        var trimmed = NormalizeMatchText(text);
+        if (string.IsNullOrEmpty(trimmed))
+        {
+            return;
+        }
+
+        add(trimmed);
+
+        // 若內部仍包著一層 (...) 或 [...]（例如 "[group (author)]" 的 residual），再遞迴解一層
+        var ga = GroupArtistRegex.Match(trimmed);
+        if (ga.Success)
+        {
+            add(ga.Groups[1].Value);
+            add(ga.Groups[2].Value);
+        }
+
+        // 依多作者共用標點拆分（如 "HEIZO、鬼頭えん" 或 "ONE×村田雄介"）
+        if (trimmed.IndexOfAny(['、', '/', '／', '×', '|']) >= 0)
+        {
+            foreach (var part in trimmed.Split(['、', '/', '／', '×', '|'], StringSplitOptions.RemoveEmptyEntries))
+            {
+                add(part);
+            }
+        }
+    }
+
+    private static bool ContainsCjkOrKana(string s)
+    {
+        foreach (char ch in s)
+        {
+            if (ch > 0x2E80)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static bool IsEventToken(string content)
         => !string.IsNullOrWhiteSpace(content) && EventRegex.IsMatch(content.Trim());
 
@@ -211,6 +383,7 @@ public static class FilenameMetadataParser
         var c = content.Trim();
         if (string.IsNullOrEmpty(c)) return true;
         return NoiseDigitsRegex.IsMatch(c)
+            || NoiseYearRegex.IsMatch(c)
             || NoiseSingleLetterRegex.IsMatch(c)
             || NoiseVersionRegex.IsMatch(c)
             || NoiseDateRegex.IsMatch(c)
