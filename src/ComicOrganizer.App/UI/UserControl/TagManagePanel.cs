@@ -234,8 +234,12 @@ public partial class TagManagePanel : UserControl, IThemedControl
                 LocalizationManager.GetString("TagTranslateAllRunning") ?? "翻譯中…", autoClose: 1);
 
             var lang = CurrentLang;
-            // 用全部 tag (含已 manual 的)；SyncTranslationsToDb 內會跳過 manual
-            var nameToId = _allTags.ToDictionary(t => t.Name, t => t.Id, StringComparer.OrdinalIgnoreCase);
+            // 用全部 tag (含已 manual 的)；SyncTranslationsToDb 內會跳過 manual（區分大小寫建表防重複鍵例外）
+            var nameToId = new Dictionary<string, long>(_allTags.Count, StringComparer.Ordinal);
+            foreach (var tagItem in _allTags)
+            {
+                nameToId[tagItem.Name] = tagItem.Id;
+            }
             int written = await Task.Run(() => _translator.SyncTranslationsToDb(_metaStore, lang, nameToId));
 
             // refresh 顯示新譯文

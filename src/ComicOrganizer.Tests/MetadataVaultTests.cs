@@ -378,4 +378,85 @@ public sealed class MetadataVaultTests : IDisposable
             Assert.Throws<InvalidOperationException>(() => roCtx.RestoreDatabaseFromBackup(Path.Combine(dataDir, "nonexistent.db")));
         }
     }
+
+    [Fact]
+    public async Task CaseInsensitiveDuplicateTags_EhTagSyncAndSnapshotAnalyzeApply_DoNotCrash()
+    {
+        var srcData = CreateTempDir("DupSrc");
+        var dstData = CreateTempDir("DupDst");
+        var snapFile = Path.Combine(CreateTempDir("DupSnap"), "dup_snap.json");
+
+        using var ms = new MemoryStream(Encoding.UTF8.GetBytes("""
+            {
+              "data": [
+                { "namespace": "parody", "data": { "amagami": { "name": "圣诞之吻" } } },
+                { "namespace": "female", "data": { "sole female": { "name": "单女主" } } }
+              ]
+            }
+            """));
+        var translator = new TagTranslator(() => TagTranslationDb.LoadFromJsonStream(ms));
+        Assert.Equal("單女主", translator.TranslateAny("sole female", "zh-TW"));
+        Assert.Equal("聖誕之吻", translator.TranslateAny("Amagami", "zh-TW"));
+
+        // 來源庫故意塞入大小寫不同但字母相同的標籤與待手動對應作品
+        using (var srcStore = new SqliteAssetMetaStore(Path.Combine(srcData, "cache.db")))
+        {
+            long tLower = srcStore.UpsertTag("amagami", "parody");
+            long tUpper = srcStore.UpsertTag("Amagami", "parody");
+            long tFemale = srcStore.UpsertTag("sole female", "female");
+            long tFemaleUpper = srcStore.UpsertTag("Sole Female", "female");
+            Assert.NotEqual(tLower, tUpper);
+            Assert.NotEqual(tFemale, tFemaleUpper);
+
+            // 以 Ordinal（區分大小寫）建立 nameToId，確保大小寫變體不會觸發 DuplicateKey 也不會互相覆蓋遺漏
+            var tags = srcStore.ListTagsByUsage();
+            var nameToId = new Dictionary<string, long>(tags.Count, StringComparer.Ordinal);
+            foreach (var tag in tags)
+            {
+                nameToId[tag.Name] = tag.Id;
+            }
+
+            int synced = translator.SyncTranslationsToDb(srcStore, "zh-TW", nameToId);
+            Assert.Equal(4, synced);
+
+            var transMap = srcStore.GetTagTranslations(new[] { tLower, tUpper, tFemale, tFemaleUpper }, "zh-TW");
+            Assert.Equal("聖誕之吻", transMap[tLower]);
+            Assert.Equal("聖誕之吻", transMap[tUpper]);
+            Assert.Equal("單女主", transMap[tFemale]);
+            Assert.Equal("單女主", transMap[tFemaleUpper]);
+
+            string ghostPath = Path.Combine(srcData, "Missing", "DupTagWork.zip");
+            srcStore.Upsert(new AssetMeta { Path = ghostPath, Name = "DupTagWork.zip", IsFolder = false, FileSize = 7777, Mtime = 100, LastScanned = 100 });
+            long gid = srcStore.GetAssetId(ghostPath)!.Value;
+            srcStore.UpsertMetadata(new AssetMetadata { AssetId = gid, Title = "Dup Work", ParsedAt = 100 });
+            srcStore.SetAssetTagEntries(gid, new[] { new TagEntry("amagami", "parody"), new TagEntry("Sole Female", "female") });
+
+            await new MetadataSnapshotService(srcStore, srcData, srcData).ExportToJsonAsync(snapFile);
+        }
+
+        // 目標庫亦預先存在大小寫不同標籤、譯文與作品，驗證 Analyze / Apply / ManualResolution 全流程皆不崩潰
+        using var dstStore = new SqliteAssetMetaStore(Path.Combine(dstData, "cache.db"));
+        long dt1 = dstStore.UpsertTag("amagami", "parody");
+        long dt2 = dstStore.UpsertTag("Amagami", "parody");
+        dstStore.UpsertTagTranslation(dt1, "zh-TW", "聖誕之吻", "ehtag");
+        dstStore.UpsertTagTranslation(dt2, "zh-TW", "聖誕之吻", "ehtag");
+
+        string localTargetPath = Path.Combine(dstData, "Library", "LocalRenamed.zip");
+        dstStore.Upsert(new AssetMeta { Path = localTargetPath, Name = "LocalRenamed.zip", IsFolder = false, FileSize = 8888, Mtime = 200, LastScanned = 200 });
+        long localAssetId = dstStore.GetAssetId(localTargetPath)!.Value;
+
+        var svc = new MetadataSnapshotService(dstStore, dstData, dstData);
+        var report = await svc.AnalyzeImportAsync(snapFile);
+        Assert.Equal(1, report.UnmatchedCount);
+
+        var applyResult = await svc.ApplyImportAsync(report);
+        Assert.Equal(1, applyResult.UnmatchedSavedCount);
+
+        var unmapped = Assert.Single(svc.LoadUnmappedItems());
+        Assert.True(svc.ApplyManualWorkResolution(unmapped.ItemId, localAssetId));
+        Assert.Empty(svc.LoadUnmappedItems());
+
+        var detail = dstStore.GetWorkDetail(localTargetPath)!;
+        Assert.Equal("Dup Work", detail.Title);
+    }
 }

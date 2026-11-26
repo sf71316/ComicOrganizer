@@ -77,7 +77,7 @@
       <StackPanel Spacing="8">
         <Grid ColumnDefinitions="*,Auto">
           <StackPanel Grid.Column="0" Spacing="2">
-            <TextBlock Text="🏷️ 資料管理與維護中心" FontSize="20" FontWeight="Bold" />
+            <TextBlock Text="🏷️ 資料管理" FontSize="20" FontWeight="Bold" />
             <TextBlock Text="{Binding CacheStatsText}" FontSize="12" Opacity="0.78" />
           </StackPanel>
 

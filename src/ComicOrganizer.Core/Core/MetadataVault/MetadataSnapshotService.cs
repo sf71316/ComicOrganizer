@@ -217,11 +217,7 @@ public sealed class MetadataSnapshotService
 
         // Build dictionary indices from live DB
         var existingTags = new HashSet<string>(currentCorpus.Tags.Select(t => t.Name), StringComparer.OrdinalIgnoreCase);
-        var existingTagTrans = currentCorpus.TagTranslations
-            .ToDictionary(
-                t => $"{t.TagName}\0{t.Lang}".ToLowerInvariant(),
-                t => t,
-                StringComparer.Ordinal);
+        var existingTagTrans = BuildTagTranslationMap(currentCorpus.TagTranslations);
         var existingTagAliases = new HashSet<string>(currentCorpus.TagAliases.Select(a => a.AliasName), StringComparer.OrdinalIgnoreCase);
         var existingAuthors = new HashSet<string>(currentCorpus.Authors.Select(a => a.MainName), StringComparer.OrdinalIgnoreCase);
         var existingAuthorAliases = new HashSet<string>(
@@ -382,8 +378,7 @@ public sealed class MetadataSnapshotService
                 }
             }
 
-            var existingTrans = currentCorpus.TagTranslations
-                .ToDictionary(t => $"{t.TagName}\0{t.Lang}".ToLowerInvariant(), t => t, StringComparer.Ordinal);
+            var existingTrans = BuildTagTranslationMap(currentCorpus.TagTranslations);
             foreach (var tr in doc.TagTranslations)
             {
                 ct.ThrowIfCancellationRequested();
@@ -484,8 +479,7 @@ public sealed class MetadataSnapshotService
                 _store.AssociateAuthorTag(aid, tid);
             }
 
-            var vlibByName = currentCorpus.VirtualLibraries
-                .ToDictionary(v => v.Name, v => v, StringComparer.OrdinalIgnoreCase);
+            var vlibByName = BuildVirtualLibraryMap(currentCorpus.VirtualLibraries);
             foreach (var vl in doc.VirtualLibraries)
             {
                 if (string.IsNullOrWhiteSpace(vl.Name) || string.IsNullOrWhiteSpace(vl.Dsl)) continue;
@@ -592,14 +586,18 @@ public sealed class MetadataSnapshotService
 
         _store.RunInTransaction(() =>
         {
-            var tagIdMap = corpus.Tags.ToDictionary(t => t.Name, t => _store.UpsertTag(t.Name, t.Category), StringComparer.OrdinalIgnoreCase);
+            var tagIdMap = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            foreach (var t in corpus.Tags)
+            {
+                tagIdMap[t.Name] = _store.UpsertTag(t.Name, t.Category);
+            }
             var authorIdMap = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
             foreach (var a in corpus.Authors)
             {
                 var found = _store.FindAuthorByMainName(a.MainName);
                 if (found != null) authorIdMap[a.MainName] = found.Id;
             }
-            var vlibByName = corpus.VirtualLibraries.ToDictionary(v => v.Name, v => v, StringComparer.OrdinalIgnoreCase);
+            var vlibByName = BuildVirtualLibraryMap(corpus.VirtualLibraries);
 
             ApplyWorkDtoToAsset(
                 targetItem.Work,
@@ -995,6 +993,28 @@ public sealed class MetadataSnapshotService
         {
             return null;
         }
+    }
+
+    private static Dictionary<string, SnapshotTagTranslationRecord> BuildTagTranslationMap(
+        IReadOnlyList<SnapshotTagTranslationRecord> records)
+    {
+        var map = new Dictionary<string, SnapshotTagTranslationRecord>(records.Count, StringComparer.Ordinal);
+        foreach (var t in records)
+        {
+            map[$"{t.TagName}\0{t.Lang}".ToLowerInvariant()] = t;
+        }
+        return map;
+    }
+
+    private static Dictionary<string, VirtualLibrary> BuildVirtualLibraryMap(
+        IReadOnlyList<VirtualLibrary> virtualLibraries)
+    {
+        var map = new Dictionary<string, VirtualLibrary>(virtualLibraries.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var v in virtualLibraries)
+        {
+            map[v.Name] = v;
+        }
+        return map;
     }
 
     private static string? NormalizeDirOrNull(string? dir)

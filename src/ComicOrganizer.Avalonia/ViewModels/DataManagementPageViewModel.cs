@@ -616,80 +616,133 @@ public sealed partial class DataManagementPageViewModel : ViewModelBase, IDispos
     [RelayCommand]
     public async Task CheckEhTagUpdateAsync()
     {
-        EhTagStatusText = "正在連線 GitHub 檢查 EhTag 翻譯庫最新版本…";
-        var client = new TagTranslationUpdater();
-        var latest = await client.CheckLatestAsync().ConfigureAwait(false);
-
-        await _runOnUiAsync(() =>
+        try
         {
-            _latestEhTagRelease = latest;
-            if (latest == null)
+            await _runOnUiAsync(() => EhTagStatusText = "正在連線 GitHub 檢查 EhTag 翻譯庫最新版本…").ConfigureAwait(false);
+            var client = new TagTranslationUpdater();
+            var latest = await client.CheckLatestAsync().ConfigureAwait(false);
+
+            await _runOnUiAsync(() =>
+            {
+                _latestEhTagRelease = latest;
+                if (latest == null)
+                {
+                    HasEhTagUpdateAvailable = false;
+                    EhTagStatusText = "⚠️ 無法取得遠端版本（請檢查網路連線或 GitHub API 速率限制）。";
+                    return;
+                }
+
+                var localSha = _dataContext.TagTranslator.HeadSha;
+                bool hasUpdate = TagTranslationUpdater.IsUpdateAvailable(localSha, latest.Sha);
+                HasEhTagUpdateAvailable = hasUpdate;
+                double mb = latest.DbSizeBytes / (1024.0 * 1024.0);
+                EhTagDownloadButtonText = $"⬇️ 下載 {latest.Tag} ({mb:F1} MB)";
+                EhTagStatusText = hasUpdate
+                    ? $"🆕 發現新版本 {latest.Tag}（SHA {latest.Sha[..Math.Min(8, latest.Sha.Length)]}），發布於 {latest.PublishedAt ?? "-"}"
+                    : $"✅ 目前已是最新版本 {latest.Tag}（SHA {latest.Sha[..Math.Min(8, latest.Sha.Length)]}）";
+            }).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            await _runOnUiAsync(() =>
             {
                 HasEhTagUpdateAvailable = false;
-                EhTagStatusText = "⚠️ 無法取得遠端版本（請檢查網路連線或 GitHub API 速率限制）。";
-                return;
-            }
-
-            var localSha = _dataContext.TagTranslator.HeadSha;
-            bool hasUpdate = TagTranslationUpdater.IsUpdateAvailable(localSha, latest.Sha);
-            HasEhTagUpdateAvailable = hasUpdate;
-            double mb = latest.DbSizeBytes / (1024.0 * 1024.0);
-            EhTagDownloadButtonText = $"⬇️ 下載 {latest.Tag} ({mb:F1} MB)";
-            EhTagStatusText = hasUpdate
-                ? $"🆕 發現新版本 {latest.Tag}（SHA {latest.Sha[..Math.Min(8, latest.Sha.Length)]}），發布於 {latest.PublishedAt ?? "-"}"
-                : $"✅ 目前已是最新版本 {latest.Tag}（SHA {latest.Sha[..Math.Min(8, latest.Sha.Length)]}）";
-        }).ConfigureAwait(false);
+                EhTagStatusText = $"⚠️ 檢查更新失敗：{ex.Message}";
+                ShowToast("檢查翻譯庫更新失敗", ex.Message, NotificationType.Warning);
+            }).ConfigureAwait(false);
+        }
     }
 
     [RelayCommand]
     public async Task DownloadAndApplyEhTagAsync()
     {
-        if (!EnsureWritable("更新 EhTag 翻譯詞庫")) return;
+        if (IsMaintenanceRunning || !EnsureWritable("更新 EhTag 翻譯詞庫")) return;
 
-        var release = _latestEhTagRelease;
-        if (release == null)
+        IsMaintenanceRunning = true;
+        MaintenancePhaseText = "正在下載與套用 EhTag 翻譯詞庫…";
+
+        try
         {
-            await CheckEhTagUpdateAsync().ConfigureAwait(false);
-            release = _latestEhTagRelease;
-            if (release == null) return;
+            var release = _latestEhTagRelease;
+            if (release == null)
+            {
+                await CheckEhTagUpdateAsync().ConfigureAwait(false);
+                release = _latestEhTagRelease;
+                if (release == null) return;
+            }
+
+            string destPath = Path.Combine(_dataContext.DataDirectory, "translations", "db.text.json.gz");
+            await _runOnUiAsync(() => EhTagStatusText = $"正在下載 {release.Tag}…").ConfigureAwait(false);
+
+            var updater = new TagTranslationUpdater();
+            var progress = new Progress<double>(pct =>
+            {
+                _ = _runOnUiAsync(() =>
+                {
+                    double clamped = Math.Clamp(pct * 100.0, 0.0, 100.0);
+                    MaintenanceProgressPercent = clamped;
+                    EhTagStatusText = $"下載 EhTag 詞庫中… {(int)Math.Round(clamped)}%";
+                });
+            });
+
+            bool ok = await updater.DownloadAsync(release.DbAssetUrl, destPath, progress).ConfigureAwait(false);
+            if (!ok)
+            {
+                await _runOnUiAsync(() =>
+                {
+                    EhTagStatusText = "❌ 下載翻譯庫失敗，保留原詞庫不變。";
+                    ShowToast("下載失敗", EhTagStatusText, NotificationType.Error);
+                }).ConfigureAwait(false);
+                return;
+            }
+
+            await _runOnUiAsync(() =>
+            {
+                MaintenancePhaseText = "正在寫入標籤譯文至資料庫…";
+                EhTagStatusText = "正在載入並同步翻譯詞庫至資料庫…";
+            }).ConfigureAwait(false);
+
+            _dataContext.ReloadTagTranslator();
+            int syncedCount = await Task.Run(() =>
+            {
+                var tags = _store.ListTagsByUsage();
+                // SQLite tag.name UNIQUE 預設區分大小寫，資料庫可能同時存在大小寫不同之同名標籤（如 amagami / Amagami），
+                // 必須用 Ordinal 逐筆建表避免 ToDictionary(..., OrdinalIgnoreCase) 拋出重複鍵值例外
+                var map = new Dictionary<string, long>(tags.Count, StringComparer.Ordinal);
+                foreach (var t in tags)
+                {
+                    map[t.Name] = t.Id;
+                }
+
+                return _dataContext.TagTranslator.SyncTranslationsToDb(_store, "zh-TW", map);
+            }).ConfigureAwait(false);
+
+            await _runOnUiAsync(() =>
+            {
+                HasEhTagUpdateAvailable = false;
+                RefreshEhTagLocalSummary();
+                LoadTags();
+                AddMaintenanceLog($"已更新 EhTag 翻譯詞庫至 {release.Tag}，並同步寫入 {syncedCount:N0} 筆標籤譯文。");
+                ShowToast("EhTag 詞庫已更新", $"已同步 {syncedCount:N0} 筆標籤譯文", NotificationType.Success);
+            }).ConfigureAwait(false);
         }
-
-        string destPath = Path.Combine(_dataContext.DataDirectory, "translations", "db.text.json.gz");
-        await _runOnUiAsync(() => EhTagStatusText = $"正在下載 {release.Tag}…").ConfigureAwait(false);
-
-        var updater = new TagTranslationUpdater();
-        var progress = new Progress<double>(pct =>
-        {
-            _ = _runOnUiAsync(() => EhTagStatusText = $"下載 EhTag 詞庫中… {(int)Math.Round(pct * 100)}%");
-        });
-
-        bool ok = await updater.DownloadAsync(release.DbAssetUrl, destPath, progress).ConfigureAwait(false);
-        if (!ok)
+        catch (Exception ex)
         {
             await _runOnUiAsync(() =>
             {
-                EhTagStatusText = "❌ 下載翻譯庫失敗，保留原詞庫不變。";
-                ShowToast("下載失敗", EhTagStatusText, NotificationType.Error);
+                EhTagStatusText = $"❌ 套用翻譯庫失敗：{ex.Message}";
+                AddMaintenanceLog(EhTagStatusText);
+                ShowToast("套用翻譯庫失敗", ex.Message, NotificationType.Error);
             }).ConfigureAwait(false);
-            return;
         }
-
-        _dataContext.ReloadTagTranslator();
-        int syncedCount = await Task.Run(() =>
+        finally
         {
-            var tags = _store.ListTagsByUsage();
-            var map = tags.ToDictionary(t => t.Name, t => t.Id, StringComparer.OrdinalIgnoreCase);
-            return _dataContext.TagTranslator.SyncTranslationsToDb(_store, "zh-TW", map);
-        }).ConfigureAwait(false);
-
-        await _runOnUiAsync(() =>
-        {
-            HasEhTagUpdateAvailable = false;
-            RefreshEhTagLocalSummary();
-            LoadTags();
-            AddMaintenanceLog($"已更新 EhTag 翻譯詞庫至 {release.Tag}，並同步寫入 {syncedCount:N0} 筆標籤譯文。");
-            ShowToast("EhTag 詞庫已更新", $"已同步 {syncedCount:N0} 筆標籤譯文", NotificationType.Success);
-        }).ConfigureAwait(false);
+            await _runOnUiAsync(() =>
+            {
+                IsMaintenanceRunning = false;
+                MaintenanceProgressPercent = 0;
+            }).ConfigureAwait(false);
+        }
     }
 
     [RelayCommand]

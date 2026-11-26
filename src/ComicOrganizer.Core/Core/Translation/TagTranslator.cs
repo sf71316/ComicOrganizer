@@ -103,10 +103,12 @@ public class TagTranslator
         return null;
     }
 
-    private static string? MaybeToTraditional(string? simplified)
+    private static string? MaybeToTraditional(string? simplified, string? targetLang = null)
     {
         if (string.IsNullOrEmpty(simplified)) return simplified;
-        var lang = System.Globalization.CultureInfo.CurrentUICulture.Name;
+        var lang = !string.IsNullOrWhiteSpace(targetLang)
+            ? targetLang
+            : System.Globalization.CultureInfo.CurrentUICulture.Name;
         // zh-TW / zh-HK / zh-MO / zh-Hant 才轉；簡體環境保留
         if (lang.StartsWith("zh-TW", StringComparison.OrdinalIgnoreCase)
             || lang.StartsWith("zh-HK", StringComparison.OrdinalIgnoreCase)
@@ -123,7 +125,9 @@ public class TagTranslator
 
     /// <summary>不知道 namespace 時，依序試 EhTag 所有 tag-like namespace。
     /// 給本地 DB 內 tag (沒記 category 來源) 用。</summary>
-    public string? TranslateAny(string slug)
+    public string? TranslateAny(string slug) => TranslateAny(slug, targetLang: null);
+
+    public string? TranslateAny(string slug, string? targetLang)
     {
         var db = _db.Value;
         if (db == null || string.IsNullOrEmpty(slug)) return null;
@@ -131,7 +135,7 @@ public class TagTranslator
         foreach (var ns in new[] { "female", "male", "mixed", "other", "artist",
                                    "group", "parody", "character", "language", "cosplayer" })
         {
-            if (db.TryGet(ns, slug, out var entry)) return MaybeToTraditional(entry.Name);
+            if (db.TryGet(ns, slug, out var entry)) return MaybeToTraditional(entry.Name, targetLang);
         }
         return null;
     }
@@ -199,7 +203,7 @@ public class TagTranslator
             foreach (var (name, tagId) in nameToId)
             {
                 if (existingManual.Contains(tagId)) continue;   // 手動的不動
-                var zh = TranslateAny(name);
+                var zh = TranslateAny(name, lang);
                 if (string.IsNullOrEmpty(zh) || zh == name) continue;   // 沒翻譯 / 跟原文相同 → 不寫
                 store.UpsertTagTranslation(tagId, lang, zh, "ehtag");
                 written++;
