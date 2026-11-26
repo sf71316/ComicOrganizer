@@ -435,6 +435,17 @@ public interface IAssetMetaStore : IDisposable
 
     /// <summary>單趟批次撈取探索牆所需全部作品、作者、標籤與關聯資料（相容 v8/v9，避免 N+1 查詢）。</summary>
     ExploreCorpusSnapshot GetExploreCorpusSnapshot(string? translationLang = "zh-TW");
+
+    // ===== Phase 5 Metadata 保險箱（W5.1 / W5.4）=====
+
+    /// <summary>單趟批次匯出保險箱所需的全部標籤、譯文、別名、作者、作品 metadata、書籤、虛擬庫與選配外部來源。</summary>
+    MetadataSnapshotCorpus ExportSnapshotCorpus(bool includeExternalSources = false);
+
+    /// <summary>透過 SQLite 線上備份 API 將目前資料庫安全熱備份至指定檔案路徑。</summary>
+    void BackupToFile(string destDbPath);
+
+    /// <summary>關閉並釋放目前連線池，執行檔案替換後重開資料庫連線與確保 schema 結構完整。</summary>
+    void ReloadConnectionAfterFileReplace(Action replaceDbFiles);
 }
 
 /// <summary>tag 譯文紀錄。</summary>

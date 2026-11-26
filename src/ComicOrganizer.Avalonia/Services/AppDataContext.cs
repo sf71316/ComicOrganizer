@@ -216,6 +216,81 @@ public sealed class AppDataContext : IDisposable
 
     public void NotifySettingsChanged() => SettingsChanged?.Invoke();
 
+    public DatabaseBackupEntry? TryCreateSafetyBackup(string reasonTag)
+    {
+        if (IsReadOnlyDatabase)
+        {
+            return null;
+        }
+
+        try
+        {
+            var svc = new DatabaseBackupService(DataDirectory);
+            return svc.CreateSafetyBackup(MetaStore, reasonTag);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public DatabaseBackupEntry CreateSafetyBackup(string reasonTag)
+    {
+        if (IsReadOnlyDatabase)
+        {
+            throw new InvalidOperationException("共用開發庫為唯讀模式，不可建立異動備份。");
+        }
+
+        var svc = new DatabaseBackupService(DataDirectory);
+        return svc.CreateSafetyBackup(MetaStore, reasonTag);
+    }
+
+    public void RestoreDatabaseFromBackup(string backupDbPath, string? mappingsBackupPath = null)
+    {
+        if (IsReadOnlyDatabase)
+        {
+            throw new InvalidOperationException("共用開發庫為唯讀模式，不可還原資料庫。");
+        }
+
+        if (string.IsNullOrWhiteSpace(backupDbPath) || !File.Exists(backupDbPath))
+        {
+            throw new FileNotFoundException("找不到指定的備份檔案。", backupDbPath);
+        }
+
+        var svc = new DatabaseBackupService(DataDirectory);
+        string stageToken = Guid.NewGuid().ToString("N");
+        string stagedDbPath = Path.Combine(DataDirectory, $".restore_db_{stageToken}.tmp");
+        string resolvedMappings = mappingsBackupPath
+            ?? Path.Combine(
+                Path.GetDirectoryName(backupDbPath) ?? svc.BackupsDirectory,
+                Path.GetFileNameWithoutExtension(backupDbPath) + ".mappings.json");
+        string? stagedMappingsPath = File.Exists(resolvedMappings)
+            ? Path.Combine(DataDirectory, $".restore_map_{stageToken}.tmp")
+            : null;
+
+        // 先暫存要還原的來源備份檔，再執行 before_restore 安全備份與清理（避免最舊的第 10 份剛好在清理時被刪除）
+        File.Copy(backupDbPath, stagedDbPath, overwrite: true);
+        if (stagedMappingsPath != null)
+        {
+            File.Copy(resolvedMappings, stagedMappingsPath, overwrite: true);
+        }
+
+        try
+        {
+            svc.CreateSafetyBackup(MetaStore, "before_restore");
+
+            MetaStore.ReloadConnectionAfterFileReplace(() =>
+                svc.RestoreBackupFilesAfterDispose(stagedDbPath, stagedMappingsPath));
+        }
+        finally
+        {
+            try { if (File.Exists(stagedDbPath)) File.Delete(stagedDbPath); } catch { }
+            try { if (stagedMappingsPath != null && File.Exists(stagedMappingsPath)) File.Delete(stagedMappingsPath); } catch { }
+        }
+
+        SettingsChanged?.Invoke();
+    }
+
     public void ReloadSettings()
     {
         Config = _configManager.Load();

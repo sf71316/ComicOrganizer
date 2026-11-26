@@ -507,6 +507,7 @@ public sealed partial class DataManagementPageViewModel : ViewModelBase, IDispos
 
         if (!EnsureWritable("合併成虛擬主標籤")) return;
 
+        _dataContext.TryCreateSafetyBackup("merge_tags");
         var masterName = VirtualMasterName.Trim();
         var zh = string.IsNullOrWhiteSpace(VirtualMasterZhName) ? null : VirtualMasterZhName.Trim();
         long masterId = _store.MergeTagsIntoVirtual(checkedIds, masterName, "virtual", zh);
@@ -522,6 +523,7 @@ public sealed partial class DataManagementPageViewModel : ViewModelBase, IDispos
     public void DeleteSelectedTag()
     {
         if (SelectedTag == null || !EnsureWritable("刪除標籤")) return;
+        _dataContext.TryCreateSafetyBackup("delete_tag");
         string name = SelectedTag.Name;
         _store.DeleteTag(SelectedTag.Id);
         LoadTags();
@@ -593,6 +595,7 @@ public sealed partial class DataManagementPageViewModel : ViewModelBase, IDispos
         }
         if (!EnsureWritable("合併重複作者")) return;
 
+        _dataContext.TryCreateSafetyBackup("merge_authors");
         string srcName = SelectedAuthor.MainName;
         string dstName = MergeDestinationAuthor.MainName;
         _store.MergeAuthor(SelectedAuthor.Id, MergeDestinationAuthor.Id);
@@ -783,6 +786,7 @@ public sealed partial class DataManagementPageViewModel : ViewModelBase, IDispos
         var report = _lastIntegrityReport;
         await Task.Run(() =>
         {
+            _dataContext.TryCreateSafetyBackup("fix_orphans");
             var ct = _tracker.Start("清理孤兒紀錄與縮圖");
             try
             {
@@ -848,6 +852,7 @@ public sealed partial class DataManagementPageViewModel : ViewModelBase, IDispos
         var svc = new CatalogReconcileService(_dataContext.Config, _store);
         var (moved, deleted) = await Task.Run(() =>
         {
+            _dataContext.TryCreateSafetyBackup("reconcile");
             int m = svc.ApplyPathChanges(report.PathChanges);
             int d = svc.DeleteOrphans(report.Orphans.Select(o => o.AssetId));
             return (m, d);
@@ -873,6 +878,7 @@ public sealed partial class DataManagementPageViewModel : ViewModelBase, IDispos
         IsMaintenanceRunning = true;
         try
         {
+            _dataContext.TryCreateSafetyBackup("reparse_all");
             var svc = new ReparseAllService(_store, _tracker, () => _dataContext.Config.RootDirectory);
             var summary = await svc.RunAsync().ConfigureAwait(false);
 

@@ -212,6 +212,38 @@ public class MappingIntelligence
 
     public int KnowledgeCount => _learnedMappings.Count;
 
+    public int MergeMappings(IReadOnlyDictionary<string, string> incoming, bool overwriteExisting = false)
+    {
+        if (incoming == null || incoming.Count == 0)
+        {
+            return 0;
+        }
+
+        int changed = 0;
+        foreach (var kvp in incoming)
+        {
+            var normalizedKey = NormalizeKey(kvp.Key);
+            if (!IsValidLearningKey(normalizedKey) || string.IsNullOrWhiteSpace(kvp.Value))
+            {
+                continue;
+            }
+
+            if (!_learnedMappings.TryGetValue(normalizedKey, out var existing) ||
+                (overwriteExisting && !string.Equals(existing, kvp.Value, StringComparison.Ordinal)))
+            {
+                _learnedMappings[normalizedKey] = kvp.Value;
+                changed++;
+            }
+        }
+
+        if (changed > 0)
+        {
+            Save();
+        }
+
+        return changed;
+    }
+
     // 用於 Debug 的方法
     public Dictionary<string, string> GetAllMappings() => new Dictionary<string, string>(_learnedMappings);
 }

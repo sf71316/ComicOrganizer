@@ -11,7 +11,8 @@ namespace ComicOrganizer.App.Core;
 /// </summary>
 public class SqliteAssetMetaStore : IAssetMetaStore
 {
-    private readonly SqliteConnection _conn;
+    private readonly string _connectionString;
+    private SqliteConnection _conn;
     private readonly object _lock = new();
     private SqliteTransaction? _currentTx;
     private readonly bool _hasTagAliasTable;
@@ -35,10 +36,10 @@ public class SqliteAssetMetaStore : IAssetMetaStore
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
         }
 
-        var connString = readOnly
+        _connectionString = readOnly
             ? $"Data Source={dbPath};Mode=ReadOnly;"
             : $"Data Source={dbPath};";
-        _conn = new SqliteConnection(connString);
+        _conn = new SqliteConnection(_connectionString);
         _conn.Open();
 
         if (!readOnly)
@@ -2502,10 +2503,352 @@ FROM tag_alias;",
         public long TagId { get; set; }
     }
 
+    // ── Phase 5 Metadata 保險箱匯出與線上熱備份（W5.1 / W5.4）──────────────
+
+    private bool TableExists(string tableName)
+        => _conn.ExecuteScalar<long>(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = @tableName;",
+            new { tableName },
+            _currentTx) > 0;
+
+    public void BackupToFile(string destDbPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(destDbPath);
+        var dir = Path.GetDirectoryName(destDbPath);
+        if (!string.IsNullOrEmpty(dir))
+        {
+            Directory.CreateDirectory(dir);
+        }
+
+        lock (_lock)
+        {
+            using var destConn = new SqliteConnection($"Data Source={destDbPath};Pooling=False;");
+            destConn.Open();
+            _conn.BackupDatabase(destConn);
+        }
+    }
+
+    public void ReloadConnectionAfterFileReplace(Action replaceDbFiles)
+    {
+        ArgumentNullException.ThrowIfNull(replaceDbFiles);
+        if (IsReadOnly)
+        {
+            throw new InvalidOperationException("唯讀模式不可替換資料庫連線。");
+        }
+
+        lock (_lock)
+        {
+            if (_currentTx != null)
+            {
+                throw new InvalidOperationException("交易進行中不可重載資料庫連線。");
+            }
+
+            _conn.Close();
+            _conn.Dispose();
+            SqliteConnection.ClearAllPools();
+
+            replaceDbFiles();
+
+            _conn = new SqliteConnection(_connectionString);
+            _conn.Open();
+            _conn.Execute("PRAGMA foreign_keys = ON;");
+            EnsureSchema();
+        }
+    }
+
+    public MetadataSnapshotCorpus ExportSnapshotCorpus(bool includeExternalSources = false)
+    {
+        lock (_lock)
+        {
+            var authors = _conn.Query<SnapshotAuthorDbRow>(@"
+SELECT id AS Id, main_name AS MainName, folder_path AS FolderPath, learned_at AS LearnedAt
+FROM author
+ORDER BY id;",
+                transaction: _currentTx).ToList();
+
+            var authorById = authors.ToDictionary(a => a.Id, a => a.MainName);
+
+            var authorAliases = _conn.Query<SnapshotAuthorAliasDbRow>(@"
+SELECT author_id AS AuthorId, name AS Name, lang AS Lang
+FROM author_alias;",
+                transaction: _currentTx)
+                .Where(r => authorById.ContainsKey(r.AuthorId))
+                .Select(r => new SnapshotAuthorAliasRecord(authorById[r.AuthorId], r.Name, r.Lang))
+                .ToList();
+
+            var tags = _conn.Query<SnapshotTagDbRow>(@"
+SELECT id AS Id, name AS Name, category AS Category
+FROM tag
+ORDER BY id;",
+                transaction: _currentTx).ToList();
+
+            var tagById = tags.ToDictionary(t => t.Id, t => new SnapshotTagRecord(t.Name, t.Category));
+
+            var authorTags = TableExists("author_tag")
+                ? _conn.Query<SnapshotAuthorTagDbRow>(@"
+SELECT author_id AS AuthorId, tag_id AS TagId
+FROM author_tag;",
+                    transaction: _currentTx)
+                    .Where(r => authorById.ContainsKey(r.AuthorId) && tagById.ContainsKey(r.TagId))
+                    .Select(r => new SnapshotAuthorTagRecord(authorById[r.AuthorId], tagById[r.TagId].Name, tagById[r.TagId].Category))
+                    .ToList()
+                : new List<SnapshotAuthorTagRecord>();
+
+            var tagTranslations = TableExists("tag_translation")
+                ? _conn.Query<SnapshotTagTranslationDbRow>(@"
+SELECT tag_id AS TagId, lang AS Lang, name AS Name, source AS Source, updated_at AS UpdatedAt
+FROM tag_translation;",
+                    transaction: _currentTx)
+                    .Where(r => tagById.ContainsKey(r.TagId))
+                    .Select(r => new SnapshotTagTranslationRecord(tagById[r.TagId].Name, r.Lang, r.Name, r.Source, r.UpdatedAt))
+                    .ToList()
+                : new List<SnapshotTagTranslationRecord>();
+
+            var tagAliases = _hasTagAliasTable
+                ? _conn.Query<ExploreTagAliasDbRow>(@"
+SELECT alias_name AS AliasName, target_tag_id AS TargetTagId, created_at AS CreatedAt
+FROM tag_alias;",
+                    transaction: _currentTx)
+                    .Where(r => tagById.ContainsKey(r.TargetTagId))
+                    .Select(r => new SnapshotTagAliasRecord(r.AliasName, tagById[r.TargetTagId].Name, r.CreatedAt))
+                    .ToList()
+                : new List<SnapshotTagAliasRecord>();
+
+            var virtualLibraries = TableExists("virtual_library")
+                ? _conn.Query<SnapshotVirtualLibraryDbRow>(@"
+SELECT id AS Id, name AS Name, dsl AS Dsl, icon_svg AS IconSvg,
+       sort_order AS SortOrder, pinned AS Pinned,
+       created_at AS CreatedAt, updated_at AS UpdatedAt
+FROM virtual_library
+ORDER BY pinned DESC, sort_order, name COLLATE NOCASE;",
+                    transaction: _currentTx)
+                    .Select(v => new VirtualLibrary(
+                        v.Id,
+                        v.Name,
+                        v.Dsl,
+                        v.IconSvg,
+                        (int)v.SortOrder,
+                        v.Pinned != 0,
+                        v.CreatedAt,
+                        v.UpdatedAt))
+                    .ToList()
+                : new List<VirtualLibrary>();
+
+            var vlibById = virtualLibraries.ToDictionary(v => v.Id, v => v.Name);
+
+            var assetTagLinks = _conn.Query<ExploreAssetTagDbRow>(@"
+SELECT asset_id AS AssetId, tag_id AS TagId
+FROM asset_tag;",
+                transaction: _currentTx).ToLookup(r => r.AssetId, r => tagById.TryGetValue(r.TagId, out var t) ? t : null);
+
+            var bookmarksByAsset = TableExists("bookmark")
+                ? _conn.Query<SnapshotBookmarkDbRow>(@"
+SELECT asset_id AS AssetId, page_index AS PageIndex, label AS Label, created_at AS CreatedAt
+FROM bookmark
+ORDER BY page_index;",
+                    transaction: _currentTx).ToLookup(
+                    r => r.AssetId,
+                    r => new SnapshotBookmarkRecord(r.PageIndex, r.Label, r.CreatedAt))
+                : Enumerable.Empty<SnapshotBookmarkRecord>().ToLookup(_ => -1L);
+
+            var vlibsByAsset = TableExists("virtual_library_item")
+                ? _conn.Query<SnapshotVlibItemDbRow>(@"
+SELECT asset_id AS AssetId, library_id AS LibraryId
+FROM virtual_library_item;",
+                    transaction: _currentTx).ToLookup(
+                    r => r.AssetId,
+                    r => vlibById.TryGetValue(r.LibraryId, out var vName) ? vName : null)
+                : Enumerable.Empty<string?>().ToLookup(_ => -1L);
+
+            ILookup<long, SnapshotExternalSourceRecord> extByAsset =
+                (includeExternalSources && TableExists("asset_external_source"))
+                    ? _conn.Query<AssetExternalSource>(@"
+SELECT asset_id AS AssetId, source AS Source, source_id AS SourceId,
+       media_id AS MediaId, upload_at AS UploadAt, raw_json AS RawJson, fetched_at AS FetchedAt
+FROM asset_external_source;",
+                        transaction: _currentTx).ToLookup(
+                        r => r.AssetId,
+                        r => new SnapshotExternalSourceRecord(r.Source, r.SourceId, r.MediaId, r.UploadAt, r.RawJson, r.FetchedAt))
+                    : Enumerable.Empty<SnapshotExternalSourceRecord>().ToLookup(_ => -1L);
+
+            var workRows = _conn.Query<SnapshotWorkDbRow>(@"
+SELECT a.id AS AssetId,
+       a.path AS Path,
+       a.name AS Name,
+       a.is_folder AS IsFolder,
+       a.file_size AS FileSize,
+       a.mtime AS Mtime,
+       a.added_at AS AddedAt,
+       m.author_id AS AuthorId,
+       m.title AS Title,
+       m.series AS Series,
+       m.chapter_no AS ChapterNo,
+       m.language AS Language,
+       m.translation_group AS TranslationGroup,
+       m.page_count AS PageCount,
+       m.rating AS Rating,
+       m.read_status AS ReadStatus,
+       m.read_count AS ReadCount,
+       m.last_read AS LastRead,
+       m.last_page AS LastPage,
+       m.external_id AS ExternalId,
+       m.manually_edited AS ManuallyEdited,
+       m.parsed_at AS ParsedAt
+FROM asset a
+LEFT JOIN asset_meta m ON m.asset_id = a.id
+WHERE m.asset_id IS NOT NULL
+   OR EXISTS (SELECT 1 FROM asset_tag at2 WHERE at2.asset_id = a.id)
+   OR EXISTS (SELECT 1 FROM bookmark bm WHERE bm.asset_id = a.id)
+   OR EXISTS (SELECT 1 FROM virtual_library_item vli WHERE vli.asset_id = a.id)
+ORDER BY a.id;",
+                transaction: _currentTx).ToList();
+
+            var works = new List<SnapshotWorkRecord>(workRows.Count);
+            foreach (var r in workRows)
+            {
+                string? authorMain = r.AuthorId.HasValue && authorById.TryGetValue(r.AuthorId.Value, out var am)
+                    ? am
+                    : null;
+                var wTags = assetTagLinks[r.AssetId].Where(t => t != null).Cast<SnapshotTagRecord>().ToList();
+                var wBookmarks = bookmarksByAsset[r.AssetId].ToList();
+                var wVlibs = vlibsByAsset[r.AssetId].Where(n => !string.IsNullOrWhiteSpace(n)).Cast<string>().ToList();
+                var wExt = includeExternalSources ? extByAsset[r.AssetId].ToList() : new List<SnapshotExternalSourceRecord>();
+
+                works.Add(new SnapshotWorkRecord(
+                    AssetId: r.AssetId,
+                    FullPath: r.Path,
+                    FileName: r.Name,
+                    IsFolder: r.IsFolder != 0,
+                    FileSize: r.FileSize,
+                    Mtime: r.Mtime,
+                    AddedAt: r.AddedAt,
+                    AuthorMainName: authorMain,
+                    Title: r.Title,
+                    Series: r.Series,
+                    ChapterNo: r.ChapterNo,
+                    Language: r.Language,
+                    TranslationGroup: r.TranslationGroup,
+                    PageCount: r.PageCount,
+                    Rating: r.Rating,
+                    ReadStatus: Enum.IsDefined(typeof(ReadStatus), r.ReadStatus) ? (ReadStatus)r.ReadStatus : ReadStatus.Unread,
+                    ReadCount: r.ReadCount,
+                    LastRead: r.LastRead,
+                    LastPage: r.LastPage,
+                    ExternalId: r.ExternalId,
+                    ManuallyEdited: r.ManuallyEdited != 0,
+                    ParsedAt: r.ParsedAt,
+                    Tags: wTags,
+                    Bookmarks: wBookmarks,
+                    ManualVirtualLibraries: wVlibs,
+                    ExternalSources: wExt));
+            }
+
+            return new MetadataSnapshotCorpus(
+                Tags: tagById.Values.ToList(),
+                TagTranslations: tagTranslations,
+                TagAliases: tagAliases,
+                Authors: authors.Select(a => new SnapshotAuthorRecord(a.MainName, a.FolderPath, a.LearnedAt)).ToList(),
+                AuthorAliases: authorAliases,
+                AuthorTags: authorTags,
+                VirtualLibraries: virtualLibraries,
+                Works: works);
+        }
+    }
+
+    private sealed class SnapshotAuthorDbRow
+    {
+        public long Id { get; set; }
+        public string MainName { get; set; } = "";
+        public string? FolderPath { get; set; }
+        public long LearnedAt { get; set; }
+    }
+
+    private sealed class SnapshotAuthorAliasDbRow
+    {
+        public long AuthorId { get; set; }
+        public string Name { get; set; } = "";
+        public string? Lang { get; set; }
+    }
+
+    private sealed class SnapshotTagDbRow
+    {
+        public long Id { get; set; }
+        public string Name { get; set; } = "";
+        public string? Category { get; set; }
+    }
+
+    private sealed class SnapshotAuthorTagDbRow
+    {
+        public long AuthorId { get; set; }
+        public long TagId { get; set; }
+    }
+
+    private sealed class SnapshotTagTranslationDbRow
+    {
+        public long TagId { get; set; }
+        public string Lang { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string? Source { get; set; }
+        public long? UpdatedAt { get; set; }
+    }
+
+    private sealed class SnapshotBookmarkDbRow
+    {
+        public long AssetId { get; set; }
+        public int PageIndex { get; set; }
+        public string? Label { get; set; }
+        public long CreatedAt { get; set; }
+    }
+
+    private sealed class SnapshotVlibItemDbRow
+    {
+        public long AssetId { get; set; }
+        public long LibraryId { get; set; }
+    }
+
+    private sealed class SnapshotVirtualLibraryDbRow
+    {
+        public long Id { get; set; }
+        public string Name { get; set; } = "";
+        public string Dsl { get; set; } = "";
+        public string? IconSvg { get; set; }
+        public long SortOrder { get; set; }
+        public long Pinned { get; set; }
+        public long CreatedAt { get; set; }
+        public long UpdatedAt { get; set; }
+    }
+
+    private sealed class SnapshotWorkDbRow
+    {
+        public long AssetId { get; set; }
+        public string Path { get; set; } = "";
+        public string Name { get; set; } = "";
+        public int IsFolder { get; set; }
+        public long? FileSize { get; set; }
+        public long Mtime { get; set; }
+        public long AddedAt { get; set; }
+        public long? AuthorId { get; set; }
+        public string? Title { get; set; }
+        public string? Series { get; set; }
+        public string? ChapterNo { get; set; }
+        public string? Language { get; set; }
+        public string? TranslationGroup { get; set; }
+        public int? PageCount { get; set; }
+        public int? Rating { get; set; }
+        public int ReadStatus { get; set; }
+        public int ReadCount { get; set; }
+        public long? LastRead { get; set; }
+        public int? LastPage { get; set; }
+        public string? ExternalId { get; set; }
+        public int ManuallyEdited { get; set; }
+        public long ParsedAt { get; set; }
+    }
+
     private sealed class ExploreTagAliasDbRow
     {
         public string AliasName { get; set; } = "";
         public long TargetTagId { get; set; }
+        public long CreatedAt { get; set; }
     }
 
     public void Dispose()

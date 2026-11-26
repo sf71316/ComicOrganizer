@@ -162,6 +162,7 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
         _dataContext.ThemeChanged += OnDataContextThemeChanged;
 
         LoadFromDataContext();
+        InitializeMetadataVaultSection();
     }
 
     /// <summary>

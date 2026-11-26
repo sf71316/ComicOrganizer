@@ -750,6 +750,291 @@
           </StackPanel>
         </suki:GlassCard>
 
+        <!-- 組 7：Metadata 保險箱（匯入／匯出、未對應清單與資料庫備份還原） -->
+        <suki:GlassCard CornerRadius="14" Padding="24,20">
+          <StackPanel Spacing="16">
+            <StackPanel Spacing="3">
+              <TextBlock Text="Metadata 保險箱（匯入／匯出與備份還原）" Classes="section-title" />
+              <TextBlock Text="匯出可攜式版本化 JSON 快照與 CSV 清冊，跨機／搬庫四層比對還原（預設只補空白與新增），並維護自動熱備份"
+                         Classes="section-subtitle" />
+            </StackPanel>
+
+            <Border Classes="section-divider" />
+
+            <!-- 匯出區塊 -->
+            <Border CornerRadius="10"
+                    Padding="14,12"
+                    BorderThickness="1"
+                    BorderBrush="{DynamicResource SukiBorderBrush}">
+              <StackPanel Spacing="10">
+                <TextBlock Text="📤 匯出 Metadata 快照與清冊" FontWeight="SemiBold" FontSize="14" />
+                <StackPanel Orientation="Horizontal" Spacing="20">
+                  <CheckBox Content="納入歸檔學習規則 (mappings.json)"
+                            IsChecked="{Binding VaultIncludeLearnedMappings}"
+                            FontSize="12.5" />
+                  <CheckBox Content="納入外部來源原文快取 (asset_external_source，檔案較大)"
+                            IsChecked="{Binding VaultIncludeExternalSources}"
+                            FontSize="12.5" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <Button Classes="Flat"
+                          Padding="14,7"
+                          IsEnabled="{Binding !IsVaultBusy}"
+                          Command="{Binding ExportSnapshotJsonCommand}">
+                    <TextBlock Text="📤 匯出完整 JSON 快照" FontSize="12.5" FontWeight="SemiBold" />
+                  </Button>
+                  <Button Classes="Outlined"
+                          Padding="14,7"
+                          IsEnabled="{Binding !IsVaultBusy}"
+                          Command="{Binding ExportWorksCsvCommand}">
+                    <TextBlock Text="📊 匯出作品清冊 CSV" FontSize="12.5" />
+                  </Button>
+                </StackPanel>
+              </StackPanel>
+            </Border>
+
+            <!-- 匯入與差異預覽區塊 -->
+            <Border CornerRadius="10"
+                    Padding="14,12"
+                    BorderThickness="1"
+                    BorderBrush="{DynamicResource SukiBorderBrush}">
+              <StackPanel Spacing="10">
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                  <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                    <TextBlock Text="📥 匯入快照與四層比對差異預覽" FontWeight="SemiBold" FontSize="14" />
+                    <TextBlock Text="{Binding VaultImportFilePath, TargetNullValue='尚未選擇檔案'}"
+                               FontSize="11.5"
+                               Opacity="0.68"
+                               TextTrimming="CharacterEllipsis" />
+                  </StackPanel>
+                  <Button Grid.Column="1"
+                          Classes="Outlined"
+                          Padding="12,7"
+                          IsEnabled="{Binding !IsVaultBusy}"
+                          Command="{Binding AnalyzeImportSnapshotCommand}">
+                    <TextBlock Text="📂 選擇快照檔進行分析" FontSize="12.5" />
+                  </Button>
+                  <Button Grid.Column="2"
+                          Classes="Flat"
+                          Padding="14,7"
+                          IsEnabled="{Binding CanApplyVaultImport}"
+                          Command="{Binding ApplyImportSnapshotCommand}"
+                          ToolTip.Tip="套用匯入前會自動在 backups/ 建立一份當前資料庫熱備份">
+                    <TextBlock Text="✓ 套用匯入（自動先備份）" FontSize="12.5" FontWeight="SemiBold" />
+                  </Button>
+                </Grid>
+
+                <WrapPanel>
+                  <CheckBox Content="覆蓋既有作品 Metadata（含標題/作者/標籤）"
+                            IsChecked="{Binding VaultOverwriteMetadata}"
+                            Margin="0,0,18,4"
+                            FontSize="12" />
+                  <CheckBox Content="覆蓋既有閱讀進度／次數"
+                            IsChecked="{Binding VaultOverwriteReadingProgress}"
+                            Margin="0,0,18,4"
+                            FontSize="12" />
+                  <CheckBox Content="覆蓋既有標籤譯文"
+                            IsChecked="{Binding VaultOverwriteTagTranslations}"
+                            Margin="0,0,0,4"
+                            FontSize="12" />
+                </WrapPanel>
+
+                <Border CornerRadius="8"
+                        Padding="12,9"
+                        Background="#12808080"
+                        BorderBrush="{DynamicResource SukiBorderBrush}"
+                        BorderThickness="1">
+                  <TextBlock Text="{Binding VaultImportPreviewText}"
+                             FontSize="12"
+                             TextWrapping="Wrap"
+                             Opacity="0.9" />
+                </Border>
+              </StackPanel>
+            </Border>
+
+            <!-- 未對應清單維護區 -->
+            <Border CornerRadius="10"
+                    Padding="14,12"
+                    BorderThickness="1"
+                    BorderBrush="{DynamicResource SukiBorderBrush}">
+              <StackPanel Spacing="10">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                  <StackPanel Grid.Column="0" Spacing="2">
+                    <TextBlock Text="🧩 未對應作品清單維護" FontWeight="SemiBold" FontSize="14" />
+                    <TextBlock Text="{Binding UnmappedSummaryText}" FontSize="12" Opacity="0.72" />
+                  </StackPanel>
+                  <Button Grid.Column="1"
+                          Classes="Outlined"
+                          Padding="10,5"
+                          Command="{Binding RefreshUnmappedImportItemsCommand}">
+                    <TextBlock Text="🔄 重新整理" FontSize="12" />
+                  </Button>
+                </Grid>
+
+                <StackPanel Spacing="8" IsVisible="{Binding HasUnmappedImportItems}">
+                  <Grid ColumnDefinitions="220,*,Auto" ColumnSpacing="8">
+                    <TextBox Grid.Column="0"
+                             PlaceholderText="搜尋本機目標作品名稱…"
+                             Text="{Binding VaultUnmappedSearchText, Mode=TwoWay}"
+                             FontSize="12" />
+                    <ComboBox Grid.Column="1"
+                              ItemsSource="{Binding CatalogCandidateMatches}"
+                              SelectedItem="{Binding SelectedCatalogMatchTarget, Mode=TwoWay}"
+                              HorizontalAlignment="Stretch"
+                              FontSize="12" />
+                    <Button Grid.Column="2"
+                            Classes="Outlined"
+                            Padding="10,5"
+                            Command="{Binding RefreshUnmappedCatalogCandidatesCommand}">
+                      <TextBlock Text="🔍 篩選" FontSize="12" />
+                    </Button>
+                  </Grid>
+
+                  <ItemsControl ItemsSource="{Binding UnmappedImportItems}" MaxHeight="260">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:VaultUnmappedWorkItemVm">
+                        <Border Margin="0,3"
+                                Padding="10,8"
+                                CornerRadius="8"
+                                BorderThickness="1"
+                                BorderBrush="{DynamicResource SukiBorderBrush}"
+                                Background="#0D808080">
+                          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                            <StackPanel Grid.Column="0" Spacing="2">
+                              <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="{Binding Title}" FontSize="12.5" FontWeight="SemiBold" />
+                                <Border CornerRadius="4" Padding="5,1" Background="#1A808080" VerticalAlignment="Center">
+                                  <TextBlock Text="{Binding StatusBadgeText}" FontSize="10.5" />
+                                </Border>
+                              </StackPanel>
+                              <TextBlock Text="{Binding AuthorText}" FontSize="11.5" Foreground="{DynamicResource SukiPrimaryColor}" />
+                              <TextBlock Text="{Binding PathHintText}" FontSize="11" Opacity="0.65" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding PathHintText}" />
+                              <TextBlock Text="{Binding MetaSummaryText}" FontSize="11" Opacity="0.72" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                              <Button Classes="Flat"
+                                      Padding="9,4"
+                                      Command="{Binding AssignToSelectedTargetCommand}"
+                                      ToolTip.Tip="將此快照資料對應寫入上方目前選中的本機作品">
+                                <TextBlock Text="🔗 指定套用" FontSize="11.5" FontWeight="SemiBold" />
+                              </Button>
+                              <Button Classes="Outlined"
+                                      Padding="8,4"
+                                      Command="{Binding ToggleSkipCommand}">
+                                <TextBlock Text="{Binding SkipToggleButtonText}" FontSize="11.5" />
+                              </Button>
+                              <Button Classes="Basic"
+                                      Padding="8,4"
+                                      Command="{Binding DiscardCommand}"
+                                      ToolTip.Tip="永久捨棄此未對應項目">
+                                <TextBlock Text="🗑 捨棄" FontSize="11.5" />
+                              </Button>
+                            </StackPanel>
+                          </Grid>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </StackPanel>
+            </Border>
+
+            <!-- 自動備份與還原區塊 -->
+            <Border CornerRadius="10"
+                    Padding="14,12"
+                    BorderThickness="1"
+                    BorderBrush="{DynamicResource SukiBorderBrush}">
+              <StackPanel Spacing="10">
+                <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
+                  <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                    <TextBlock Text="🛡 資料庫熱備份與安全還原（backups/ 自動保留最近 10 份）" FontWeight="SemiBold" FontSize="14" />
+                    <TextBlock Text="{Binding BackupsDirectoryPath}"
+                               FontSize="11.5"
+                               Opacity="0.68"
+                               TextTrimming="CharacterEllipsis" />
+                  </StackPanel>
+                  <Button Grid.Column="1"
+                          Classes="Flat"
+                          Padding="11,6"
+                          IsEnabled="{Binding CanOperateVaultWriteActions}"
+                          Command="{Binding CreateManualBackupCommand}">
+                    <TextBlock Text="🛡 立即備份" FontSize="12" FontWeight="SemiBold" />
+                  </Button>
+                  <Button Grid.Column="2"
+                          Classes="Outlined"
+                          Padding="10,6"
+                          Command="{Binding RefreshDatabaseBackupsCommand}">
+                    <TextBlock Text="🔄 重新整理" FontSize="12" />
+                  </Button>
+                  <Button Grid.Column="3"
+                          Classes="Outlined"
+                          Padding="10,6"
+                          Command="{Binding OpenBackupsFolderCommand}">
+                    <TextBlock Text="📂 資料夾" FontSize="12" />
+                  </Button>
+                </Grid>
+
+                <TextBlock Text="目前 backups/ 目錄尚無自動或手動備份檔。"
+                           FontSize="12"
+                           Opacity="0.65"
+                           IsVisible="{Binding !HasDatabaseBackups}" />
+
+                <ItemsControl ItemsSource="{Binding DatabaseBackups}"
+                              IsVisible="{Binding HasDatabaseBackups}"
+                              MaxHeight="220">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DatabaseBackupItemVm">
+                      <Border Margin="0,3"
+                              Padding="10,7"
+                              CornerRadius="8"
+                              BorderThickness="1"
+                              BorderBrush="{DynamicResource SukiBorderBrush}"
+                              Background="#0D808080">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                          <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                              <TextBlock Text="{Binding FileName}" FontSize="12" FontWeight="SemiBold" />
+                              <Border CornerRadius="4" Padding="5,1" Background="#16808080">
+                                <TextBlock Text="{Binding ReasonText}" FontSize="10.5" />
+                              </Border>
+                              <Border CornerRadius="4" Padding="5,1" Background="#16808080">
+                                <TextBlock Text="{Binding CompanionText}" FontSize="10.5" />
+                              </Border>
+                            </StackPanel>
+                            <TextBlock FontSize="11" Opacity="0.68">
+                              <TextBlock.Text>
+                                <MultiBinding StringFormat="{}{0} · {1}">
+                                  <Binding Path="CreatedAtText" />
+                                  <Binding Path="SizeText" />
+                                </MultiBinding>
+                              </TextBlock.Text>
+                            </TextBlock>
+                          </StackPanel>
+
+                          <Button Grid.Column="1"
+                                  Classes="Outlined"
+                                  Padding="10,5"
+                                  Command="{Binding RestoreCommand}"
+                                  ToolTip.Tip="還原前會先自動建立當前資料庫的備份">
+                            <TextBlock Text="⏪ 還原至此備份" FontSize="11.5" />
+                          </Button>
+                        </Grid>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+
+            <TextBlock Text="{Binding VaultStatusMessage}"
+                       FontSize="12"
+                       Foreground="{DynamicResource SukiPrimaryColor}"
+                       IsVisible="{Binding VaultStatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+        </suki:GlassCard>
+
       </StackPanel>
     </ScrollViewer>
   </DockPanel>
