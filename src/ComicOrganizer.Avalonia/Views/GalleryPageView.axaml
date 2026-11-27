@@ -290,9 +290,81 @@
                    FontSize="12"
                    Margin="0,0,0,8" />
 
-          <!-- 節點清單（虛擬化：標籤模式近兩千個節點，只建立畫面附近的按鈕並回收重用）
+          <!-- 目錄模式：可展開資料夾樹狀導覽（僅此模式顯示；展開箭頭只展開不切右側、點擊名稱切換畫廊） -->
+          <TreeView x:Name="FolderTreeView"
+                    Grid.Row="3"
+                    Classes="gallery-folder-tree"
+                    IsVisible="{Binding IsFoldersSidebarMode}"
+                    ItemsSource="{Binding VisibleFolderTreeRoots}"
+                    SelectedItem="{Binding SelectedFolderTreeNode, Mode=TwoWay}"
+                    ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                    ScrollViewer.VerticalScrollBarVisibility="Auto">
+            <TreeView.Styles>
+              <Style Selector="TreeViewItem" x:DataType="vm:GalleryFolderTreeNodeVm">
+                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
+                <Setter Property="IsVisible" Value="{Binding !IsPlaceholder}" />
+                <Setter Property="Foreground" Value="{DynamicResource SukiText}" />
+                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                <Setter Property="Padding" Value="2,1" />
+                <Setter Property="MinHeight" Value="28" />
+              </Style>
+              <Style Selector="Border.tree-node-row TextBlock">
+                <Setter Property="Foreground" Value="{DynamicResource SukiText}" />
+              </Style>
+              <Style Selector="Border.tree-node-row.node-selected TextBlock">
+                <Setter Property="Foreground" Value="White" />
+              </Style>
+              <Style Selector="Border.tree-node-row Border.tree-node-badge">
+                <Setter Property="Background" Value="#1C808080" />
+              </Style>
+              <Style Selector="Border.tree-node-row.node-selected Border.tree-node-badge">
+                <Setter Property="Background" Value="#33FFFFFF" />
+              </Style>
+            </TreeView.Styles>
+            <TreeView.ItemTemplate>
+              <TreeDataTemplate x:DataType="vm:GalleryFolderTreeNodeVm" ItemsSource="{Binding Children}">
+                <Border Classes="tree-node-row"
+                        Classes.node-selected="{Binding IsSelected}"
+                        Background="Transparent"
+                        HorizontalAlignment="Stretch"
+                        Padding="2,4,8,4"
+                        Cursor="Hand"
+                        Tapped="OnFolderTreeNodeTapped">
+                  <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
+                    <TextBlock Grid.Column="0"
+                               Text="{Binding Icon}"
+                               FontSize="13"
+                               VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding Name}"
+                               FontSize="12.5"
+                               TextTrimming="CharacterEllipsis"
+                               ToolTip.Tip="{Binding Name}"
+                               VerticalAlignment="Center" />
+                    <Border Grid.Column="2"
+                            Classes="tree-node-badge"
+                            IsVisible="{Binding HasSubText}"
+                            CornerRadius="6"
+                            Padding="5,1"
+                            VerticalAlignment="Center">
+                      <TextBlock Text="{Binding SubText}"
+                                 FontSize="10"
+                                 Opacity="0.85"
+                                 MaxWidth="64"
+                                 TextTrimming="CharacterEllipsis" />
+                    </Border>
+                  </Grid>
+                </Border>
+              </TreeDataTemplate>
+            </TreeView.ItemTemplate>
+          </TreeView>
+
+          <!-- 作者／標籤／清單模式：虛擬化節點清單（標籤模式近兩千個節點，只建立畫面附近的按鈕並回收重用）
                外層 StableDataContextHost 擋掉 ItemsRepeater 回收時設的 null DataContext（見該控制項說明）。 -->
-          <ScrollViewer Grid.Row="3"
+          <ScrollViewer x:Name="SidebarNodesScrollViewer"
+                        Grid.Row="3"
+                        IsVisible="{Binding !IsFoldersSidebarMode}"
                         HorizontalScrollBarVisibility="Disabled"
                         VerticalScrollBarVisibility="Auto">
             <ItemsRepeater x:Name="SidebarNodesRepeater"

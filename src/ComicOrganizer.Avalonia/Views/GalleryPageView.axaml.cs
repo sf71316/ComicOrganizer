@@ -294,4 +294,13 @@ public partial class GalleryPageView : UserControl
             _boundViewModel.NotifyItemRecycled(item);
         }
     }
+
+    private void OnFolderTreeNodeTapped(object? sender, global::Avalonia.Input.TappedEventArgs e)
+    {
+        if (sender is Control { DataContext: GalleryFolderTreeNodeVm node } && !node.IsPlaceholder)
+        {
+            node.NavigateCommand.Execute(null);
+            e.Handled = true;
+        }
+    }
 }

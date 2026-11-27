@@ -303,6 +303,18 @@ public sealed class GalleryPageViewModelTests : IDisposable
             Assert.Equal(148.0, view.Resources["GalleryCardWidth"]);
             Assert.Equal(168.0, view.Resources["GalleryCardCoverHeight"]);
             Assert.Equal(128.0, view.Resources["GalleryCardCoverWidth"]);
+
+            // 驗證目錄模式顯示 FolderTreeView，切至作者虛擬庫則切換顯示 SidebarNodesScrollViewer
+            var tree = global::Avalonia.Controls.NameScopeExtensions.Find<global::Avalonia.Controls.TreeView>(view, "FolderTreeView");
+            var listScroll = global::Avalonia.Controls.NameScopeExtensions.Find<global::Avalonia.Controls.ScrollViewer>(view, "SidebarNodesScrollViewer");
+            Assert.NotNull(tree);
+            Assert.NotNull(listScroll);
+            Assert.True(tree!.IsVisible);
+            Assert.False(listScroll!.IsVisible);
+
+            vm.SelectAuthorsSidebarCommand.Execute(null);
+            Assert.False(tree.IsVisible);
+            Assert.True(listScroll.IsVisible);
         });
     }
 
@@ -574,5 +586,84 @@ public sealed class GalleryPageViewModelTests : IDisposable
         Assert.Equal(18, vm.Items.Count);
         Assert.False(vm.IsEmptyState);
         Assert.Equal("1.jpg", vm.Items[0].Name);
+    }
+
+    [Fact]
+    public async Task FolderTree_SupportsLazyExpand_BidirectionalSync_AndDeepKeywordFilter()
+    {
+        var catDir = Path.Combine(_rootLibDir, "CategoryA");
+        var catOtherDir = Path.Combine(_rootLibDir, "CategoryB");
+        var deepAuthorDir = Path.Combine(catDir, "DeepAuthor");
+        var nestedComicDir = Path.Combine(deepAuthorDir, "LeafComic");
+        Directory.CreateDirectory(catOtherDir);
+        Directory.CreateDirectory(nestedComicDir);
+        await File.WriteAllBytesAsync(Path.Combine(nestedComicDir, "01.jpg"), new byte[] { 0xFF, 0xD8, 0xFF, 0xD9 });
+
+        var authorId = _store.UpsertAuthor("DeepArtist", deepAuthorDir);
+        var deepZip = Path.Combine(deepAuthorDir, "DeepBook.zip");
+        SeedWork(deepZip, "Deep Artist Book", authorId, ReadStatus.Unread, 2048);
+
+        using var vm = new GalleryPageViewModel(
+            _store,
+            _coverService,
+            rootDirectory: _rootLibDir,
+            externalLauncher: new FakeLauncher(),
+            runOnUiAsync: static action => { action(); return Task.CompletedTask; },
+            autoLoad: false);
+
+        await vm.ReloadAllAsync();
+        await WaitUntilAsync(() => !vm.IsLoading && vm.VisibleFolderTreeRoots.Count == 1);
+
+        // 1. 根節點預設展開第一層，但未展開的 CategoryA 僅放單一哨兵節點（延遲載入）
+        var rootNode = Assert.Single(vm.VisibleFolderTreeRoots);
+        Assert.True(rootNode.IsRoot);
+        Assert.True(rootNode.IsExpanded);
+        Assert.Equal(rootNode, vm.SelectedFolderTreeNode);
+
+        var catNode = Assert.Single(rootNode.Children, n => n.Name == "CategoryA");
+        Assert.False(catNode.IsExpanded);
+        Assert.False(catNode.ChildrenLoaded);
+        Assert.True(Assert.Single(catNode.Children).IsPlaceholder);
+
+        var otherNode = Assert.Single(rootNode.Children, n => n.Name == "CategoryB");
+        Assert.True(otherNode.ChildrenLoaded);
+        Assert.Empty(otherNode.Children); // 空分類無子目錄 → 不顯示箭頭
+
+        // 2. 點擊箭頭展開（IsExpanded = true）才動態載入下一層，且不切換右側畫廊目前目錄
+        catNode.IsExpanded = true;
+        Assert.True(catNode.ChildrenLoaded);
+        var authorNode = Assert.Single(catNode.Children, n => n.Name == "DeepAuthor");
+        Assert.True(authorNode.IsAuthorFolder);
+        Assert.Equal("👤", authorNode.Icon);
+        Assert.Equal(_rootLibDir, vm.CurrentFolderPath);
+
+        // 展開作者夾 → 葉子純圖資料夾沒有下一層目錄
+        authorNode.IsExpanded = true;
+        var leafNode = Assert.Single(authorNode.Children, n => n.Name == "LeafComic");
+        Assert.Empty(leafNode.Children);
+
+        // 3. 選取葉子／深層節點或外部跳轉 → 雙向同步自動展開祖先並高亮目標節點
+        await vm.NavigateToFolderAndSelectWorkAsync(deepAuthorDir, deepZip);
+        await WaitUntilAsync(() => !vm.IsLoading && vm.CurrentFolderPath == deepAuthorDir);
+        Assert.Equal(authorNode, vm.SelectedFolderTreeNode);
+        Assert.True(authorNode.IsSelected);
+        Assert.True(catNode.IsExpanded);
+
+        // 4. 關鍵字過濾支援定位尚未手動展開或深層子目錄，保留祖先鏈並自動展開；清空後還原原樹
+        vm.SidebarFilterText = "LeafComic";
+        var filteredRoot = Assert.Single(vm.VisibleFolderTreeRoots);
+        Assert.True(filteredRoot.IsExpanded);
+        var filteredCat = Assert.Single(filteredRoot.Children);
+        Assert.Equal("CategoryA", filteredCat.Name);
+        Assert.True(filteredCat.IsExpanded);
+        var filteredAuthor = Assert.Single(filteredCat.Children);
+        Assert.Equal("DeepAuthor", filteredAuthor.Name);
+        Assert.True(filteredAuthor.IsSelected);
+        var filteredLeaf = Assert.Single(filteredAuthor.Children);
+        Assert.Equal("LeafComic", filteredLeaf.Name);
+
+        vm.SidebarFilterText = string.Empty;
+        Assert.Equal(rootNode, Assert.Single(vm.VisibleFolderTreeRoots));
+        Assert.Equal(authorNode, vm.SelectedFolderTreeNode);
     }
 }

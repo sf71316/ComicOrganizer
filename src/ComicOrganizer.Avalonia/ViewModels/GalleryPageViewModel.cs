@@ -453,6 +453,9 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
         new(ReferenceEqualityComparer.Instance);
     private int _loadVersion;
     private bool _suppressReload;
+    private bool _suppressTreeSelectionNavigation;
+    private bool _folderTreeDirty = true;
+    private string? _folderTreeRootPath;
     private volatile bool _disposed;
 
     /// <summary>畫廊主視口滑鼠滾輪單格捲動距離（DIP，預設 200；儲存設定後即時同步）。</summary>
@@ -575,6 +578,10 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
 
     public BatchObservableCollection<GalleryNavNodeVm> SidebarNodes { get; } = [];
 
+    public BatchObservableCollection<GalleryFolderTreeNodeVm> FolderTreeRoots { get; } = [];
+
+    public BatchObservableCollection<GalleryFolderTreeNodeVm> VisibleFolderTreeRoots { get; } = [];
+
     public BatchObservableCollection<GalleryBreadcrumbItemVm> Breadcrumbs { get; } = [];
 
     public BatchObservableCollection<GalleryFuzzyRecommendationVm> FuzzyRecommendations { get; } = [];
@@ -600,6 +607,9 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
 
     [ObservableProperty]
     private GalleryNavNodeVm? _selectedSidebarNode;
+
+    [ObservableProperty]
+    private GalleryFolderTreeNodeVm? _selectedFolderTreeNode;
 
     [ObservableProperty]
     private bool _isSaveLibraryPromptOpen;
@@ -823,6 +833,25 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
         ApplySidebarFilterOnUi();
     }
 
+    partial void OnSelectedFolderTreeNodeChanged(GalleryFolderTreeNodeVm? value)
+    {
+        if (_suppressTreeSelectionNavigation || _disposed || value == null || value.IsPlaceholder)
+        {
+            return;
+        }
+
+        MarkSelectedTreeNodeRecursive(VisibleFolderTreeRoots, value.FullPath);
+        if (!ReferenceEquals(FolderTreeRoots.FirstOrDefault(), VisibleFolderTreeRoots.FirstOrDefault()))
+        {
+            MarkSelectedTreeNodeRecursive(FolderTreeRoots, value.FullPath);
+        }
+
+        if (!PathsEqual(CurrentFolderPath, value.FullPath) || IsDslSearchActive)
+        {
+            NavigateToFolder(value.FullPath);
+        }
+    }
+
     partial void OnSelectedSortOptionChanged(GallerySortFieldOption value)
     {
         if (_suppressReload || _disposed || value == null)
@@ -1031,6 +1060,7 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
         }
 
         _cachedSnapshot = null;
+        _folderTreeDirty = true;
         var task = ReloadSidebarAndItemsAsync();
         InitializationTask = task;
         return task;
@@ -1239,7 +1269,25 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
         var ct = cts.Token;
         int version = Interlocked.Increment(ref _loadVersion);
 
-        await _runOnUiAsync(() => IsLoading = true).ConfigureAwait(false);
+        HashSet<string>? expandedPathsSnapshot = null;
+        bool needTreeRebuild = false;
+        var initialMode = SidebarMode;
+        var initialRootDir = RootDirectory;
+
+        await _runOnUiAsync(() =>
+        {
+            IsLoading = true;
+            if (initialMode == GallerySidebarMode.Folders)
+            {
+                needTreeRebuild = _folderTreeDirty
+                                  || FolderTreeRoots.Count == 0
+                                  || !PathsEqual(_folderTreeRootPath, initialRootDir);
+                if (needTreeRebuild)
+                {
+                    expandedPathsSnapshot = CollectExpandedFolderPaths(FolderTreeRoots);
+                }
+            }
+        }).ConfigureAwait(false);
 
         try
         {
@@ -1255,6 +1303,17 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
             {
                 var sidebarNodes = BuildSidebarNodes(mode, rootDir, curFolder, ct);
                 ct.ThrowIfCancellationRequested();
+
+                GalleryFolderTreeNodeVm? rebuiltTreeRoot = null;
+                if (mode == GallerySidebarMode.Folders && needTreeRebuild && !string.IsNullOrWhiteSpace(rootDir))
+                {
+                    rebuiltTreeRoot = BuildFolderTreeRootOnBackground(
+                        rootDir,
+                        curFolder,
+                        expandedPathsSnapshot,
+                        ct);
+                    ct.ThrowIfCancellationRequested();
+                }
 
                 string scopeFolder = curFolder ?? string.Empty;
                 string? scopeNodeKey = null;
@@ -1280,8 +1339,8 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
                 }
 
                 var payload = ResolveScopePayload(dsl, mode, scopeFolder, scopeNode, ct);
-                return (SidebarNodes: sidebarNodes, ScopeFolder: scopeFolder, ScopeNodeKey: scopeNodeKey,
-                    KeepPreviousSelection: keepPreviousSelection, Payload: payload);
+                return (SidebarNodes: sidebarNodes, RebuiltTreeRoot: rebuiltTreeRoot, ScopeFolder: scopeFolder,
+                    ScopeNodeKey: scopeNodeKey, KeepPreviousSelection: keepPreviousSelection, Payload: payload);
             }, ct).ConfigureAwait(false);
 
             if (ct.IsCancellationRequested || version != Volatile.Read(ref _loadVersion) || _disposed)
@@ -1299,7 +1358,6 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
                 // 沿用內容沒變的節點，側欄清單用差量同步：重整後節點沒變時，側欄上的按鈕完全不重建
                 var nodes = MergeSidebarNodes(_allSidebarNodes, resolved.SidebarNodes);
                 _allSidebarNodes = nodes;
-                ApplySidebarFilterOnUi();
 
                 if (mode == GallerySidebarMode.Folders)
                 {
@@ -1307,6 +1365,21 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
                     {
                         CurrentFolderPath = resolved.ScopeFolder;
                     }
+
+                    if (resolved.RebuiltTreeRoot != null)
+                    {
+                        _folderTreeRootPath = rootDir;
+                        _folderTreeDirty = false;
+                        FolderTreeRoots.ReplaceAll([resolved.RebuiltTreeRoot]);
+                    }
+                    else if (string.IsNullOrWhiteSpace(rootDir))
+                    {
+                        _folderTreeRootPath = string.Empty;
+                        _folderTreeDirty = false;
+                        FolderTreeRoots.Clear();
+                    }
+
+                    SyncFolderTreeToPathOnUi(CurrentFolderPath);
                 }
                 else
                 {
@@ -1325,6 +1398,7 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
                     }
                 }
 
+                ApplySidebarFilterOnUi();
                 ApplyScopePayloadOnUi(dsl, mode, CurrentFolderPath, SelectedSidebarNode, resolved.Payload);
             }).ConfigureAwait(false);
         }
@@ -1947,6 +2021,7 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
         if (string.IsNullOrEmpty(kw))
         {
             SidebarNodes.SyncTo(_allSidebarNodes);
+            ApplyFolderTreeFilterOnUi(string.Empty);
             return;
         }
 
@@ -1955,6 +2030,397 @@ public sealed partial class GalleryPageViewModel : ViewModelBase, IDisposable
                         || n.SubText.Contains(kw, StringComparison.OrdinalIgnoreCase))
             .ToList();
         SidebarNodes.SyncTo(filtered);
+        ApplyFolderTreeFilterOnUi(kw);
+    }
+
+    private void ApplyFolderTreeFilterOnUi(string keyword)
+    {
+        if (FolderTreeRoots.Count == 0 || string.IsNullOrWhiteSpace(RootDirectory))
+        {
+            VisibleFolderTreeRoots.Clear();
+            return;
+        }
+
+        if (string.IsNullOrEmpty(keyword))
+        {
+            VisibleFolderTreeRoots.SyncTo(FolderTreeRoots);
+            SyncSelectedTreeNodeReference(VisibleFolderTreeRoots, CurrentFolderPath);
+            return;
+        }
+
+        var authorFolderSet = BuildAuthorFolderSet(GetOrLoadSnapshot());
+        var filteredRoot = BuildFilteredFolderTreeNode(
+            RootDirectory,
+            name: "漫畫庫根目錄",
+            isRoot: true,
+            keyword,
+            authorFolderSet,
+            depth: 0);
+
+        if (filteredRoot == null)
+        {
+            VisibleFolderTreeRoots.Clear();
+            return;
+        }
+
+        VisibleFolderTreeRoots.ReplaceAll([filteredRoot]);
+        SyncSelectedTreeNodeReference(VisibleFolderTreeRoots, CurrentFolderPath);
+    }
+
+    private GalleryFolderTreeNodeVm? BuildFilteredFolderTreeNode(
+        string folderPath,
+        string name,
+        bool isRoot,
+        string keyword,
+        IReadOnlySet<string> authorFolderSet,
+        int depth)
+    {
+        bool isAuthorDir = !isRoot && authorFolderSet.Contains(NormalizePathOrEmpty(folderPath));
+        string subText = isRoot ? GetFolderDisplayName(folderPath) : (isAuthorDir ? "作者" : string.Empty);
+        bool selfMatches = name.Contains(keyword, StringComparison.OrdinalIgnoreCase)
+                           || (!string.IsNullOrEmpty(subText) && subText.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+
+        var matchedChildren = new List<GalleryFolderTreeNodeVm>();
+        if (depth < 8)
+        {
+            foreach (var sub in CollectSubFolders(folderPath).OrderBy(d => d.Name, NaturalStringComparer.Instance))
+            {
+                var childNode = BuildFilteredFolderTreeNode(
+                    sub.Path,
+                    sub.Name,
+                    isRoot: false,
+                    keyword,
+                    authorFolderSet,
+                    depth + 1);
+                if (childNode != null)
+                {
+                    matchedChildren.Add(childNode);
+                }
+            }
+        }
+
+        if (!selfMatches && matchedChildren.Count == 0)
+        {
+            return null;
+        }
+
+        var node = new GalleryFolderTreeNodeVm(
+            fullPath: NormalizePathOrEmpty(folderPath),
+            name: name,
+            isRoot: isRoot,
+            isAuthorFolder: isAuthorDir,
+            subText: subText,
+            onNavigate: OnFolderTreeNodeNavigated,
+            onNeedLoadChildren: LoadFolderTreeNodeChildren);
+
+        if (matchedChildren.Count > 0)
+        {
+            node.SetLoadedChildren(matchedChildren);
+            node.IsExpanded = true;
+        }
+        else
+        {
+            node.SetPlaceholderIfExpandable(HasExpandableSubFolders(folderPath));
+        }
+
+        return node;
+    }
+
+    private GalleryFolderTreeNodeVm BuildFolderTreeRootOnBackground(
+        string rootDir,
+        string? curFolder,
+        HashSet<string>? preservedExpandedPaths,
+        CancellationToken ct)
+    {
+        var authorFolderSet = BuildAuthorFolderSet(GetOrLoadSnapshot());
+        string normalizedRoot = NormalizePathOrEmpty(rootDir);
+        var rootNode = new GalleryFolderTreeNodeVm(
+            fullPath: normalizedRoot,
+            name: "漫畫庫根目錄",
+            isRoot: true,
+            isAuthorFolder: false,
+            subText: GetFolderDisplayName(normalizedRoot),
+            onNavigate: OnFolderTreeNodeNavigated,
+            onNeedLoadChildren: LoadFolderTreeNodeChildren);
+
+        var rootChildren = BuildFolderTreeChildrenList(normalizedRoot, authorFolderSet, ct);
+        rootNode.SetLoadedChildren(rootChildren);
+        rootNode.IsExpanded = true;
+
+        if (preservedExpandedPaths != null && preservedExpandedPaths.Count > 0)
+        {
+            RestoreExpandedTreePaths(rootNode, preservedExpandedPaths, authorFolderSet, ct);
+        }
+
+        if (!string.IsNullOrWhiteSpace(curFolder))
+        {
+            ExpandAncestorsOnNode(rootNode, curFolder, authorFolderSet, expandTargetItself: false, ct);
+        }
+
+        return rootNode;
+    }
+
+    private List<GalleryFolderTreeNodeVm> BuildFolderTreeChildrenList(
+        string parentPath,
+        IReadOnlySet<string> authorFolderSet,
+        CancellationToken ct)
+    {
+        var subFolders = CollectSubFolders(parentPath);
+        var children = new List<GalleryFolderTreeNodeVm>(subFolders.Count);
+
+        foreach (var dir in subFolders.OrderBy(d => d.Name, NaturalStringComparer.Instance))
+        {
+            ct.ThrowIfCancellationRequested();
+            string normalized = NormalizePathOrEmpty(dir.Path);
+            bool isAuthorDir = authorFolderSet.Contains(normalized);
+            var childNode = new GalleryFolderTreeNodeVm(
+                fullPath: normalized,
+                name: dir.Name,
+                isRoot: false,
+                isAuthorFolder: isAuthorDir,
+                subText: isAuthorDir ? "作者" : string.Empty,
+                onNavigate: OnFolderTreeNodeNavigated,
+                onNeedLoadChildren: LoadFolderTreeNodeChildren);
+            childNode.SetPlaceholderIfExpandable(HasExpandableSubFolders(normalized));
+            children.Add(childNode);
+        }
+
+        return children;
+    }
+
+    private bool HasExpandableSubFolders(string folderPath)
+    {
+        if (string.IsNullOrWhiteSpace(folderPath))
+        {
+            return false;
+        }
+
+        foreach (var child in _store.ListChildren(folderPath))
+        {
+            if (child.IsFolder && IsDirectChildPath(folderPath, child.Path))
+            {
+                return true;
+            }
+        }
+
+        if (Directory.Exists(folderPath))
+        {
+            try
+            {
+                return Directory.EnumerateDirectories(folderPath).Any();
+            }
+            catch
+            {
+            }
+        }
+
+        return false;
+    }
+
+    private void LoadFolderTreeNodeChildren(GalleryFolderTreeNodeVm node)
+    {
+        if (_disposed || node.IsPlaceholder || string.IsNullOrWhiteSpace(node.FullPath))
+        {
+            return;
+        }
+
+        var authorFolderSet = BuildAuthorFolderSet(GetOrLoadSnapshot());
+        var children = BuildFolderTreeChildrenList(node.FullPath, authorFolderSet, CancellationToken.None);
+        node.SetLoadedChildren(children);
+        MarkSelectedTreeNodeRecursive(VisibleFolderTreeRoots, CurrentFolderPath);
+    }
+
+    private void OnFolderTreeNodeNavigated(GalleryFolderTreeNodeVm node)
+    {
+        if (_disposed || node.IsPlaceholder || string.IsNullOrWhiteSpace(node.FullPath))
+        {
+            return;
+        }
+
+        NavigateToFolder(node.FullPath);
+    }
+
+    private void SyncFolderTreeToPathOnUi(string? targetPath)
+    {
+        if (FolderTreeRoots.Count == 0 || string.IsNullOrWhiteSpace(RootDirectory))
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(targetPath))
+        {
+            var authorFolderSet = BuildAuthorFolderSet(GetOrLoadSnapshot());
+            ExpandAncestorsOnNode(FolderTreeRoots[0], targetPath, authorFolderSet, expandTargetItself: false, CancellationToken.None);
+        }
+
+        SyncSelectedTreeNodeReference(FolderTreeRoots, targetPath);
+    }
+
+    private void ExpandAncestorsOnNode(
+        GalleryFolderTreeNodeVm rootNode,
+        string targetPath,
+        IReadOnlySet<string> authorFolderSet,
+        bool expandTargetItself,
+        CancellationToken ct)
+    {
+        string normalizedRoot = NormalizePathOrEmpty(rootNode.FullPath);
+        string normalizedTarget = NormalizePathOrEmpty(targetPath);
+        if (string.IsNullOrWhiteSpace(normalizedRoot) || string.IsNullOrWhiteSpace(normalizedTarget))
+        {
+            return;
+        }
+
+        if (PathsEqual(normalizedRoot, normalizedTarget))
+        {
+            if (expandTargetItself && !rootNode.ChildrenLoaded)
+            {
+                rootNode.SetLoadedChildren(BuildFolderTreeChildrenList(rootNode.FullPath, authorFolderSet, ct));
+            }
+            if (expandTargetItself)
+            {
+                rootNode.IsExpanded = true;
+            }
+            return;
+        }
+
+        if (!normalizedTarget.StartsWith(normalizedRoot + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) &&
+            !normalizedTarget.StartsWith(normalizedRoot + System.IO.Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var rel = normalizedTarget[normalizedRoot.Length..].TrimStart(
+            System.IO.Path.DirectorySeparatorChar,
+            System.IO.Path.AltDirectorySeparatorChar);
+        var segments = rel.Split(
+            [System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+
+        GalleryFolderTreeNodeVm current = rootNode;
+        string runningPath = normalizedRoot;
+        for (int i = 0; i < segments.Length; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!current.ChildrenLoaded)
+            {
+                current.SetLoadedChildren(BuildFolderTreeChildrenList(current.FullPath, authorFolderSet, ct));
+            }
+
+            current.IsExpanded = true;
+            runningPath = System.IO.Path.Combine(runningPath, segments[i]);
+            var next = current.Children.FirstOrDefault(c => !c.IsPlaceholder && PathsEqual(c.FullPath, runningPath));
+            if (next == null)
+            {
+                break;
+            }
+
+            current = next;
+            bool isLast = i == segments.Length - 1;
+            if (!isLast || expandTargetItself)
+            {
+                if (!current.ChildrenLoaded)
+                {
+                    current.SetLoadedChildren(BuildFolderTreeChildrenList(current.FullPath, authorFolderSet, ct));
+                }
+
+                if (!isLast || current.Children.Count > 0)
+                {
+                    current.IsExpanded = true;
+                }
+            }
+        }
+    }
+
+    private void RestoreExpandedTreePaths(
+        GalleryFolderTreeNodeVm rootNode,
+        HashSet<string> expandedPaths,
+        IReadOnlySet<string> authorFolderSet,
+        CancellationToken ct)
+    {
+        foreach (var path in expandedPaths.OrderBy(p => p.Length))
+        {
+            ct.ThrowIfCancellationRequested();
+            ExpandAncestorsOnNode(rootNode, path, authorFolderSet, expandTargetItself: true, ct);
+        }
+    }
+
+    private static HashSet<string> CollectExpandedFolderPaths(IEnumerable<GalleryFolderTreeNodeVm> roots)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Walk(GalleryFolderTreeNodeVm node)
+        {
+            if (node.IsPlaceholder)
+            {
+                return;
+            }
+
+            if (node.IsExpanded && !string.IsNullOrWhiteSpace(node.FullPath))
+            {
+                set.Add(node.FullPath);
+            }
+
+            foreach (var child in node.Children)
+            {
+                Walk(child);
+            }
+        }
+
+        foreach (var root in roots)
+        {
+            Walk(root);
+        }
+
+        return set;
+    }
+
+    private void SyncSelectedTreeNodeReference(IReadOnlyList<GalleryFolderTreeNodeVm> roots, string? targetPath)
+    {
+        var matched = MarkSelectedTreeNodeRecursive(roots, targetPath);
+        _suppressTreeSelectionNavigation = true;
+        try
+        {
+            SelectedFolderTreeNode = matched;
+        }
+        finally
+        {
+            _suppressTreeSelectionNavigation = false;
+        }
+    }
+
+    private static GalleryFolderTreeNodeVm? MarkSelectedTreeNodeRecursive(
+        IReadOnlyList<GalleryFolderTreeNodeVm> roots,
+        string? targetPath)
+    {
+        GalleryFolderTreeNodeVm? matched = null;
+        string normalizedTarget = NormalizePathOrEmpty(targetPath);
+
+        void Walk(GalleryFolderTreeNodeVm node)
+        {
+            if (node.IsPlaceholder)
+            {
+                node.IsSelected = false;
+                return;
+            }
+
+            bool isHit = !string.IsNullOrEmpty(normalizedTarget) && PathsEqual(node.FullPath, normalizedTarget);
+            node.IsSelected = isHit;
+            if (isHit && matched == null)
+            {
+                matched = node;
+            }
+
+            foreach (var child in node.Children)
+            {
+                Walk(child);
+            }
+        }
+
+        foreach (var root in roots)
+        {
+            Walk(root);
+        }
+
+        return matched;
     }
 
     /// <summary>
