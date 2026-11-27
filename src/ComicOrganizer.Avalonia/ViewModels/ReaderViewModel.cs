@@ -180,7 +180,7 @@ public sealed partial class ReaderViewModel : ViewModelBase, IDisposable
         });
 
         _source = ReaderSourceFactory.Open(sourcePath, out int initialPageIndex);
-        _pipeline = new ReaderPagePipeline(_source, _dataContext.Config);
+        _pipeline = new ReaderPagePipeline(_source, _dataContext.Config, dataDirectory: _dataContext.DataDirectory);
         _pipeline.PageUpdated += OnPipelinePageUpdated;
         _pipeline.TranslationStatusChanged += OnTranslationStatusChanged;
         _dataContext.SettingsChanged += OnDataContextSettingsChanged;
@@ -890,6 +890,7 @@ public sealed partial class ReaderViewModel : ViewModelBase, IDisposable
                 return;
             }
 
+            _pipeline.ConfigureFromAppConfig(_dataContext.Config);
             SyncOcrEngineFromConfig();
             OnPropertyChanged(nameof(LlmSummaryText));
         });

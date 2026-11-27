@@ -41,6 +41,7 @@ public sealed class ReaderPagePipeline : IDisposable
     private readonly IReaderSource _source;
     private readonly SkiaPageRenderer _renderer;
     private readonly LlmTranslationService _translationService;
+    private readonly ISkiaTextMaskProvider _textMaskProvider;
     private readonly object _sync = new();
 
     private readonly Dictionary<int, SKImage> _superResImages = new();
@@ -57,16 +58,23 @@ public sealed class ReaderPagePipeline : IDisposable
 
     private ISkiaOcrService? _ocrService;
     private int _ocrEngineType = 1;
+    private int _maskEngineType;
     private string _ocrSourceLanguage = "ja-JP";
     private string _targetLanguage = "zh-Hant";
     private bool _disposed;
 
-    public ReaderPagePipeline(IReaderSource source, AppConfig config, int cacheCap = 12)
+    public ReaderPagePipeline(
+        IReaderSource source,
+        AppConfig config,
+        int cacheCap = 12,
+        string? dataDirectory = null,
+        ISkiaTextMaskProvider? textMaskProvider = null)
     {
         _source = source ?? throw new ArgumentNullException(nameof(source));
         ArgumentNullException.ThrowIfNull(config);
 
         _translationService = new LlmTranslationService(new HttpClient { Timeout = TimeSpan.FromSeconds(45) });
+        _textMaskProvider = textMaskProvider ?? new SkiaComicTextDetector(dataDirectory: dataDirectory);
         ConfigureFromAppConfig(config);
 
         _renderer = new SkiaPageRenderer(
@@ -80,6 +88,7 @@ public sealed class ReaderPagePipeline : IDisposable
     public IReaderSource Source => _source;
     public int PageCount => _source.PageCount;
     public int OcrEngineType => _ocrEngineType;
+    public int MaskEngineType => _maskEngineType;
 
     /// <summary>當某頁背景解碼、超解析重繪或翻譯合成完成時觸發（傳入頁碼索引）。</summary>
     public event Action<int>? PageUpdated;
@@ -96,6 +105,7 @@ public sealed class ReaderPagePipeline : IDisposable
         _ocrSourceLanguage = "ja-JP";
         _targetLanguage = "zh-Hant";
         SetOcrEngine(config.OcrEngineType);
+        SetMaskEngine(config.MaskEngineType);
     }
 
     public void SetOcrEngine(int engineType)
@@ -106,6 +116,20 @@ public sealed class ReaderPagePipeline : IDisposable
             _ocrEngineType = engineType;
             (_ocrService as IDisposable)?.Dispose();
             _ocrService = null;
+        }
+    }
+
+    public void SetMaskEngine(int maskEngineType)
+    {
+        int normalized = maskEngineType == 2 ? 2 : 0;
+        lock (_sync)
+        {
+            if (_maskEngineType == normalized) return;
+            _maskEngineType = normalized;
+            foreach (var img in _translatedImages.Values) img.Dispose();
+            _translatedImages.Clear();
+            _translatedLru.Clear();
+            _ocrAttemptedPages.Clear();
         }
     }
 
@@ -414,18 +438,35 @@ public sealed class ReaderPagePipeline : IDisposable
 
             // 以目前畫質最高之底圖（超解析優先，其次原始解碼圖）合成譯文氣泡圖
             SKImage baseForComposite = lease.Image;
+            int maskEngineType;
             lock (_sync)
             {
                 if (_superResImages.TryGetValue(pageIndex, out var srImg))
                     baseForComposite = srImg;
+                maskEngineType = _maskEngineType;
+            }
+
+            bool hasTranslatedText = mergedBlocks.Count > 0 && mergedBlocks.Any(b => !string.IsNullOrWhiteSpace(b.Text));
+            bool usePreciseMask = hasTranslatedText && maskEngineType == 2 && _textMaskProvider.IsAvailable;
+            if (usePreciseMask)
+            {
+                TranslationStatusChanged?.Invoke(pageIndex, "正在偵測原文筆畫遮罩 (ONNX)...");
             }
 
             var composited = await Task.Run(() =>
             {
-                if (mergedBlocks.Count == 0 || mergedBlocks.All(b => string.IsNullOrWhiteSpace(b.Text)))
+                if (!hasTranslatedText)
+                {
                     return SkiaTranslationRenderer.RenderTranslatedPage(baseForComposite, Array.Empty<OcrBlock>());
+                }
 
-                return SkiaTranslationRenderer.RenderTranslatedPage(baseForComposite, mergedBlocks);
+                byte[]? textMask = null;
+                if (usePreciseMask)
+                {
+                    textMask = _textMaskProvider.GetTextMask(baseForComposite, mergedBlocks);
+                }
+
+                return SkiaTranslationRenderer.RenderTranslatedPage(baseForComposite, mergedBlocks, textMask);
             }, ct).ConfigureAwait(false);
 
             lock (_sync)
@@ -521,6 +562,8 @@ public sealed class ReaderPagePipeline : IDisposable
 
             (_ocrService as IDisposable)?.Dispose();
             _ocrService = null;
+
+            (_textMaskProvider as IDisposable)?.Dispose();
         }
     }
 }

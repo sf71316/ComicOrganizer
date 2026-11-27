@@ -132,8 +132,8 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
 
         MaskEngineOptions =
         [
-            new SettingsOption<int>(2, "ComicTextDetector ONNX（精準原文抹除）"),
-            new SettingsOption<int>(0, "逐欄矩形白底遮罩"),
+            new SettingsOption<int>(0, "逐欄矩形白底遮罩（輕量預設）"),
+            new SettingsOption<int>(2, "ComicTextDetector ONNX（選配精準抹除）"),
         ];
 
         TranslationApiTypeOptions =
@@ -293,6 +293,47 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
 
     [ObservableProperty]
     private string _translationApiKey = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PaddleOcrStatusBrush))]
+    private bool _isPaddleOcrReady;
+
+    [ObservableProperty]
+    private string _paddleOcrStatusText = "檢查中…";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TextMaskModelStatusBrush))]
+    [NotifyPropertyChangedFor(nameof(TextMaskModelActionText))]
+    private bool _isTextMaskModelReady;
+
+    [ObservableProperty]
+    private string _textMaskModelStatusText = "檢查中…";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TextMaskModelActionText))]
+    [NotifyCanExecuteChangedFor(nameof(DownloadTextMaskModelCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CancelTextMaskDownloadCommand))]
+    private bool _isDownloadingTextMaskModel;
+
+    [ObservableProperty]
+    private string _textMaskDownloadProgressText = string.Empty;
+
+    [ObservableProperty]
+    private double _textMaskDownloadPercent;
+
+    private CancellationTokenSource? _textMaskDownloadCts;
+
+    public IBrush PaddleOcrStatusBrush => IsPaddleOcrReady ? StatusSuccessBrush : StatusNeutralBrush;
+
+    public IBrush TextMaskModelStatusBrush => IsTextMaskModelReady ? StatusSuccessBrush : WarnTextBrush;
+
+    public string TextMaskModelActionText => IsDownloadingTextMaskModel
+        ? "下載中…"
+        : (IsTextMaskModelReady ? "🔄 重新下載模型" : "⬇️ 下載模型 (~95 MB)");
+
+    public string ReaderInferenceDirectory
+        => Path.GetDirectoryName(ModelDownloader.GetPreferredComicTextDetectorTargetPath(_dataContext.DataDirectory))
+           ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "inference");
 
     // ── 組 5：外部 Metadata 同步（nhentai） ─────────────────────────────
 
@@ -677,7 +718,7 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
             updatedConfig.UseGpuRendering = UseGpuRendering;
 
             updatedConfig.OcrEngineType = SelectedOcrEngine?.Value ?? 0;
-            updatedConfig.MaskEngineType = SelectedMaskEngine?.Value ?? 2;
+            updatedConfig.MaskEngineType = SelectedMaskEngine?.Value ?? 0;
             updatedConfig.TranslationApiType = SelectedTranslationApiType?.Value ?? 0;
             updatedConfig.TranslationEndpoint = TranslationEndpoint.Trim();
             updatedConfig.TranslationModelName = TranslationModelName.Trim();
@@ -806,6 +847,7 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
             VisualSearchEmbedModelUrl = cfg.VisualSearchEmbedModelUrl ?? string.Empty;
             VisualSearchHeadModelUrl = cfg.VisualSearchHeadModelUrl ?? string.Empty;
             RefreshVisualSearchModelStatus();
+            RefreshReaderModelStatus();
         }
         finally
         {
@@ -1152,6 +1194,123 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
         finally
         {
             IsDownloadingVisualModel = false;
+        }
+    }
+
+    private bool CanDownloadTextMaskModel() => !IsDownloadingTextMaskModel;
+
+    [RelayCommand]
+    public void RefreshReaderModelStatus()
+    {
+        var paddle = SkiaOcrPluginManager.GetAvailableEngines().FirstOrDefault(e => e.EngineType == 1);
+        if (paddle == null)
+        {
+            IsPaddleOcrReady = false;
+            PaddleOcrStatusText = "未偵測到 PaddleOCR 外掛（將使用 Windows 原生 OCR）";
+        }
+        else if (paddle.IsAvailable)
+        {
+            IsPaddleOcrReady = true;
+            PaddleOcrStatusText = $"✅ 已就緒（{paddle.StatusMessage}）";
+        }
+        else
+        {
+            IsPaddleOcrReady = false;
+            PaddleOcrStatusText = $"⚠️ 未就緒：{paddle.StatusMessage}";
+        }
+
+        string resolvedMaskPath = ModelDownloader.ResolveComicTextDetectorPath(_dataContext.DataDirectory);
+        if (ModelDownloader.IsComicTextDetectorAvailable(_dataContext.DataDirectory))
+        {
+            IsTextMaskModelReady = true;
+            double mb = new FileInfo(resolvedMaskPath).Length / (1024.0 * 1024.0);
+            TextMaskModelStatusText = $"✅ 已就緒（{mb:F1} MB · {resolvedMaskPath}）";
+        }
+        else if (File.Exists(resolvedMaskPath))
+        {
+            IsTextMaskModelReady = false;
+            TextMaskModelStatusText = "⚠️ 模型檔案大小異常（請重新下載 comic-text-detector.onnx，未就緒時會自動退回矩形遮罩）";
+        }
+        else
+        {
+            IsTextMaskModelReady = false;
+            TextMaskModelStatusText = "⚠️ 尚未安裝（若選用精準原文抹除，缺檔期間會自動退回逐欄矩形遮罩）";
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanDownloadTextMaskModel))]
+    private async Task DownloadTextMaskModelAsync()
+    {
+        if (IsDownloadingTextMaskModel)
+        {
+            return;
+        }
+
+        string destPath = ModelDownloader.GetPreferredComicTextDetectorTargetPath(_dataContext.DataDirectory);
+        _textMaskDownloadCts?.Cancel();
+        _textMaskDownloadCts?.Dispose();
+        _textMaskDownloadCts = new CancellationTokenSource();
+
+        IsDownloadingTextMaskModel = true;
+        TextMaskDownloadPercent = 0;
+        TextMaskDownloadProgressText = $"準備下載 {ModelDownloader.ComicTextDetectorFileName}…";
+
+        try
+        {
+            var progress = new Progress<(long downloaded, long total)>(p =>
+            {
+                double dlMb = p.downloaded / (1024.0 * 1024.0);
+                double totalMb = Math.Max(1L, p.total) / (1024.0 * 1024.0);
+                TextMaskDownloadPercent = Math.Clamp(100.0 * p.downloaded / Math.Max(1L, p.total), 0, 100);
+                TextMaskDownloadProgressText = $"正在下載 {ModelDownloader.ComicTextDetectorFileName}：{dlMb:F1} / {totalMb:F1} MB ({TextMaskDownloadPercent:F0}%)";
+            });
+
+            var result = await ModelDownloader.DownloadComicTextDetectorToAsync(destPath, progress, _textMaskDownloadCts.Token);
+            RefreshReaderModelStatus();
+
+            if (result.Ok)
+            {
+                TextMaskDownloadPercent = 100;
+                TextMaskDownloadProgressText = $"✅ {ModelDownloader.ComicTextDetectorFileName} 下載完成";
+                _dataContext.NotifySettingsChanged();
+                ShowToast("模型下載完成", $"{ModelDownloader.ComicTextDetectorFileName} 已就緒，精準原文抹除可直接生效。", NotificationType.Success, 3);
+            }
+            else if (result.Outcome == DownloadOutcome.Cancelled)
+            {
+                TextMaskDownloadProgressText = "已取消下載。";
+                ShowToast("已取消下載", ModelDownloader.ComicTextDetectorFileName + " 下載已中止。", NotificationType.Information, 3);
+            }
+            else
+            {
+                TextMaskDownloadProgressText = $"⚠️ 下載失敗：{result.Message}";
+                ShowToast("下載模型失敗", result.Message ?? "未知錯誤", NotificationType.Error, 5);
+            }
+        }
+        finally
+        {
+            IsDownloadingTextMaskModel = false;
+            _textMaskDownloadCts?.Dispose();
+            _textMaskDownloadCts = null;
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(IsDownloadingTextMaskModel))]
+    private void CancelTextMaskDownload()
+    {
+        _textMaskDownloadCts?.Cancel();
+    }
+
+    [RelayCommand]
+    private void OpenReaderInferenceFolder()
+    {
+        try
+        {
+            Directory.CreateDirectory(ReaderInferenceDirectory);
+            Process.Start(new ProcessStartInfo("explorer.exe", $"\"{ReaderInferenceDirectory}\"") { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            ShowToast("無法開啟資料夾", ex.Message, NotificationType.Warning, 4);
         }
     }
 

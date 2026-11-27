@@ -116,9 +116,8 @@ public class AppConfig
     /// <summary>OCR 引擎類型 (0 = WindowsNativeOcr, 1 = PaddleOcr)</summary>
     public int OcrEngineType { get; set; } = 0;
 
-    /// <summary>譯文抹除用的文字遮罩引擎 (0 = 關閉/逐欄矩形白底, 1 = FloodFill[保留], 2 = ComicTextDetector ONNX)。
-    /// 預設 2；模型檔不存在時自動 fallback 回逐欄白底。</summary>
-    public int MaskEngineType { get; set; } = 2;
+    /// <summary>譯文抹除用的文字遮罩引擎 (0 = 逐欄矩形白底遮罩[輕量預設], 1 = FloodFill[保留], 2 = ComicTextDetector ONNX)。</summary>
+    public int MaskEngineType { get; set; } = 0;
 
     /// <summary>閱讀器底圖改用 SkiaSharp/GPU(SKGLControl) 繪製(實驗)。預設 false；
     /// 開啟後單頁等非譯文模式走 GPU canvas，GL 起不來時自動退回 GDI+。需重開閱讀器生效。</summary>

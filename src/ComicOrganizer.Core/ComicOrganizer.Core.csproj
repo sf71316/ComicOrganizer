@@ -31,6 +31,7 @@
     <PackageReference Include="Dapper" Version="2.1.72" />
     <PackageReference Include="FuzzySharp" Version="2.0.2" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.7" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.24.4" />
     <PackageReference Include="OpenCCNET" Version="1.1.0" />
     <PackageReference Include="PDFtoImage" Version="5.2.1" />
     <PackageReference Include="SharpCompress" Version="0.48.0" />

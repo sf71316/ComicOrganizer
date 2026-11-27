@@ -160,4 +160,4 @@ dotnet publish src/ComicOrganizer.App/ComicOrganizer.App.csproj -c Release
 - `CacheWriter` → meta store 的 dispose 順序；SqliteConnection 靠內部 lock 序列化。
 - DPAPI 密文不可塞明文進 `appsettings.json`，走 `SecureStringStore` / `AppConfigExtensions`。
 - ONNX 模型（comic-text-detector、圖搜漫模型）**絕不進 repo**（授權問題，見記憶 `project_licensing`）。
-- 進行中工作見記憶 `project_52_53_progress`；roadmap：歸檔衝突選擇介面、Undo、空間檢查尚未實作。
+- 進行中規劃：Avalonia 閱讀器 `ComicTextDetector` ONNX 精準原文抹除／模型下載、畫廊資料夾樹狀側欄導覽。

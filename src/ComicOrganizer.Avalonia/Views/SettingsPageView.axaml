@@ -447,6 +447,66 @@
               </StackPanel>
             </Grid>
 
+            <!-- 閱讀器 OCR 與精準遮罩模型狀態與下載 -->
+            <Border CornerRadius="10"
+                    Padding="12,10"
+                    BorderThickness="1"
+                    BorderBrush="{DynamicResource SukiControlBorderBrush}">
+              <StackPanel Spacing="8">
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                  <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                    <TextBlock Text="閱讀器 OCR 與遮罩模型狀態" FontWeight="SemiBold" FontSize="13" />
+                    <TextBlock Text="{Binding ReaderInferenceDirectory, StringFormat='模型存放目錄：{0}'}"
+                               Classes="field-hint"
+                               FontSize="11.5" />
+                  </StackPanel>
+                  <Button Grid.Column="1"
+                          Content="🔄 重新檢查"
+                          Command="{Binding RefreshReaderModelStatusCommand}"
+                          Padding="10,5" />
+                  <Button Grid.Column="2"
+                          Content="📂 開啟目錄"
+                          Command="{Binding OpenReaderInferenceFolderCommand}"
+                          Padding="10,5" />
+                </Grid>
+
+                <Grid ColumnDefinitions="195,*" ColumnSpacing="10">
+                  <TextBlock Grid.Column="0" Text="PaddleOCR (PP-OCRv6)" FontWeight="SemiBold" FontSize="12.5" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="1"
+                             Text="{Binding PaddleOcrStatusText}"
+                             Foreground="{Binding PaddleOcrStatusBrush}"
+                             FontSize="12"
+                             TextWrapping="Wrap"
+                             VerticalAlignment="Center" />
+                </Grid>
+
+                <Grid ColumnDefinitions="195,*,Auto,Auto" ColumnSpacing="8">
+                  <TextBlock Grid.Column="0" Text="ComicTextDetector ONNX" FontWeight="SemiBold" FontSize="12.5" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="1"
+                             Text="{Binding TextMaskModelStatusText}"
+                             Foreground="{Binding TextMaskModelStatusBrush}"
+                             FontSize="12"
+                             TextWrapping="Wrap"
+                             VerticalAlignment="Center" />
+                  <Button Grid.Column="2"
+                          Content="{Binding TextMaskModelActionText}"
+                          Command="{Binding DownloadTextMaskModelCommand}"
+                          IsEnabled="{Binding !IsDownloadingTextMaskModel}"
+                          Padding="10,6" />
+                  <Button Grid.Column="3"
+                          Content="取消"
+                          Command="{Binding CancelTextMaskDownloadCommand}"
+                          IsVisible="{Binding IsDownloadingTextMaskModel}"
+                          Padding="10,6" />
+                </Grid>
+
+                <StackPanel Spacing="4" IsVisible="{Binding IsDownloadingTextMaskModel}">
+                  <TextBlock Text="{Binding TextMaskDownloadProgressText}" FontSize="12" />
+                  <ProgressBar Minimum="0" Maximum="100" Value="{Binding TextMaskDownloadPercent}" Height="6" />
+                </StackPanel>
+              </StackPanel>
+            </Border>
+
             <!-- LLM API 類型與併發數 -->
             <Grid ColumnDefinitions="*,18,220">
               <StackPanel Grid.Column="0" Spacing="6">

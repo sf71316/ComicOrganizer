@@ -270,12 +270,66 @@ public class ReaderViewModelTests
                 UnorganizedDirectory = ctx.Config.UnorganizedDirectory,
                 RootDirectory = ctx.Config.RootDirectory,
                 OcrEngineType = targetEngine,
+                MaskEngineType = 2,
                 TranslationModelName = "test-model-updated"
             };
             ctx.SaveConfig(updated);
 
             Assert.Equal(targetEngine, vm.Pipeline.OcrEngineType);
+            Assert.Equal(2, vm.Pipeline.MaskEngineType);
             Assert.Contains("test-model-updated", vm.LlmSummaryText);
+
+            updated.MaskEngineType = 0;
+            ctx.SaveConfig(updated);
+            Assert.Equal(0, vm.Pipeline.MaskEngineType);
+        }
+        finally
+        {
+            try { Directory.Delete(comicDir, true); } catch { }
+            try { Directory.Delete(dataDir, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void SettingsPageViewModel_RefreshReaderModelStatus_ReflectsOnnxPresenceAndMaskOption()
+    {
+        var comicDir = CreateTempComicFolder(out _);
+        var dataDir = CreateTempDataDir(out var setupStore, comicDir);
+        setupStore.Dispose();
+
+        try
+        {
+            using var ctx = new AppDataContext(explicitDataDirectory: dataDir);
+            var settingsVm = new SettingsPageViewModel(ctx, runOnUiAsync: static a => { a(); return Task.CompletedTask; });
+
+            Assert.Equal(0, ctx.Config.MaskEngineType);
+            Assert.Equal(0, settingsVm.SelectedMaskEngine.Value);
+            Assert.Contains("尚未安裝", settingsVm.TextMaskModelStatusText);
+            Assert.False(settingsVm.IsTextMaskModelReady);
+            Assert.Contains(settingsVm.MaskEngineOptions, o => o.Value == 2);
+            Assert.Contains(settingsVm.MaskEngineOptions, o => o.Value == 0);
+
+            // 模擬設定頁下載後模型檔就位（達合理容量門檻 >= 90MB）
+            var inferDir = Path.Combine(dataDir, "inference");
+            Directory.CreateDirectory(inferDir);
+            var modelPath = Path.Combine(inferDir, ModelDownloader.ComicTextDetectorFileName);
+            using (var fs = File.Create(modelPath))
+            {
+                fs.SetLength(92_000_000L);
+            }
+
+            settingsVm.RefreshReaderModelStatusCommand.Execute(null);
+            Assert.True(settingsVm.IsTextMaskModelReady);
+            Assert.Contains("已就緒", settingsVm.TextMaskModelStatusText);
+
+            // 確認可切換並儲存選配的 ONNX 精準遮罩 (2)，也可切回預設矩形遮罩 (0)
+            settingsVm.SelectedMaskEngine = settingsVm.MaskEngineOptions.First(o => o.Value == 2);
+            settingsVm.SaveCommand.Execute(null);
+            Assert.Equal(2, ctx.Config.MaskEngineType);
+
+            settingsVm.SelectedMaskEngine = settingsVm.MaskEngineOptions.First(o => o.Value == 0);
+            settingsVm.SaveCommand.Execute(null);
+            Assert.Equal(0, ctx.Config.MaskEngineType);
         }
         finally
         {

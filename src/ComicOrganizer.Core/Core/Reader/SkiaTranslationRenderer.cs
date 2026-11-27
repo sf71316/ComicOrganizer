@@ -52,28 +52,73 @@ public static class SkiaTranslationRenderer
     /// 在目標頁面的副本上繪製所有已翻譯氣泡，回傳全新的合成 <see cref="SKImage"/>（呼叫端負責 Dispose）。
     /// </summary>
     public static SKImage RenderTranslatedPage(SKImage sourceImage, IReadOnlyList<OcrBlock> blocks)
+        => RenderTranslatedPage(sourceImage, blocks, textMask: null);
+
+    /// <summary>
+    /// 在目標頁面的副本上繪製所有已翻譯氣泡，並依可選的 <paramref name="textMask"/> 執行像素級原文擴散抹除。
+    /// 若提供 <paramref name="textMask"/>，會先限縮於具非空譯文之區塊以保護未翻譯狀聲詞；
+    /// 已被遮罩抹除之氣泡將直接於補底圖上繪製譯文，其餘區塊自動退回逐欄矩形安全遮罩。
+    /// </summary>
+    public static SKImage RenderTranslatedPage(SKImage sourceImage, IReadOnlyList<OcrBlock> blocks, byte[]? textMask)
     {
         if (sourceImage == null) throw new ArgumentNullException(nameof(sourceImage));
         if (blocks == null || blocks.Count == 0)
+        {
             return sourceImage;
+        }
 
-        var info = new SKImageInfo(sourceImage.Width, sourceImage.Height, SKColorType.Rgba8888, SKAlphaType.Premul);
-        using var surface = SKSurface.Create(info);
-        if (surface == null) return sourceImage;
+        int width = sourceImage.Width;
+        int height = sourceImage.Height;
+        byte[]? scopedMask = null;
+        SKBitmap? erasedBitmap = null;
+        SKImage? erasedImage = null;
 
-        var canvas = surface.Canvas;
-        canvas.Clear(SKColors.Transparent);
-        canvas.DrawImage(sourceImage, 0, 0);
+        try
+        {
+            if (textMask != null && textMask.Length == width * height)
+            {
+                scopedMask = SkiaTextEraser.RestrictMaskToTranslatedBlocks(textMask, width, height, blocks);
+                erasedBitmap = SkiaTextEraser.Erase(sourceImage, scopedMask);
+                if (erasedBitmap != null)
+                {
+                    erasedImage = SKImage.FromBitmap(erasedBitmap);
+                }
+            }
 
-        DrawTranslatedBlocks(canvas, sourceImage, blocks);
-        canvas.Flush();
-        return surface.Snapshot();
+            SKImage baseImage = erasedImage ?? sourceImage;
+            var info = new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul);
+            using var surface = SKSurface.Create(info);
+            if (surface == null)
+            {
+                return sourceImage;
+            }
+
+            var canvas = surface.Canvas;
+            canvas.Clear(SKColors.Transparent);
+            canvas.DrawImage(baseImage, 0, 0);
+
+            DrawTranslatedBlocksCore(canvas, baseImage, blocks, scopedMask);
+            canvas.Flush();
+            return surface.Snapshot();
+        }
+        finally
+        {
+            erasedImage?.Dispose();
+            erasedBitmap?.Dispose();
+        }
     }
 
     /// <summary>
     /// 在現有 <paramref name="canvas"/>（來源影像像素座標空間）繪製所有氣泡遮罩與直排繁中譯文。
     /// </summary>
     public static void DrawTranslatedBlocks(SKCanvas canvas, SKImage sourceImage, IReadOnlyList<OcrBlock> blocks)
+        => DrawTranslatedBlocksCore(canvas, sourceImage, blocks, scopedMask: null);
+
+    private static void DrawTranslatedBlocksCore(
+        SKCanvas canvas,
+        SKImage sourceImage,
+        IReadOnlyList<OcrBlock> blocks,
+        byte[]? scopedMask)
     {
         if (blocks == null || blocks.Count == 0) return;
 
@@ -105,31 +150,38 @@ public static class SkiaTranslationRenderer
             var maskPaint = env.DarkBubble ? darkMaskPaint : lightMaskPaint;
             var textPaint = env.DarkBubble ? lightTextPaint : darkTextPaint;
 
-            // 1. 局部塗白（優先遮罩原始子文字行框 + 微量安全 padding，最大化保留插圖背景）
-            if (block.Children != null && block.Children.Count > 0)
+            // 若此區塊已由精準文字遮罩執行擴散抹除，則略過硬邊白/黑矩形塗白；否則對該區塊補上安全矩形遮罩
+            bool erasedPrecisely = scopedMask != null &&
+                SkiaTextEraser.HasMaskPixelsInBlock(scopedMask, bmp.Width, bmp.Height, block);
+
+            if (!erasedPrecisely)
             {
-                foreach (var child in block.Children)
+                // 1. 局部塗白（優先遮罩原始子文字行框 + 微量安全 padding，最大化保留插圖背景）
+                if (block.Children != null && block.Children.Count > 0)
                 {
-                    var padX = Math.Max(2f, child.Width * 0.08f);
-                    var padY = Math.Max(2f, child.Height * 0.05f);
-                    var r = new SKRect(
-                        child.X - padX,
-                        child.Y - padY,
-                        child.X + child.Width + padX,
-                        child.Y + child.Height + padY);
-                    canvas.DrawRoundRect(r, 4f, 4f, maskPaint);
+                    foreach (var child in block.Children)
+                    {
+                        var padX = Math.Max(2f, child.Width * 0.08f);
+                        var padY = Math.Max(2f, child.Height * 0.05f);
+                        var r = new SKRect(
+                            child.X - padX,
+                            child.Y - padY,
+                            child.X + child.Width + padX,
+                            child.Y + child.Height + padY);
+                        canvas.DrawRoundRect(r, 4f, 4f, maskPaint);
+                    }
                 }
-            }
-            else
-            {
-                var padX = Math.Max(3f, block.Width * 0.08f);
-                var padY = Math.Max(3f, block.Height * 0.06f);
-                var r = new SKRect(
-                    block.X - padX,
-                    block.Y - padY,
-                    block.X + block.Width + padX,
-                    block.Y + block.Height + padY);
-                canvas.DrawRoundRect(r, 6f, 6f, maskPaint);
+                else
+                {
+                    var padX = Math.Max(3f, block.Width * 0.08f);
+                    var padY = Math.Max(3f, block.Height * 0.06f);
+                    var r = new SKRect(
+                        block.X - padX,
+                        block.Y - padY,
+                        block.X + block.Width + padX,
+                        block.Y + block.Height + padY);
+                    canvas.DrawRoundRect(r, 6f, 6f, maskPaint);
+                }
             }
 
             // 2. 在氣泡實際輪廓（若有效）或 fallback bounding box 內排直書譯文

@@ -41,12 +41,11 @@
 - ✅ **本地閱讀器 + OCR/翻譯**（見上節）。
 
 ### 進行中／後續延伸
-- 自我學習知識庫、SQLite metadata catalog、nhentai 外部 metadata 同步、EhTag 標籤翻譯、搜尋 DSL 與虛擬庫等（細節見 `CLAUDE.md`）。
-- **多規則提取**：目前 `ExtractAllKeywords` 的抽取 regex 仍寫死，尚未開放使用者自定義作者/系列辨識規則。
+- 自我學習知識庫、SQLite metadata catalog、nhentai 外部 metadata 同步、EhTag 標籤翻譯、搜尋 DSL 與虛擬庫、Metadata 保險箱（快照匯入匯出／備份還原）等（細節見 `CLAUDE.md`）。
 
-### 尚未實作
-- **衝突處理**：當一個檔案符合多個目標目錄時，提供選擇介面。
-- **操作安全**：復原（Undo）記錄、移動前空間檢查。
+### 規劃中項目
+- **閱讀器精準原文抹除與模型下載**：將 `ComicTextDetector` ONNX 與擴散背景填補接入 Avalonia / Skia 閱讀管線，並於設定頁提供模型狀態檢查與下載 UI。
+- **畫廊資料夾樹狀導覽**：於畫廊「📁 目錄」側欄提供延遲展開式多層資料夾樹狀結構與關鍵字分支過濾。
 
 ## 使用與配置 (Legacy PowerShell)
 
