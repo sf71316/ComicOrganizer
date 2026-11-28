@@ -15,7 +15,7 @@
                 CornerRadius="9"
                 BorderThickness="1"
                 BorderBrush="{DynamicResource SukiBorderBrush}">
-        <Grid ColumnDefinitions="Auto,*,Auto,260,Auto,Auto" ColumnSpacing="10">
+        <Grid ColumnDefinitions="Auto,*,Auto,280,Auto,Auto" ColumnSpacing="10">
           <CheckBox Grid.Column="0"
                     IsChecked="{Binding IsChecked, Mode=TwoWay}"
                     VerticalAlignment="Center" />
@@ -55,20 +55,40 @@
             </Border>
           </StackPanel>
 
-          <ComboBox Grid.Column="3"
-                    ItemsSource="{Binding TargetFolderOptions}"
-                    SelectedItem="{Binding SelectedTargetFolder, Mode=TwoWay}"
-                    FontSize="12"
-                    MinHeight="34"
-                    HorizontalAlignment="Stretch"
-                    VerticalAlignment="Center"
-                    ToolTip.Tip="{Binding DestinationPath}">
-            <ComboBox.ItemTemplate>
-              <DataTemplate x:DataType="x:String">
-                <TextBlock Text="{Binding}" TextWrapping="Wrap" />
-              </DataTemplate>
-            </ComboBox.ItemTemplate>
-          </ComboBox>
+          <StackPanel Grid.Column="3" Spacing="4" VerticalAlignment="Center">
+            <AutoCompleteBox ItemsSource="{Binding TargetSuggestions}"
+                             Text="{Binding TargetDraftText, Mode=TwoWay}"
+                             FilterMode="None"
+                             MinimumPrefixLength="0"
+                             MinimumPopulateDelay="0:0:0"
+                             MaxDropDownHeight="260"
+                             PlaceholderText="輸入作者／目錄搜尋或新建…"
+                             FontSize="12"
+                             MinHeight="34"
+                             HorizontalAlignment="Stretch"
+                             ToolTip.Tip="{Binding DestinationPath}"
+                             DataContextChanged="OnTargetAutoCompleteDataContextChanged"
+                             GotFocus="OnTargetAutoCompleteGotFocus"
+                             LostFocus="OnTargetAutoCompleteLostFocus"
+                             KeyDown="OnTargetAutoCompleteKeyDown"
+                             SelectionChanged="OnTargetAutoCompleteSelectionChanged">
+              <AutoCompleteBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:AutoArchiveTargetSuggestionItem">
+                  <TextBlock Text="{Binding DisplayText}" TextWrapping="Wrap" />
+                </DataTemplate>
+              </AutoCompleteBox.ItemTemplate>
+            </AutoCompleteBox>
+            <Button Classes="Basic"
+                    Padding="4,1"
+                    HorizontalAlignment="Left"
+                    IsVisible="{Binding ShowSuggestedNewAuthorButton}"
+                    Command="{Binding ApplySuggestedNewAuthorCommand}"
+                    ToolTip.Tip="一鍵使用從檔名解析出的新作者名稱建立目標資料夾">
+              <TextBlock Text="{Binding SuggestedNewAuthorButtonText}"
+                         FontSize="11"
+                         Foreground="{DynamicResource SukiPrimaryColor}" />
+            </Button>
+          </StackPanel>
 
           <Border Grid.Column="4"
                   CornerRadius="6"
@@ -156,7 +176,7 @@
         <Grid ColumnDefinitions="*,Auto">
           <StackPanel Grid.Column="0" Spacing="3">
             <StackPanel Orientation="Horizontal" Spacing="8">
-              <TextBlock Text="📦 自動歸檔與智慧配對" FontSize="20" FontWeight="Bold" />
+              <TextBlock Text="📦 自動歸檔" FontSize="20" FontWeight="Bold" />
               <Border CornerRadius="6"
                       Padding="8,2"
                       Background="{DynamicResource SukiPrimaryColor15}"
@@ -346,88 +366,115 @@
                     <StackPanel>
                       <Border Padding="10,7"
                               Background="#12808080">
-                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-                          <CheckBox Grid.Column="0"
-                                    Margin="2,0,0,0"
-                                    IsChecked="{Binding IsGroupChecked, Mode=TwoWay}"
+                        <StackPanel Spacing="6">
+                          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                            <CheckBox Grid.Column="0"
+                                      Margin="2,0,0,0"
+                                      IsChecked="{Binding IsGroupChecked, Mode=TwoWay}"
+                                      VerticalAlignment="Center"
+                                      ToolTip.Tip="一鍵全選／取消此目標目錄底下的所有項目" />
+
+                            <!-- 點擊整條標題列任何位置（目錄名稱、統計徽章或箭頭）即可展開／收合 -->
+                            <Button Grid.Column="1"
+                                    Classes="group-header-btn"
+                                    HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Stretch"
+                                    Padding="8,5"
+                                    CornerRadius="8"
+                                    Cursor="Hand"
+                                    Command="{Binding ToggleExpandCommand}"
+                                    ToolTip.Tip="點擊標題列展開／收合此目標目錄群組">
+                              <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
+                                <TextBlock Grid.Column="0"
+                                           Text="{Binding GroupHeaderTitle}"
+                                           FontSize="14"
+                                           FontWeight="Bold"
+                                           TextWrapping="Wrap"
+                                           VerticalAlignment="Center" />
+
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                  <Border CornerRadius="6"
+                                          Padding="8,2"
+                                          Background="#22F59E0B"
+                                          BorderBrush="#66F59E0B"
+                                          BorderThickness="1"
+                                          IsVisible="{Binding HasLowConfidenceItem}">
+                                    <TextBlock Text="{Binding GroupConfidenceBadgeText}"
+                                               FontSize="11.5"
+                                               FontWeight="SemiBold"
+                                               Foreground="#F59E0B" />
+                                  </Border>
+                                  <Border CornerRadius="6"
+                                          Padding="8,2"
+                                          Background="{DynamicResource SukiPrimaryColor15}"
+                                          IsVisible="{Binding HasNormalConfidenceBadge}">
+                                    <TextBlock Text="{Binding GroupConfidenceBadgeText}"
+                                               FontSize="11.5"
+                                               FontWeight="SemiBold"
+                                               Foreground="{DynamicResource SukiPrimaryColor}" />
+                                  </Border>
+                                </StackPanel>
+
+                                <Border Grid.Column="2"
+                                        CornerRadius="6"
+                                        Padding="8,2"
+                                        Background="#16808080"
+                                        VerticalAlignment="Center">
+                                  <TextBlock Text="{Binding SummaryBadgeText}" FontSize="11.5" FontWeight="SemiBold" />
+                                </Border>
+
+                                <TextBlock Grid.Column="3"
+                                           Text="{Binding ExpandGlyph}"
+                                           FontSize="13"
+                                           FontWeight="Bold"
+                                           Margin="2,0,4,0"
+                                           VerticalAlignment="Center" />
+                              </Grid>
+                            </Button>
+
+                            <Button Grid.Column="2"
+                                    Classes="Outlined"
+                                    Padding="10,5"
+                                    Command="{Binding AddCheckedToQueueCommand}"
                                     VerticalAlignment="Center"
-                                    ToolTip.Tip="一鍵全選／取消此目標目錄底下的所有項目" />
+                                    ToolTip.Tip="將此目錄群組內有打勾的作品放入右側「📥 待歸檔清單」">
+                              <TextBlock Text="{Binding AddToQueueButtonText}"
+                                         FontSize="12"
+                                         FontWeight="SemiBold" />
+                            </Button>
+                          </Grid>
 
-                          <!-- 點擊整條標題列任何位置（目錄名稱、統計徽章或箭頭）即可展開／收合 -->
-                          <Button Grid.Column="1"
-                                  Classes="group-header-btn"
-                                  HorizontalAlignment="Stretch"
-                                  HorizontalContentAlignment="Stretch"
-                                  Padding="8,5"
-                                  CornerRadius="8"
-                                  Cursor="Hand"
-                                  Command="{Binding ToggleExpandCommand}"
-                                  ToolTip.Tip="點擊標題列展開／收合此目標目錄群組">
-                            <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
-                              <TextBlock Grid.Column="0"
-                                         Text="{Binding GroupHeaderTitle}"
-                                         FontSize="14"
-                                         FontWeight="Bold"
-                                         TextWrapping="Wrap"
-                                         VerticalAlignment="Center" />
-
-                              <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                <Border CornerRadius="6"
-                                        Padding="8,2"
-                                        Background="#22F59E0B"
-                                        BorderBrush="#66F59E0B"
-                                        BorderThickness="1"
-                                        IsVisible="{Binding HasLowConfidenceItem}">
-                                  <TextBlock Text="{Binding GroupConfidenceBadgeText}"
-                                             FontSize="11.5"
-                                             FontWeight="SemiBold"
-                                             Foreground="#F59E0B" />
-                                </Border>
-                                <Border CornerRadius="6"
-                                        Padding="8,2"
-                                        Background="{DynamicResource SukiPrimaryColor15}"
-                                        IsVisible="{Binding HasNormalConfidenceBadge}">
-                                  <TextBlock Text="{Binding GroupConfidenceBadgeText}"
-                                             FontSize="11.5"
-                                             FontWeight="SemiBold"
-                                             Foreground="{DynamicResource SukiPrimaryColor}" />
-                                </Border>
-                              </StackPanel>
-
-                              <Border Grid.Column="2"
-                                      CornerRadius="6"
-                                      Padding="8,2"
-                                      Background="#16808080"
-                                      VerticalAlignment="Center">
-                                <TextBlock Text="{Binding SummaryBadgeText}" FontSize="11.5" FontWeight="SemiBold" />
-                              </Border>
-
-                              <TextBlock Grid.Column="3"
-                                         Text="{Binding ExpandGlyph}"
-                                         FontSize="13"
-                                         FontWeight="Bold"
-                                         Margin="2,0,4,0"
-                                         VerticalAlignment="Center" />
-                            </Grid>
-                          </Button>
-
-                          <Button Grid.Column="2"
-                                  Classes="Outlined"
-                                  Padding="10,5"
-                                  Command="{Binding AddCheckedToQueueCommand}"
-                                  VerticalAlignment="Center"
-                                  ToolTip.Tip="將此目錄群組內有打勾的作品放入右側「📥 待歸檔清單」">
-                            <TextBlock Text="{Binding AddToQueueButtonText}"
-                                       FontSize="12"
-                                       FontWeight="SemiBold" />
-                          </Button>
-                        </Grid>
+                          <!-- 分群標題專屬：單一關鍵字同時過濾來源檔名與目標目錄下拉選單 -->
+                          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6" Margin="26,0,0,0">
+                            <TextBox Grid.Column="0"
+                                     PlaceholderText="過濾此群組來源名稱或目標目錄…"
+                                     Text="{Binding GroupFilterText, Mode=TwoWay}"
+                                     FontSize="11.5"
+                                     MinHeight="28"
+                                     Padding="8,3" />
+                            <Button Grid.Column="1"
+                                    Classes="Basic"
+                                    Padding="7,3"
+                                    IsVisible="{Binding HasGroupFilter}"
+                                    Command="{Binding ClearGroupFilterCommand}"
+                                    ToolTip.Tip="清除此群組的篩選關鍵字">
+                              <TextBlock Text="✕ 清除" FontSize="11" />
+                            </Button>
+                          </Grid>
+                        </StackPanel>
                       </Border>
 
-                      <ItemsControl IsVisible="{Binding IsExpanded}"
-                                    ItemsSource="{Binding Items}"
-                                    ItemTemplate="{StaticResource AutoArchiveCandidateRowTemplate}"
-                                    Margin="8,4,8,8" />
+                      <StackPanel IsVisible="{Binding IsExpanded}">
+                        <TextBlock Text="目前篩選條件在此群組無符合項目或目錄"
+                                   FontSize="12"
+                                   Opacity="0.65"
+                                   Margin="16,10"
+                                   IsVisible="{Binding IsGroupFilterEmptyResult}" />
+                        <ItemsRepeater ItemsSource="{Binding FilteredItems}"
+                                       ItemTemplate="{StaticResource AutoArchiveCandidateRowTemplate}"
+                                       VerticalCacheLength="0.5"
+                                       Margin="8,4,8,8" />
+                      </StackPanel>
                     </StackPanel>
                   </Border>
                 </DataTemplate>
@@ -441,6 +488,7 @@
                         VerticalScrollBarVisibility="Auto">
             <ItemsRepeater ItemsSource="{Binding VisibleCandidates}"
                            ItemTemplate="{StaticResource AutoArchiveCandidateRowTemplate}"
+                           VerticalCacheLength="0.5"
                            Margin="0,0,8,0" />
           </ScrollViewer>
         </Grid>

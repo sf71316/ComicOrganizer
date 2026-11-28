@@ -35,7 +35,7 @@ public static class GlobalPopupLightDismissHelper
 
     internal static bool ShouldTrackPopup(Popup popup)
         => popup.IsLightDismissEnabled
-           || popup.TemplatedParent is ComboBox or ContextMenu
+           || popup.TemplatedParent is ComboBox or AutoCompleteBox or ContextMenu
            || popup.Child is ContextMenu;
 
     internal static bool ShouldDismissPopupOnPointerPress(Popup popup, object? eventSource)
@@ -69,6 +69,11 @@ public static class GlobalPopupLightDismissHelper
             return false;
         }
 
+        if (templatedParent is AutoCompleteBox autoComplete && IsDescendantOrSelf(eventSource, autoComplete))
+        {
+            return false;
+        }
+
         if (templatedParent is ContextMenu menu && IsDescendantOrSelf(eventSource, menu))
         {
             return false;
@@ -76,6 +81,7 @@ public static class GlobalPopupLightDismissHelper
 
         // DslSearchBox 自動完成浮層等：點擊觸發目標控制項本身（如輸入框）時保持開啟
         if (templatedParent is not ComboBox
+            && templatedParent is not AutoCompleteBox
             && templatedParent is not ContextMenu
             && placementTarget is not null
             && IsDescendantOrSelf(eventSource, placementTarget))
@@ -91,6 +97,10 @@ public static class GlobalPopupLightDismissHelper
         if (popup.TemplatedParent is ComboBox combo)
         {
             combo.IsDropDownOpen = false;
+        }
+        else if (popup.TemplatedParent is AutoCompleteBox autoComplete)
+        {
+            autoComplete.IsDropDownOpen = false;
         }
         else if (popup.TemplatedParent is ContextMenu menu)
         {

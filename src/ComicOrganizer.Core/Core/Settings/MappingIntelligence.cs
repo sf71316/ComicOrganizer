@@ -8,6 +8,7 @@ public class MappingIntelligence
     private static readonly Regex BracketBlockRegex = new(@"\[([^\]]+)\]|\(([^()]+)\)|\{([^\}]+)\}", RegexOptions.Compiled);
 
     private Dictionary<string, string> _learnedMappings = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, string>? _canonicalMappingsCache;
     private readonly string _storagePath;
 
     public MappingIntelligence(string? storagePath = null)
@@ -27,6 +28,7 @@ public class MappingIntelligence
         if (!_learnedMappings.ContainsKey(normalizedKey) || _learnedMappings[normalizedKey] != targetFolderName)
         {
             _learnedMappings[normalizedKey] = targetFolderName;
+            _canonicalMappingsCache = null;
             Save();
         }
     }
@@ -44,8 +46,7 @@ public class MappingIntelligence
         var parsed = FilenameMetadataParser.ParseWorkName(normalizedFileName);
         if (!string.IsNullOrWhiteSpace(parsed.AuthorMainName))
         {
-            var mainKey = NormalizeKey(parsed.AuthorMainName);
-            if (!FilenameMetadataParser.IsKnownNoiseTag(mainKey) && _learnedMappings.TryGetValue(mainKey, out var mappedMain))
+            if (TryLookupWithCanonicalFallback(parsed.AuthorMainName, out var mappedMain))
             {
                 return mappedMain;
             }
@@ -53,8 +54,7 @@ public class MappingIntelligence
 
         if (!string.IsNullOrWhiteSpace(parsed.AuthorAlias))
         {
-            var aliasKey = NormalizeKey(parsed.AuthorAlias);
-            if (!FilenameMetadataParser.IsKnownNoiseTag(aliasKey) && _learnedMappings.TryGetValue(aliasKey, out var mappedAlias))
+            if (TryLookupWithCanonicalFallback(parsed.AuthorAlias, out var mappedAlias))
             {
                 return mappedAlias;
             }
@@ -64,13 +64,7 @@ public class MappingIntelligence
         {
             string rawBlock = m.Groups[1].Success ? m.Groups[1].Value
                 : (m.Groups[2].Success ? m.Groups[2].Value : m.Groups[3].Value);
-            var blockKey = NormalizeKey(rawBlock);
-            if (string.IsNullOrEmpty(blockKey) || FilenameMetadataParser.IsKnownNoiseTag(blockKey))
-            {
-                continue;
-            }
-
-            if (_learnedMappings.TryGetValue(blockKey, out var mappedBlock))
+            if (TryLookupWithCanonicalFallback(rawBlock, out var mappedBlock))
             {
                 return mappedBlock;
             }
@@ -78,6 +72,7 @@ public class MappingIntelligence
 
         // 2. Fallback：依關鍵字長度由長到短檢查具詞界保護的子字串命中，防止 "ai" / "no" 等極短 key 誤中整個檔名
         var lowerFileName = normalizedFileName.ToLowerInvariant();
+        string? canonicalFileName = null;
         var sortedMappings = _learnedMappings.OrderByDescending(x => x.Key.Length);
 
         foreach (var entry in sortedMappings)
@@ -92,6 +87,13 @@ public class MappingIntelligence
             {
                 return entry.Value;
             }
+
+            canonicalFileName ??= FilenameMetadataParser.CanonicalizeMatchText(lowerFileName).ToLowerInvariant();
+            var canonicalKey = NormalizeCanonicalKey(entry.Key);
+            if (CanUseSubstringFallback(canonicalKey) && ContainsWithBoundary(canonicalFileName, canonicalKey))
+            {
+                return entry.Value;
+            }
         }
 
         return null;
@@ -99,6 +101,61 @@ public class MappingIntelligence
 
     internal static string NormalizeKey(string keyword)
         => FilenameMetadataParser.NormalizeMatchText(keyword).ToLowerInvariant();
+
+    internal static string NormalizeCanonicalKey(string keyword)
+        => FilenameMetadataParser.CanonicalizeMatchText(keyword).ToLowerInvariant();
+
+    private bool TryLookupWithCanonicalFallback(string rawKeyword, out string mappedFolder)
+    {
+        mappedFolder = string.Empty;
+        var key = NormalizeKey(rawKeyword);
+        if (string.IsNullOrEmpty(key) || FilenameMetadataParser.IsKnownNoiseTag(key))
+        {
+            return false;
+        }
+
+        if (_learnedMappings.TryGetValue(key, out var exact))
+        {
+            mappedFolder = exact;
+            return true;
+        }
+
+        var canonicalKey = NormalizeCanonicalKey(rawKeyword);
+        if (string.IsNullOrEmpty(canonicalKey) || FilenameMetadataParser.IsKnownNoiseTag(canonicalKey))
+        {
+            return false;
+        }
+
+        var canonicalMap = GetOrBuildCanonicalMap();
+        if (canonicalMap.TryGetValue(canonicalKey, out var canonicalHit))
+        {
+            mappedFolder = canonicalHit;
+            return true;
+        }
+
+        return false;
+    }
+
+    private Dictionary<string, string> GetOrBuildCanonicalMap()
+    {
+        if (_canonicalMappingsCache != null)
+        {
+            return _canonicalMappingsCache;
+        }
+
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var kvp in _learnedMappings)
+        {
+            var cKey = NormalizeCanonicalKey(kvp.Key);
+            if (!string.IsNullOrEmpty(cKey) && !map.ContainsKey(cKey))
+            {
+                map[cKey] = kvp.Value;
+            }
+        }
+
+        _canonicalMappingsCache = map;
+        return map;
+    }
 
     internal static bool IsValidLearningKey(string normalizedKey)
     {
@@ -187,7 +244,11 @@ public class MappingIntelligence
 
     public void Load()
     {
-        if (!File.Exists(_storagePath)) return;
+        if (!File.Exists(_storagePath))
+        {
+            return;
+        }
+
         try
         {
             var json = File.ReadAllText(_storagePath);
@@ -195,8 +256,13 @@ public class MappingIntelligence
             _learnedMappings = loaded == null
                 ? new(StringComparer.OrdinalIgnoreCase)
                 : new(loaded, StringComparer.OrdinalIgnoreCase);
+            _canonicalMappingsCache = null;
         }
-        catch { _learnedMappings = new(StringComparer.OrdinalIgnoreCase); }
+        catch
+        {
+            _learnedMappings = new(StringComparer.OrdinalIgnoreCase);
+            _canonicalMappingsCache = null;
+        }
     }
 
     public void Save()
@@ -207,7 +273,9 @@ public class MappingIntelligence
             var json = JsonSerializer.Serialize(_learnedMappings, options);
             File.WriteAllText(_storagePath, json);
         }
-        catch { }
+        catch
+        {
+        }
     }
 
     public int KnowledgeCount => _learnedMappings.Count;
@@ -238,6 +306,7 @@ public class MappingIntelligence
 
         if (changed > 0)
         {
+            _canonicalMappingsCache = null;
             Save();
         }
 

@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Text.RegularExpressions;
 
 namespace ComicOrganizer.App.Core;
@@ -207,6 +208,48 @@ public static class FilenameMetadataParser
         @"(?<=[\p{IsCJKUnifiedIdeographs}\p{IsHiragana}\p{IsKatakana}])(?=[A-Za-z])|(?<=[A-Za-z])(?=[\p{IsCJKUnifiedIdeographs}\p{IsHiragana}\p{IsKatakana}])",
         RegexOptions.Compiled);
 
+    private static readonly FrozenDictionary<char, char> JapaneseShinjitaiToTraditionalMap =
+        new Dictionary<char, char>
+        {
+            ['来'] = '來', ['黒'] = '黑', ['桜'] = '櫻', ['沢'] = '澤', ['亜'] = '亞',
+            ['竜'] = '龍', ['剣'] = '劍', ['図'] = '圖', ['気'] = '氣', ['駅'] = '驛',
+            ['鉄'] = '鐵', ['蛍'] = '螢', ['亀'] = '龜', ['絵'] = '繪', ['姫'] = '姬',
+            ['仏'] = '佛', ['伝'] = '傳', ['転'] = '轉', ['対'] = '對', ['広'] = '廣',
+            ['発'] = '發', ['髪'] = '髮', ['読'] = '讀', ['売'] = '賣', ['変'] = '變',
+            ['恋'] = '戀', ['楽'] = '樂', ['学'] = '學', ['実'] = '實', ['国'] = '國',
+            ['悪'] = '惡', ['辺'] = '邊', ['両'] = '兩', ['万'] = '萬', ['円'] = '圓',
+            ['写'] = '寫', ['声'] = '聲', ['体'] = '體', ['単'] = '單', ['戦'] = '戰',
+            ['雑'] = '雜', ['霊'] = '靈', ['宝'] = '寶', ['豊'] = '豐', ['浜'] = '濱',
+            ['滝'] = '瀧', ['満'] = '滿', ['緑'] = '綠', ['様'] = '樣', ['総'] = '總',
+            ['続'] = '續', ['蔵'] = '藏', ['歳'] = '歲', ['残'] = '殘', ['浅'] = '淺',
+            ['証'] = '證', ['恵'] = '惠', ['穂'] = '穗', ['遥'] = '遙', ['静'] = '靜',
+            ['斉'] = '齊', ['斎'] = '齋', ['渋'] = '澀', ['焼'] = '燒', ['条'] = '條',
+            ['嬢'] = '孃', ['乗'] = '乘', ['触'] = '觸', ['数'] = '數', ['専'] = '專',
+            ['双'] = '雙', ['争'] = '爭', ['増'] = '增', ['帯'] = '帶', ['滞'] = '滯',
+            ['胆'] = '膽', ['弾'] = '彈', ['断'] = '斷', ['遅'] = '遲', ['昼'] = '晝',
+            ['虫'] = '蟲', ['聴'] = '聽', ['党'] = '黨', ['盗'] = '盜', ['灯'] = '燈',
+            ['当'] = '當', ['闘'] = '鬥', ['独'] = '獨', ['届'] = '屆', ['悩'] = '惱',
+            ['脳'] = '腦', ['拝'] = '拜', ['廃'] = '廢', ['抜'] = '拔', ['払'] = '拂',
+            ['訳'] = '譯', ['薬'] = '藥', ['揺'] = '搖', ['頼'] = '賴', ['乱'] = '亂',
+            ['覧'] = '覽', ['猟'] = '獵', ['涙'] = '淚', ['歴'] = '歷', ['労'] = '勞',
+            ['楼'] = '樓', ['録'] = '錄', ['湾'] = '灣', ['仮'] = '假', ['価'] = '價',
+            ['会'] = '會', ['関'] = '關', ['観'] = '觀', ['帰'] = '歸', ['犠'] = '犧',
+            ['挙'] = '舉', ['駆'] = '驅', ['勲'] = '勳', ['径'] = '徑', ['経'] = '經',
+            ['軽'] = '輕', ['芸'] = '藝', ['県'] = '縣', ['献'] = '獻', ['険'] = '險',
+            ['顕'] = '顯', ['厳'] = '嚴', ['効'] = '效', ['鉱'] = '礦', ['号'] = '號',
+            ['済'] = '濟', ['砕'] = '碎', ['剤'] = '劑', ['賛'] = '贊', ['児'] = '兒',
+            ['辞'] = '辭', ['湿'] = '濕', ['釈'] = '釋', ['寿'] = '壽', ['収'] = '收',
+            ['従'] = '從', ['処'] = '處', ['奨'] = '獎', ['称'] = '稱', ['浄'] = '淨',
+            ['譲'] = '讓', ['醸'] = '釀', ['嘱'] = '囑', ['尽'] = '盡', ['粋'] = '粹',
+            ['酔'] = '醉', ['随'] = '隨', ['枢'] = '樞', ['瀬'] = '瀨', ['摂'] = '攝',
+            ['銭'] = '錢', ['潜'] = '潛', ['繊'] = '纖', ['禅'] = '禪', ['壮'] = '壯',
+            ['装'] = '裝', ['騒'] = '騷', ['臓'] = '臟', ['堕'] = '墮', ['択'] = '擇',
+            ['担'] = '擔', ['痴'] = '癡', ['鋳'] = '鑄', ['庁'] = '廳', ['点'] = '點',
+            ['徳'] = '德', ['覇'] = '霸', ['麦'] = '麥', ['弁'] = '辯', ['舗'] = '鋪',
+            ['誉'] = '譽', ['齢'] = '齡', ['錬'] = '鍊', ['炉'] = '爐', ['真'] = '真',
+            ['眞'] = '真'
+        }.ToFrozenDictionary();
+
     /// <summary>
     /// 比對前文字正規化（Unicode NFKC 統一全半形英數／濁點並修剪前後空白）。
     /// </summary>
@@ -214,6 +257,73 @@ public static class FilenameMetadataParser
         => string.IsNullOrWhiteSpace(input)
             ? string.Empty
             : input.Trim().Normalize(System.Text.NormalizationForm.FormKC);
+
+    /// <summary>
+    /// 抽取目標相對／完整路徑的最後一層葉目錄名稱（例："_Legacy\尾崎未來" -> "尾崎未來"）。
+    /// </summary>
+    public static string ExtractLeafFolderName(string? folderPath)
+    {
+        if (string.IsNullOrWhiteSpace(folderPath))
+        {
+            return string.Empty;
+        }
+
+        string trimmed = folderPath.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (string.IsNullOrEmpty(trimmed))
+        {
+            return string.Empty;
+        }
+
+        int lastSep = trimmed.LastIndexOfAny(['\\', '/']);
+        return lastSep >= 0 && lastSep + 1 < trimmed.Length
+            ? trimmed[(lastSep + 1)..]
+            : trimmed;
+    }
+
+    /// <summary>
+    /// 比對用漢字正規化：先將常見日語新字體映射為繁體正字，再以 OpenCC 統一簡繁漢字字形（含 CJK 才觸發轉換）。
+    /// </summary>
+    public static string CanonicalizeMatchText(string? input)
+    {
+        var normalized = NormalizeMatchText(input);
+        if (string.IsNullOrEmpty(normalized))
+        {
+            return string.Empty;
+        }
+
+        bool hasCjkIdeograph = false;
+        bool hasShinjitai = false;
+        foreach (char c in normalized)
+        {
+            if (c is (>= '\u3400' and <= '\u9FFF') or (>= '\uF900' and <= '\uFAFF'))
+            {
+                hasCjkIdeograph = true;
+                if (JapaneseShinjitaiToTraditionalMap.ContainsKey(c))
+                {
+                    hasShinjitai = true;
+                }
+            }
+        }
+
+        if (!hasCjkIdeograph)
+        {
+            return normalized;
+        }
+
+        string mapped = hasShinjitai
+            ? string.Create(normalized.Length, normalized, static (span, src) =>
+            {
+                for (int i = 0; i < src.Length; i++)
+                {
+                    span[i] = JapaneseShinjitaiToTraditionalMap.TryGetValue(src[i], out char mappedChar)
+                        ? mappedChar
+                        : src[i];
+                }
+            })
+            : normalized;
+
+        return ZhConverter.ToSimplified(mapped);
+    }
 
     /// <summary>
     /// 判斷完整標籤片語是否屬於非作者雜訊（規格、版本、AI、語言、漢化組、展會、雜誌刊號或純數字日期）。
@@ -242,12 +352,13 @@ public static class FilenameMetadataParser
     }
 
     /// <summary>
-    /// 從目標作者／作品目錄名稱展開所有可用於實體比對的別名集合（含複合括號、連寫雙語與多作者拆分）。
-    /// 例如 "文雅[Fumi Miyabi](Bunga)"、"みずゆきRenainou"、"床子屋 (HEIZO、鬼頭えん)"。
+    /// 從目標作者／作品目錄名稱展開所有可用於實體比對的別名集合（自動抽葉目錄、含複合括號、連寫雙語與多作者拆分）。
+    /// 例如 "文雅[Fumi Miyabi](Bunga)"、"_Legacy\尾崎未來"、"床子屋 (HEIZO、鬼頭えん)"。
     /// </summary>
     public static IReadOnlyList<string> ExpandAuthorFolderAliases(string folderName)
     {
-        var normalized = NormalizeMatchText(folderName);
+        var leafName = ExtractLeafFolderName(folderName);
+        var normalized = NormalizeMatchText(string.IsNullOrEmpty(leafName) ? folderName : leafName);
         if (string.IsNullOrEmpty(normalized))
         {
             return Array.Empty<string>();

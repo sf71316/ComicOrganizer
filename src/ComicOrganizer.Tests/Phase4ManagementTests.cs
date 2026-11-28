@@ -726,6 +726,335 @@ public sealed class Phase4ManagementTests : IDisposable
         Assert.True(Directory.Exists(Path.Combine(srcDir, w4)));
     }
 
+    [Fact]
+    public async Task AutoArchive_GroupHeaderCombinedFilter_FiltersSourceItemsAndTargetDropdown_PreserveSelectionAndAllCheck()
+    {
+        var dataDir = CreateTempDir("GrpFilterData");
+        var srcDir = CreateTempDir("GrpFilterSrc");
+        var rootDir = CreateTempDir("GrpFilterRoot");
+
+        var authorMain = "TargetMainAuthor";
+        var authorAltOne = "SpecialCircleAlpha";
+        var authorAltTwo = "SpecialCircleBeta";
+        Directory.CreateDirectory(Path.Combine(rootDir, authorMain));
+        Directory.CreateDirectory(Path.Combine(rootDir, authorAltOne));
+        Directory.CreateDirectory(Path.Combine(rootDir, authorAltTwo));
+
+        // 在 TargetMainAuthor 群組塞入兩個檔名不同的項目，以及 1 筆未匹配項目
+        Directory.CreateDirectory(Path.Combine(srcDir, $"[{authorMain}] AlphaChapter1"));
+        Directory.CreateDirectory(Path.Combine(srcDir, $"[{authorMain}] OtherStory2"));
+        Directory.CreateDirectory(Path.Combine(srcDir, "TotallyUnknown_Mystery"));
+
+        await File.WriteAllTextAsync(
+            Path.Combine(dataDir, "appsettings.json"),
+            JsonSerializer.Serialize(new AppConfig
+            {
+                UnorganizedDirectory = srcDir,
+                RootDirectory = rootDir
+            }));
+        using (var initStore = new SqliteAssetMetaStore(Path.Combine(dataDir, "cache.db")))
+        {
+            Assert.NotNull(initStore);
+        }
+
+        using var ctx = new AppDataContext(explicitDataDirectory: dataDir, forceReadOnlyDatabase: false);
+        var vm = new AutoArchivePageViewModel(ctx, runOnUiAsync: ImmediateUiAsync);
+        await vm.ScanAsync();
+
+        var mainGroup = vm.TargetGroups.Single(g => g.TargetFolderName == authorMain);
+        var unmatchedGroup = vm.TargetGroups.Single(g => g.IsUnmatchedGroup);
+        Assert.Equal(2, mainGroup.Items.Count);
+        Assert.Equal(2, mainGroup.FilteredItems.Count);
+
+        // 1. 單一輸入框搜尋檔名關鍵字「Alpha」：來源項目縮減為 1 筆，且保留「未匹配」與已選目標目錄
+        mainGroup.GroupFilterText = "Alpha";
+        var visibleItem = Assert.Single(mainGroup.FilteredItems);
+        Assert.Contains("AlphaChapter1", visibleItem.SourceName);
+        Assert.Contains("顯示 1 / 共 2 筆", mainGroup.SummaryBadgeText);
+        Assert.Contains("未匹配", visibleItem.TargetFolderOptions);
+        Assert.Contains(authorMain, visibleItem.TargetFolderOptions);
+        Assert.Contains(authorAltOne, visibleItem.TargetFolderOptions);
+
+        // 2. 分群左上角全選仍作用於該分群「全部項目」（包含被篩選隱藏的 OtherStory2）
+        mainGroup.IsGroupChecked = false;
+        Assert.All(mainGroup.Items, i => Assert.False(i.IsChecked));
+        mainGroup.IsGroupChecked = true;
+        Assert.All(mainGroup.Items, i => Assert.True(i.IsChecked));
+
+        // 3. 輸入只命中目標目錄清單的關鍵字「SpecialCircle」：雖然組內檔名沒命中，仍保留項目顯示並收斂下拉選單
+        mainGroup.GroupFilterText = "SpecialCircle";
+        Assert.Equal(2, mainGroup.FilteredItems.Count);
+        Assert.Contains("目錄選單剩 2 個", mainGroup.SummaryBadgeText);
+        foreach (var item in mainGroup.Items)
+        {
+            Assert.Equal(authorMain, item.SelectedTargetFolder);
+            Assert.Equal(4, item.TargetFolderOptions.Count); // 未匹配 + TargetMainAuthor + SpecialCircleAlpha + SpecialCircleBeta
+        }
+
+        // 4. 在預設收合的「尚未匹配」群組輸入目錄關鍵字「SpecialCircle」應自動展開，並將下拉選單收斂成 3 個
+        Assert.False(unmatchedGroup.IsExpanded);
+        unmatchedGroup.GroupFilterText = "SpecialCircle";
+        Assert.True(unmatchedGroup.IsExpanded);
+        Assert.Single(unmatchedGroup.FilteredItems);
+        Assert.Equal(3, unmatchedGroup.Items[0].TargetFolderOptions.Count);
+
+        // 5. 切回平面「項目列表」模式應還原完整下拉選項，切回「依目錄分群」應再套用原本過濾
+        vm.SelectViewModeCommand.Execute("Flat");
+        Assert.Equal(4, unmatchedGroup.Items[0].TargetFolderOptions.Count);
+        vm.SelectViewModeCommand.Execute("Grouped");
+        Assert.Equal(3, unmatchedGroup.Items[0].TargetFolderOptions.Count);
+
+        // 6. 檔名與目錄皆無匹配時應呈現空篩選狀態；清除後恢復完整顯示
+        mainGroup.GroupFilterText = "ZzzzNotExist_999";
+        Assert.Empty(mainGroup.FilteredItems);
+        Assert.True(mainGroup.IsGroupFilterEmptyResult);
+
+        mainGroup.ClearGroupFilterCommand.Execute(null);
+        Assert.False(mainGroup.HasGroupFilter);
+        Assert.Equal(2, mainGroup.FilteredItems.Count);
+        Assert.Equal(4, mainGroup.Items[0].TargetFolderOptions.Count);
+    }
+
+    [Fact]
+    public async Task AutoArchive_FuzzyTargetAutoComplete_NewAuthorSuggestionAndCreation_MovesSafelyAndLearnsRule()
+    {
+        var dataDir = CreateTempDir("NewAuthData");
+        var srcDir = CreateTempDir("NewAuthSrc");
+        var rootDir = CreateTempDir("NewAuthRoot");
+
+        var existingOne = "CREAYUS (嵐月)";
+        var existingTwo = "Cuvie";
+        var existingThree = "Flugel";
+        Directory.CreateDirectory(Path.Combine(rootDir, existingOne));
+        Directory.CreateDirectory(Path.Combine(rootDir, existingTwo));
+        Directory.CreateDirectory(Path.Combine(rootDir, existingThree));
+
+        // 新作者作品 1：從括號可抽出 [BrandNewCircle (FreshArtist)]；作品 2：完全無作者前綴
+        var newAuthorZip = Path.Combine(srcDir, "(C105) [BrandNewCircle (FreshArtist)] Debut Book.zip");
+        var customNewZip = Path.Combine(srcDir, "Untagged Mystery Album.zip");
+        await File.WriteAllBytesAsync(newAuthorZip, new byte[] { 0x50, 0x4B, 0x05, 0x06 });
+        await File.WriteAllBytesAsync(customNewZip, new byte[] { 0x50, 0x4B, 0x05, 0x06 });
+
+        await File.WriteAllTextAsync(
+            Path.Combine(dataDir, "appsettings.json"),
+            JsonSerializer.Serialize(new AppConfig
+            {
+                UnorganizedDirectory = srcDir,
+                RootDirectory = rootDir
+            }));
+        using (var initStore = new SqliteAssetMetaStore(Path.Combine(dataDir, "cache.db")))
+        {
+            Assert.NotNull(initStore);
+        }
+
+        using var ctx = new AppDataContext(explicitDataDirectory: dataDir, forceReadOnlyDatabase: false);
+        var vm = new AutoArchivePageViewModel(ctx, runOnUiAsync: ImmediateUiAsync);
+        await vm.ScanAsync();
+
+        var unmatchedGroup = Assert.Single(vm.TargetGroups, g => g.IsUnmatchedGroup);
+        var debutItem = Assert.Single(unmatchedGroup.Items, i => i.SourceName.Contains("Debut Book"));
+        var mysteryItem = Assert.Single(unmatchedGroup.Items, i => i.SourceName.Contains("Untagged Mystery"));
+
+        // 1. 應自動抽出建議新作者「BrandNewCircle (FreshArtist)」，無作者括號者為 null
+        Assert.True(debutItem.ShowSuggestedNewAuthorButton);
+        Assert.Equal("BrandNewCircle (FreshArtist)", debutItem.SuggestedNewAuthorFolder);
+        Assert.False(mysteryItem.ShowSuggestedNewAuthorButton);
+
+        // 2. 模糊搜尋輸入：打 "flgel" 仍可模糊推薦 "Flugel" 且輸入途中不可改寫 SelectedTargetFolder（不跳群組）；打別名 "嵐月" 應命中 "CREAYUS (嵐月)"
+        mysteryItem.TargetDraftText = "flgel";
+        Assert.Equal("未匹配", mysteryItem.SelectedTargetFolder);
+        Assert.Contains(mysteryItem.TargetSuggestions, s => s.FolderName == existingThree);
+
+        mysteryItem.TargetDraftText = "嵐月";
+        Assert.Equal(existingOne, mysteryItem.TargetSuggestions[0].FolderName);
+
+        // 3. 輸入尚不存在的新作者資料夾名稱應出現「➕ 新建目標資料夾」，且非法名稱不提供新建、也不會誤提交
+        mysteryItem.TargetDraftText = "bad/name*";
+        Assert.DoesNotContain(mysteryItem.TargetSuggestions, s => s.Kind == AutoArchiveTargetSuggestionKind.CreateNewFolder);
+        Assert.False(mysteryItem.CommitTargetSelection("bad/name*", allowCreateNew: true));
+        Assert.Equal("未匹配", mysteryItem.SelectedTargetFolder);
+
+        mysteryItem.TargetDraftText = "CustomNewAuthor";
+        var createOption = Assert.Single(mysteryItem.TargetSuggestions, s => s.Kind == AutoArchiveTargetSuggestionKind.CreateNewFolder);
+        Assert.Equal("CustomNewAuthor", createOption.FolderName);
+        Assert.True(mysteryItem.CommitTargetSelection(createOption, allowCreateNew: true));
+
+        // 確認已搬進新建群組「📁 CustomNewAuthor」並自動勾選，且其他列下拉選單也可見此新目標
+        Assert.True(mysteryItem.IsNewTargetFolder);
+        Assert.Equal("CustomNewAuthor", mysteryItem.SelectedTargetFolder);
+        Assert.Contains(vm.TargetGroups, g => g.TargetFolderName == "CustomNewAuthor");
+        Assert.Contains("CustomNewAuthor", debutItem.TargetFolderOptions);
+
+        // 4. 點擊「💡 建議新建」一鍵採用檔名抽出的新作者
+        debutItem.ApplySuggestedNewAuthorCommand.Execute(null);
+        Assert.Equal("BrandNewCircle (FreshArtist)", debutItem.SelectedTargetFolder);
+        Assert.Contains(vm.TargetGroups, g => g.TargetFolderName == "BrandNewCircle (FreshArtist)");
+
+        // 5. 真正執行歸檔：自動在磁碟建立兩個新作者資料夾並搬移，且寫回知識庫下次可自動配對
+        await vm.ExecuteArchiveCommand.ExecuteAsync(null);
+        Assert.True(File.Exists(Path.Combine(rootDir, "BrandNewCircle (FreshArtist)", Path.GetFileName(newAuthorZip))));
+        Assert.True(File.Exists(Path.Combine(rootDir, "CustomNewAuthor", Path.GetFileName(customNewZip))));
+
+        var intel = new MappingIntelligence(Path.Combine(dataDir, "mappings.json"));
+        Assert.Equal("BrandNewCircle (FreshArtist)", intel.TryGetMappedFolder("[BrandNewCircle] Second Book.zip"));
+    }
+
+    [Fact]
+    public void AutoArchivePageView_InstantiatesWithAutoCompleteBoxOnUiThread()
+    {
+        var dataDir = CreateTempDir("ViewInitData");
+        using var initStore = new SqliteAssetMetaStore(Path.Combine(dataDir, "cache.db"));
+        using var ctx = new AppDataContext(explicitDataDirectory: dataDir, forceReadOnlyDatabase: true);
+        var vm = new AutoArchivePageViewModel(ctx, runOnUiAsync: ImmediateUiAsync);
+
+        AvaloniaTestThread.Run(() =>
+        {
+            var view = new ComicOrganizer.Avalonia.Views.AutoArchivePageView
+            {
+                DataContext = vm
+            };
+            Assert.Same(vm, view.DataContext);
+        });
+    }
+
+    [Fact]
+    public async Task AutoArchive_LazySuggestions_SharedFolderOptions_AndDebounce_SkipPerKeystrokeRebuilds()
+    {
+        var dataDir = CreateTempDir("PerfFilterData");
+        var srcDir = CreateTempDir("PerfFilterSrc");
+        var rootDir = CreateTempDir("PerfFilterRoot");
+
+        for (int a = 0; a < 20; a++)
+        {
+            Directory.CreateDirectory(Path.Combine(rootDir, $"Author_{a:D2}"));
+        }
+
+        // 塞入 120 個未匹配項目
+        for (int i = 0; i < 120; i++)
+        {
+            var tag = i < 15 ? $"QueryHit_{i:D3}" : $"Other_{i:D3}";
+            await File.WriteAllBytesAsync(Path.Combine(srcDir, $"{tag}.zip"), new byte[] { 0x50, 0x4B, 0x05, 0x06 });
+        }
+
+        await File.WriteAllTextAsync(
+            Path.Combine(dataDir, "appsettings.json"),
+            JsonSerializer.Serialize(new AppConfig
+            {
+                UnorganizedDirectory = srcDir,
+                RootDirectory = rootDir
+            }));
+        using (var initStore = new SqliteAssetMetaStore(Path.Combine(dataDir, "cache.db")))
+        {
+            Assert.NotNull(initStore);
+        }
+
+        using var ctx = new AppDataContext(explicitDataDirectory: dataDir, forceReadOnlyDatabase: false);
+        var vm = new AutoArchivePageViewModel(ctx, runOnUiAsync: ImmediateUiAsync, filterDebounceMs: 60);
+        await vm.ScanAsync();
+
+        var unmatchedGroup = Assert.Single(vm.TargetGroups, g => g.IsUnmatchedGroup);
+        Assert.Equal(120, unmatchedGroup.Items.Count);
+        // 1. 掃描後所有項目尚未預填彈窗建議（點開才計算）
+        Assert.All(unmatchedGroup.Items, i => Assert.Empty(i.TargetSuggestions));
+
+        // 2. 連打字防抖動：快速連續變更時不會立刻同步重篩
+        unmatchedGroup.GroupFilterText = "Q";
+        unmatchedGroup.GroupFilterText = "Qu";
+        unmatchedGroup.GroupFilterText = "QueryHit";
+        Assert.Equal(120, unmatchedGroup.FilteredItems.Count);
+
+        // 等待防抖動時間窗過去後只會執行一次最終關鍵字過濾
+        await Task.Delay(140);
+        Assert.Equal(15, unmatchedGroup.FilteredItems.Count);
+        // 2.1 分群篩選期間各項目不得提前建出彈窗建議（避免 120 列同時重繪通知）
+        Assert.All(unmatchedGroup.Items, i => Assert.Empty(i.TargetSuggestions));
+        // 2.2 共用同一份過濾後目錄清單參考（O(1) 分群運算）
+        Assert.Same(unmatchedGroup.Items[0].TargetFolderOptions, unmatchedGroup.Items[1].TargetFolderOptions);
+
+        // 3. 清除為空字時應立即套用，不拖延
+        unmatchedGroup.ClearGroupFilterCommand.Execute(null);
+        Assert.Equal(120, unmatchedGroup.FilteredItems.Count);
+    }
+
+    [Fact]
+    public async Task AutoArchive_SubcategoryAuthor_CanonicalMatch_MovesAndCatalogsLeafAuthor()
+    {
+        var dataDir = CreateTempDir("SubCatVmData");
+        var srcDir = CreateTempDir("SubCatVmSrc");
+        var rootDir = CreateTempDir("SubCatVmRoot");
+
+        var expectedTargetRel = Path.Combine("_Legacy", "尾崎未來");
+        var ozakiTargetDir = Path.Combine(rootDir, expectedTargetRel);
+        Directory.CreateDirectory(ozakiTargetDir);
+        await File.WriteAllBytesAsync(Path.Combine(ozakiTargetDir, "old_work.zip"), new byte[] { 0x50, 0x4B, 0x05, 0x06 });
+
+        var srcBook1 = Path.Combine(srcDir, "[BEAT-POP (尾崎未来)] 放課後ラブモード2 [DL版]");
+        var srcBook2 = Path.Combine(srcDir, "[尾崎未来] 放課後ラブモード [中国翻訳]");
+        var srcBook3 = Path.Combine(srcDir, "尾崎未來同人無括號合集.zip");
+        Directory.CreateDirectory(srcBook1);
+        Directory.CreateDirectory(srcBook2);
+        await File.WriteAllBytesAsync(Path.Combine(srcBook1, "01.jpg"), new byte[] { 0xFF, 0xD8, 0xFF });
+        await File.WriteAllBytesAsync(Path.Combine(srcBook2, "01.jpg"), new byte[] { 0xFF, 0xD8, 0xFF });
+        await File.WriteAllBytesAsync(srcBook3, new byte[] { 0x50, 0x4B, 0x05, 0x06 });
+
+        await File.WriteAllTextAsync(
+            Path.Combine(dataDir, "appsettings.json"),
+            JsonSerializer.Serialize(new AppConfig
+            {
+                UnorganizedDirectory = srcDir,
+                RootDirectory = rootDir,
+                MaxScanDepth = 3,
+                MinMatchConfidence = 75.0
+            }));
+        using (var initStore = new SqliteAssetMetaStore(Path.Combine(dataDir, "cache.db")))
+        {
+            Assert.NotNull(initStore);
+        }
+
+        using var ctx = new AppDataContext(explicitDataDirectory: dataDir, forceReadOnlyDatabase: false);
+        var vm = new AutoArchivePageViewModel(ctx, runOnUiAsync: ImmediateUiAsync);
+        await vm.ScanAsync();
+
+        Assert.Equal(2, vm.MatchedCount);
+        Assert.Equal(1, vm.UnmatchedCount);
+
+        var ozakiGroup = Assert.Single(vm.TargetGroups, g => g.TargetFolderName == expectedTargetRel);
+        Assert.Equal(2, ozakiGroup.Items.Count);
+        Assert.All(ozakiGroup.Items, item =>
+        {
+            Assert.True(item.HasValidDestination);
+            Assert.Equal(expectedTargetRel, item.SelectedTargetFolder);
+            Assert.True(item.Confidence >= 95.0);
+            Assert.True(item.IsChecked);
+            Assert.False(item.HasSuggestedNewAuthor);
+            Assert.Equal(Path.Combine(rootDir, expectedTargetRel), item.DestinationPath);
+        });
+
+        // 驗證下拉搜尋輸入日文「尾崎未来」時第一名即是「_Legacy\尾崎未來」且手動選用後也能一併搬移
+        var extraItem = Assert.Single(vm.TargetGroups.Single(g => g.IsUnmatchedGroup).Items);
+        extraItem.TargetDraftText = "尾崎未来";
+        Assert.NotEmpty(extraItem.TargetSuggestions);
+        Assert.Equal(expectedTargetRel, extraItem.TargetSuggestions[0].FolderName);
+        Assert.True(extraItem.CommitTargetSelection(extraItem.TargetSuggestions[0]));
+
+        await vm.ExecuteArchiveCommand.ExecuteAsync(null);
+
+        var moved1 = Path.Combine(ozakiTargetDir, "[BEAT-POP (尾崎未来)] 放課後ラブモード2 [DL版]");
+        var moved2 = Path.Combine(ozakiTargetDir, "[尾崎未来] 放課後ラブモード [中国翻訳]");
+        var moved3 = Path.Combine(ozakiTargetDir, "尾崎未來同人無括號合集.zip");
+        Assert.True(Directory.Exists(moved1));
+        Assert.True(Directory.Exists(moved2));
+        Assert.True(File.Exists(moved3));
+
+        var meta3 = ctx.MetaStore.GetMetadataView(moved3);
+        Assert.NotNull(meta3);
+        Assert.Equal("尾崎未來", meta3!.AuthorMainName);
+        Assert.DoesNotContain(ctx.MetaStore.ListAuthorsByUsage(), a => a.Author.MainName.Contains("_Legacy", StringComparison.OrdinalIgnoreCase));
+
+        var intel = new MappingIntelligence(Path.Combine(dataDir, "mappings.json"));
+        Assert.Equal(expectedTargetRel, intel.TryGetMappedFolder("[尾崎未来] 全新作品.zip"));
+    }
+
     private sealed class FakeConflictPrompt : IArchiveConflictPrompt
     {
         private readonly Func<ArchiveConflictInfo, Task<ArchiveConflictDecision>> _handler;

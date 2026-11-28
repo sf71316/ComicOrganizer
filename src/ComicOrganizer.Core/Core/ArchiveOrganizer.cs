@@ -47,12 +47,31 @@ public class ArchiveOrganizer
             return null;
         }
 
-        // 1. 知識庫預判（MappingIntelligence 已具備詞界與短雜訊防呆）
+        // 1. 知識庫預判（MappingIntelligence 已具備詞界與短雜訊防呆，支援相對子分類路徑與簡繁／日漢字對等）
         var learnedFolder = _intelligence.TryGetMappedFolder(sourceName);
         if (learnedFolder != null)
         {
             var matchedTarget = targetFolderNames.FirstOrDefault(
                 t => string.Equals(t, learnedFolder, StringComparison.OrdinalIgnoreCase));
+
+            if (matchedTarget == null)
+            {
+                string learnedLeaf = FilenameMetadataParser.ExtractLeafFolderName(learnedFolder);
+                string learnedLeafCanon = CanonicalLower(learnedLeaf);
+                var leafMatches = targetFolderNames.Where(t =>
+                {
+                    string tLeaf = FilenameMetadataParser.ExtractLeafFolderName(t);
+                    return string.Equals(tLeaf, learnedLeaf, StringComparison.OrdinalIgnoreCase) ||
+                           (!string.IsNullOrEmpty(learnedLeafCanon) &&
+                            string.Equals(CanonicalLower(tLeaf), learnedLeafCanon, StringComparison.Ordinal));
+                }).ToList();
+
+                if (leafMatches.Count == 1)
+                {
+                    matchedTarget = leafMatches[0];
+                }
+            }
+
             if (matchedTarget != null)
             {
                 return new MatchResult
@@ -188,6 +207,9 @@ public class ArchiveOrganizer
         }
 
         bool kwIsAscii = IsAsciiOnly(cleanKw);
+        string kwCanonical = CanonicalLower(cleanKw);
+        string compactKw = Compact(cleanKw);
+        string compactKwCanon = Compact(kwCanonical);
         var aliases = FilenameMetadataParser.ExpandAuthorFolderAliases(targetFolderName);
         foreach (var alias in aliases)
         {
@@ -196,9 +218,20 @@ public class ArchiveOrganizer
                 return true;
             }
 
-            string compactKw = Compact(cleanKw);
+            string aliasCanonical = CanonicalLower(alias);
+            if (!string.IsNullOrEmpty(kwCanonical) && string.Equals(kwCanonical, aliasCanonical, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
             string compactAlias = Compact(alias);
             if (compactKw.Length >= 3 && string.Equals(compactKw, compactAlias, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            string compactAliasCanon = Compact(aliasCanonical);
+            if (compactKwCanon.Length >= 3 && string.Equals(compactKwCanon, compactAliasCanon, StringComparison.Ordinal))
             {
                 return true;
             }
@@ -211,12 +244,16 @@ public class ArchiveOrganizer
 
             if (cleanKw.Length >= 4 && alias.Length >= 4)
             {
-                if (IsWordBoundaryContained(alias, cleanKw) || IsWordBoundaryContained(cleanKw, alias))
+                if (IsWordBoundaryContained(alias, cleanKw) ||
+                    IsWordBoundaryContained(cleanKw, alias) ||
+                    IsWordBoundaryContained(aliasCanonical, kwCanonical) ||
+                    IsWordBoundaryContained(kwCanonical, aliasCanonical))
                 {
                     return true;
                 }
 
-                if (ComputeAuthorFuzzyScore(cleanKw, alias) >= 85.0)
+                if (ComputeAuthorFuzzyScore(cleanKw, alias) >= 85.0 ||
+                    ComputeAuthorFuzzyScore(kwCanonical, aliasCanonical) >= 85.0)
                 {
                     return true;
                 }
@@ -269,8 +306,10 @@ public class ArchiveOrganizer
             {
                 var lower = raw.ToLowerInvariant();
                 var compact = Compact(lower);
+                var canonicalLower = CanonicalLower(raw);
+                var canonicalCompact = Compact(canonicalLower);
                 var words = SplitSpaceTokens(lower);
-                aliasEntries.Add(new AliasEntry(raw, lower, compact, words));
+                aliasEntries.Add(new AliasEntry(raw, lower, compact, canonicalLower, canonicalCompact, words));
 
                 foreach (var w in words)
                 {
@@ -318,7 +357,15 @@ public class ArchiveOrganizer
 
             if (seen.Add(clean))
             {
-                candidates.Add(new SourceAuthorCandidate(clean, clean.ToLowerInvariant(), Compact(clean), isSplitSub));
+                string lower = clean.ToLowerInvariant();
+                string canonicalLower = CanonicalLower(clean);
+                candidates.Add(new SourceAuthorCandidate(
+                    clean,
+                    lower,
+                    Compact(lower),
+                    canonicalLower,
+                    Compact(canonicalLower),
+                    isSplitSub));
             }
         }
 
@@ -348,8 +395,16 @@ public class ArchiveOrganizer
         // 若檔名沒有領頭 [...] 作者欄但含有 "(Author)" 等少見非黑名單括號，不把最後的純文字標題直接冒充作者
         string titleLower = string.IsNullOrWhiteSpace(parsed.Title) ? string.Empty : parsed.Title.ToLowerInvariant();
         string titleCompact = string.IsNullOrEmpty(titleLower) ? string.Empty : Compact(titleLower);
+        string titleCanonicalLower = string.IsNullOrWhiteSpace(parsed.Title) ? string.Empty : CanonicalLower(parsed.Title);
+        string titleCanonicalCompact = string.IsNullOrEmpty(titleCanonicalLower) ? string.Empty : Compact(titleCanonicalLower);
 
-        return new SourceMatchInfo(candidates, parsed.Title ?? string.Empty, titleLower, titleCompact);
+        return new SourceMatchInfo(
+            candidates,
+            parsed.Title ?? string.Empty,
+            titleLower,
+            titleCompact,
+            titleCanonicalLower,
+            titleCanonicalCompact);
     }
 
     private (double Score, string Reason) ScoreTarget(
@@ -365,7 +420,7 @@ public class ArchiveOrganizer
         {
             foreach (var alias in target.Aliases)
             {
-                // A1. 完全一致或去標點空白一致（支援 [ae]、[MM]、Pure Tone vs PureTone）
+                // A1. 完全一致、簡繁／日漢字對等或去標點空白一致（支援 [ae]、[MM]、Pure Tone vs PureTone、尾崎未来 vs 尾崎未來）
                 if (string.Equals(cand.Lower, alias.Lower, StringComparison.Ordinal))
                 {
                     double score = cand.IsSplitSub ? 95.0 : 98.0;
@@ -373,6 +428,17 @@ public class ArchiveOrganizer
                     {
                         bestScore = score;
                         bestReason = cand.IsSplitSub ? "多作者吻合" : "作者精確吻合";
+                    }
+                    continue;
+                }
+
+                if (string.Equals(cand.CanonicalLower, alias.CanonicalLower, StringComparison.Ordinal))
+                {
+                    double score = cand.IsSplitSub ? 94.5 : 97.5;
+                    if (score > bestScore)
+                    {
+                        bestScore = score;
+                        bestReason = cand.IsSplitSub ? "多作者字形對等吻合" : "作者字形對等吻合";
                     }
                     continue;
                 }
@@ -389,6 +455,18 @@ public class ArchiveOrganizer
                     continue;
                 }
 
+                if (cand.CanonicalCompact.Length >= 2 && alias.CanonicalCompact.Length >= 2 &&
+                    string.Equals(cand.CanonicalCompact, alias.CanonicalCompact, StringComparison.Ordinal))
+                {
+                    double score = cand.IsSplitSub ? 92.5 : 95.5;
+                    if (score > bestScore)
+                    {
+                        bestScore = score;
+                        bestReason = "作者字形正規化吻合";
+                    }
+                    continue;
+                }
+
                 // 短名稱（<= 3 字元）僅允許精確吻合，硬性否決部分包含與模糊猜測
                 int minLen = Math.Min(cand.Lower.Length, alias.Lower.Length);
                 if (minLen < 4)
@@ -397,7 +475,8 @@ public class ArchiveOrganizer
                 }
 
                 // A2. 詞界完整詞命中（例如 [Marvel] 命中 "Marvel Comics"）
-                if (IsWordBoundaryTokenMatch(cand.Lower, alias.Lower))
+                if (IsWordBoundaryTokenMatch(cand.Lower, alias.Lower) ||
+                    IsWordBoundaryTokenMatch(cand.CanonicalLower, alias.CanonicalLower))
                 {
                     int colCount = wordCollisions.TryGetValue(cand.Lower, out int c1) ? c1 : 1;
                     int colAlias = wordCollisions.TryGetValue(alias.Lower, out int c2) ? c2 : 1;
@@ -416,7 +495,11 @@ public class ArchiveOrganizer
                 {
                     int maxLen = Math.Max(cand.Lower.Length, alias.Lower.Length);
                     double lenRatio = (double)minLen / maxLen;
-                    if (lenRatio >= 0.65 && (cand.Lower.Contains(alias.Lower, StringComparison.Ordinal) || alias.Lower.Contains(cand.Lower, StringComparison.Ordinal)))
+                    if (lenRatio >= 0.65 &&
+                        (cand.Lower.Contains(alias.Lower, StringComparison.Ordinal) ||
+                         alias.Lower.Contains(cand.Lower, StringComparison.Ordinal) ||
+                         cand.CanonicalLower.Contains(alias.CanonicalLower, StringComparison.Ordinal) ||
+                         alias.CanonicalLower.Contains(cand.CanonicalLower, StringComparison.Ordinal)))
                     {
                         double score = 88.0;
                         if (score > bestScore)
@@ -429,7 +512,9 @@ public class ArchiveOrganizer
                 }
 
                 // A4. 欄位級混合模糊比對（Jaro-Winkler + Bigram Dice + 長度比懲罰）
-                double fuzzy = ComputeAuthorFuzzyScore(cand.Lower, alias.Lower);
+                double fuzzy = Math.Max(
+                    ComputeAuthorFuzzyScore(cand.Lower, alias.Lower),
+                    ComputeAuthorFuzzyScore(cand.CanonicalLower, alias.CanonicalLower));
                 if (fuzzy > bestScore)
                 {
                     bestScore = fuzzy;
@@ -451,7 +536,10 @@ public class ArchiveOrganizer
                 }
 
                 if (string.Equals(source.TitleLower, alias.Lower, StringComparison.Ordinal) ||
-                    (source.TitleCompact.Length >= 4 && string.Equals(source.TitleCompact, alias.Compact, StringComparison.Ordinal)))
+                    string.Equals(source.TitleCanonicalLower, alias.CanonicalLower, StringComparison.Ordinal) ||
+                    (source.TitleCompact.Length >= 4 &&
+                     (string.Equals(source.TitleCompact, alias.Compact, StringComparison.Ordinal) ||
+                      string.Equals(source.TitleCanonicalCompact, alias.CanonicalCompact, StringComparison.Ordinal))))
                 {
                     if (95.0 > bestScore)
                     {
@@ -461,7 +549,8 @@ public class ArchiveOrganizer
                     continue;
                 }
 
-                if (IsTitleBoundaryMatch(source.TitleLower, alias.Lower))
+                if (IsTitleBoundaryMatch(source.TitleLower, alias.Lower) ||
+                    IsTitleBoundaryMatch(source.TitleCanonicalLower, alias.CanonicalLower))
                 {
                     int colCount = wordCollisions.TryGetValue(alias.Lower, out int c) ? c : 1;
                     double score = colCount > 1 ? 78.0 : 90.0;
@@ -718,14 +807,463 @@ public class ArchiveOrganizer
         return false;
     }
 
-    private sealed record AliasEntry(string Raw, string Lower, string Compact, List<string> SpaceTokens);
+    private static readonly HashSet<string> WindowsReservedNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+    };
+
+    /// <summary>
+    /// 依資料夾角色探勘目標庫中所有可歸檔的「作者目標資料夾」相對路徑（如 "Cuvie"、"_Legacy\尾崎未來"）。
+    /// 會自動穿透 <see cref="FolderRole.Category"/> 分類容器至 <paramref name="maxDepth"/>，
+    /// 停在 <see cref="FolderRole.Author"/> 並略過純作品資料夾 <see cref="FolderRole.Work"/> 與排除目錄。
+    /// </summary>
+    public static List<string> DiscoverTargetAuthorFolders(
+        string rootDirectory,
+        IReadOnlySet<string>? excludedDirectories = null,
+        int maxDepth = 3)
+    {
+        var results = new List<string>();
+        if (string.IsNullOrWhiteSpace(rootDirectory) || !Directory.Exists(rootDirectory))
+        {
+            return results;
+        }
+
+        int clampedDepth = Math.Clamp(maxDepth, 1, 10);
+        var detector = new FolderRoleDetector(rootDirectory);
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var normalizedExcluded = BuildNormalizedExclusionSet(excludedDirectories);
+
+        void ScanLevel(string currentDir, int depth)
+        {
+            string canonicalCurrent;
+            try
+            {
+                canonicalCurrent = Path.GetFullPath(currentDir);
+            }
+            catch
+            {
+                return;
+            }
+
+            if (!visited.Add(canonicalCurrent))
+            {
+                return;
+            }
+
+            string[] subDirs;
+            try
+            {
+                subDirs = Directory.GetDirectories(currentDir);
+            }
+            catch
+            {
+                return;
+            }
+
+            foreach (var subDir in subDirs)
+            {
+                string dirName = Path.GetFileName(subDir);
+                if (string.IsNullOrWhiteSpace(dirName) || dirName.StartsWith('.'))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    if ((File.GetAttributes(subDir) & FileAttributes.ReparsePoint) != 0)
+                    {
+                        continue;
+                    }
+                }
+                catch
+                {
+                    continue;
+                }
+
+                string relPath = Path.GetRelativePath(rootDirectory, subDir);
+                if (IsExcludedTargetPath(normalizedExcluded, dirName, relPath, subDir))
+                {
+                    continue;
+                }
+
+                var role = detector.Detect(subDir);
+                switch (role)
+                {
+                    case FolderRole.Author:
+                        results.Add(relPath);
+                        break;
+                    case FolderRole.Category:
+                        if (depth < clampedDepth)
+                        {
+                            ScanLevel(subDir, depth + 1);
+                        }
+                        break;
+                    case FolderRole.Unknown:
+                        if (IsEmptyLeafDirectory(subDir))
+                        {
+                            results.Add(relPath);
+                        }
+                        break;
+                    case FolderRole.Work:
+                    case FolderRole.Library:
+                    default:
+                        break;
+                }
+            }
+        }
+
+        ScanLevel(rootDirectory, 1);
+
+        return results
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(n => n, NaturalStringComparer.Instance)
+            .ToList();
+    }
+
+    private static HashSet<string>? BuildNormalizedExclusionSet(IReadOnlySet<string>? excludedDirectories)
+    {
+        if (excludedDirectories == null || excludedDirectories.Count == 0)
+        {
+            return null;
+        }
+
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var raw in excludedDirectories)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                continue;
+            }
+
+            string trimmed = raw.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            set.Add(trimmed);
+            set.Add(trimmed.Replace('/', '\\'));
+        }
+
+        return set.Count > 0 ? set : null;
+    }
+
+    private static bool IsExcludedTargetPath(
+        HashSet<string>? excluded,
+        string dirName,
+        string relativePath,
+        string fullPath)
+    {
+        if (excluded == null)
+        {
+            return false;
+        }
+
+        if (excluded.Contains(dirName) ||
+            excluded.Contains(relativePath) ||
+            excluded.Contains(relativePath.Replace('/', '\\')))
+        {
+            return true;
+        }
+
+        try
+        {
+            string normalizedFull = Path.GetFullPath(fullPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return excluded.Contains(normalizedFull);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsEmptyLeafDirectory(string dirPath)
+    {
+        try
+        {
+            return !Directory.EnumerateFileSystemEntries(dirPath).Any();
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string CanonicalLower(string? text)
+        => string.IsNullOrWhiteSpace(text)
+            ? string.Empty
+            : FilenameMetadataParser.CanonicalizeMatchText(text).ToLowerInvariant();
+
+    /// <summary>
+    /// 正規化並驗證欲建立的新作者／目標資料夾名稱；阻擋非法路徑字元、保留名與排除清單。
+    /// </summary>
+    public static bool TryNormalizeTargetFolderName(
+        string? rawName,
+        out string normalized,
+        out string? errorMessage,
+        IReadOnlySet<string>? excludedFolders = null)
+    {
+        normalized = string.Empty;
+        errorMessage = null;
+
+        if (string.IsNullOrWhiteSpace(rawName))
+        {
+            errorMessage = "資料夾名稱不可為空。";
+            return false;
+        }
+
+        string trimmed = rawName.Trim().TrimEnd('.', ' ');
+        if (string.IsNullOrWhiteSpace(trimmed) ||
+            trimmed == "." ||
+            trimmed == ".." ||
+            string.Equals(trimmed, "未匹配", StringComparison.Ordinal))
+        {
+            errorMessage = "資料夾名稱無效或為系統保留字。";
+            return false;
+        }
+
+        char[] invalidChars = Path.GetInvalidFileNameChars();
+        if (trimmed.IndexOfAny(invalidChars) >= 0 || trimmed.Contains('/') || trimmed.Contains('\\'))
+        {
+            errorMessage = "資料夾名稱不可包含路徑分隔或系統非法字元。";
+            return false;
+        }
+
+        if (WindowsReservedNames.Contains(trimmed))
+        {
+            errorMessage = $"「{trimmed}」為系統保留裝置名稱。";
+            return false;
+        }
+
+        if (excludedFolders != null && excludedFolders.Contains(trimmed))
+        {
+            errorMessage = $"「{trimmed}」屬於已設定排除之目錄。";
+            return false;
+        }
+
+        normalized = trimmed;
+        return true;
+    }
+
+    /// <summary>
+    /// 從未匹配來源名稱抽出建議的新作者資料夾名稱（保留「社團 (作者)」慣例，並排除雜訊／黑名單／既有資料夾）。
+    /// </summary>
+    public string? TrySuggestNewAuthorFolder(
+        string sourceName,
+        IReadOnlyCollection<string> existingFolders,
+        IReadOnlySet<string>? excludedFolders = null)
+    {
+        if (string.IsNullOrWhiteSpace(sourceName))
+        {
+            return null;
+        }
+
+        var parsed = FilenameMetadataParser.ParseWorkName(sourceName);
+        if (string.IsNullOrWhiteSpace(parsed.AuthorMainName) || IsNoise(parsed.AuthorMainName))
+        {
+            return null;
+        }
+
+        bool hasValidAlias = !string.IsNullOrWhiteSpace(parsed.AuthorAlias) && !IsNoise(parsed.AuthorAlias);
+        string rawSuggestion = hasValidAlias
+            ? $"{parsed.AuthorMainName.Trim()} ({parsed.AuthorAlias!.Trim()})"
+            : parsed.AuthorMainName.Trim();
+
+        if (!TryNormalizeTargetFolderName(rawSuggestion, out var normalized, out _, excludedFolders))
+        {
+            return null;
+        }
+
+        if (existingFolders.Any(f =>
+                IsSameTargetFolder(f, normalized) ||
+                IsSameTargetFolder(f, parsed.AuthorMainName.Trim()) ||
+                (hasValidAlias && IsSameTargetFolder(f, parsed.AuthorAlias!.Trim()))))
+        {
+            return null;
+        }
+
+        return normalized;
+    }
+
+    private static bool IsSameTargetFolder(string existingFolder, string candidateName)
+    {
+        if (string.Equals(existingFolder, candidateName, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        string leaf = FilenameMetadataParser.ExtractLeafFolderName(existingFolder);
+        if (string.Equals(leaf, candidateName, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        string candidateCanon = CanonicalLower(candidateName);
+        if (!string.IsNullOrEmpty(candidateCanon) &&
+            string.Equals(CanonicalLower(leaf), candidateCanon, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 依查詢關鍵字對目標資料夾清單進行精確→葉目錄→簡繁日字形對等→字首→包含→FuzzySharp 別名模糊排序，供可搜尋下拉選單即時呈現。
+    /// </summary>
+    public static List<(string FolderName, int Score)> RankTargetFolders(
+        string? query,
+        IReadOnlyList<string> candidates,
+        int maxResults = 30)
+    {
+        var result = new List<(string FolderName, int Score)>();
+        if (candidates == null || candidates.Count == 0 || maxResults <= 0)
+        {
+            return result;
+        }
+
+        var trimmedQuery = query?.Trim();
+        if (string.IsNullOrEmpty(trimmedQuery))
+        {
+            foreach (var folder in candidates)
+            {
+                if (string.IsNullOrWhiteSpace(folder) || string.Equals(folder, "未匹配", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                result.Add((folder, 0));
+                if (result.Count >= maxResults)
+                {
+                    break;
+                }
+            }
+
+            return result;
+        }
+
+        string qLower = trimmedQuery.ToLowerInvariant();
+        string qCanon = CanonicalLower(trimmedQuery);
+        foreach (var folder in candidates)
+        {
+            if (string.IsNullOrWhiteSpace(folder) || string.Equals(folder, "未匹配", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            int score = ScoreFolderCandidate(trimmedQuery, qLower, qCanon, folder);
+            if (score > 0)
+            {
+                result.Add((folder, score));
+            }
+        }
+
+        return result
+            .OrderByDescending(x => x.Score)
+            .ThenBy(x => x.FolderName, NaturalStringComparer.Instance)
+            .Take(maxResults)
+            .ToList();
+    }
+
+    private static int ScoreFolderCandidate(string query, string qLower, string qCanon, string folder)
+    {
+        if (string.Equals(folder, query, StringComparison.OrdinalIgnoreCase))
+        {
+            return 1000;
+        }
+
+        string leaf = FilenameMetadataParser.ExtractLeafFolderName(folder);
+        if (string.Equals(leaf, query, StringComparison.OrdinalIgnoreCase))
+        {
+            return 990;
+        }
+
+        string leafCanon = CanonicalLower(leaf);
+        if (!string.IsNullOrEmpty(qCanon) && string.Equals(leafCanon, qCanon, StringComparison.Ordinal))
+        {
+            return 970;
+        }
+
+        if (leaf.StartsWith(query, StringComparison.OrdinalIgnoreCase) ||
+            folder.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+        {
+            return 850;
+        }
+
+        if (!string.IsNullOrEmpty(qCanon) && leafCanon.StartsWith(qCanon, StringComparison.Ordinal))
+        {
+            return 830;
+        }
+
+        int leafIdx = leaf.IndexOf(query, StringComparison.OrdinalIgnoreCase);
+        if (leafIdx >= 0)
+        {
+            return Math.Max(620, 770 - Math.Min(leafIdx * 4 + leaf.Length, 140));
+        }
+
+        int leafCanonIdx = !string.IsNullOrEmpty(qCanon) ? leafCanon.IndexOf(qCanon, StringComparison.Ordinal) : -1;
+        if (leafCanonIdx >= 0)
+        {
+            return Math.Max(610, 750 - Math.Min(leafCanonIdx * 4 + leafCanon.Length, 140));
+        }
+
+        int idx = folder.IndexOf(query, StringComparison.OrdinalIgnoreCase);
+        if (idx >= 0)
+        {
+            return Math.Max(580, 720 - Math.Min(idx * 4 + folder.Length, 140));
+        }
+
+        int bestFuzzy = Math.Max(
+            Fuzz.WeightedRatio(qLower, leaf.ToLowerInvariant()),
+            string.IsNullOrEmpty(qCanon) ? 0 : Fuzz.WeightedRatio(qCanon, leafCanon));
+
+        foreach (var alias in FilenameMetadataParser.ExpandAuthorFolderAliases(folder))
+        {
+            string aliasCanon = CanonicalLower(alias);
+            if (alias.StartsWith(query, StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrEmpty(qCanon) && aliasCanon.StartsWith(qCanon, StringComparison.Ordinal)))
+            {
+                return 800;
+            }
+
+            if (alias.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrEmpty(qCanon) && aliasCanon.Contains(qCanon, StringComparison.Ordinal)))
+            {
+                return 680;
+            }
+
+            int aliasFuzzy = Math.Max(
+                Fuzz.WeightedRatio(qLower, alias.ToLowerInvariant()),
+                string.IsNullOrEmpty(qCanon) ? 0 : Fuzz.WeightedRatio(qCanon, aliasCanon));
+            if (aliasFuzzy > bestFuzzy)
+            {
+                bestFuzzy = aliasFuzzy;
+            }
+        }
+
+        return bestFuzzy >= 48 ? bestFuzzy : 0;
+    }
+
+    private sealed record AliasEntry(
+        string Raw,
+        string Lower,
+        string Compact,
+        string CanonicalLower,
+        string CanonicalCompact,
+        List<string> SpaceTokens);
     private sealed record TargetEntity(string FolderName, List<AliasEntry> Aliases);
-    private sealed record SourceAuthorCandidate(string Value, string Lower, string Compact, bool IsSplitSub);
+    private sealed record SourceAuthorCandidate(
+        string Value,
+        string Lower,
+        string Compact,
+        string CanonicalLower,
+        string CanonicalCompact,
+        bool IsSplitSub);
     private sealed record SourceMatchInfo(
         List<SourceAuthorCandidate> AuthorCandidates,
         string Title,
         string TitleLower,
-        string TitleCompact);
+        string TitleCompact,
+        string TitleCanonicalLower,
+        string TitleCanonicalCompact);
 }
 
 public class MatchResult

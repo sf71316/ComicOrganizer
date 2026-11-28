@@ -17,6 +17,24 @@ public enum AutoArchiveFilterTab
     UnmatchedOnly = 2
 }
 
+public enum AutoArchiveTargetSuggestionKind
+{
+    Unmatched = 0,
+    ExistingFolder = 1,
+    SuggestedNewFolder = 2,
+    CreateNewFolder = 3
+}
+
+/// <summary>AutoCompleteBox 目標作者／資料夾建議項目（ToString 回傳純資料夾名稱供選取回填）。</summary>
+public sealed record AutoArchiveTargetSuggestionItem(
+    AutoArchiveTargetSuggestionKind Kind,
+    string FolderName,
+    string DisplayText,
+    int MatchScore = 0)
+{
+    public override string ToString() => FolderName;
+}
+
 public sealed partial class AutoArchiveCandidateVm : ObservableObject
 {
     private readonly string _rootDirectory;
@@ -25,7 +43,10 @@ public sealed partial class AutoArchiveCandidateVm : ObservableObject
     private readonly Action<AutoArchiveCandidateVm> _onRemoveFromList;
     private readonly Action<AutoArchiveCandidateVm> _onCheckedChanged;
     private readonly Action<AutoArchiveCandidateVm> _onTargetFolderChanged;
+    private readonly Action<string>? _onNewTargetFolderCreated;
+    private readonly IReadOnlySet<string>? _excludedDirectories;
     private bool _suppressChangeNotify;
+    private bool _suppressDraftNotify;
 
     public AutoArchiveCandidateVm(
         string sourceName,
@@ -41,24 +62,34 @@ public sealed partial class AutoArchiveCandidateVm : ObservableObject
         Action<AutoArchiveCandidateVm> onRemoveFromList,
         Action<AutoArchiveCandidateVm> onCheckedChanged,
         Action<AutoArchiveCandidateVm> onTargetFolderChanged,
-        string? matchSourceSummary = null)
+        string? matchSourceSummary = null,
+        string? suggestedNewAuthorFolder = null,
+        Action<string>? onNewTargetFolderCreated = null,
+        IReadOnlySet<string>? excludedDirectories = null)
     {
         SourceName = sourceName;
         SourceFullPath = sourceFullPath;
         IsDirectory = isDirectory;
         _rootDirectory = rootDirectory;
         Confidence = confidence;
-        TargetFolderOptions = availableTargetFolders;
+        _allTargetFolderOptions = availableTargetFolders;
+        _targetFolderOptions = availableTargetFolders;
+        SuggestedNewAuthorFolder = string.IsNullOrWhiteSpace(suggestedNewAuthorFolder)
+            ? null
+            : suggestedNewAuthorFolder.Trim();
         _onInspectInReader = onInspectInReader;
         _onRevealInExplorer = onRevealInExplorer;
         _onRemoveFromList = onRemoveFromList;
         _onCheckedChanged = onCheckedChanged;
         _onTargetFolderChanged = onTargetFolderChanged;
+        _onNewTargetFolderCreated = onNewTargetFolderCreated;
+        _excludedDirectories = excludedDirectories;
 
         _suppressChangeNotify = true;
         try
         {
             SelectedTargetFolder = string.IsNullOrWhiteSpace(matchedFolder) ? "未匹配" : matchedFolder;
+            SyncDraftToSelected(SelectedTargetFolder);
             MatchSourceLabel = string.IsNullOrWhiteSpace(matchedFolder)
                 ? "❓ 未匹配"
                 : (isLearned
@@ -72,11 +103,31 @@ public sealed partial class AutoArchiveCandidateVm : ObservableObject
         }
     }
 
+    private IReadOnlyList<string> _allTargetFolderOptions;
+    private string? _activeDropdownFilter;
+    private bool _hasTargetSuggestionsPopulated;
+
+    internal IReadOnlyList<string> AllTargetFolderOptionsSnapshot => _allTargetFolderOptions;
+
     public string SourceName { get; }
     public string SourceFullPath { get; }
     public bool IsDirectory { get; }
     public double Confidence { get; }
-    public IReadOnlyList<string> TargetFolderOptions { get; }
+    public string? SuggestedNewAuthorFolder { get; }
+
+    public BatchObservableCollection<AutoArchiveTargetSuggestionItem> TargetSuggestions { get; } = [];
+
+    [ObservableProperty]
+    private IReadOnlyList<string> _targetFolderOptions;
+
+    [ObservableProperty]
+    private string _targetDraftText = "未匹配";
+
+    public bool HasSuggestedNewAuthor => !string.IsNullOrWhiteSpace(SuggestedNewAuthorFolder);
+    public bool ShowSuggestedNewAuthorButton => !HasValidDestination && HasSuggestedNewAuthor;
+    public string SuggestedNewAuthorButtonText => HasSuggestedNewAuthor
+        ? $"💡 建議新建：{SuggestedNewAuthorFolder}"
+        : string.Empty;
 
     public string TypeBadgeText => IsDirectory ? "📁 資料夾" : Path.GetExtension(SourceName).TrimStart('.').ToUpperInvariant() switch
     {
@@ -92,6 +143,7 @@ public sealed partial class AutoArchiveCandidateVm : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasValidDestination))]
     [NotifyPropertyChangedFor(nameof(DestinationPath))]
+    [NotifyPropertyChangedFor(nameof(ShowSuggestedNewAuthorButton))]
     private string _selectedTargetFolder = "未匹配";
 
     [ObservableProperty]
@@ -104,6 +156,8 @@ public sealed partial class AutoArchiveCandidateVm : ObservableObject
     private string _executionMessage = string.Empty;
 
     public bool IsManuallyAssigned { get; private set; }
+
+    public bool IsNewTargetFolder { get; private set; }
 
     public bool HasValidDestination =>
         !string.IsNullOrWhiteSpace(SelectedTargetFolder) &&
@@ -137,24 +191,105 @@ public sealed partial class AutoArchiveCandidateVm : ObservableObject
             _onCheckedChanged(this);
     }
 
-    partial void OnSelectedTargetFolderChanged(string value)
+    public void UpdateAllTargetFolderOptions(IReadOnlyList<string> latestOptions)
     {
-        if (_suppressChangeNotify) return;
+        _allTargetFolderOptions = latestOptions;
+        ApplyTargetFolderFilter(_activeDropdownFilter);
+    }
+
+    /// <summary>
+    /// 依分群過濾字篩選目標目錄下拉選單，永遠保留「未匹配」與目前選取目錄以免重置選取狀態；
+    /// 回傳實際符合關鍵字的可選目錄數（不含僅靠保留而留下的項目）。
+    /// </summary>
+    public int ApplyTargetFolderFilter(string? filterText)
+    {
+        var kw = string.IsNullOrWhiteSpace(filterText) ? null : filterText.Trim();
+        var (baseOptions, baseLookup, matchedFolderCount) = BuildSharedFilteredFolderOptions(kw, _allTargetFolderOptions);
+        ApplyPrecomputedTargetFolderFilter(kw, baseOptions, baseLookup, matchedFolderCount);
+        return matchedFolderCount;
+    }
+
+    /// <summary>建構整組共用的過濾後目錄選單（每組只算一次，避免對組內數百筆重複掃描）。</summary>
+    internal static (IReadOnlyList<string> BaseOptions, HashSet<string>? Lookup, int MatchedFolderCount)
+        BuildSharedFilteredFolderOptions(string? kw, IReadOnlyList<string> allOptions)
+    {
+        if (string.IsNullOrWhiteSpace(kw))
+        {
+            return (allOptions, null, 0);
+        }
+
+        string cleanKw = kw.Trim();
+        int matchedFolderCount = 0;
+        var filtered = new List<string>();
+        var lookup = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var option in allOptions)
+        {
+            bool isUnmatched = string.Equals(option, "未匹配", StringComparison.Ordinal);
+            bool isKeywordMatch = !isUnmatched && option.Contains(cleanKw, StringComparison.OrdinalIgnoreCase);
+            if (isKeywordMatch)
+            {
+                matchedFolderCount++;
+            }
+
+            if (isUnmatched || isKeywordMatch)
+            {
+                filtered.Add(option);
+                lookup.Add(option);
+            }
+        }
+
+        return (filtered, lookup, matchedFolderCount);
+    }
+
+    /// <summary>套用已預先算好的群組共用目錄清單（僅在項目不在共用清單內時才配置私有副本；不預先重建彈窗建議）。</summary>
+    internal void ApplyPrecomputedTargetFolderFilter(
+        string? kw,
+        IReadOnlyList<string> baseOptions,
+        HashSet<string>? baseLookup,
+        int matchedFolderCount)
+    {
+        _activeDropdownFilter = kw;
+        string preserved = string.IsNullOrWhiteSpace(SelectedTargetFolder) ? "未匹配" : SelectedTargetFolder;
+
+        IReadOnlyList<string> nextOptions;
+        if (baseLookup == null || baseLookup.Contains(preserved))
+        {
+            nextOptions = baseOptions;
+        }
+        else
+        {
+            var copy = new List<string>(baseOptions.Count + 1);
+            bool inserted = false;
+            foreach (var option in baseOptions)
+            {
+                copy.Add(option);
+                if (!inserted && string.Equals(option, "未匹配", StringComparison.Ordinal))
+                {
+                    copy.Add(preserved);
+                    inserted = true;
+                }
+            }
+
+            if (!inserted)
+            {
+                copy.Insert(0, preserved);
+            }
+
+            nextOptions = copy;
+        }
 
         _suppressChangeNotify = true;
         try
         {
-            if (HasValidDestination)
+            if (!ReferenceEquals(TargetFolderOptions, nextOptions))
             {
-                IsManuallyAssigned = true;
-                MatchSourceLabel = "✏️ 手動指定";
-                IsChecked = true;
+                TargetFolderOptions = nextOptions;
             }
-            else
+
+            if (!string.Equals(SelectedTargetFolder, preserved, StringComparison.Ordinal))
             {
-                IsManuallyAssigned = false;
-                MatchSourceLabel = "❓ 未匹配";
-                IsChecked = false;
+                SelectedTargetFolder = preserved;
             }
         }
         finally
@@ -162,7 +297,255 @@ public sealed partial class AutoArchiveCandidateVm : ObservableObject
             _suppressChangeNotify = false;
         }
 
+        if (_hasTargetSuggestionsPopulated)
+        {
+            _hasTargetSuggestionsPopulated = false;
+            TargetSuggestions.Clear();
+        }
+    }
+
+    internal bool HasTargetSuggestionsPopulated => _hasTargetSuggestionsPopulated;
+
+    /// <summary>依輸入草稿文字即時重建模糊相似度排序選單（打字期間不改動正式目標目錄，避免該列跳群組）。</summary>
+    public void RebuildTargetSuggestions(string? draftText)
+    {
+        _hasTargetSuggestionsPopulated = true;
+        var rawDraft = draftText?.Trim() ?? string.Empty;
+        bool isEditingCurrentSelection = string.Equals(rawDraft, SelectedTargetFolder, StringComparison.OrdinalIgnoreCase)
+                                         || string.Equals(rawDraft, "未匹配", StringComparison.Ordinal);
+
+        string searchQuery = isEditingCurrentSelection ? string.Empty : rawDraft;
+        var suggestions = new List<AutoArchiveTargetSuggestionItem>();
+
+        if (HasSuggestedNewAuthor &&
+            (string.IsNullOrEmpty(searchQuery) ||
+             SuggestedNewAuthorFolder!.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)))
+        {
+            suggestions.Add(new AutoArchiveTargetSuggestionItem(
+                AutoArchiveTargetSuggestionKind.SuggestedNewFolder,
+                SuggestedNewAuthorFolder!,
+                $"💡 建議新建：{SuggestedNewAuthorFolder}",
+                980));
+        }
+
+        var ranked = ArchiveOrganizer.RankTargetFolders(searchQuery, TargetFolderOptions, maxResults: 30);
+        if (isEditingCurrentSelection && HasValidDestination && !ranked.Any(r => string.Equals(r.FolderName, SelectedTargetFolder, StringComparison.OrdinalIgnoreCase)))
+        {
+            suggestions.Add(new AutoArchiveTargetSuggestionItem(
+                AutoArchiveTargetSuggestionKind.ExistingFolder,
+                SelectedTargetFolder,
+                $"📁 {SelectedTargetFolder}",
+                1000));
+        }
+
+        foreach (var (folderName, score) in ranked)
+        {
+            if (HasSuggestedNewAuthor && string.Equals(folderName, SuggestedNewAuthorFolder, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            bool isNotOnDiskYet = !string.IsNullOrWhiteSpace(_rootDirectory) &&
+                                  !Directory.Exists(Path.Combine(_rootDirectory, folderName));
+            string display = isNotOnDiskYet ? $"🆕 {folderName}（待建目錄）" : $"📁 {folderName}";
+            suggestions.Add(new AutoArchiveTargetSuggestionItem(
+                isNotOnDiskYet ? AutoArchiveTargetSuggestionKind.CreateNewFolder : AutoArchiveTargetSuggestionKind.ExistingFolder,
+                folderName,
+                display,
+                score));
+        }
+
+        if (!string.IsNullOrEmpty(searchQuery) &&
+            ArchiveOrganizer.TryNormalizeTargetFolderName(searchQuery, out var normalizedNew, out _, _excludedDirectories))
+        {
+            bool existsInAll = _allTargetFolderOptions.Any(f => string.Equals(f, normalizedNew, StringComparison.OrdinalIgnoreCase));
+            bool isSuggestedMatch = HasSuggestedNewAuthor && string.Equals(SuggestedNewAuthorFolder, normalizedNew, StringComparison.OrdinalIgnoreCase);
+            if (!existsInAll && !isSuggestedMatch)
+            {
+                suggestions.Add(new AutoArchiveTargetSuggestionItem(
+                    AutoArchiveTargetSuggestionKind.CreateNewFolder,
+                    normalizedNew,
+                    $"➕ 新建目標資料夾「{normalizedNew}」",
+                    100));
+            }
+        }
+
+        if (string.IsNullOrEmpty(searchQuery) || "未匹配".Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
+        {
+            suggestions.Add(new AutoArchiveTargetSuggestionItem(
+                AutoArchiveTargetSuggestionKind.Unmatched,
+                "未匹配",
+                "❓ 未匹配（暫不指定）",
+                0));
+        }
+
+        TargetSuggestions.ReplaceAll(suggestions);
+    }
+
+    /// <summary>正式確認套用下拉選項或輸入之新目標資料夾名稱；不合法輸入會維持原選取並回傳 false。</summary>
+    public bool CommitTargetSelection(object? selectedOrText, bool allowCreateNew = true)
+    {
+        if (selectedOrText is AutoArchiveTargetSuggestionItem suggestion)
+        {
+            if (suggestion.Kind == AutoArchiveTargetSuggestionKind.Unmatched)
+            {
+                ApplyCommittedTarget("未匹配", isCreateNew: false);
+                return true;
+            }
+
+            if (suggestion.Kind is AutoArchiveTargetSuggestionKind.CreateNewFolder or AutoArchiveTargetSuggestionKind.SuggestedNewFolder)
+            {
+                if (!ArchiveOrganizer.TryNormalizeTargetFolderName(suggestion.FolderName, out var cleanNew, out _, _excludedDirectories))
+                {
+                    RevertDraftToSelected();
+                    return false;
+                }
+
+                bool alreadyKnown = _allTargetFolderOptions.Any(f => string.Equals(f, cleanNew, StringComparison.OrdinalIgnoreCase));
+                ApplyCommittedTarget(cleanNew, isCreateNew: !alreadyKnown);
+                if (!alreadyKnown)
+                {
+                    _onNewTargetFolderCreated?.Invoke(cleanNew);
+                }
+                return true;
+            }
+
+            ApplyCommittedTarget(suggestion.FolderName, isCreateNew: false);
+            return true;
+        }
+
+        string? rawText = selectedOrText as string;
+        if (string.IsNullOrWhiteSpace(rawText))
+        {
+            RevertDraftToSelected();
+            return false;
+        }
+
+        string trimmed = rawText.Trim();
+        if (string.Equals(trimmed, "未匹配", StringComparison.Ordinal))
+        {
+            ApplyCommittedTarget("未匹配", isCreateNew: false);
+            return true;
+        }
+
+        var existingMatch = _allTargetFolderOptions.FirstOrDefault(
+            f => !string.Equals(f, "未匹配", StringComparison.Ordinal) &&
+                 string.Equals(f, trimmed, StringComparison.OrdinalIgnoreCase));
+        if (existingMatch != null)
+        {
+            ApplyCommittedTarget(existingMatch, isCreateNew: false);
+            return true;
+        }
+
+        if (allowCreateNew &&
+            ArchiveOrganizer.TryNormalizeTargetFolderName(trimmed, out var normalizedNew, out _, _excludedDirectories))
+        {
+            ApplyCommittedTarget(normalizedNew, isCreateNew: true);
+            _onNewTargetFolderCreated?.Invoke(normalizedNew);
+            return true;
+        }
+
+        RevertDraftToSelected();
+        return false;
+    }
+
+    public void RevertDraftToSelected()
+    {
+        SyncDraftToSelected(SelectedTargetFolder);
+        RebuildTargetSuggestions(TargetDraftText);
+    }
+
+    private void ApplyCommittedTarget(string targetFolder, bool isCreateNew)
+    {
+        SyncDraftToSelected(targetFolder);
+        IsNewTargetFolder = isCreateNew;
+        if (string.Equals(SelectedTargetFolder, targetFolder, StringComparison.Ordinal))
+        {
+            RebuildTargetSuggestions(TargetDraftText);
+            return;
+        }
+
+        SelectedTargetFolder = targetFolder;
+    }
+
+    private void SyncDraftToSelected(string value)
+    {
+        _suppressDraftNotify = true;
+        try
+        {
+            TargetDraftText = string.IsNullOrWhiteSpace(value) ? "未匹配" : value;
+        }
+        finally
+        {
+            _suppressDraftNotify = false;
+        }
+    }
+
+    partial void OnTargetDraftTextChanged(string value)
+    {
+        if (_suppressDraftNotify)
+        {
+            return;
+        }
+
+        RebuildTargetSuggestions(value);
+    }
+
+    partial void OnSelectedTargetFolderChanged(string value)
+    {
+        if (_suppressChangeNotify || value is null) return;
+
+        bool isNewOnDisk = HasValidDestination &&
+                           !string.IsNullOrWhiteSpace(_rootDirectory) &&
+                           !Directory.Exists(DestinationPath);
+
+        _suppressChangeNotify = true;
+        try
+        {
+            if (HasValidDestination)
+            {
+                IsManuallyAssigned = true;
+                IsNewTargetFolder = isNewOnDisk;
+                MatchSourceLabel = isNewOnDisk ? "🆕 新建目錄" : "✏️ 手動指定";
+                IsChecked = true;
+                SyncDraftToSelected(SelectedTargetFolder);
+            }
+            else
+            {
+                IsManuallyAssigned = false;
+                IsNewTargetFolder = false;
+                MatchSourceLabel = "❓ 未匹配";
+                IsChecked = false;
+                SyncDraftToSelected("未匹配");
+            }
+        }
+        finally
+        {
+            _suppressChangeNotify = false;
+        }
+
+        if (_hasTargetSuggestionsPopulated)
+        {
+            RebuildTargetSuggestions(TargetDraftText);
+        }
+
         _onTargetFolderChanged(this);
+    }
+
+    [RelayCommand]
+    private void ApplySuggestedNewAuthor()
+    {
+        if (!HasSuggestedNewAuthor)
+        {
+            return;
+        }
+
+        CommitTargetSelection(
+            new AutoArchiveTargetSuggestionItem(
+                AutoArchiveTargetSuggestionKind.SuggestedNewFolder,
+                SuggestedNewAuthorFolder!,
+                SuggestedNewAuthorButtonText),
+            allowCreateNew: true);
     }
 
     [RelayCommand]
@@ -276,7 +659,14 @@ public sealed partial class AutoArchiveTargetGroupVm : ObservableObject
     private readonly Action _onGroupCheckBatchChanged;
     private readonly Action<string, bool> _onExpandStateChanged;
     private readonly Action<AutoArchiveTargetGroupVm> _onAddCheckedToQueue;
+    private readonly Action<string, string>? _onGroupFilterChanged;
+    private readonly Func<Action, Task>? _runOnUiAsync;
+    private readonly int _filterDebounceMs;
+    private CancellationTokenSource? _filterDebounceCts;
     private bool _suppressGroupCheck;
+    private bool _initializingFilters;
+    private int _matchedDropdownFolderCount;
+    private bool _isDropdownOnlyFilterMode;
 
     public AutoArchiveTargetGroupVm(
         string targetFolderName,
@@ -285,7 +675,12 @@ public sealed partial class AutoArchiveTargetGroupVm : ObservableObject
         bool isExpanded,
         Action onGroupCheckBatchChanged,
         Action<string, bool> onExpandStateChanged,
-        Action<AutoArchiveTargetGroupVm> onAddCheckedToQueue)
+        Action<AutoArchiveTargetGroupVm> onAddCheckedToQueue,
+        Action<string, string>? onGroupFilterChanged = null,
+        string initialGroupFilter = "",
+        bool applyDropdownFilterImmediately = true,
+        int filterDebounceMs = 0,
+        Func<Action, Task>? runOnUiAsync = null)
     {
         TargetFolderName = targetFolderName;
         IsUnmatchedGroup = isUnmatchedGroup;
@@ -293,10 +688,24 @@ public sealed partial class AutoArchiveTargetGroupVm : ObservableObject
         _onGroupCheckBatchChanged = onGroupCheckBatchChanged;
         _onExpandStateChanged = onExpandStateChanged;
         _onAddCheckedToQueue = onAddCheckedToQueue;
+        _onGroupFilterChanged = onGroupFilterChanged;
+        _filterDebounceMs = Math.Max(0, filterDebounceMs);
+        _runOnUiAsync = runOnUiAsync;
 
         foreach (var item in items)
         {
             Items.Add(item);
+        }
+
+        _initializingFilters = true;
+        try
+        {
+            _groupFilterText = initialGroupFilter ?? string.Empty;
+            RefreshGroupFilter(applyDropdownFilter: applyDropdownFilterImmediately);
+        }
+        finally
+        {
+            _initializingFilters = false;
         }
 
         RefreshStats();
@@ -305,14 +714,44 @@ public sealed partial class AutoArchiveTargetGroupVm : ObservableObject
     public string TargetFolderName { get; }
     public bool IsUnmatchedGroup { get; }
     public ObservableCollection<AutoArchiveCandidateVm> Items { get; } = new();
+    public BatchObservableCollection<AutoArchiveCandidateVm> FilteredItems { get; } = [];
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasGroupFilter))]
+    [NotifyPropertyChangedFor(nameof(IsGroupFilterEmptyResult))]
+    [NotifyPropertyChangedFor(nameof(SummaryBadgeText))]
+    private string _groupFilterText = string.Empty;
 
     public string GroupHeaderTitle => IsUnmatchedGroup ? "❓ 尚未匹配目標目錄" : $"📁 {TargetFolderName}";
     public int TotalCount => Items.Count;
+    public int FilteredCount => FilteredItems.Count;
     public int CheckedCount => Items.Count(i => i.IsChecked);
+    public bool HasGroupFilter => !string.IsNullOrWhiteSpace(GroupFilterText);
+    public bool IsGroupFilterEmptyResult => HasGroupFilter && FilteredItems.Count == 0;
 
-    public string SummaryBadgeText => IsUnmatchedGroup
-        ? $"共 {TotalCount} 筆待指定 · 已勾選 {CheckedCount} 筆"
-        : $"共 {TotalCount} 筆 · 已勾選 {CheckedCount} 筆";
+    public string SummaryBadgeText
+    {
+        get
+        {
+            if (HasGroupFilter)
+            {
+                if (_isDropdownOnlyFilterMode)
+                {
+                    return IsUnmatchedGroup
+                        ? $"目錄選單剩 {_matchedDropdownFolderCount} 個 · 共 {TotalCount} 筆待指定 · 已勾選 {CheckedCount} 筆"
+                        : $"目錄選單剩 {_matchedDropdownFolderCount} 個 · 共 {TotalCount} 筆 · 已勾選 {CheckedCount} 筆";
+                }
+
+                return IsUnmatchedGroup
+                    ? $"顯示 {FilteredCount} / 共 {TotalCount} 筆待指定 · 已勾選 {CheckedCount} 筆"
+                    : $"顯示 {FilteredCount} / 共 {TotalCount} 筆 · 已勾選 {CheckedCount} 筆";
+            }
+
+            return IsUnmatchedGroup
+                ? $"共 {TotalCount} 筆待指定 · 已勾選 {CheckedCount} 筆"
+                : $"共 {TotalCount} 筆 · 已勾選 {CheckedCount} 筆";
+        }
+    }
 
     public bool HasConfidenceBadge
     {
@@ -423,8 +862,172 @@ public sealed partial class AutoArchiveTargetGroupVm : ObservableObject
         OnPropertyChanged(nameof(GroupConfidenceBadgeText));
     }
 
+    partial void OnGroupFilterTextChanged(string value)
+    {
+        if (_initializingFilters)
+        {
+            return;
+        }
+
+        CancelPendingGroupFilter();
+        if (_filterDebounceMs <= 0 || string.IsNullOrWhiteSpace(value))
+        {
+            ExecuteGroupFilterUpdate(value);
+            return;
+        }
+
+        var cts = new CancellationTokenSource();
+        _filterDebounceCts = cts;
+        var ct = cts.Token;
+        string snapshot = value;
+        _ = DebounceGroupFilterAsync(snapshot, ct);
+    }
+
+    private async Task DebounceGroupFilterAsync(string snapshot, CancellationToken ct)
+    {
+        try
+        {
+            await Task.Delay(_filterDebounceMs, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (ct.IsCancellationRequested)
+        {
+            return;
+        }
+
+        void Apply()
+        {
+            if (ct.IsCancellationRequested || !string.Equals(GroupFilterText, snapshot, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            ExecuteGroupFilterUpdate(snapshot);
+        }
+
+        if (_runOnUiAsync != null)
+        {
+            await _runOnUiAsync(Apply).ConfigureAwait(false);
+        }
+        else
+        {
+            Apply();
+        }
+    }
+
+    internal void CancelPendingGroupFilter()
+    {
+        var old = Interlocked.Exchange(ref _filterDebounceCts, null);
+        if (old != null)
+        {
+            try
+            {
+                old.Cancel();
+            }
+            catch
+            {
+            }
+
+            old.Dispose();
+        }
+    }
+
+    private void ExecuteGroupFilterUpdate(string value)
+    {
+        if (!string.IsNullOrWhiteSpace(value) && !IsExpanded)
+        {
+            IsExpanded = true;
+        }
+
+        RefreshGroupFilter(applyDropdownFilter: true);
+        _onGroupFilterChanged?.Invoke(TargetFolderName, GroupFilterText);
+    }
+
+    public void RefreshGroupFilter(bool applyDropdownFilter = true)
+    {
+        var kw = string.IsNullOrWhiteSpace(GroupFilterText) ? null : GroupFilterText.Trim();
+        int matchedFolderCount = 0;
+
+        if (applyDropdownFilter && Items.Count > 0)
+        {
+            // 全組共用目錄列表只過濾一次，避免對幾百筆項目重複掃描幾百個作者目錄
+            var (baseOptions, baseLookup, matched) = AutoArchiveCandidateVm.BuildSharedFilteredFolderOptions(
+                kw,
+                Items[0].AllTargetFolderOptionsSnapshot);
+            matchedFolderCount = matched;
+            foreach (var item in Items)
+            {
+                item.ApplyPrecomputedTargetFolderFilter(kw, baseOptions, baseLookup, matched);
+            }
+        }
+        else if (kw != null && Items.Count > 0)
+        {
+            matchedFolderCount = Items[0].TargetFolderOptions
+                .Count(o => !string.Equals(o, "未匹配", StringComparison.Ordinal) &&
+                            o.Contains(kw, StringComparison.OrdinalIgnoreCase));
+        }
+
+        _matchedDropdownFolderCount = matchedFolderCount;
+
+        List<AutoArchiveCandidateVm> nextFiltered;
+        if (kw == null)
+        {
+            _isDropdownOnlyFilterMode = false;
+            nextFiltered = new List<AutoArchiveCandidateVm>(Items);
+        }
+        else
+        {
+            var matchedItems = new List<AutoArchiveCandidateVm>();
+            foreach (var item in Items)
+            {
+                if (item.SourceName.Contains(kw, StringComparison.OrdinalIgnoreCase) ||
+                    (item.HasValidDestination && item.SelectedTargetFolder.Contains(kw, StringComparison.OrdinalIgnoreCase)))
+                {
+                    matchedItems.Add(item);
+                }
+            }
+
+            // 若檔名都沒命中但目標目錄選單有命中，保留本群組項目顯示以便直接使用已過濾的下拉選單改派目錄
+            _isDropdownOnlyFilterMode = matchedItems.Count == 0 && matchedFolderCount > 0;
+            nextFiltered = _isDropdownOnlyFilterMode ? new List<AutoArchiveCandidateVm>(Items) : matchedItems;
+        }
+
+        FilteredItems.SyncTo(nextFiltered);
+
+        OnPropertyChanged(nameof(FilteredCount));
+        OnPropertyChanged(nameof(IsGroupFilterEmptyResult));
+        OnPropertyChanged(nameof(SummaryBadgeText));
+    }
+
+    public void ApplyTargetFolderFilterToItems()
+    {
+        var kw = string.IsNullOrWhiteSpace(GroupFilterText) ? null : GroupFilterText.Trim();
+        if (Items.Count == 0)
+        {
+            return;
+        }
+
+        var (baseOptions, baseLookup, matched) = AutoArchiveCandidateVm.BuildSharedFilteredFolderOptions(
+            kw,
+            Items[0].AllTargetFolderOptionsSnapshot);
+        foreach (var item in Items)
+        {
+            item.ApplyPrecomputedTargetFolderFilter(kw, baseOptions, baseLookup, matched);
+        }
+    }
+
     [RelayCommand]
     private void ToggleExpand() => IsExpanded = !IsExpanded;
+
+    [RelayCommand]
+    private void ClearGroupFilter()
+    {
+        GroupFilterText = string.Empty;
+    }
 
     [RelayCommand(CanExecute = nameof(CanAddCheckedToQueue))]
     private void AddCheckedToQueue() => _onAddCheckedToQueue(this);
@@ -446,8 +1049,13 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
     private readonly IArchiveConflictPrompt _conflictPrompt;
 
     private readonly List<AutoArchiveCandidateVm> _allCandidates = new();
+    private readonly List<string> _sessionTargetFolders = new();
+    private readonly HashSet<string> _sessionExcludedFolders = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _collapsedGroupKeys = new(StringComparer.Ordinal);
     private readonly HashSet<string> _explicitExpandedGroups = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _groupFilterStates = new(StringComparer.Ordinal);
+    private readonly int _filterDebounceMs;
+    private CancellationTokenSource? _globalFilterDebounceCts;
     private MappingIntelligence? _intelligence;
 
     public AutoArchivePageViewModel(
@@ -455,7 +1063,8 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
         IExternalLauncher? externalLauncher = null,
         IReaderWindowLauncher? readerLauncher = null,
         Func<Action, Task>? runOnUiAsync = null,
-        IArchiveConflictPrompt? conflictPrompt = null)
+        IArchiveConflictPrompt? conflictPrompt = null,
+        int filterDebounceMs = -1)
     {
         _dataContext = dataContext ?? throw new ArgumentNullException(nameof(dataContext));
         _store = dataContext.MetaStore;
@@ -464,6 +1073,7 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
         _toastManager = dataContext.ToastManager;
         _runOnUiAsync = runOnUiAsync ?? ExploreCardVmBase.DefaultRunOnUiAsync;
         _conflictPrompt = conflictPrompt ?? new AvaloniaArchiveConflictPrompt();
+        _filterDebounceMs = filterDebounceMs >= 0 ? filterDebounceMs : (runOnUiAsync == null ? 160 : 0);
 
         RefreshConfigSummary();
     }
@@ -474,8 +1084,8 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
     public string ReadOnlyBannerText =>
         "🔒 共用開發庫唯讀保護中（可自由掃描比對與預覽；實際搬移檔案與寫入 mappings.json / cache.db 已鎖定防止異動）";
 
-    public ObservableCollection<AutoArchiveCandidateVm> VisibleCandidates { get; } = new();
-    public ObservableCollection<AutoArchiveTargetGroupVm> TargetGroups { get; } = new();
+    public BatchObservableCollection<AutoArchiveCandidateVm> VisibleCandidates { get; } = [];
+    public BatchObservableCollection<AutoArchiveTargetGroupVm> TargetGroups { get; } = [];
     public ObservableCollection<AutoArchiveQueuedItemVm> QueuedItems { get; } = new();
 
     [ObservableProperty]
@@ -575,7 +1185,72 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
     public bool IsCheckedFilterTab => ActiveFilterTab == AutoArchiveFilterTab.CheckedOnly;
     public bool IsUnmatchedFilterTab => ActiveFilterTab == AutoArchiveFilterTab.UnmatchedOnly;
 
-    partial void OnFilterKeywordChanged(string value) => ApplyFilterOnUi();
+    partial void OnFilterKeywordChanged(string value)
+    {
+        var old = Interlocked.Exchange(ref _globalFilterDebounceCts, null);
+        if (old != null)
+        {
+            try { old.Cancel(); } catch { }
+            old.Dispose();
+        }
+
+        if (_filterDebounceMs <= 0 || string.IsNullOrWhiteSpace(value))
+        {
+            ApplyFilterOnUi();
+            return;
+        }
+
+        var cts = new CancellationTokenSource();
+        _globalFilterDebounceCts = cts;
+        var ct = cts.Token;
+        string snapshot = value;
+        _ = DebounceGlobalFilterAsync(snapshot, ct);
+    }
+
+    private async Task DebounceGlobalFilterAsync(string snapshot, CancellationToken ct)
+    {
+        try
+        {
+            await Task.Delay(_filterDebounceMs, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (ct.IsCancellationRequested)
+        {
+            return;
+        }
+
+        await _runOnUiAsync(() =>
+        {
+            if (ct.IsCancellationRequested || !string.Equals(FilterKeyword, snapshot, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            ApplyFilterOnUi();
+        }).ConfigureAwait(false);
+    }
+
+    partial void OnIsGroupedViewChanged(bool value)
+    {
+        if (value)
+        {
+            foreach (var group in TargetGroups)
+            {
+                group.ApplyTargetFolderFilterToItems();
+            }
+        }
+        else
+        {
+            foreach (var candidate in _allCandidates)
+            {
+                candidate.ApplyTargetFolderFilter(null);
+            }
+        }
+    }
 
     partial void OnActiveFilterTabChanged(AutoArchiveFilterTab value)
     {
@@ -622,18 +1297,16 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
 
         try
         {
-            var results = await Task.Run(() =>
+            var scanned = await Task.Run(() =>
             {
                 var excluded = new HashSet<string>(
                     cfg.ExcludedDirectories.Select(d => d.Trim()),
                     StringComparer.OrdinalIgnoreCase);
 
-                var targetFolderNames = Directory.GetDirectories(cfg.RootDirectory)
-                    .Select(Path.GetFileName)
-                    .Where(n => !string.IsNullOrWhiteSpace(n) && !excluded.Contains(n!) && !n!.StartsWith('.'))
-                    .Cast<string>()
-                    .OrderBy(n => n, NaturalStringComparer.Instance)
-                    .ToList();
+                var targetFolderNames = ArchiveOrganizer.DiscoverTargetAuthorFolders(
+                    cfg.RootDirectory,
+                    excluded,
+                    cfg.MaxScanDepth);
 
                 var dropdownOptions = new List<string>(targetFolderNames.Count + 1) { "未匹配" };
                 dropdownOptions.AddRange(targetFolderNames);
@@ -654,6 +1327,10 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
                         continue;
 
                     var match = organizer.FindBestMatch(name, targetFolderNames);
+                    string? suggestedNewAuthor = match == null
+                        ? organizer.TrySuggestNewAuthorFolder(name, targetFolderNames, excluded)
+                        : null;
+
                     list.Add(new AutoArchiveCandidateVm(
                         name,
                         entryPath,
@@ -668,19 +1345,32 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
                         OnRemoveCandidate,
                         OnCandidateCheckedChanged,
                         OnCandidateTargetFolderChanged,
-                        match?.MatchSourceSummary));
+                        match?.MatchSourceSummary,
+                        suggestedNewAuthor,
+                        OnNewTargetFolderCreated,
+                        excluded));
                 }
 
-                return list
+                var ordered = list
                     .OrderByDescending(c => c.Confidence)
                     .ThenBy(c => c.SourceName, NaturalStringComparer.Instance)
                     .ToList();
+                return (TargetFolders: targetFolderNames, Excluded: excluded, Candidates: ordered);
             }).ConfigureAwait(false);
 
             await _runOnUiAsync(() =>
             {
+                _sessionTargetFolders.Clear();
+                _sessionTargetFolders.AddRange(scanned.TargetFolders);
+                _sessionExcludedFolders.Clear();
+                foreach (var ex in scanned.Excluded)
+                {
+                    _sessionExcludedFolders.Add(ex);
+                }
+
                 _allCandidates.Clear();
-                _allCandidates.AddRange(results);
+                _allCandidates.AddRange(scanned.Candidates);
+                _groupFilterStates.Clear();
                 QueuedItems.Clear();
                 IsQueueDrawerOpen = false;
                 ApplyFilterOnUi();
@@ -1298,8 +1988,10 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
             var assetId = _store.GetAssetId(movedPath);
             if (!assetId.HasValue) return;
 
-            var parsed = FilenameMetadataParser.ParseWorkName(name, authorFromParent: targetFolder);
-            var authorName = !string.IsNullOrWhiteSpace(parsed.AuthorMainName) ? parsed.AuthorMainName : targetFolder;
+            string authorLeafFolder = FilenameMetadataParser.ExtractLeafFolderName(targetFolder);
+            string fallbackAuthor = string.IsNullOrWhiteSpace(authorLeafFolder) ? targetFolder : authorLeafFolder;
+            var parsed = FilenameMetadataParser.ParseWorkName(name, authorFromParent: fallbackAuthor);
+            var authorName = !string.IsNullOrWhiteSpace(parsed.AuthorMainName) ? parsed.AuthorMainName : fallbackAuthor;
             long? authorId = !string.IsNullOrWhiteSpace(authorName) ? _store.UpsertAuthor(authorName) : null;
             if (authorId.HasValue && !string.IsNullOrWhiteSpace(parsed.AuthorAlias))
             {
@@ -1385,6 +2077,7 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
             .ThenBy(i => i.SourceName, NaturalStringComparer.Instance)
             .ToList();
 
+        _groupFilterStates.TryGetValue(groupKey, out var savedFilter);
         return new AutoArchiveTargetGroupVm(
             groupKey,
             isUnmatched,
@@ -1392,7 +2085,12 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
             ResolveGroupExpanded(groupKey, isUnmatched),
             OnGroupCheckBatchChanged,
             OnGroupExpandStateChanged,
-            OnAddGroupCheckedToQueue);
+            OnAddGroupCheckedToQueue,
+            OnGroupFilterChanged,
+            savedFilter ?? string.Empty,
+            applyDropdownFilterImmediately: IsGroupedView,
+            filterDebounceMs: _filterDebounceMs,
+            runOnUiAsync: _runOnUiAsync);
     }
 
     private static int CompareGroups(AutoArchiveTargetGroupVm a, AutoArchiveTargetGroupVm b)
@@ -1518,10 +2216,14 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
 
     private void ApplyFilterOnUi()
     {
-        VisibleCandidates.Clear();
-        TargetGroups.Clear();
+        foreach (var group in TargetGroups)
+        {
+            group.CancelPendingGroupFilter();
+        }
+
         var kw = string.IsNullOrWhiteSpace(FilterKeyword) ? null : FilterKeyword.Trim();
         var queuedFolders = GetQueuedTargetFolders();
+        var nextVisible = new List<AutoArchiveCandidateVm>(_allCandidates.Count);
 
         foreach (var item in _allCandidates)
         {
@@ -1530,20 +2232,18 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
                 continue;
             }
 
-            VisibleCandidates.Add(item);
+            nextVisible.Add(item);
         }
 
-        var grouped = VisibleCandidates
+        VisibleCandidates.SyncTo(nextVisible);
+
+        var grouped = nextVisible
             .GroupBy(c => c.HasValidDestination ? c.SelectedTargetFolder : "未匹配", StringComparer.Ordinal)
             .Select(g => BuildGroupVm(g.Key, g.ToList()))
             .ToList();
         grouped.Sort(CompareGroups);
 
-        foreach (var group in grouped)
-        {
-            TargetGroups.Add(group);
-        }
-
+        TargetGroups.ReplaceAll(grouped);
         OnPropertyChanged(nameof(HasCandidates));
     }
 
@@ -1565,6 +2265,30 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
     {
         ApplyFilterOnUi();
         UpdateSelectionCounts();
+    }
+
+    private void OnNewTargetFolderCreated(string newFolderName)
+    {
+        if (string.IsNullOrWhiteSpace(newFolderName))
+        {
+            return;
+        }
+
+        if (_sessionTargetFolders.Any(f => string.Equals(f, newFolderName, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        _sessionTargetFolders.Add(newFolderName);
+        _sessionTargetFolders.Sort(NaturalStringComparer.Instance);
+
+        var latestDropdown = new List<string>(_sessionTargetFolders.Count + 1) { "未匹配" };
+        latestDropdown.AddRange(_sessionTargetFolders);
+
+        foreach (var candidate in _allCandidates)
+        {
+            candidate.UpdateAllTargetFolderOptions(latestDropdown);
+        }
     }
 
     private void OnGroupCheckBatchChanged()
@@ -1589,6 +2313,17 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
             _collapsedGroupKeys.Add(groupKey);
             _explicitExpandedGroups.Remove(groupKey);
         }
+    }
+
+    private void OnGroupFilterChanged(string groupKey, string groupFilter)
+    {
+        if (string.IsNullOrWhiteSpace(groupFilter))
+        {
+            _groupFilterStates.Remove(groupKey);
+            return;
+        }
+
+        _groupFilterStates[groupKey] = groupFilter;
     }
 
     private void RefreshAfterBatchCheckChange()
