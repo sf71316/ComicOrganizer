@@ -135,8 +135,8 @@ public sealed partial class DataManagementPageViewModel : ViewModelBase, IDispos
         _toastManager = dataContext.ToastManager;
         _runOnUiAsync = runOnUiAsync ?? ExploreCardVmBase.DefaultRunOnUiAsync;
 
-        // 唯讀資料庫下僅追蹤記憶體內進度，避免 RebuildProgressTracker.Start 寫入 app_state 時觸發唯讀例外
-        _tracker = new RebuildProgressTracker(IsReadOnlyDatabase ? null : _store);
+        // 唯讀資料庫下僅追蹤記憶體內進度，避免 RebuildProgressTracker.Start 寫入 app_state 時觸發唯讀例外；autoLoad=false 時延遲讀取 app_state
+        _tracker = new RebuildProgressTracker(IsReadOnlyDatabase ? null : _store, deferStateCheck: !autoLoad);
         _tracker.StateChanged += OnTrackerStateChanged;
 
         TagCategoryOptions = ["", "content", "parody", "character", "artist", "group", "language", "virtual"];
@@ -332,6 +332,7 @@ public sealed partial class DataManagementPageViewModel : ViewModelBase, IDispos
     public void RefreshAll()
     {
         _hasLoadedOnce = true;
+        _tracker.RefreshInterruptedStateFromStore();
         LoadTags();
         LoadAuthors();
         RefreshCacheStats();

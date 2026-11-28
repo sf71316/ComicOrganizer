@@ -303,7 +303,7 @@ public sealed class AppDataContext : IDisposable
     private IAssetMetaStore CreateMetaStore()
     {
         var dbPath = Path.Combine(DataDirectory, "cache.db");
-        return new SqliteAssetMetaStore(dbPath, readOnly: IsReadOnlyDatabase);
+        return new SqliteAssetMetaStore(dbPath, readOnly: IsReadOnlyDatabase, deferOpen: true);
     }
 
     private static void EnsureColorThemesRegistered(SukiTheme sukiTheme)
@@ -383,6 +383,18 @@ public sealed class AppDataContext : IDisposable
             || File.Exists(Path.Combine(baseDir, "appsettings.json")))
         {
             return (baseDir, false);
+        }
+
+        // (2b) 隔離式 app\ 子目錄部署：自動辨識上一層父目錄的資料與設定
+        var parentDir = Directory.GetParent(baseDir)?.FullName;
+        if (!string.IsNullOrEmpty(parentDir))
+        {
+            var normalizedParent = NormalizeDirectoryPath(parentDir);
+            if (File.Exists(Path.Combine(normalizedParent, "cache.db"))
+                || File.Exists(Path.Combine(normalizedParent, "appsettings.json")))
+            {
+                return (normalizedParent, false);
+            }
         }
 
         // (3) 若 D:\ComicOrganizer 存在則使用該共享開發資料目錄

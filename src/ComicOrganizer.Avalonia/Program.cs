@@ -120,7 +120,6 @@ internal sealed class Program
     {
         return AppBuilder.Configure<App>()
             .UsePlatformDetect()
-            .WithInterFont()
             // Skia GPU 資源快取預設約 28 MB，超過的圖片每幀重新上傳 GPU。
             // 探索牆 4K 一畫面約 150 張封面（330x468，解碼後各約 600 KB），實測調到 256 MB 後捲動 15.9 → 23.8 FPS。
             .With(new SkiaOptions { MaxGpuResourceSizeBytes = GpuResourceCacheBytes })

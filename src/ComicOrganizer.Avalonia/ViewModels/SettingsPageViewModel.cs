@@ -85,8 +85,12 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
     private readonly AppDataContext _dataContext;
     private readonly Func<Action, Task> _runOnUiAsync;
     private bool _isSynchronizing;
+    private bool _heavyInitialized;
 
-    public SettingsPageViewModel(AppDataContext dataContext, Func<Action, Task>? runOnUiAsync = null)
+    public SettingsPageViewModel(
+        AppDataContext dataContext,
+        Func<Action, Task>? runOnUiAsync = null,
+        bool deferHeavyInit = false)
     {
         _dataContext = dataContext ?? throw new ArgumentNullException(nameof(dataContext));
         _runOnUiAsync = runOnUiAsync ?? ExploreCardVmBase.DefaultRunOnUiAsync;
@@ -117,18 +121,11 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
             new SettingsOption<string>("Actual", "原始尺寸 (100%)"),
         ];
 
-        var detectedOcrEngines = SkiaOcrPluginManager.GetAvailableEngines();
-        OcrEngineOptions = detectedOcrEngines.Count > 0
-            ? detectedOcrEngines
-                .Select(e => new SettingsOption<int>(
-                    e.EngineType,
-                    e.IsAvailable ? $"{e.Name}（就緒）" : $"{e.Name}（未就緒：{e.StatusMessage}）"))
-                .ToArray()
-            :
-            [
-                new SettingsOption<int>(0, "Windows 原生 OCR（系統內建免下載）"),
-                new SettingsOption<int>(1, "PaddleOCR（外掛模型 PP-OCRv6）"),
-            ];
+        _ocrEngineOptions =
+        [
+            new SettingsOption<int>(0, "Windows 原生 OCR（系統內建免下載）"),
+            new SettingsOption<int>(1, "PaddleOCR（外掛模型 PP-OCRv6）"),
+        ];
 
         MaskEngineOptions =
         [
@@ -154,15 +151,57 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
         _selectedReadingDirection = ReadingDirectionOptions[0];
         _selectedReaderViewMode = ReaderViewModeOptions[0];
         _selectedReaderZoomMode = ReaderZoomModeOptions[0];
-        _selectedOcrEngine = OcrEngineOptions[0];
+        _selectedOcrEngine = _ocrEngineOptions[0];
         _selectedMaskEngine = MaskEngineOptions[0];
         _selectedTranslationApiType = TranslationApiTypeOptions[0];
         _selectedAccentName = _dataContext.CurrentAccentName;
 
         _dataContext.ThemeChanged += OnDataContextThemeChanged;
 
-        LoadFromDataContext();
+        LoadFromDataContext(includeHeavyChecks: false);
+        if (!deferHeavyInit)
+        {
+            EnsureHeavyInitialized();
+        }
+    }
+
+    public void EnsureHeavyInitialized()
+    {
+        if (_heavyInitialized)
+        {
+            return;
+        }
+
+        _heavyInitialized = true;
+
+        var detectedOcrEngines = SkiaOcrPluginManager.GetAvailableEngines();
+        if (detectedOcrEngines.Count > 0)
+        {
+            OcrEngineOptions = detectedOcrEngines
+                .Select(e => new SettingsOption<int>(
+                    e.EngineType,
+                    e.IsAvailable ? $"{e.Name}（就緒）" : $"{e.Name}（未就緒：{e.StatusMessage}）"))
+                .ToArray();
+        }
+
+        _isSynchronizing = true;
+        try
+        {
+            SelectedOcrEngine = FindOption(OcrEngineOptions, _dataContext.Config.OcrEngineType, EqualityComparer<int>.Default);
+        }
+        finally
+        {
+            _isSynchronizing = false;
+        }
+
+        RefreshVisualSearchModelStatus();
+        RefreshReaderModelStatus();
         InitializeMetadataVaultSection();
+
+        if (EnableVisualSearch)
+        {
+            _ = RefreshVisualSearchIndexStatusAsync();
+        }
     }
 
     /// <summary>
@@ -199,7 +238,8 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
 
     public IReadOnlyList<SettingsOption<string>> ReaderZoomModeOptions { get; }
 
-    public IReadOnlyList<SettingsOption<int>> OcrEngineOptions { get; }
+    [ObservableProperty]
+    private IReadOnlyList<SettingsOption<int>> _ocrEngineOptions = [];
 
     public IReadOnlyList<SettingsOption<int>> MaskEngineOptions { get; }
 
@@ -785,7 +825,7 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
 
     // ── 內部輔助 ────────────────────────────────────────────────────────
 
-    private void LoadFromDataContext()
+    private void LoadFromDataContext(bool includeHeavyChecks = true)
     {
         _isSynchronizing = true;
         try
@@ -846,15 +886,18 @@ public sealed partial class SettingsPageViewModel : ViewModelBase
             VisualSearchPanelModelUrl = cfg.VisualSearchPanelModelUrl ?? string.Empty;
             VisualSearchEmbedModelUrl = cfg.VisualSearchEmbedModelUrl ?? string.Empty;
             VisualSearchHeadModelUrl = cfg.VisualSearchHeadModelUrl ?? string.Empty;
-            RefreshVisualSearchModelStatus();
-            RefreshReaderModelStatus();
+            if (includeHeavyChecks)
+            {
+                RefreshVisualSearchModelStatus();
+                RefreshReaderModelStatus();
+            }
         }
         finally
         {
             _isSynchronizing = false;
         }
 
-        if (EnableVisualSearch)
+        if (includeHeavyChecks && EnableVisualSearch)
         {
             _ = RefreshVisualSearchIndexStatusAsync();
         }

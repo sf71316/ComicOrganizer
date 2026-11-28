@@ -11,7 +11,7 @@
 
   <Application.Resources>
     <ResourceDictionary>
-      <FontFamily x:Key="AppFontFamily">Microsoft JhengHei UI, Noto Sans TC, Inter, Segoe UI</FontFamily>
+      <FontFamily x:Key="AppFontFamily">Microsoft JhengHei UI, Noto Sans TC, Segoe UI</FontFamily>
       <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Dark">
           <!-- 方案 A：冷炭藍灰外框標題列，與內部半透明 GlassCard 拉開明確層次 -->

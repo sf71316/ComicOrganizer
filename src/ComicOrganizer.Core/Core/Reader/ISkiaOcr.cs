@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Reflection.PortableExecutable;
 using System.Runtime.Loader;
 
 namespace ComicOrganizer.App.Core;
@@ -123,6 +124,11 @@ public static class SkiaOcrPluginManager
                         continue;
                     }
 
+                    if (!IsManagedAssembly(dllPath))
+                    {
+                        continue;
+                    }
+
                     var context = new SkiaPluginAssemblyLoadContext(dllPath);
                     var asm = context.LoadFromAssemblyPath(dllPath);
 
@@ -153,6 +159,20 @@ public static class SkiaOcrPluginManager
                     // 忽略無法載入之原生/第三方 DLL
                 }
             }
+        }
+    }
+
+    private static bool IsManagedAssembly(string filePath)
+    {
+        try
+        {
+            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var peReader = new PEReader(stream);
+            return peReader.HasMetadata;
+        }
+        catch
+        {
+            return false;
         }
     }
 

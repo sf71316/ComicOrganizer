@@ -27,6 +27,7 @@ public partial class MainWindow : SukiWindow
     {
         if (MainSideMenu.SelectedItem is SukiSideMenuItem item)
         {
+            _boundViewModel?.NotifyPageShown(item.PageContent);
             PageHost.ShowPage(item.PageContent);
         }
     }

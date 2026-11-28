@@ -59,13 +59,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
     private bool _isSyncingSearch;
     private bool _deferredInitStarted;
     private bool _disposed;
+    private readonly bool _deferStartupLoads;
 
     /// <summary>主視窗回報螢幕縮放比例，供封面依顯示大小解碼（只升不降，見 <see cref="SkiaCoverService.ReportDisplayScale"/>）。</summary>
     public void ReportDisplayScale(double scale) => _coverService.ReportDisplayScale(scale);
 
-    public MainWindowViewModel(AppDataContext dataContext)
+    public MainWindowViewModel(AppDataContext dataContext, bool deferStartupLoads = false)
     {
         _dataContext = dataContext;
+        _deferStartupLoads = deferStartupLoads;
         _thumbWriteBack = dataContext.CreateThumbWriteBack();
         _coverService = new SkiaCoverService(dataContext.ThumbStore, writeBack: _thumbWriteBack);
 
@@ -85,7 +87,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         WorkBasket = new WorkBasketViewModel(dataContext, _coverService);
         WorkBasket.VirtualLibrarySaved += OnWorkBasketLibrarySaved;
 
-        ExplorePage = new ExplorePageViewModel(dataContext, _coverService, autoLoad: true, workBasket: WorkBasket);
+        ExplorePage = new ExplorePageViewModel(dataContext, _coverService, autoLoad: !deferStartupLoads, workBasket: WorkBasket);
         ExplorePage.PropertyChanged += OnExplorePagePropertyChanged;
         ExplorePage.OpenInGalleryRequested += OnOpenInGalleryRequested;
 
@@ -93,14 +95,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         ReadingTrackPage = new ReadingTrackPageViewModel(dataContext, _coverService, autoLoad: false);
         ReadingTrackPage.OpenInGalleryRequested += OnOpenInGalleryRequested;
         ReadingTrackPage.OpenFolderInGalleryRequested += OnVisualSearchOpenFolderInGalleryRequested;
-        VisualSearchPage = new VisualSearchPageViewModel(dataContext);
+        VisualSearchPage = new VisualSearchPageViewModel(dataContext, deferHeavyInit: deferStartupLoads);
         VisualSearchPage.OpenSettingsRequested += OnVisualSearchOpenSettingsRequested;
         VisualSearchPage.OpenFolderInGalleryRequested += OnVisualSearchOpenFolderInGalleryRequested;
         VisualSearchPage.OpenInGalleryRequested += OnOpenInGalleryRequested;
-        AutoArchivePage = new AutoArchivePageViewModel(dataContext);
+        AutoArchivePage = new AutoArchivePageViewModel(dataContext, deferConfigLoad: deferStartupLoads);
         DataManagementPage = new DataManagementPageViewModel(dataContext, _coverService, autoLoad: false);
         DataManagementPage.OpenInGalleryRequested += OnOpenInGalleryRequested;
-        SettingsPage = new SettingsPageViewModel(dataContext);
+        SettingsPage = new SettingsPageViewModel(dataContext, deferHeavyInit: deferStartupLoads);
         SettingsPage.OpenVisualSearchRequested += OnSettingsOpenVisualSearchRequested;
 
         _dataContext.ThemeChanged += OnDataContextThemeChanged;
@@ -268,14 +270,39 @@ public sealed partial class MainWindowViewModel : ViewModelBase, IDisposable
         }
     }
 
+    public void NotifyPageShown(object? pageViewModel)
+    {
+        if (ReferenceEquals(pageViewModel, SettingsPage))
+        {
+            SettingsPage.EnsureHeavyInitialized();
+        }
+        else if (ReferenceEquals(pageViewModel, VisualSearchPage))
+        {
+            VisualSearchPage.EnsureHeavyInitialized();
+        }
+        else if (ReferenceEquals(pageViewModel, AutoArchivePage))
+        {
+            AutoArchivePage.EnsureInitialized();
+        }
+        else if (ReferenceEquals(pageViewModel, DataManagementPage))
+        {
+            _ = DataManagementPage.EnsureLoadedAsync();
+        }
+    }
+
     public void StartDeferredInitialization()
     {
         if (_deferredInitStarted || _disposed) return;
         _deferredInitStarted = true;
 
-        // 視窗出現後再非同步載入其他次要分頁，消除啟動時主執行緒阻塞與資料庫搶鎖
+        // 視窗出現後再非同步載入首頁探索牆與次要分頁，消除啟動時主執行緒阻塞與資料庫搶鎖
         _ = Task.Run(async () =>
         {
+            if (_deferStartupLoads)
+            {
+                await ExplorePage.ReloadAllAsync(invalidateCache: false).ConfigureAwait(false);
+            }
+
             await Task.WhenAll(
                 GalleryPage.RefreshAsync(),
                 ReadingTrackPage.RefreshAsync()).ConfigureAwait(false);

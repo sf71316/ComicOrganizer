@@ -25,7 +25,7 @@ public partial class App : Application
             _dataContext = new AppDataContext(args: Program.StartupArgs);
             _dataContext.ApplyInitialTheme();
 
-            _mainViewModel = new MainWindowViewModel(_dataContext);
+            _mainViewModel = new MainWindowViewModel(_dataContext, deferStartupLoads: true);
             desktop.MainWindow = new MainWindow
             {
                 DataContext = _mainViewModel,

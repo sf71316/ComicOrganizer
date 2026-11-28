@@ -32,7 +32,17 @@ public static class VisualNativeLoader
             return;
         }
 
-        LoadFromLibDirectory(AppContext.BaseDirectory);
+        if (LoadFromLibDirectory(AppContext.BaseDirectory).Count == 0 && OperatingSystem.IsWindows())
+        {
+            foreach (string dllName in OrderedNativeDllNames)
+            {
+                string fullPath = Path.Combine(AppContext.BaseDirectory, dllName);
+                if (File.Exists(fullPath))
+                {
+                    NativeLibrary.TryLoad(fullPath, out _);
+                }
+            }
+        }
     }
 
     /// <summary>

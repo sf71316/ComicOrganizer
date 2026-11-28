@@ -1055,6 +1055,107 @@ public sealed class Phase4ManagementTests : IDisposable
         Assert.Equal(expectedTargetRel, intel.TryGetMappedFolder("[尾崎未来] 全新作品.zip"));
     }
 
+    [Fact]
+    public void SqliteAssetMetaStore_DeferOpen_DelaysFileCreationUntilFirstQuery()
+    {
+        var tempDir = CreateTempDir("DeferSqlite");
+        var dbPath = Path.Combine(tempDir, "cache.db");
+
+        using (var unusedStore = new SqliteAssetMetaStore(dbPath, readOnly: false, deferOpen: true))
+        {
+            Assert.False(File.Exists(dbPath));
+        }
+
+        Assert.False(File.Exists(dbPath));
+
+        using (var lazyStore = new SqliteAssetMetaStore(dbPath, readOnly: false, deferOpen: true))
+        {
+            Assert.False(File.Exists(dbPath));
+            var count = lazyStore.TotalAssetCount();
+            Assert.Equal(0, count);
+            Assert.True(File.Exists(dbPath));
+
+            lazyStore.UpsertCatalogOnly(new AssetMeta
+            {
+                Path = Path.Combine(tempDir, "sample.zip"),
+                Name = "sample.zip",
+                IsFolder = false,
+                Mtime = 123
+            });
+            Assert.Equal(1, lazyStore.TotalAssetCount());
+        }
+    }
+
+    [Fact]
+    public async Task MainWindowViewModel_DeferStartupLoads_DefersHeavyPagesAndInitializesOnActivation()
+    {
+        var dataDir = CreateTempDir("DeferStartupData");
+        var rootDir = CreateTempDir("DeferStartupLib");
+        var unorgDir = CreateTempDir("DeferStartupUnorg");
+
+        await File.WriteAllTextAsync(
+            Path.Combine(dataDir, "appsettings.json"),
+            JsonSerializer.Serialize(new AppConfig
+            {
+                RootDirectory = rootDir,
+                UnorganizedDirectory = unorgDir,
+                MaxScanDepth = 4,
+                EnableVisualSearch = false
+            }));
+
+        var cacheDbPath = Path.Combine(dataDir, "cache.db");
+        using var ctx = new AppDataContext(explicitDataDirectory: dataDir, forceReadOnlyDatabase: false);
+        using var mainVm = new MainWindowViewModel(ctx, deferStartupLoads: true);
+
+        // 啟動階段建構主視窗 ViewModel 不得同步開啟或建立 cache.db
+        Assert.False(File.Exists(cacheDbPath));
+        Assert.Equal(rootDir, mainVm.SettingsPage.RootDirectory);
+        Assert.Equal(unorgDir, mainVm.SettingsPage.UnorganizedDirectory);
+        Assert.Equal(4, mainVm.SettingsPage.MaxScanDepth);
+        Assert.Equal(unorgDir, mainVm.AutoArchivePage.UnorganizedDirectoryText);
+
+        // 尚未切到設定頁前直接儲存設定，仍能完整保留原設定欄位而不遺失
+        mainVm.SettingsPage.EnableVisualSearch = true;
+        mainVm.SettingsPage.SaveCommand.Execute(null);
+        Assert.True(ctx.Config.EnableVisualSearch);
+        Assert.Equal(rootDir, ctx.Config.RootDirectory);
+        Assert.Equal(unorgDir, ctx.Config.UnorganizedDirectory);
+        Assert.Equal(4, ctx.Config.MaxScanDepth);
+
+        // 切頁通知應依需觸發各次要頁面的重初始化，並在背景啟動探索牆載入
+        mainVm.NotifyPageShown(mainVm.SettingsPage);
+        mainVm.NotifyPageShown(mainVm.VisualSearchPage);
+        mainVm.NotifyPageShown(mainVm.AutoArchivePage);
+        Assert.True(mainVm.VisualSearchPage.IsFeatureEnabled);
+        Assert.NotEmpty(mainVm.SettingsPage.OcrEngineOptions);
+
+        mainVm.StartDeferredInitialization();
+        await mainVm.ExplorePage.InitializationTask;
+        Assert.True(File.Exists(cacheDbPath));
+    }
+
+    [Fact]
+    public void StartupHelpers_SkipNativePluginDll_AndResolveParentDataDirectory()
+    {
+        var parentDir = CreateTempDir("IsolatedLayoutRoot");
+        var appDir = Path.Combine(parentDir, "app");
+        var pluginSubDir = Path.Combine(parentDir, "plugins", "PaddleOCR");
+        var fakeInferDir = Path.Combine(parentDir, "inference");
+        Directory.CreateDirectory(appDir);
+        Directory.CreateDirectory(pluginSubDir);
+        Directory.CreateDirectory(fakeInferDir);
+
+        File.WriteAllText(Path.Combine(parentDir, "appsettings.json"), "{}");
+        // 模擬非 .NET 原生 DLL（如 mkldnn.dll / PaddleOCR.dll）不應造成崩潰或誤判為外掛
+        File.WriteAllBytes(Path.Combine(pluginSubDir, "fake_native.dll"), [0x4D, 0x5A, 0x90, 0x00, 0x03, 0x00]);
+
+        using var ctx = new AppDataContext(explicitDataDirectory: parentDir, forceReadOnlyDatabase: true);
+        Assert.Equal(parentDir, ctx.DataDirectory);
+
+        var engines = SkiaOcrPluginManager.GetAvailableEngines();
+        Assert.NotEmpty(engines);
+    }
+
     private sealed class FakeConflictPrompt : IArchiveConflictPrompt
     {
         private readonly Func<ArchiveConflictInfo, Task<ArchiveConflictDecision>> _handler;

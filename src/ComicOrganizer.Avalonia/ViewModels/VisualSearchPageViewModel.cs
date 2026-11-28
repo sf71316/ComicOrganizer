@@ -113,11 +113,14 @@ public sealed partial class VisualSearchPageViewModel : ViewModelBase, IDisposab
     private VisualSearchEngine? _searchEngine;
     private bool _disposed;
 
+    private bool _heavyInitialized;
+
     public VisualSearchPageViewModel(
         AppDataContext dataContext,
         IExternalLauncher? externalLauncher = null,
         IReaderWindowLauncher? readerLauncher = null,
-        Func<Action, Task>? runOnUiAsync = null)
+        Func<Action, Task>? runOnUiAsync = null,
+        bool deferHeavyInit = false)
     {
         _dataContext = dataContext ?? throw new ArgumentNullException(nameof(dataContext));
         _hostService = dataContext.VisualIndexHost;
@@ -125,12 +128,26 @@ public sealed partial class VisualSearchPageViewModel : ViewModelBase, IDisposab
         _readerLauncher = readerLauncher ?? new AvaloniaReaderWindowLauncher(dataContext);
         _runOnUiAsync = runOnUiAsync ?? ExploreCardVmBase.DefaultRunOnUiAsync;
 
+        _isFeatureEnabled = dataContext.Config.EnableVisualSearch;
         _enableMultiCropRerank = dataContext.Config.VisualSearchEnableMultiCropRerank;
 
         _hostService.ProgressReceived += OnHostProgress;
         _hostService.Completed += OnHostCompleted;
         _hostService.ErrorReceived += OnHostError;
         _hostService.RunningStateChanged += OnHostRunningChanged;
+
+        if (!deferHeavyInit)
+        {
+            RefreshStatus();
+        }
+    }
+
+    public void EnsureHeavyInitialized()
+    {
+        if (_heavyInitialized)
+        {
+            return;
+        }
 
         RefreshStatus();
     }
@@ -201,6 +218,7 @@ public sealed partial class VisualSearchPageViewModel : ViewModelBase, IDisposab
     [RelayCommand]
     public void RefreshStatus()
     {
+        _heavyInitialized = true;
         var cfg = _dataContext.Config;
         IsFeatureEnabled = cfg.EnableVisualSearch;
         EnableMultiCropRerank = cfg.VisualSearchEnableMultiCropRerank;

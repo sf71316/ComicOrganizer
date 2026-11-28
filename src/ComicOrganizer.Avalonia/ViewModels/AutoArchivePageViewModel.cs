@@ -1057,6 +1057,7 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
     private readonly int _filterDebounceMs;
     private CancellationTokenSource? _globalFilterDebounceCts;
     private MappingIntelligence? _intelligence;
+    private bool _configInitialized;
 
     public AutoArchivePageViewModel(
         AppDataContext dataContext,
@@ -1064,7 +1065,8 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
         IReaderWindowLauncher? readerLauncher = null,
         Func<Action, Task>? runOnUiAsync = null,
         IArchiveConflictPrompt? conflictPrompt = null,
-        int filterDebounceMs = -1)
+        int filterDebounceMs = -1,
+        bool deferConfigLoad = false)
     {
         _dataContext = dataContext ?? throw new ArgumentNullException(nameof(dataContext));
         _store = dataContext.MetaStore;
@@ -1074,6 +1076,25 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
         _runOnUiAsync = runOnUiAsync ?? ExploreCardVmBase.DefaultRunOnUiAsync;
         _conflictPrompt = conflictPrompt ?? new AvaloniaArchiveConflictPrompt();
         _filterDebounceMs = filterDebounceMs >= 0 ? filterDebounceMs : (runOnUiAsync == null ? 160 : 0);
+
+        if (deferConfigLoad)
+        {
+            var cfg = _dataContext.Config;
+            UnorganizedDirectoryText = string.IsNullOrWhiteSpace(cfg.UnorganizedDirectory) ? "尚未設定" : cfg.UnorganizedDirectory;
+            RootDirectoryText = string.IsNullOrWhiteSpace(cfg.RootDirectory) ? "尚未設定" : cfg.RootDirectory;
+        }
+        else
+        {
+            RefreshConfigSummary();
+        }
+    }
+
+    public void EnsureInitialized()
+    {
+        if (_configInitialized)
+        {
+            return;
+        }
 
         RefreshConfigSummary();
     }
@@ -1262,6 +1283,7 @@ public sealed partial class AutoArchivePageViewModel : ViewModelBase
 
     public void RefreshConfigSummary()
     {
+        _configInitialized = true;
         var cfg = _dataContext.Config;
         UnorganizedDirectoryText = string.IsNullOrWhiteSpace(cfg.UnorganizedDirectory) ? "尚未設定" : cfg.UnorganizedDirectory;
         RootDirectoryText = string.IsNullOrWhiteSpace(cfg.RootDirectory) ? "尚未設定" : cfg.RootDirectory;

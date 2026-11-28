@@ -11,14 +11,26 @@ namespace ComicOrganizer.App.Core;
 /// </summary>
 public class SqliteAssetMetaStore : IAssetMetaStore
 {
+    private readonly string _dbPath;
     private readonly string _connectionString;
-    private SqliteConnection _conn;
+    private SqliteConnection? _rawConn;
     private readonly object _lock = new();
     private SqliteTransaction? _currentTx;
-    private readonly bool _hasTagAliasTable;
+    private bool _rawHasTagAliasTable;
+    private bool _isOpened;
     private const int CurrentSchemaVersion = 9;
 
     public bool IsReadOnly { get; }
+
+    private SqliteConnection _conn => EnsureOpened();
+    private bool _hasTagAliasTable
+    {
+        get
+        {
+            EnsureOpened();
+            return _rawHasTagAliasTable;
+        }
+    }
 
     static SqliteAssetMetaStore()
     {
@@ -26,34 +38,59 @@ public class SqliteAssetMetaStore : IAssetMetaStore
         DefaultTypeMap.MatchNamesWithUnderscores = true;
     }
 
-    public SqliteAssetMetaStore(string dbPath, bool readOnly = false)
+    public SqliteAssetMetaStore(string dbPath, bool readOnly = false, bool deferOpen = false)
     {
+        _dbPath = dbPath;
         IsReadOnly = readOnly;
-
-        if (!readOnly)
-        {
-            var dir = Path.GetDirectoryName(dbPath);
-            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-        }
 
         _connectionString = readOnly
             ? $"Data Source={dbPath};Mode=ReadOnly;"
             : $"Data Source={dbPath};";
-        _conn = new SqliteConnection(_connectionString);
-        _conn.Open();
 
-        if (!readOnly)
+        if (!deferOpen)
         {
-            // 開啟外鍵約束（SQLite 預設關閉）
-            _conn.Execute("PRAGMA foreign_keys = ON;");
-
-            EnsureSchema();
-            _hasTagAliasTable = true;
+            EnsureOpened();
         }
-        else
+    }
+
+    private SqliteConnection EnsureOpened()
+    {
+        lock (_lock)
         {
-            _hasTagAliasTable = _conn.ExecuteScalar<long>(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'tag_alias';") > 0;
+            if (_isOpened && _rawConn != null)
+            {
+                return _rawConn;
+            }
+
+            if (!IsReadOnly)
+            {
+                var dir = Path.GetDirectoryName(_dbPath);
+                if (!string.IsNullOrEmpty(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+            }
+
+            var conn = new SqliteConnection(_connectionString);
+            conn.Open();
+            _rawConn = conn;
+            _isOpened = true;
+
+            if (!IsReadOnly)
+            {
+                // 開啟外鍵約束（SQLite 預設關閉）
+                conn.Execute("PRAGMA foreign_keys = ON;");
+
+                EnsureSchema();
+                _rawHasTagAliasTable = true;
+            }
+            else
+            {
+                _rawHasTagAliasTable = conn.ExecuteScalar<long>(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'tag_alias';") > 0;
+            }
+
+            return conn;
         }
     }
 
@@ -2543,16 +2580,19 @@ FROM tag_alias;",
                 throw new InvalidOperationException("交易進行中不可重載資料庫連線。");
             }
 
-            _conn.Close();
-            _conn.Dispose();
+            if (_rawConn != null)
+            {
+                _rawConn.Close();
+                _rawConn.Dispose();
+                _rawConn = null;
+            }
+
+            _isOpened = false;
             SqliteConnection.ClearAllPools();
 
             replaceDbFiles();
 
-            _conn = new SqliteConnection(_connectionString);
-            _conn.Open();
-            _conn.Execute("PRAGMA foreign_keys = ON;");
-            EnsureSchema();
+            EnsureOpened();
         }
     }
 
@@ -2853,6 +2893,11 @@ ORDER BY a.id;",
 
     public void Dispose()
     {
-        lock (_lock) _conn.Dispose();
+        lock (_lock)
+        {
+            _rawConn?.Dispose();
+            _rawConn = null;
+            _isOpened = false;
+        }
     }
 }

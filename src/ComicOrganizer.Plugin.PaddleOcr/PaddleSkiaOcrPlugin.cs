@@ -39,19 +39,38 @@ public sealed class PaddleSkiaOcrPlugin : ISkiaOcrPlugin
             ? (Path.GetDirectoryName(loc) ?? baseDir)
             : Path.Combine(baseDir, "plugins", "PaddleOCR");
 
-        string[] candidates =
+        string? parentBase = Directory.GetParent(baseDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))?.FullName;
+        string? pluginParent = Directory.GetParent(pluginDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))?.FullName;
+        string? pluginGrandParent = !string.IsNullOrEmpty(pluginParent)
+            ? Directory.GetParent(pluginParent.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))?.FullName
+            : null;
+
+        var candidates = new List<string>
         {
             Path.Combine(pluginDir, "inference"),
             Path.Combine(baseDir, "plugins", "PaddleOCR", "inference"),
             Path.Combine(baseDir, "inference"),
-            Path.Combine(Directory.GetParent(baseDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))?.FullName ?? baseDir, "plugins", "PaddleOCR", "inference")
         };
+
+        if (!string.IsNullOrEmpty(parentBase))
+        {
+            candidates.Add(Path.Combine(parentBase, "plugins", "PaddleOCR", "inference"));
+            candidates.Add(Path.Combine(parentBase, "inference"));
+        }
+
+        if (!string.IsNullOrEmpty(pluginGrandParent))
+        {
+            candidates.Add(Path.Combine(pluginGrandParent, "inference"));
+        }
 
         foreach (var dir in candidates)
         {
             if (Directory.Exists(dir))
+            {
                 return dir;
+            }
         }
+
         return candidates[0];
     }
 }

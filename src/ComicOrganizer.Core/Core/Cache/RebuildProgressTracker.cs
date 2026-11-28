@@ -12,6 +12,7 @@ public class RebuildProgressTracker
 {
     private readonly object _lock = new();
     private readonly IAssetMetaStore? _metaStore;
+    private bool _stateChecked;
 
     private const string KeyInProgress = "rebuild_in_progress";    // "true" / null
     private const string KeyPhase = "rebuild_phase";
@@ -25,14 +26,31 @@ public class RebuildProgressTracker
 
     public event EventHandler? StateChanged;
 
-    public RebuildProgressTracker(IAssetMetaStore? metaStore = null)
+    public RebuildProgressTracker(IAssetMetaStore? metaStore = null, bool deferStateCheck = false)
     {
         _metaStore = metaStore;
-
-        // App 啟動：讀 DB，若上次為 in_progress（包含 crash / 強關 App / cancelled），
-        // 把 WasInterrupted 標起來
-        if (_metaStore != null)
+        if (!deferStateCheck)
         {
+            RefreshInterruptedStateFromStore();
+        }
+    }
+
+    public void RefreshInterruptedStateFromStore()
+    {
+        lock (_lock)
+        {
+            if (_stateChecked)
+            {
+                return;
+            }
+
+            _stateChecked = true;
+            if (_metaStore == null)
+            {
+                return;
+            }
+
+            // App 啟動 / 首次載入資料管理頁：讀 DB，若上次為 in_progress，把 WasInterrupted 標起來
             var inProg = _metaStore.GetState(KeyInProgress);
             if (inProg == "true")
             {
